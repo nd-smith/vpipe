@@ -73,6 +73,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
 
+from dotenv import load_dotenv
 from prometheus_client import start_http_server
 
 from core.logging.context import set_log_context
@@ -1117,6 +1118,9 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 
 def main():
     """Main entry point."""
+    # Load environment variables from .env file before any config access
+    load_dotenv()
+
     global logger
     args = parse_args()
 
