@@ -140,6 +140,8 @@ class KafkaConfig:
     # =========================================================================
     claimx_api_url: str = ""
     claimx_api_token: str = ""
+    claimx_token_file: str = ""  # Path to JSON file containing ClaimX API token
+    claimx_token_key: str = "claimx_api"  # Key in token file for ClaimX token
     claimx_api_timeout_seconds: int = 30
     claimx_api_concurrency: int = 20
 
@@ -635,10 +637,18 @@ def load_config(
 
     # Load ClaimX API token from environment variables or YAML
     claimx_api_token = os.getenv("CLAIMX_API_TOKEN") or claimx_api.get("token", "")
-    if not claimx_api_token:
-        print("WARNING: CLAIMX_API_TOKEN not found in environment variables or config.yaml")
+
+    # Load ClaimX token file path (for file-backed auth with auto-refresh)
+    claimx_token_file = os.getenv("CLAIMX_TOKEN_FILE") or claimx_api.get("token_file", "")
+    claimx_token_key = os.getenv("CLAIMX_TOKEN_KEY") or claimx_api.get("token_key", "claimx_api")
+
+    # Log auth configuration status
+    if claimx_token_file:
+        print(f"INFO: CLAIMX_TOKEN_FILE configured: {claimx_token_file}")
+    elif claimx_api_token:
+        print("INFO: CLAIMX_API_TOKEN loaded (static token)")
     else:
-        print("INFO: CLAIMX_API_TOKEN loaded successfully")
+        print("WARNING: No ClaimX API credentials configured (set CLAIMX_TOKEN_FILE or CLAIMX_API_TOKEN)")
 
     # Build KafkaConfig instance
     config = KafkaConfig(
@@ -664,6 +674,8 @@ def load_config(
         # ClaimX API
         claimx_api_url=claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
+        claimx_token_file=claimx_token_file,
+        claimx_token_key=claimx_token_key,
         claimx_api_timeout_seconds=claimx_api.get("timeout_seconds", 30),
         claimx_api_concurrency=claimx_api.get("max_concurrent", 20),
     )

@@ -244,10 +244,12 @@ class ClaimXDownloadWorker:
         # Start producer
         await self.producer.start()
 
-        # Initialize API client for URL refresh
+        # Initialize API client with file-backed token support for auto-refresh
         self.api_client = ClaimXApiClient(
             base_url=self.config.claimx_api_url or "https://api.test.claimxperience.com",
-            token=self.config.claimx_api_token,
+            token=self.config.claimx_api_token or None,
+            token_file=self.config.claimx_token_file or None,
+            token_key=self.config.claimx_token_key,
             timeout_seconds=self.config.claimx_api_timeout_seconds,
             max_concurrent=self.config.claimx_api_concurrency,
         )

@@ -35,12 +35,12 @@ class TestClassifyApiError:
     """Test error classification logic."""
 
     def test_classify_401_unauthorized(self):
-        """Test 401 returns AUTH error, not retryable (static credentials)."""
+        """Test 401 returns AUTH error, retryable with token refresh."""
         error = classify_api_error(401, "https://api.test/project/123")
         assert error.status_code == 401
         assert error.category == ErrorCategory.AUTH
-        assert error.is_retryable is False  # Static credentials - not retryable without changes
-        assert error.should_refresh_auth is False  # No credential refresh for static tokens
+        assert error.is_retryable is True  # Retryable with credential refresh from token file
+        assert error.should_refresh_auth is True  # Should attempt token refresh
         assert "Unauthorized" in str(error)
 
     def test_classify_403_forbidden(self):
@@ -647,3 +647,217 @@ class TestClaimXApiClientUtilities:
 
         mock_circuit_breaker.is_open = True
         assert api_client.is_circuit_open is True
+
+
+# ============================================================================
+# Test Token File Support
+# ============================================================================
+
+
+class TestClaimXApiClientTokenFile:
+    """Test file-backed token support."""
+
+    def test_init_requires_token_or_token_file(self, mock_circuit_breaker):
+        """Test initialization fails without token or token_file."""
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            with pytest.raises(ValueError, match="requires either 'token' or 'token_file'"):
+                ClaimXApiClient(
+                    base_url="https://api.test",
+                    token=None,
+                    token_file=None,
+                )
+
+    def test_init_with_static_token(self, mock_circuit_breaker):
+        """Test initialization with static token works."""
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token="my-static-token",
+            )
+            assert client._auth_header == "Basic my-static-token"
+            assert client._token_file is None
+
+    def test_init_with_token_file(self, mock_circuit_breaker, tmp_path):
+        """Test initialization with token file works."""
+        import json
+
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text(json.dumps({"claimx_api": "file-based-token"}))
+
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token_file=str(token_file),
+            )
+            assert client._auth_header == "Basic file-based-token"
+            assert client._token_file == str(token_file)
+
+    def test_init_with_custom_token_key(self, mock_circuit_breaker, tmp_path):
+        """Test initialization with custom token key in token file."""
+        import json
+
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text(json.dumps({"custom_key": "custom-token"}))
+
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token_file=str(token_file),
+                token_key="custom_key",
+            )
+            assert client._auth_header == "Basic custom-token"
+
+    def test_token_file_fallback_to_static_token(self, mock_circuit_breaker, tmp_path):
+        """Test falls back to static token when token file doesn't exist."""
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token="fallback-token",
+                token_file="/nonexistent/tokens.json",
+            )
+            # Falls back to static token when file not found
+            assert client._auth_header == "Basic fallback-token"
+
+    def test_refresh_auth_header_detects_file_change(self, mock_circuit_breaker, tmp_path):
+        """Test _refresh_auth_header detects file modification."""
+        import json
+        import time
+
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text(json.dumps({"claimx_api": "initial-token"}))
+
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token_file=str(token_file),
+            )
+            assert client._auth_header == "Basic initial-token"
+
+            # Modify file
+            time.sleep(0.01)  # Ensure mtime changes
+            token_file.write_text(json.dumps({"claimx_api": "updated-token"}))
+
+            # Refresh should detect change
+            refreshed = client._refresh_auth_header()
+            assert refreshed is True
+            assert client._auth_header == "Basic updated-token"
+
+    def test_refresh_auth_header_no_change(self, mock_circuit_breaker, tmp_path):
+        """Test _refresh_auth_header returns False when file unchanged."""
+        import json
+
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text(json.dumps({"claimx_api": "test-token"}))
+
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token_file=str(token_file),
+            )
+
+            # Second refresh should return False (no change)
+            refreshed = client._refresh_auth_header()
+            assert refreshed is False
+
+    @pytest.mark.asyncio
+    async def test_401_triggers_token_refresh_and_retry(self, mock_circuit_breaker, tmp_path):
+        """Test 401 response triggers token refresh and retry."""
+        import json
+        import time
+
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text(json.dumps({"claimx_api": "old-token"}))
+
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token_file=str(token_file),
+            )
+
+            # Simulate token being refreshed by external process
+            time.sleep(0.01)
+            token_file.write_text(json.dumps({"claimx_api": "new-token"}))
+
+            # First call returns 401, second (after refresh) returns 200
+            mock_response_401 = AsyncMock()
+            mock_response_401.status = 401
+            mock_response_401.text = AsyncMock(return_value="Unauthorized")
+            mock_response_401.__aenter__ = AsyncMock(return_value=mock_response_401)
+            mock_response_401.__aexit__ = AsyncMock(return_value=None)
+
+            mock_response_200 = AsyncMock()
+            mock_response_200.status = 200
+            mock_response_200.json = AsyncMock(return_value={"success": True})
+            mock_response_200.__aenter__ = AsyncMock(return_value=mock_response_200)
+            mock_response_200.__aexit__ = AsyncMock(return_value=None)
+
+            call_count = 0
+
+            def mock_request(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    return mock_response_401
+                return mock_response_200
+
+            with patch("aiohttp.ClientSession.request", side_effect=mock_request):
+                async with client:
+                    result = await client._request("GET", "/test")
+
+                    assert result == {"success": True}
+                    assert call_count == 2  # First 401, then retry with 200
+                    assert client._auth_header == "Basic new-token"
+
+    @pytest.mark.asyncio
+    async def test_401_no_retry_when_token_unchanged(self, mock_circuit_breaker, tmp_path):
+        """Test 401 doesn't retry when token file hasn't changed."""
+        import json
+
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text(json.dumps({"claimx_api": "same-token"}))
+
+        with patch(
+            "kafka_pipeline.claimx.api_client.get_circuit_breaker",
+            return_value=mock_circuit_breaker,
+        ):
+            client = ClaimXApiClient(
+                base_url="https://api.test",
+                token_file=str(token_file),
+            )
+
+            mock_response_401 = AsyncMock()
+            mock_response_401.status = 401
+            mock_response_401.text = AsyncMock(return_value="Unauthorized")
+            mock_response_401.__aenter__ = AsyncMock(return_value=mock_response_401)
+            mock_response_401.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession.request", return_value=mock_response_401):
+                async with client:
+                    with pytest.raises(ClaimXApiError) as exc_info:
+                        await client._request("GET", "/test")
+
+                    assert exc_info.value.status_code == 401

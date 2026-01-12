@@ -5,6 +5,10 @@ Async HTTP client for the ClaimXperience API with circuit breaker protection,
 rate limiting, and comprehensive error handling.
 
 Supports file-backed credentials for automatic token refresh (following xact pattern).
+When a token_file is provided, the client will:
+1. Read the ClaimX API token from the JSON file
+2. Monitor file modification time to detect token updates
+3. Automatically re-read the token on 401 errors (if file was updated)
 """
 
 import asyncio
@@ -87,8 +91,8 @@ def classify_api_error(status: int, url: str) -> ClaimXApiError:
             f"Unauthorized (401): {url}",
             status_code=status,
             category=ErrorCategory.AUTH,
-            is_retryable=False,  # Static credentials - not retryable without changes
-            should_refresh_auth=False,
+            is_retryable=True,  # Retryable with credential refresh from token file
+            should_refresh_auth=True,
         )
 
     if status == 403:
@@ -149,22 +153,22 @@ class ClaimXApiClient(LoggedClass):
     - Rate limiting via semaphore
     - Comprehensive error handling and classification
     - Request/response logging
-    - Automatic credential refresh (via FileBackedClaimXCredential)
+    - Automatic credential refresh from token file
 
     Usage:
         # With file-backed credentials (recommended for long-running workers)
-        credential = FileBackedClaimXCredential(username="user", password="pass")
-        async with ClaimXApiClient(base_url, credential=credential) as client:
+        async with ClaimXApiClient(base_url, token_file="tokens.json") as client:
             project = await client.get_project(123)
 
-        # With static credentials (legacy)
-        async with ClaimXApiClient(base_url, auth_token="token") as client:
+        # With static credentials (for testing or when token won't expire)
+        async with ClaimXApiClient(base_url, token="static-token") as client:
             project = await client.get_project(123)
 
     Configuration:
         base_url: ClaimX API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
-        credential: FileBackedClaimXCredential for auto-refreshing credentials
-        auth_token: Basic authentication token (static, legacy)
+        token: Static Basic auth token (for backwards compatibility)
+        token_file: Path to JSON file containing tokens (recommended for long-running workers)
+        token_key: Key in token file for ClaimX token (default: "claimx_api")
         timeout_seconds: Request timeout (default: 30)
         max_concurrent: Maximum concurrent requests (default: 20)
     """
@@ -174,7 +178,9 @@ class ClaimXApiClient(LoggedClass):
     def __init__(
         self,
         base_url: str,
-        token: str,
+        token: Optional[str] = None,
+        token_file: Optional[str] = None,
+        token_key: str = "claimx_api",
         timeout_seconds: int = 30,
         max_concurrent: int = 20,
         sender_username: str = "user@example.com",
@@ -184,33 +190,146 @@ class ClaimXApiClient(LoggedClass):
 
         Args:
             base_url: API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
-            token: Basic auth token (base64 or similar)
+            token: Static Basic auth token (optional if token_file provided)
+            token_file: Path to JSON file containing tokens (recommended)
+            token_key: Key in token file for ClaimX token (default: "claimx_api")
             timeout_seconds: Request timeout in seconds
             max_concurrent: Max concurrent requests
             sender_username: Default sender username for video collaboration
 
         Raises:
-            ValueError: If no valid credentials provided
+            ValueError: If neither token nor token_file is provided
         """
         self.base_url = base_url.rstrip("/")
-
-        if not token:
-             raise ValueError("ClaimXApiClient requires 'token'")
-
-        # Assume token is already the value for Basic auth header (or user provides base64)
-        # User said "auth with a basic token stored in env var".
-        # If it's pure "Basic <token>", we construct header.
-        self._auth_header = f"Basic {token}"
-
         self.timeout_seconds = timeout_seconds
         self.max_concurrent = max_concurrent
         self.sender_username = sender_username
+
+        # Token file support
+        self._token_file = token_file
+        self._token_key = token_key
+        self._token_file_mtime: Optional[float] = None
+        self._static_token = token
+
+        # Validate that we have some form of credentials
+        if not token and not token_file:
+            raise ValueError("ClaimXApiClient requires either 'token' or 'token_file'")
+
+        # Initialize auth header
+        self._auth_header: Optional[str] = None
+        self._refresh_auth_header()
 
         self._session: Optional[aiohttp.ClientSession] = None
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._circuit = get_circuit_breaker("claimx_api", CLAIMX_API_CIRCUIT_CONFIG)
 
         super().__init__()
+
+    def _refresh_auth_header(self, force: bool = False) -> bool:
+        """
+        Refresh the auth header from token file if available.
+
+        Args:
+            force: Force re-read even if file hasn't changed
+
+        Returns:
+            True if token was refreshed, False if unchanged or error
+        """
+        # If using static token, just set it once
+        if self._static_token and not self._token_file:
+            if self._auth_header is None:
+                self._auth_header = f"Basic {self._static_token}"
+            return False
+
+        # Try to read from token file
+        if self._token_file:
+            token_path = Path(self._token_file)
+
+            if not token_path.exists():
+                self._log(
+                    logging.WARNING,
+                    "Token file not found",
+                    token_file=self._token_file,
+                )
+                # Fall back to static token if available
+                if self._static_token and self._auth_header is None:
+                    self._auth_header = f"Basic {self._static_token}"
+                return False
+
+            try:
+                current_mtime = token_path.stat().st_mtime
+
+                # Check if file has changed (or force refresh)
+                if not force and self._token_file_mtime is not None:
+                    if current_mtime <= self._token_file_mtime:
+                        return False  # File unchanged
+
+                # Read token file
+                content = token_path.read_text(encoding="utf-8-sig").strip()
+                if not content:
+                    self._log(
+                        logging.WARNING,
+                        "Token file is empty",
+                        token_file=self._token_file,
+                    )
+                    return False
+
+                # Parse JSON
+                tokens = json.loads(content)
+                if not isinstance(tokens, dict):
+                    self._log(
+                        logging.WARNING,
+                        "Token file is not a JSON object",
+                        token_file=self._token_file,
+                    )
+                    return False
+
+                # Get token for our key
+                token = tokens.get(self._token_key)
+                if not token:
+                    self._log(
+                        logging.WARNING,
+                        "Token key not found in token file",
+                        token_file=self._token_file,
+                        token_key=self._token_key,
+                        available_keys=list(tokens.keys()),
+                    )
+                    return False
+
+                # Update auth header
+                old_header = self._auth_header
+                self._auth_header = f"Basic {token}"
+                self._token_file_mtime = current_mtime
+
+                if old_header != self._auth_header:
+                    self._log(
+                        logging.INFO,
+                        "Refreshed auth token from file",
+                        token_file=self._token_file,
+                        token_key=self._token_key,
+                    )
+                    return True
+
+                return False
+
+            except json.JSONDecodeError as e:
+                self._log(
+                    logging.WARNING,
+                    "Failed to parse token file as JSON",
+                    token_file=self._token_file,
+                    error=str(e),
+                )
+                return False
+            except OSError as e:
+                self._log(
+                    logging.WARNING,
+                    "Failed to read token file",
+                    token_file=self._token_file,
+                    error=str(e),
+                )
+                return False
+
+        return False
 
 
     async def __aenter__(self) -> "ClaimXApiClient":
@@ -344,6 +463,31 @@ class ClaimXApiClient(LoggedClass):
 
                         error = classify_api_error(response.status, url)
 
+                        # Handle 401 with token refresh retry
+                        if response.status == 401 and error.should_refresh_auth and not _auth_retry:
+                            # Try to refresh token from file
+                            token_refreshed = self._refresh_auth_header(force=True)
+
+                            if token_refreshed:
+                                self._log(
+                                    logging.INFO,
+                                    "Token refreshed after 401, retrying request",
+                                    api_endpoint=endpoint,
+                                    api_method=method,
+                                )
+                                # Retry the request with new token
+                                return await self._request(
+                                    method, endpoint, params, json_body, _auth_retry=True
+                                )
+                            else:
+                                self._log(
+                                    logging.WARNING,
+                                    "401 error but token file unchanged - credentials may be invalid",
+                                    api_endpoint=endpoint,
+                                    api_method=method,
+                                    token_file=self._token_file,
+                                )
+
                         if error.is_retryable:
                             self._circuit.record_failure(error)
                         self._log(
@@ -357,6 +501,7 @@ class ClaimXApiClient(LoggedClass):
                             is_retryable=error.is_retryable,
                             response_body=response_body_log,
                             duration_seconds=round(duration, 3),
+                            is_auth_retry=_auth_retry,
                         )
                         raise error
 

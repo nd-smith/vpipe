@@ -291,11 +291,12 @@ class ClaimXEnrichmentWorker:
         # Start health check server first
         await self.health_server.start()
 
-        # Initialize API client
-        # Initialize API client
+        # Initialize API client with file-backed token support for auto-refresh
         self.api_client = ClaimXApiClient(
             base_url=self.consumer_config.claimx_api_url,
-            token=self.consumer_config.claimx_api_token,
+            token=self.consumer_config.claimx_api_token or None,
+            token_file=self.consumer_config.claimx_token_file or None,
+            token_key=self.consumer_config.claimx_token_key,
             timeout_seconds=self.consumer_config.claimx_api_timeout_seconds,
             max_concurrent=self.consumer_config.claimx_api_concurrency,
         )
