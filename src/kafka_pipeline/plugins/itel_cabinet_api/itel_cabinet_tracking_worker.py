@@ -27,8 +27,13 @@ from pathlib import Path
 import yaml
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaError
+from dotenv import load_dotenv
 
 from core.logging import setup_logging, get_logger, log_worker_startup
+
+# Project root directory (where .env file is located)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+
 from kafka_pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,
@@ -235,6 +240,9 @@ def load_connections() -> list[ConnectionConfig]:
 
 async def main():
     """Main entry point."""
+    # Load environment variables from .env file before any config access
+    load_dotenv(PROJECT_ROOT / ".env")
+
     # Setup logging
     setup_logging(
         name="itel_cabinet_tracking",

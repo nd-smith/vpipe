@@ -14,9 +14,15 @@ import json
 import logging
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from aiokafka.structs import ConsumerRecord
+from dotenv import load_dotenv
+
+# Project root directory (where .env file is located)
+# cli.py is at src/kafka_pipeline/common/dlq/cli.py, so root is 5 levels up
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 from config.config import KafkaConfig
 from kafka_pipeline.common.dlq.handler import DLQHandler
@@ -462,6 +468,9 @@ async def main_resolve(args):
 
 def main():
     """Main CLI entry point."""
+    # Load environment variables from .env file before any config access
+    load_dotenv(PROJECT_ROOT / ".env")
+
     parser = argparse.ArgumentParser(
         description="DLQ message management CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,

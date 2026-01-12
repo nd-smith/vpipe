@@ -33,9 +33,16 @@ import json
 import logging
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
+from dotenv import load_dotenv
+
+# Project root directory (where .env file is located)
+# cli.py is at src/kafka_pipeline/claimx/dlq/cli.py, so root is 5 levels up
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+
 from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
@@ -503,6 +510,9 @@ async def cmd_purge(args: argparse.Namespace) -> int:
 
 def main():
     """Main CLI entry point."""
+    # Load environment variables from .env file before any config access
+    load_dotenv(PROJECT_ROOT / ".env")
+
     parser = argparse.ArgumentParser(
         description="ClaimX DLQ Management CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
