@@ -172,10 +172,11 @@ class PluginOrchestrator:
             try:
                 log_with_context(
                     logger,
-                    logging.DEBUG,
+                    logging.INFO,
                     "Executing plugin",
                     plugin_name=plugin.name,
                     stage=context.stage.value,
+                    event_id=context.event_id,
                     event_type=context.event_type,
                     project_id=context.project_id,
                 )
@@ -183,11 +184,44 @@ class PluginOrchestrator:
                 result = await plugin.execute(context)
                 results.append((plugin.name, result))
 
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "Plugin executed",
+                    plugin_name=plugin.name,
+                    success=result.success,
+                    message=result.message,
+                    actions_count=len(result.actions),
+                    event_id=context.event_id,
+                    event_type=context.event_type,
+                    project_id=context.project_id,
+                )
+
                 # Execute actions
                 for action in result.actions:
                     try:
+                        log_with_context(
+                            logger,
+                            logging.INFO,
+                            "Executing plugin action",
+                            plugin_name=plugin.name,
+                            action_type=action.action_type.value,
+                            event_id=context.event_id,
+                            event_type=context.event_type,
+                            project_id=context.project_id,
+                        )
                         await self.action_executor.execute(action, context)
                         actions_executed += 1
+                        log_with_context(
+                            logger,
+                            logging.INFO,
+                            "Plugin action executed successfully",
+                            plugin_name=plugin.name,
+                            action_type=action.action_type.value,
+                            event_id=context.event_id,
+                            event_type=context.event_type,
+                            project_id=context.project_id,
+                        )
                     except Exception as action_error:
                         log_with_context(
                             logger,
@@ -334,6 +368,15 @@ class ActionExecutor:
                 value=payload,
                 headers=[(k, v.encode()) for k, v in headers.items()],
             )
+            log_with_context(
+                logger,
+                logging.INFO,
+                "Plugin message published to topic successfully",
+                topic=topic,
+                event_id=context.event_id,
+                event_type=context.event_type,
+                project_id=context.project_id,
+            )
         else:
             # Log only mode when no producer configured
             log_with_context(
@@ -341,7 +384,10 @@ class ActionExecutor:
                 logging.WARNING,
                 "No producer configured - publish action logged only",
                 topic=topic,
-                payload=payload,
+                event_id=context.event_id,
+                event_type=context.event_type,
+                project_id=context.project_id,
+                payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
             )
 
     async def _http_webhook(
