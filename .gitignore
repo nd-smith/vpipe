@@ -1,0 +1,104 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.serena
+claudedocs
+claude
+.claude
+
+
+# Logs
+logs/
+*.log
+src/logs/
+.watermark*
+token_refresh.bat
+
+# Configuration files with secrets (src/config.yaml contains local settings)
+src/config.yaml
+tokens.json
+*.env
+.env
+.env.local
+.env.*.local
+/docs
+
+# Local config overrides (for multi-file config system)
+config/local.yaml
+config/local_*.yaml
+config/*.local.yaml
+config/secrets.yaml
+config/*.env
+
+# Secrets
+.secrets/
+secrets/
+*.key
+*.pem
+*.pfx
+*.p12
+
+# Azure
+.azure/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.json
+htmlcov/
+.tox/
+.hypothesis/
+debug/
+poller_xact.json
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+# Allow notebooks in notebooks/ directory
+!notebooks/*.ipynb
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+.temp/
+temp/
+
+# OS
+Thumbs.db
+config.yaml:Zone.Identifier

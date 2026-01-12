@@ -1,0 +1,358 @@
+# =============================================================================
+# CLAIMX DOMAIN CONFIGURATION
+# =============================================================================
+# Verisk ClaimXperience pipeline - claim enrichment and media
+# This file contains all ClaimX-specific Kafka topics, workers, retry config,
+# Delta table paths, Eventhouse integration, ClaimX API config, and dummy
+# data source configuration.
+# =============================================================================
+
+kafka:
+  # ===========================================================================
+  # CLAIMX DOMAIN CONFIGURATION
+  # Verisk ClaimXperience pipeline - claim enrichment and media
+  # ===========================================================================
+  claimx:
+    # -------------------------------------------------------------------------
+    # Topic Configuration
+    # -------------------------------------------------------------------------
+    topics:
+      events: "claimx.events.raw"                      # Raw events from Eventhouse
+      enrichment_pending: "claimx.enrichment.pending"  # Events awaiting API enrichment
+      downloads_pending: "claimx.downloads.pending"    # Download tasks awaiting processing
+      downloads_cached: "claimx.downloads.cached"      # Downloads cached locally
+      downloads_results: "claimx.downloads.results"    # Upload results
+      dlq: "claimx.downloads.dlq"                      # Dead letter queue
+      entities_rows: "claimx.entities.rows"        # Enriched entity rows for Delta
+
+    consumer_group_prefix: "claimx"
+
+    retry_delays: [300, 600]
+    max_retries: 2
+
+    # -------------------------------------------------------------------------
+    # Event Ingester Worker
+    # Consumes: claimx.events.raw
+    # Produces to: claimx.enrichment.pending
+    # Purpose: Parse events, route to enrichment
+    # -------------------------------------------------------------------------
+    event_ingester:
+      consumer:
+        group_id: "claimx-event-ingester"
+        max_poll_records: 1000
+        max_poll_interval_ms: 300000  # 5 minutes
+
+      producer:
+        acks: "1"
+        batch_size: 32768  # 32 KB
+        linger_ms: 100
+        compression_type: "lz4"
+
+      processing:
+        batch_size: 100
+
+        # Health check port
+        health_port: 8084
+
+    # -------------------------------------------------------------------------
+    # Enrichment Worker
+    # Consumes: claimx.enrichment.pending
+    # Produces to: claimx.downloads.pending
+    # Purpose: Enrich events with ClaimX API data
+    # -------------------------------------------------------------------------
+    enrichment_worker:
+      consumer:
+        group_id: "claimx-enrichment-worker"
+        max_poll_records: 2000
+
+        # Longer window - API calls can be slow
+        max_poll_interval_ms: 3000000  # 10 minutes
+        session_timeout_ms: 45000  # 45 seconds
+
+      producer:
+        acks: "1"
+        compression_type: "lz4"
+
+      processing:
+        # Maximum concurrent API requests
+        api_concurrency: 20
+
+        # Timeout per API request (seconds)
+        api_timeout_seconds: 30
+
+        # Batch size for processing
+        batch_size: 3000
+
+        # Batch timeout in seconds
+        batch_timeout_seconds: 5.0
+
+        # Health check port
+        health_port: 8081
+
+        # Project cache settings for in-flight verification
+        project_cache:
+          # TTL in seconds (0 = no expiration)
+          # Default: 1800 (30 minutes)
+          ttl_seconds: 1800
+
+          # Preload existing project IDs from Delta table at startup
+          # Reduces API calls for projects that already exist
+          preload_from_delta: true
+
+    # -------------------------------------------------------------------------
+    # Download Worker
+    # Consumes: claimx.downloads.pending + retry topics
+    # Produces to: claimx.downloads.cached
+    # Purpose: Download attachments from ClaimX S3
+    # -------------------------------------------------------------------------
+    download_worker:
+      consumer:
+        group_id: "claimx-download-worker"
+        max_poll_records: 40
+        max_poll_interval_ms: 900000  # 15 minutes
+        session_timeout_ms: 60000  # 60 seconds
+
+      producer:
+        acks: "all"
+
+      processing:
+        # ClaimX may need higher concurrency
+        concurrency: 40
+        batch_size: 40
+
+        # ClaimX files may be larger, need longer timeout
+        timeout_seconds: 120
+
+        # Health check port
+        health_port: 8082
+
+    # -------------------------------------------------------------------------
+    # Upload Worker
+    # Consumes: claimx.downloads.cached
+    # Produces to: claimx.downloads.results
+    # Purpose: Upload cached files to OneLake
+    # -------------------------------------------------------------------------
+    upload_worker:
+      consumer:
+        group_id: "claimx-upload-worker"
+        max_poll_records: 30
+        max_poll_interval_ms: 900000  # 15 minutes
+        session_timeout_ms: 60000  # 60 seconds
+
+      producer:
+        acks: "all"
+
+      processing:
+        concurrency: 25
+        batch_size: 30
+
+        # Health check port
+        health_port: 8083
+
+    # -------------------------------------------------------------------------
+    # Delta Events Writer Worker
+    # Consumes: claimx.downloads.results
+    # Produces to: delta-events.retry.*, delta-events.dlq
+    # Purpose: Write events to Delta tables
+    # -------------------------------------------------------------------------
+    delta_events_writer:
+      consumer:
+        group_id: "claimx-delta-events-writer"
+        max_poll_records: 4000
+        max_poll_interval_ms: 3000000  # 10 minutes
+
+      producer:
+        acks: "all"
+        compression_type: "snappy"
+
+      processing:
+        batch_size: 4000
+
+        # Flush pending events after this many seconds without a write (seconds)
+        # Ensures events are written even during low-traffic periods
+        flush_timeout_seconds: 60  # 2 minutes
+
+        retry_delays: [300, 600]
+        max_retries: 2
+
+        # Topic prefix for retry topics
+        retry_topic_prefix: "claimx-delta-events.retry"
+
+        # Dead letter queue topic
+        dlq_topic: "claimx-delta-events.dlq"
+
+    # -------------------------------------------------------------------------
+    # Entity Delta Writer Worker
+    # Consumes: claimx.entities.rows
+    # Produces to: entity-rows.retry.*, entity-rows.dlq
+    # Purpose: Write entity rows to Delta tables (projects, contacts, media, etc.)
+    # -------------------------------------------------------------------------
+    entity_delta_writer:
+      consumer:
+        group_id: "claimx-entity-delta-writer"
+        max_poll_records: 500
+        max_poll_interval_ms: 600000  # 10 minutes
+        session_timeout_ms: 45000  # 45 seconds
+
+      producer:
+        acks: "all"
+        compression_type: "snappy"
+
+      processing:
+        batch_size: 100
+        batch_timeout_seconds: 30.0
+        max_retries: 3
+
+        retry_delays: [60, 300, 900]
+        retry_topic_prefix: "claimx.entities.rows.retry"
+        dlq_topic: "claimx.entities.rows.dlq"
+
+        # Health check port
+        health_port: 8086
+
+# =============================================================================
+# DELTA LAKE TABLE CONFIGURATION - CLAIMX DOMAIN
+# =============================================================================
+# Paths to Delta tables for the ClaimX pipeline.
+# Loaded from environment variables (see .env file)
+delta:
+  # ClaimX domain tables
+  claimx:
+    # Path to claimx_events table
+    events_table_path: "${CLAIMX_DELTA_EVENTS_TABLE}"
+    inventory_table_path: "${CLAIMX_DELTA_INVENTORY_TABLE}"
+    projects_table_path: "${CLAIMX_DELTA_PROJECTS_TABLE}"
+    contacts_table_path: "${CLAIMX_DELTA_CONTACTS_TABLE}"
+    media_table_path: "${CLAIMX_DELTA_MEDIA_TABLE}"
+    tasks_table_path: "${CLAIMX_DELTA_TASKS_TABLE}"
+    task_templates_table_path: "${CLAIMX_DELTA_TASK_TEMPLATES_TABLE}"
+    external_links_table_path: "${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE}"
+    video_collab_table_path: "${CLAIMX_DELTA_VIDEO_COLLAB_TABLE}"
+
+# =============================================================================
+# CLAIMX API CONFIGURATION
+# =============================================================================
+claimx:
+  api:
+    # Base URL for ClaimX API
+    base_url: "https://www.claimxperience.com/service/cxedirest"
+
+    # Timeout for API requests (seconds)
+    timeout_seconds: 30
+
+    # Maximum concurrent API requests
+    max_concurrent: 20
+
+    # Credentials are loaded from environment variables:
+    # - CLAIMX_API_USERNAME
+    # - CLAIMX_API_PASSWORD
+    # - CLAIMX_API_TOKEN (Basic auth header value)
+
+# =============================================================================
+# EVENTHOUSE INTEGRATION - CLAIMX DOMAIN
+# =============================================================================
+# Configuration for Kafka pipeline event source from Eventhouse
+# Loaded from environment variables (see .env file)
+claimx_eventhouse:
+  # ---------------------------------------------------------------------------
+  # Connection Settings
+  # ---------------------------------------------------------------------------
+  cluster_url: "${EVENTHOUSE_CLUSTER_URL}"
+  database: "${CLAIMX_EVENTHOUSE_DATABASE}"
+
+  # ---------------------------------------------------------------------------
+  # Query Settings
+  # ---------------------------------------------------------------------------
+  query_timeout_seconds: 120
+
+  # ---------------------------------------------------------------------------
+  # Poller Settings
+  # ---------------------------------------------------------------------------
+  poller:
+    poll_interval_seconds: 30
+    batch_size: 1000
+    source_table: "${CLAIMX_EVENTHOUSE_SOURCE_TABLE}"
+    events_table_path: "${CLAIMX_DELTA_EVENTS_TABLE}"
+
+    # Backfill settings
+    backfill_start_stamp: null
+    backfill_stop_stamp: null
+    bulk_backfill: false
+
+  # ---------------------------------------------------------------------------
+  # Deduplication Settings
+  # ---------------------------------------------------------------------------
+  dedup:
+    claimx_events_window_hours: 24
+    eventhouse_query_window_hours: 1
+    overlap_minutes: 5
+
+# =============================================================================
+# DUMMY DATA SOURCE (for testing without external dependencies)
+# =============================================================================
+# When event_source is set to "dummy", the pipeline generates realistic
+# synthetic insurance claim data instead of connecting to external sources.
+# This allows testing the full pipeline locally without access to production
+# systems like Eventhouse, Event Hub, or the ClaimX API.
+
+dummy:
+  # ---------------------------------------------------------------------------
+  # Generator Settings
+  # ---------------------------------------------------------------------------
+  generator:
+    # Random seed for reproducible data (null = random each run)
+    seed: null
+
+    # Base URL for the dummy file server (auto-configured when running)
+    base_url: "http://localhost:8765"
+
+    # Include some failing scenarios for testing error handling
+    include_failures: false
+
+    # Percentage of events that will have simulated failures (0.0-1.0)
+    failure_rate: 0.05
+
+  # ---------------------------------------------------------------------------
+  # File Server Settings
+  # ---------------------------------------------------------------------------
+  # The dummy file server provides downloadable test files for attachments
+  file_server:
+    host: "0.0.0.0"
+    port: 8765
+
+    # Default size for generated files (bytes)
+    default_file_size: 100000  # 100KB
+
+    # Maximum file size to generate (bytes)
+    max_file_size: 10000000  # 10MB
+
+  # ---------------------------------------------------------------------------
+  # Event Generation Settings
+  # ---------------------------------------------------------------------------
+  # Which domains to generate events for
+  domains:
+    - "xact"
+    - "claimx"
+
+  # Events generated per minute (per domain)
+  events_per_minute: 10000000
+
+  # Burst mode: generate events in batches for load testing
+  burst_mode: false
+  burst_size: 200000
+  burst_interval_seconds: 89
+
+  # Generate all ClaimX event types (PROJECT_CREATED, PROJECT_FILE_ADDED, etc.)
+  include_all_event_types: true
+
+  # Maximum number of concurrent simulated claims to track
+  max_active_claims: 100000000000
+
+  # ---------------------------------------------------------------------------
+  # Runtime Limits (for controlled testing)
+  # ---------------------------------------------------------------------------
+  # Stop after generating this many events (null = unlimited)
+  max_events: null
+
+  # Stop after running for this many seconds (null = unlimited)
+  max_runtime_seconds: null

@@ -1,0 +1,1 @@
+"""ClaimX schemas tests."""

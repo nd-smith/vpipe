@@ -1,0 +1,80 @@
+# =============================================================================
+# iTel Cabinet Workers Configuration
+# =============================================================================
+# Simple, clear configuration - no handler framework magic.
+#
+# Two workers process iTel cabinet events:
+# 1. Tracking worker - Enriches and writes to Delta
+# 2. API worker - Transforms and sends to iTel API
+#
+# Architecture:
+#   Plugin → Kafka (itel.cabinet.task.tracking)
+#                ↓
+#        ┌───────┴────────┐
+#        ↓                ↓
+#   Tracking Worker   API Worker
+#   (Delta Table)     (iTel API)
+# =============================================================================
+
+workers:
+  # ===========================================================================
+  # iTel Cabinet Tracking Worker
+  # ===========================================================================
+  # Processes task events, enriches COMPLETED tasks, writes to Delta tables.
+  #
+  # Startup:
+  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
+  # ===========================================================================
+  itel_cabinet_tracking:
+    # Kafka settings
+    kafka:
+      input_topic: itel.cabinet.task.tracking
+      consumer_group: itel_cabinet_tracking_group
+
+    # Delta tables (table names, full paths constructed by worker)
+    delta_tables:
+      submissions: claimx_itel_forms
+      attachments: claimx_itel_attachments
+
+    # Pipeline configuration
+    pipeline:
+      claimx_connection: claimx_api
+      output_topic: itel.cabinet.completed
+      download_media: false  # Set to true when media downloader is implemented
+
+  # ===========================================================================
+  # iTel Cabinet API Worker
+  # ===========================================================================
+  # Consumes completed tasks from tracking worker and sends to iTel API.
+  #
+  # Startup:
+  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
+  #
+  # Dev Mode (writes to files instead of API):
+  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
+  # ===========================================================================
+  itel_cabinet_api:
+    # Kafka settings
+    kafka:
+      input_topic: itel.cabinet.completed
+      consumer_group: itel_cabinet_api_group
+
+    # iTel API settings
+    api:
+      connection: itel_cabinet_api
+      endpoint: /api/v1/cabinet/repairs
+      method: POST
+
+      # Test mode - write to files instead of calling API
+      test_mode: true
+      test_output_dir: config/plugins/itel_cabinet_api/test
+
+# =============================================================================
+# Environment Variables Required
+# =============================================================================
+# export CLAIMX_API_BASE_URL="https://api.claimx.com"
+# export CLAIMX_API_TOKEN="your-claimx-token"
+# export ITEL_CABINET_API_BASE_URL="https://api.itelcabinet.com"
+# export ITEL_CABINET_API_TOKEN="your-itel-token"
+# export KAFKA_BOOTSTRAP_SERVERS="localhost:9094"
+# =============================================================================

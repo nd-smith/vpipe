@@ -1,0 +1,5 @@
+# Ignore test output files (API payloads)
+*.json
+
+# Keep the directory
+!.gitignore

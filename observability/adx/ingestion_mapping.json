@@ -1,0 +1,68 @@
+[
+    {
+        "Column": "Timestamp",
+        "Properties": {
+            "Path": "$.timestamp"
+        }
+    },
+    {
+        "Column": "Level",
+        "Properties": {
+            "Path": "$.level"
+        }
+    },
+    {
+        "Column": "Message",
+        "Properties": {
+            "Path": "$.message"
+        }
+    },
+    {
+        "Column": "Logger",
+        "Properties": {
+            "Path": "$.logger"
+        }
+    },
+    {
+        "Column": "Module",
+        "Properties": {
+            "Path": "$.module"
+        }
+    },
+    {
+        "Column": "TraceId",
+        "Properties": {
+            "Path": "$.trace_id"
+        }
+    },
+    {
+        "Column": "WorkerId",
+        "Properties": {
+            "Path": "$.worker_id"
+        }
+    },
+    {
+        "Column": "CycleId",
+        "Properties": {
+            "Path": "$.cycle_id"
+        }
+    },
+    {
+        "Column": "Domain",
+        "Properties": {
+            "Path": "$.domain"
+        }
+    },
+    {
+        "Column": "Stage",
+        "Properties": {
+            "Path": "$.stage"
+        }
+    },
+    {
+        "Column": "Exception",
+        "Properties": {
+            "Path": "$.exc_info"
+        }
+    }
+]

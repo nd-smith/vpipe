@@ -1,0 +1,296 @@
+"""
+Form parsing for iTel Cabinet Repair forms.
+
+Extracts structured data from ClaimX task responses.
+Clear, focused functions - no inheritance, no magic.
+"""
+
+import logging
+from datetime import datetime
+from typing import Any
+
+from .models import CabinetSubmission, CabinetAttachment
+
+logger = logging.getLogger(__name__)
+
+
+# Question control ID to question_key mapping
+MEDIA_QUESTION_MAPPING = {
+    "control-110496963": "overview_photos",
+    "control-989806632": "lower_cabinet_box",
+    "control-374047064": "lower_cabinet_end_panels",
+    "control-767670035": "upper_cabinet_box",
+    "control-488956803": "upper_cabinet_end_panels",
+    "control-734859955": "full_height_cabinet_box",
+    "control-959393098": "full_height_end_panels",
+    "control-393858054": "island_cabinet_box",
+    "control-532071774": "island_cabinet_end_panels",
+}
+
+
+def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
+    """
+    Parse ClaimX task response into CabinetSubmission.
+
+    Args:
+        task_data: Full task data from ClaimX API
+        event_id: Event ID for traceability
+
+    Returns:
+        Parsed submission data
+
+    Raises:
+        KeyError: If required fields are missing
+        ValueError: If data is malformed
+    """
+    logger.debug(f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}")
+
+    response = task_data.get("response", {})
+    external_link = task_data.get("externalLinkData", {})
+
+    # Parse all form fields
+    form_data = _parse_form_response(response)
+
+    now = datetime.utcnow()
+
+    return CabinetSubmission(
+        # Primary identifiers
+        assignment_id=task_data["assignmentId"],
+        project_id=task_data["projectId"],
+        form_id=task_data["formId"],
+        form_response_id=task_data["formResponseId"],
+        status=task_data["status"],
+        event_id=event_id,
+
+        # Dates
+        date_assigned=task_data.get("dateAssigned"),
+        date_completed=task_data.get("dateCompleted"),
+
+        # Customer information
+        customer_first_name=external_link.get("firstName"),
+        customer_last_name=external_link.get("lastName"),
+        customer_email=external_link.get("email"),
+        customer_phone=str(external_link.get("phone")) if external_link.get("phone") else None,
+        assignor_email=task_data.get("assignor"),
+
+        # General damage information
+        damage_description=form_data.get("damage_description"),
+        additional_notes=form_data.get("additional_notes"),
+        countertops_lf=form_data.get("countertops_lf"),
+
+        # Lower cabinets
+        lower_cabinets_damaged=form_data.get("lower_cabinets_damaged"),
+        lower_cabinets_lf=form_data.get("lower_cabinets_lf"),
+        num_damaged_lower_boxes=form_data.get("num_damaged_lower_boxes"),
+        lower_cabinets_detached=form_data.get("lower_cabinets_detached"),
+        lower_face_frames_doors_drawers_available=form_data.get("lower_face_frames_doors_drawers_available"),
+        lower_face_frames_doors_drawers_damaged=form_data.get("lower_face_frames_doors_drawers_damaged"),
+        lower_finished_end_panels_damaged=form_data.get("lower_finished_end_panels_damaged"),
+        lower_end_panel_damage_present=form_data.get("lower_end_panel_damage_present"),
+        lower_counter_type=form_data.get("lower_counter_type"),
+
+        # Upper cabinets
+        upper_cabinets_damaged=form_data.get("upper_cabinets_damaged"),
+        upper_cabinets_lf=form_data.get("upper_cabinets_lf"),
+        num_damaged_upper_boxes=form_data.get("num_damaged_upper_boxes"),
+        upper_cabinets_detached=form_data.get("upper_cabinets_detached"),
+        upper_face_frames_doors_drawers_available=form_data.get("upper_face_frames_doors_drawers_available"),
+        upper_face_frames_doors_drawers_damaged=form_data.get("upper_face_frames_doors_drawers_damaged"),
+        upper_finished_end_panels_damaged=form_data.get("upper_finished_end_panels_damaged"),
+        upper_end_panel_damage_present=form_data.get("upper_end_panel_damage_present"),
+
+        # Full height cabinets
+        full_height_cabinets_damaged=form_data.get("full_height_cabinets_damaged"),
+        full_height_cabinets_lf=form_data.get("full_height_cabinets_lf"),
+        num_damaged_full_height_boxes=form_data.get("num_damaged_full_height_boxes"),
+        full_height_cabinets_detached=form_data.get("full_height_cabinets_detached"),
+        full_height_face_frames_doors_drawers_available=form_data.get("full_height_face_frames_doors_drawers_available"),
+        full_height_face_frames_doors_drawers_damaged=form_data.get("full_height_face_frames_doors_drawers_damaged"),
+        full_height_finished_end_panels_damaged=form_data.get("full_height_finished_end_panels_damaged"),
+
+        # Island cabinets
+        island_cabinets_damaged=form_data.get("island_cabinets_damaged"),
+        island_cabinets_lf=form_data.get("island_cabinets_lf"),
+        num_damaged_island_boxes=form_data.get("num_damaged_island_boxes"),
+        island_cabinets_detached=form_data.get("island_cabinets_detached"),
+        island_face_frames_doors_drawers_available=form_data.get("island_face_frames_doors_drawers_available"),
+        island_face_frames_doors_drawers_damaged=form_data.get("island_face_frames_doors_drawers_damaged"),
+        island_finished_end_panels_damaged=form_data.get("island_finished_end_panels_damaged"),
+        island_end_panel_damage_present=form_data.get("island_end_panel_damage_present"),
+        island_counter_type=form_data.get("island_counter_type"),
+
+        # Metadata
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def parse_cabinet_attachments(
+    task_data: dict,
+    assignment_id: int,
+    event_id: str,
+) -> list[CabinetAttachment]:
+    """
+    Extract media attachments from ClaimX task response.
+
+    Args:
+        task_data: Full task data from ClaimX API
+        assignment_id: Assignment ID
+        event_id: Event ID for traceability
+
+    Returns:
+        List of attachment records
+    """
+    logger.debug(f"Parsing attachments for assignment_id={assignment_id}")
+
+    response = task_data.get("response", {})
+    groups = response.get("groups", [])
+
+    attachments = []
+    display_order = 0
+    now = datetime.utcnow()
+
+    for group in groups:
+        questions = group.get("questionAndAnswers", [])
+
+        for question in questions:
+            control_id = question.get("formControl", {}).get("id")
+            question_text = question.get("questionText", "")
+
+            # Check if this is a media question we care about
+            question_key = MEDIA_QUESTION_MAPPING.get(control_id)
+            if not question_key:
+                continue
+
+            # Extract claimMediaIds from response
+            answer_export = question.get("responseAnswerExport", {})
+            claim_media_ids = answer_export.get("claimMediaIds", [])
+
+            # Create attachment record for each media ID
+            for media_id in claim_media_ids:
+                if media_id:
+                    attachments.append(CabinetAttachment(
+                        assignment_id=assignment_id,
+                        event_id=event_id,
+                        question_key=question_key,
+                        question_text=question_text,
+                        claim_media_id=media_id,
+                        blob_path=None,  # Populated by media downloader if configured
+                        display_order=display_order,
+                        created_at=now,
+                    ))
+                    display_order += 1
+
+    logger.debug(f"Parsed {len(attachments)} attachments")
+    return attachments
+
+
+def _parse_form_response(response: dict) -> dict:
+    """
+    Parse nested form response structure into flat key-value dict.
+
+    Args:
+        response: The 'response' object from task data
+
+    Returns:
+        Flat dict with form field names as keys
+    """
+    form_data = {}
+    groups = response.get("groups", [])
+
+    for group in groups:
+        questions = group.get("questionAndAnswers", [])
+
+        for question in questions:
+            question_text = question.get("questionText", "")
+            answer_export = question.get("responseAnswerExport", {})
+
+            # Parse based on answer type
+            answer_type = answer_export.get("type")
+
+            if answer_type == "option":
+                # Dropdown/radio answers
+                option_answer = answer_export.get("optionAnswer", {})
+                value = option_answer.get("name")
+                field_name = _question_to_field_name(question_text)
+
+                # Convert Yes/No to boolean for boolean fields
+                if value in ("Yes", "No"):
+                    if any(keyword in question_text.lower() for keyword in ["damaged", "detached", "present", "available"]):
+                        form_data[field_name] = (value == "Yes")
+                    else:
+                        form_data[field_name] = value
+                else:
+                    form_data[field_name] = value
+
+            elif answer_type == "number":
+                # Numeric answers
+                number_answer = answer_export.get("numberAnswer")
+                field_name = _question_to_field_name(question_text)
+                if number_answer is not None:
+                    form_data[field_name] = int(number_answer)
+
+            elif answer_type == "text":
+                # Text answers
+                text_answer = answer_export.get("textAnswer")
+                field_name = _question_to_field_name(question_text)
+                form_data[field_name] = text_answer
+
+            # Skip image type - handled separately in parse_cabinet_attachments
+
+    return form_data
+
+
+def _question_to_field_name(question_text: str) -> str:
+    """
+    Convert question text to database field name.
+
+    Examples:
+        "Lower Cabinets Damaged?" -> "lower_cabinets_damaged"
+        "Number of Damaged Lower Cabinet Boxes" -> "num_damaged_lower_boxes"
+    """
+    # Explicit mapping for known questions
+    field_mapping = {
+        "Lower Cabinets Damaged?": "lower_cabinets_damaged",
+        "Linear Feet of Lower Cabinets": "lower_cabinets_lf",
+        "Number of Damaged Lower Cabinet Boxes": "num_damaged_lower_boxes",
+        "Lower Cabinets Detached from Wall?": "lower_cabinets_detached",
+        "Lower Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "lower_face_frames_doors_drawers_available",
+        "Lower Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "lower_face_frames_doors_drawers_damaged",
+        "Lower Cabinets - Finished End Panels Damaged?": "lower_finished_end_panels_damaged",
+        "Lower Cabinets - End Panel Damage Present?": "lower_end_panel_damage_present",
+        "Lower Cabinets - Counter Type": "lower_counter_type",
+
+        "Upper Cabinets Damaged?": "upper_cabinets_damaged",
+        "Linear Feet of Upper Cabinets": "upper_cabinets_lf",
+        "Number of Damaged Upper Cabinet Boxes": "num_damaged_upper_boxes",
+        "Upper Cabinets Detached from Wall?": "upper_cabinets_detached",
+        "Upper Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "upper_face_frames_doors_drawers_available",
+        "Upper Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "upper_face_frames_doors_drawers_damaged",
+        "Upper Cabinets - Finished End Panels Damaged?": "upper_finished_end_panels_damaged",
+        "Upper Cabinets - End Panel Damage Present?": "upper_end_panel_damage_present",
+
+        "Full Height Cabinets Damaged?": "full_height_cabinets_damaged",
+        "Linear Feet of Full Height Cabinets": "full_height_cabinets_lf",
+        "Number of Damaged Full Height Cabinet Boxes": "num_damaged_full_height_boxes",
+        "Full Height Cabinets Detached from Wall?": "full_height_cabinets_detached",
+        "Full Height Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "full_height_face_frames_doors_drawers_available",
+        "Full Height Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "full_height_face_frames_doors_drawers_damaged",
+        "Full Height Cabinets - Finished End Panels Damaged?": "full_height_finished_end_panels_damaged",
+
+        "Island Cabinets Damaged?": "island_cabinets_damaged",
+        "Linear Feet of Island Cabinets": "island_cabinets_lf",
+        "Number of Damaged Island Cabinet Boxes": "num_damaged_island_boxes",
+        "Island Cabinets Detached from Floor?": "island_cabinets_detached",
+        "Island Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "island_face_frames_doors_drawers_available",
+        "Island Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "island_face_frames_doors_drawers_damaged",
+        "Island Cabinets - Finished End Panels Damaged?": "island_finished_end_panels_damaged",
+        "Island Cabinets - End Panel Damage Present?": "island_end_panel_damage_present",
+        "Island Cabinets - Counter Type": "island_counter_type",
+
+        "Describe the Damage": "damage_description",
+        "Additional Notes": "additional_notes",
+        "Countertops - Linear Feet": "countertops_lf",
+    }
+
+    return field_mapping.get(question_text, question_text.lower().replace(" ", "_").replace("?", ""))

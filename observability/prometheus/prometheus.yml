@@ -1,0 +1,182 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # =============================================================================
+  # Prometheus Self-Monitoring
+  # =============================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # =============================================================================
+  # ClaimX Domain Workers
+  # Ports defined in src/config.yaml under kafka.claimx.*.processing.health_port
+  # =============================================================================
+  - job_name: 'claimx-enrichment-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: enrichment
+
+  - job_name: 'claimx-download-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: download
+
+  - job_name: 'claimx-upload-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8083']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: upload
+
+  - job_name: 'claimx-event-ingester'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8084']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: event_ingester
+
+  - job_name: 'claimx-delta-events-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8085']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: delta_events
+
+  - job_name: 'claimx-entity-delta-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8086']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: entity_delta
+
+  - job_name: 'claimx-result-processor'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8087']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: claimx
+      - source_labels: []
+        target_label: worker_type
+        replacement: result_processor
+
+  # =============================================================================
+  # Xact Domain Workers
+  # Port 8080 defined in src/config.yaml under kafka.xact.event_ingester.processing.health_port
+  # Other xact workers should use unique ports via --metrics-port argument
+  # =============================================================================
+  - job_name: 'xact-event-ingester'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: xact
+      - source_labels: []
+        target_label: worker_type
+        replacement: event_ingester
+
+  - job_name: 'xact-download-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8090']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: xact
+      - source_labels: []
+        target_label: worker_type
+        replacement: download
+
+  - job_name: 'xact-upload-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8091']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: xact
+      - source_labels: []
+        target_label: worker_type
+        replacement: upload
+
+  - job_name: 'xact-delta-events-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8092']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: xact
+      - source_labels: []
+        target_label: worker_type
+        replacement: delta_events
+
+  # =============================================================================
+  # Development / Testing Workers
+  # =============================================================================
+  - job_name: 'dummy-source'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: dummy
+      - source_labels: []
+        target_label: worker_type
+        replacement: dummy_source
+
+  # =============================================================================
+  # Default Metrics Endpoint (fallback for workers on default port)
+  # =============================================================================
+  - job_name: 'kafka-pipeline-default'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8001']
+    relabel_configs:
+      - source_labels: []
+        target_label: domain
+        replacement: unknown
+      - source_labels: []
+        target_label: worker_type
+        replacement: default

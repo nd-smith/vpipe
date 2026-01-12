@@ -1,0 +1,486 @@
+# Prometheus Alert Rules for Kafka Pipeline
+# These rules monitor critical pipeline conditions and trigger alerts for operational issues.
+#
+# Alert Severity Levels:
+#   - critical: Immediate action required, impacts production
+#   - warning: Degraded performance, requires attention soon
+#   - info: Informational, investigate when convenient
+
+groups:
+  - name: kafka_pipeline_consumer
+    interval: 30s
+    rules:
+      # Consumer Lag Alert
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: critical
+          component: consumer
+        annotations:
+          summary: "High consumer lag detected on {{ $labels.topic }}/partition {{ $labels.partition }}"
+          description: |
+            Consumer group {{ $labels.consumer_group }} has lag of {{ $value }} messages on topic {{ $labels.topic }}, partition {{ $labels.partition }}.
+            This indicates the consumer cannot keep up with message production rate.
+
+            Current lag: {{ $value }} messages
+            Threshold: 10,000 messages
+            Duration: 5 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/consumer-lag.md"
+          remediation: |
+            1. Check consumer health and error logs
+            2. Verify consumer processing performance
+            3. Consider scaling consumer instances horizontally
+            4. Check for downstream bottlenecks (OneLake, Delta Lake)
+
+      # Consumer Lag Warning (early detection)
+      - alert: KafkaConsumerLagWarning
+        expr: kafka_consumer_lag > 5000
+        for: 10m
+        labels:
+          severity: warning
+          component: consumer
+        annotations:
+          summary: "Elevated consumer lag on {{ $labels.topic }}/partition {{ $labels.partition }}"
+          description: |
+            Consumer group {{ $labels.consumer_group }} has lag of {{ $value }} messages on topic {{ $labels.topic }}, partition {{ $labels.partition }}.
+            Lag is elevated but not yet critical.
+
+            Current lag: {{ $value }} messages
+            Warning threshold: 5,000 messages
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/consumer-lag.md"
+
+      # Consumer Disconnected Alert
+      - alert: KafkaConsumerDisconnected
+        expr: kafka_connection_status{component="consumer"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: consumer
+        annotations:
+          summary: "Kafka consumer disconnected"
+          description: |
+            Consumer instance is disconnected from Kafka broker.
+            Messages are not being processed.
+
+            Component: {{ $labels.component }}
+            Duration: 1 minute
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/circuit-breaker-open.md"
+          remediation: |
+            1. Check Kafka broker availability and health
+            2. Verify network connectivity to Kafka cluster
+            3. Check authentication credentials (Azure AD token)
+            4. Review consumer error logs for connection failures
+
+      # No Partitions Assigned
+      - alert: KafkaConsumerNoPartitions
+        expr: kafka_consumer_assigned_partitions == 0
+        for: 3m
+        labels:
+          severity: warning
+          component: consumer
+        annotations:
+          summary: "Consumer has no assigned partitions"
+          description: |
+            Consumer group {{ $labels.consumer_group }} has no partitions assigned.
+            This consumer is not processing any messages.
+
+            Expected: > 0 partitions
+            Actual: {{ $value }} partitions
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/consumer-lag.md"
+
+  - name: kafka_pipeline_dlq
+    interval: 30s
+    rules:
+      # DLQ Growth Alert (rapid increase)
+      - alert: KafkaDLQGrowthRapid
+        expr: rate(kafka_messages_produced_total{topic="xact.downloads.dlq"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: dlq
+        annotations:
+          summary: "Rapid DLQ message growth detected"
+          description: |
+            Dead-letter queue is receiving messages at {{ $value | humanize }} messages/minute.
+            This indicates systematic failures in download processing.
+
+            Current rate: {{ $value | humanize }} messages/minute
+            Threshold: 10 messages/minute
+            Duration: 5 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/dlq-management.md"
+          remediation: |
+            1. Check DLQ for common error patterns
+            2. Review download worker error logs
+            3. Verify URL validation and file type restrictions
+            4. Check OneLake connectivity and permissions
+            5. Consider temporarily pausing event ingestion if critical
+
+      # DLQ Growth Warning
+      - alert: KafkaDLQGrowthWarning
+        expr: rate(kafka_messages_produced_total{topic="xact.downloads.dlq"}[10m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: dlq
+        annotations:
+          summary: "Elevated DLQ message rate"
+          description: |
+            Dead-letter queue is receiving messages at {{ $value | humanize }} messages/minute.
+
+            Current rate: {{ $value | humanize }} messages/minute
+            Warning threshold: 5 messages/minute
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/dlq-management.md"
+
+      # DLQ Size Alert (absolute count)
+      - alert: KafkaDLQSizeHigh
+        expr: sum(kafka_consumer_lag{topic="xact.downloads.dlq"}) > 1000
+        for: 30m
+        labels:
+          severity: warning
+          component: dlq
+        annotations:
+          summary: "High DLQ message count"
+          description: |
+            Dead-letter queue contains {{ $value }} unprocessed messages.
+            Manual review and replay may be required.
+
+            Current count: {{ $value }} messages
+            Threshold: 1,000 messages
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/dlq-management.md"
+
+  - name: kafka_pipeline_errors
+    interval: 30s
+    rules:
+      # Overall Error Rate Alert
+      - alert: KafkaErrorRateHigh
+        expr: |
+          (
+            sum(rate(kafka_processing_errors_total[5m])) /
+            sum(rate(kafka_messages_consumed_total[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: processing
+        annotations:
+          summary: "High message processing error rate"
+          description: |
+            Message processing error rate is {{ $value | humanizePercentage }}.
+            More than 1% of messages are failing to process.
+
+            Current error rate: {{ $value | humanizePercentage }}
+            Threshold: 1%
+            Duration: 5 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/incident-response.md"
+          remediation: |
+            1. Check error distribution by category (transient vs permanent)
+            2. Review worker error logs for common patterns
+            3. Verify downstream service availability (OneLake, Delta Lake)
+            4. Check for authentication/authorization failures
+
+      # Download Failure Rate Alert
+      - alert: KafkaDownloadFailureRateHigh
+        expr: |
+          (
+            sum(rate(kafka_processing_errors_total{topic=~"xact.downloads.*"}[5m])) /
+            sum(rate(kafka_messages_consumed_total{topic=~"xact.downloads.*"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: download_worker
+        annotations:
+          summary: "High download failure rate"
+          description: |
+            Download failure rate is {{ $value | humanizePercentage }}.
+            More than 5% of downloads are failing.
+
+            Current failure rate: {{ $value | humanizePercentage }}
+            Threshold: 5%
+            Duration: 5 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/incident-response.md"
+          remediation: |
+            1. Check download worker logs for error patterns
+            2. Verify presigned URL validity and expiration
+            3. Check OneLake connectivity and authentication
+            4. Review network latency and timeout settings
+            5. Verify file type and URL validation rules
+
+      # Producer Error Alert
+      - alert: KafkaProducerErrorsHigh
+        expr: rate(kafka_producer_errors_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: producer
+        annotations:
+          summary: "High producer error rate on {{ $labels.topic }}"
+          description: |
+            Producer is experiencing {{ $value | humanize }} errors/second on topic {{ $labels.topic }}.
+            Error type: {{ $labels.error_type }}
+
+            Current rate: {{ $value | humanize }} errors/second
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/circuit-breaker-open.md"
+
+  - name: kafka_pipeline_circuit_breaker
+    interval: 30s
+    rules:
+      # Circuit Breaker Open Alert
+      - alert: KafkaCircuitBreakerOpen
+        expr: kafka_circuit_breaker_state == 1
+        for: 2m
+        labels:
+          severity: critical
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit breaker open for {{ $labels.component }}"
+          description: |
+            Circuit breaker is in OPEN state for {{ $labels.component }}.
+            Service calls are being rejected to prevent cascading failures.
+
+            State: OPEN (1)
+            Component: {{ $labels.component }}
+            Duration: 2 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/circuit-breaker-open.md"
+          remediation: |
+            1. Check underlying service health (Kafka broker, OneLake)
+            2. Review error logs for root cause
+            3. Verify network connectivity and DNS resolution
+            4. Check authentication token validity
+            5. Circuit breaker will auto-recover when service is healthy
+
+      # Circuit Breaker Half-Open (informational)
+      - alert: KafkaCircuitBreakerHalfOpen
+        expr: kafka_circuit_breaker_state == 2
+        for: 1m
+        labels:
+          severity: info
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit breaker testing recovery for {{ $labels.component }}"
+          description: |
+            Circuit breaker is in HALF-OPEN state for {{ $labels.component }}.
+            Testing if service has recovered.
+
+            State: HALF-OPEN (2)
+            Component: {{ $labels.component }}
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/circuit-breaker-open.md"
+
+      # Circuit Breaker Frequent Failures
+      - alert: KafkaCircuitBreakerFailuresHigh
+        expr: rate(kafka_circuit_breaker_failures_total[10m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: circuit_breaker
+        annotations:
+          summary: "Frequent circuit breaker failures for {{ $labels.component }}"
+          description: |
+            Circuit breaker for {{ $labels.component }} is experiencing frequent failures.
+            This may indicate intermittent service issues.
+
+            Failure rate: {{ $value | humanize }} failures/second
+            Threshold: 5 failures/10 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/circuit-breaker-open.md"
+
+  - name: kafka_pipeline_performance
+    interval: 30s
+    rules:
+      # High Latency Alert (p95)
+      - alert: KafkaProcessingLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            rate(kafka_message_processing_duration_seconds_bucket[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "High message processing latency on {{ $labels.topic }}"
+          description: |
+            P95 processing latency is {{ $value | humanizeDuration }} on topic {{ $labels.topic }}.
+            Consumer group: {{ $labels.consumer_group }}
+
+            Current p95 latency: {{ $value | humanizeDuration }}
+            Threshold: 10 seconds
+            Duration: 5 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/scaling-operations.md"
+          remediation: |
+            1. Check for slow downstream operations (OneLake, Delta Lake)
+            2. Review download worker concurrency and resource usage
+            3. Verify network latency to external services
+            4. Consider scaling worker instances horizontally
+            5. Check for large file downloads impacting throughput
+
+      # High Latency Warning (p95)
+      - alert: KafkaProcessingLatencyWarning
+        expr: |
+          histogram_quantile(0.95,
+            rate(kafka_message_processing_duration_seconds_bucket[5m])
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Elevated processing latency on {{ $labels.topic }}"
+          description: |
+            P95 processing latency is {{ $value | humanizeDuration }} on topic {{ $labels.topic }}.
+
+            Current p95 latency: {{ $value | humanizeDuration }}
+            Warning threshold: 5 seconds
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/scaling-operations.md"
+
+      # Low Throughput Alert
+      - alert: KafkaThroughputLow
+        expr: |
+          sum(rate(kafka_messages_consumed_total{status="success"}[5m])) < 100
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Low message throughput across pipeline"
+          description: |
+            Overall pipeline throughput is {{ $value | humanize }} messages/second.
+            Expected throughput is at least 100 messages/second under normal load.
+
+            Current throughput: {{ $value | humanize }} messages/second
+            Expected minimum: 100 messages/second
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/scaling-operations.md"
+
+  - name: kafka_pipeline_delta
+    interval: 30s
+    rules:
+      # Delta Write Failure Alert
+      - alert: KafkaDeltaWriteFailures
+        expr: |
+          sum(rate(delta_writes_total{status="error"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: delta_lake
+        annotations:
+          summary: "Delta Lake write failures detected"
+          description: |
+            Delta Lake writes are failing for table {{ $labels.table }}.
+            Data may not be persisted to analytics store.
+
+            Failure rate: {{ $value | humanize }} failures/second
+            Duration: 5 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/incident-response.md"
+          remediation: |
+            1. Check Delta Lake connectivity and authentication
+            2. Verify OneLake workspace and table permissions
+            3. Review Delta write error logs for schema mismatches
+            4. Check for OneLake service outages
+            5. Note: Kafka processing continues, writes are retried
+
+      # Delta Write Latency High
+      - alert: KafkaDeltaWriteLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            rate(delta_write_duration_seconds_bucket[5m])
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: delta_lake
+        annotations:
+          summary: "High Delta Lake write latency for {{ $labels.table }}"
+          description: |
+            P95 Delta write latency is {{ $value | humanizeDuration }} for table {{ $labels.table }}.
+
+            Current p95 latency: {{ $value | humanizeDuration }}
+            Warning threshold: 30 seconds
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/scaling-operations.md"
+
+      # Delta Write Success Rate Low
+      - alert: KafkaDeltaWriteSuccessRateLow
+        expr: |
+          (
+            sum(rate(delta_writes_total{status="success"}[10m])) /
+            sum(rate(delta_writes_total[10m]))
+          ) < 0.95
+        for: 10m
+        labels:
+          severity: warning
+          component: delta_lake
+        annotations:
+          summary: "Low Delta Lake write success rate"
+          description: |
+            Delta write success rate is {{ $value | humanizePercentage }}.
+            Some analytics data may not be persisted.
+
+            Current success rate: {{ $value | humanizePercentage }}
+            Expected: > 95%
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/incident-response.md"
+
+  - name: kafka_pipeline_producer
+    interval: 30s
+    rules:
+      # Producer Disconnected Alert
+      - alert: KafkaProducerDisconnected
+        expr: kafka_connection_status{component="producer"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: producer
+        annotations:
+          summary: "Kafka producer disconnected"
+          description: |
+            Producer instance is disconnected from Kafka broker.
+            Messages cannot be produced to topics.
+
+            Component: {{ $labels.component }}
+            Duration: 1 minute
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/circuit-breaker-open.md"
+          remediation: |
+            1. Check Kafka broker availability
+            2. Verify network connectivity
+            3. Check authentication credentials (Azure AD token)
+            4. Review producer error logs
+
+  - name: kafka_pipeline_health
+    interval: 60s
+    rules:
+      # Dead Worker Detection (no messages consumed)
+      - alert: KafkaWorkerDead
+        expr: |
+          sum(rate(kafka_messages_consumed_total[5m])) by (consumer_group) == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "Worker appears dead - no messages consumed"
+          description: |
+            Consumer group {{ $labels.consumer_group }} has not consumed any messages in 10 minutes.
+            All worker instances may be down or stuck.
+
+            Messages consumed (5m rate): 0
+            Duration: 10 minutes
+          runbook_url: "https://github.com/verisk/pipeline/docs/runbooks/incident-response.md"
+          remediation: |
+            1. Check worker process health and logs
+            2. Verify workers are running (not crashed)
+            3. Check resource constraints (CPU, memory)
+            4. Restart worker instances if necessary
+            5. Check Kafka connectivity
+
+      # Memory Pressure Warning (placeholder - requires external monitoring)
+      # This alert would typically come from container/VM monitoring
+      # Included here as a reminder to configure in the actual deployment
+
+      # Example:
+      # - alert: KafkaWorkerMemoryPressure
+      #   expr: container_memory_usage_bytes{container="download-worker"} / container_spec_memory_limit_bytes{container="download-worker"} > 0.85
+      #   for: 5m
+      #   labels:
+      #     severity: warning
+      #     component: worker
+      #   annotations:
+      #     summary: "High memory usage for {{ $labels.container }}"
+      #     description: "Worker memory usage is {{ $value | humanizePercentage }} of limit"

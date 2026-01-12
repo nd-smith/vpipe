@@ -1,0 +1,485 @@
+"""
+Delta Events Worker - Writes events to Delta Lake xact_events table.
+
+This worker consumes events from the events.raw topic and writes them to
+the xact_events Delta table for analytics.
+
+Separated from EventIngesterWorker to follow single-responsibility principle:
+- EventIngesterWorker: Parse events → produce download tasks
+- DeltaEventsWorker: Parse events → write to Delta Lake
+
+Features:
+- Batch accumulation for efficient Delta writes
+- Configurable batch size via delta_events_batch_size
+- Optional batch limit for testing via delta_events_max_batches
+- Retry via Kafka topics with exponential backoff
+
+Consumer group: {prefix}-delta-events
+Input topic: events.raw
+Output: Delta table xact_events (no Kafka output)
+Retry topics: delta-events.retry.{delay}m
+DLQ topic: delta-events.dlq
+"""
+
+import asyncio
+import json
+import time
+import uuid
+from typing import Any, Dict, List, Optional
+
+from aiokafka.structs import ConsumerRecord
+
+from core.logging.setup import get_logger
+from config.config import KafkaConfig
+from kafka_pipeline.common.consumer import BaseKafkaConsumer
+from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.metrics import record_delta_write
+from kafka_pipeline.xact.retry.handler import DeltaRetryHandler
+from kafka_pipeline.xact.writers import DeltaEventsWriter
+
+logger = get_logger(__name__)
+
+
+class DeltaEventsWorker:
+    """
+    Worker to consume events and write them to Delta Lake in batches.
+
+    Processes EventMessage records from the events.raw topic and writes
+    them to the xact_events Delta table using the flatten_events() transform.
+
+    This worker runs independently of the EventIngesterWorker, consuming
+    from the same topic but with a different consumer group. This allows:
+    - Independent scaling of Delta writes vs download task creation
+    - Fault isolation between Delta writes and Kafka pipeline
+    - Batching optimization for Delta writes
+
+    Features:
+    - Batch accumulation for efficient Delta writes
+    - Configurable batch size via config.delta_events_batch_size
+    - Optional batch limit for testing via config.delta_events_max_batches
+    - Graceful shutdown with pending batch flush
+    - Failed batches route to Kafka retry topics
+    - Deduplication handled by daily Fabric maintenance job
+
+    Usage:
+        >>> config = KafkaConfig.from_env()
+        >>> producer = BaseKafkaProducer(config)
+        >>> await producer.start()
+        >>> worker = DeltaEventsWorker(
+        ...     config=config,
+        ...     producer=producer,
+        ...     events_table_path="abfss://..."
+        ... )
+        >>> await worker.start()
+    """
+
+    # Cycle output configuration
+    CYCLE_LOG_INTERVAL_SECONDS = 30
+
+    def __init__(
+        self,
+        config: KafkaConfig,
+        producer: BaseKafkaProducer,
+        events_table_path: str,
+        domain: str = "xact",
+    ):
+        """
+        Initialize Delta events worker.
+
+        Args:
+            config: Kafka configuration for consumer (topic names, connection settings).
+                    Also provides delta_events_batch_size and delta_events_max_batches.
+            producer: Kafka producer for retry topic routing (required).
+            events_table_path: Full abfss:// path to xact_events Delta table
+            domain: Domain identifier (default: "xact")
+        """
+        self.config = config
+        self.domain = domain
+        self.events_table_path = events_table_path
+        self.consumer: Optional[BaseKafkaConsumer] = None
+        self.producer = producer
+
+        # Batch configuration - use worker-specific config
+        processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
+        self.batch_size = processing_config.get("batch_size", 100)
+        self.max_batches = processing_config.get("max_batches")  # None = unlimited
+
+        # Retry configuration from worker processing settings
+        self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
+        self._retry_topic_prefix = processing_config.get("retry_topic_prefix", "delta-events.retry")
+        self._dlq_topic = processing_config.get("dlq_topic", "delta-events.dlq")
+
+        # Batch state
+        self._batch: List[Dict[str, Any]] = []
+        self._batches_written = 0
+        self._total_events_written = 0
+
+        # Cycle output tracking
+        self._records_processed = 0
+        self._records_succeeded = 0
+        self._last_cycle_log = time.monotonic()
+        self._cycle_count = 0
+        self._cycle_task: Optional[asyncio.Task] = None
+        self._running = False
+
+        # Initialize Delta writer
+        if not events_table_path:
+            raise ValueError("events_table_path is required for DeltaEventsWorker")
+
+        self.delta_writer = DeltaEventsWriter(
+            table_path=events_table_path,
+        )
+
+        # Initialize retry handler
+        self.retry_handler = DeltaRetryHandler(
+            config=config,
+            producer=producer,
+            table_path=events_table_path,
+            retry_delays=self._retry_delays,
+            retry_topic_prefix=self._retry_topic_prefix,
+            dlq_topic=self._dlq_topic,
+        )
+
+        # Health check server - use worker-specific port from config
+        health_port = processing_config.get("health_port", 8093)
+        self.health_server = HealthCheckServer(
+            port=health_port,
+            worker_name="xact-delta-events",
+        )
+
+        logger.info(
+            "Initialized DeltaEventsWorker",
+            extra={
+                "domain": domain,
+                "worker_name": "delta_events_writer",
+                "consumer_group": config.get_consumer_group(domain, "delta_events_writer"),
+                "events_topic": config.get_topic(domain, "events"),
+                "events_table_path": events_table_path,
+                "batch_size": self.batch_size,
+                "max_batches": self.max_batches,
+                "retry_delays": self._retry_delays,
+                "retry_topic_prefix": self._retry_topic_prefix,
+                "dlq_topic": self._dlq_topic,
+            },
+        )
+
+    async def start(self) -> None:
+        """
+        Start the delta events worker.
+
+        Initializes consumer and begins consuming events from the events.raw topic.
+        Runs until stop() is called or max_batches is reached (if configured).
+
+        Raises:
+            Exception: If consumer fails to start
+        """
+        logger.info(
+            "Starting DeltaEventsWorker",
+            extra={
+                "batch_size": self.batch_size,
+                "max_batches": self.max_batches,
+            },
+        )
+        self._running = True
+
+        # Start health check server first
+        await self.health_server.start()
+
+        # Start cycle output background task
+        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+
+        # Create and start consumer with message handler
+        # Disable per-message commits - we commit after batch writes to ensure
+        # offsets are only committed after data is durably written to Delta Lake
+        self.consumer = BaseKafkaConsumer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="delta_events_writer",
+            topics=[self.config.get_topic(self.domain, "events_ingested")],
+            message_handler=self._handle_event_message,
+            enable_message_commit=False,
+        )
+
+        # Update health check readiness
+        self.health_server.set_ready(kafka_connected=True)
+
+        try:
+            # Start consumer (this blocks until stopped)
+            await self.consumer.start()
+        finally:
+            self._running = False
+
+    async def stop(self) -> None:
+        """
+        Stop the delta events worker.
+
+        Flushes any pending batch, then gracefully shuts down consumer,
+        committing any pending offsets.
+        """
+        logger.info("Stopping DeltaEventsWorker")
+        self._running = False
+
+        # Cancel cycle output task
+        if self._cycle_task and not self._cycle_task.done():
+            self._cycle_task.cancel()
+            try:
+                await self._cycle_task
+            except asyncio.CancelledError:
+                pass
+
+        # Flush any remaining events in the batch
+        if self._batch:
+            logger.info(
+                "Flushing remaining batch on shutdown",
+                extra={"batch_size": len(self._batch)},
+            )
+            await self._flush_batch()
+
+        # Stop consumer
+        if self.consumer:
+            await self.consumer.stop()
+
+        # Stop health check server
+        await self.health_server.stop()
+
+        logger.info(
+            "DeltaEventsWorker stopped successfully",
+            extra={
+                "batches_written": self._batches_written,
+                "records_succeeded": self._records_succeeded,
+            },
+        )
+
+    async def _handle_event_message(self, record: ConsumerRecord) -> None:
+        """
+        Process a single event message from Kafka.
+
+        Adds the event to the batch and flushes when batch is full.
+
+        Args:
+            record: ConsumerRecord containing EventMessage JSON
+        """
+        # Track events received for cycle output
+        self._records_processed += 1
+
+        # Check if we've reached max batches limit
+        if self.max_batches is not None and self._batches_written >= self.max_batches:
+            logger.info(
+                "Reached max_batches limit, stopping consumer",
+                extra={
+                    "max_batches": self.max_batches,
+                    "batches_written": self._batches_written,
+                },
+            )
+            if self.consumer:
+                await self.consumer.stop()
+            return
+
+        # Decode message - keep as raw dict, don't convert to EventMessage
+        try:
+            message_data = json.loads(record.value.decode("utf-8"))
+        except json.JSONDecodeError as e:
+            logger.error(
+                "Failed to parse message JSON",
+                extra={
+                    "topic": record.topic,
+                    "partition": record.partition,
+                    "offset": record.offset,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise
+
+        # Add to batch (raw dict with data already as dict)
+        self._batch.append(message_data)
+
+        logger.debug(
+            "Added event to batch",
+            extra={
+                "trace_id": message_data.get("traceId"),
+                "event_id": message_data.get("eventId"),
+                "batch_size": len(self._batch),
+                "batch_threshold": self.batch_size,
+            },
+        )
+
+        # Flush batch if full
+        if len(self._batch) >= self.batch_size:
+            await self._flush_batch()
+
+    async def _flush_batch(self) -> None:
+        """
+        Write the accumulated batch to Delta Lake.
+
+        On success: clears batch and updates counters.
+        On failure: routes batch to Kafka retry topic.
+        """
+        if not self._batch:
+            return
+
+        # Generate short batch ID for log correlation
+        batch_id = uuid.uuid4().hex[:8]
+        batch_size = len(self._batch)
+        batch_to_write = self._batch
+        self._batch = []  # Clear immediately to accept new events
+
+        success = await self._write_batch(batch_to_write, batch_id)
+
+        if success:
+            self._batches_written += 1
+            self._records_succeeded += batch_size
+
+            # Commit offsets after successful Delta write
+            # This ensures at-least-once semantics: offsets are only committed
+            # after data is durably written to Delta Lake
+            if self.consumer:
+                await self.consumer.commit()
+
+            # Build progress message
+            if self.max_batches:
+                progress = f"Batch {self._batches_written}/{self.max_batches}"
+            else:
+                progress = f"Batch {self._batches_written}"
+
+            logger.info(
+                f"{progress}: Successfully wrote {batch_size} events to Delta",
+                extra={
+                    "batch_id": batch_id,
+                    "batch_size": batch_size,
+                    "batches_written": self._batches_written,
+                    "records_succeeded": self._records_succeeded,
+                    "max_batches": self.max_batches,
+                },
+            )
+
+            # Stop immediately if we've reached max_batches
+            if self.max_batches and self._batches_written >= self.max_batches:
+                logger.info(
+                    "Reached max_batches limit, stopping consumer",
+                    extra={
+                        "batch_id": batch_id,
+                        "max_batches": self.max_batches,
+                        "batches_written": self._batches_written,
+                    },
+                )
+                if self.consumer:
+                    await self.consumer.stop()
+        else:
+            # Route to Kafka retry topic
+            trace_ids = []
+            event_ids = []
+            for e in batch_to_write[:10]:
+                if e.get("traceId") or e.get("trace_id"):
+                    trace_ids.append(e.get("traceId") or e.get("trace_id"))
+                if e.get("eventId") or e.get("event_id"):
+                    event_ids.append(e.get("eventId") or e.get("event_id"))
+            logger.warning(
+                "Batch write failed, routing to retry topic",
+                extra={
+                    "batch_id": batch_id,
+                    "batch_size": batch_size,
+                    "trace_ids": trace_ids,
+                    "event_ids": event_ids,
+                },
+            )
+            await self.retry_handler.handle_batch_failure(
+                batch=batch_to_write,
+                error=Exception("Delta write returned failure status"),
+                retry_count=0,
+                error_category="transient",
+                batch_id=batch_id,
+            )
+
+    async def _write_batch(self, batch: List[Dict[str, Any]], batch_id: str) -> bool:
+        """
+        Attempt to write a batch to Delta Lake.
+
+        Args:
+            batch: List of event dictionaries to write
+            batch_id: Short identifier for log correlation
+
+        Returns:
+            True if write succeeded, False otherwise
+        """
+        batch_size = len(batch)
+
+        try:
+            success = await self.delta_writer.write_raw_events(batch, batch_id=batch_id)
+
+            record_delta_write(
+                table="xact_events",
+                event_count=batch_size,
+                success=success,
+            )
+
+            return success
+
+        except Exception as e:
+            trace_ids = []
+            event_ids = []
+            for evt in batch[:10]:
+                if evt.get("traceId") or evt.get("trace_id"):
+                    trace_ids.append(evt.get("traceId") or evt.get("trace_id"))
+                if evt.get("eventId") or evt.get("event_id"):
+                    event_ids.append(evt.get("eventId") or evt.get("event_id"))
+            logger.error(
+                "Unexpected error writing batch to Delta",
+                extra={
+                    "batch_id": batch_id,
+                    "batch_size": batch_size,
+                    "error": str(e),
+                    "trace_ids": trace_ids,
+                    "event_ids": event_ids,
+                },
+                exc_info=True,
+            )
+            record_delta_write(
+                table="xact_events",
+                event_count=batch_size,
+                success=False,
+            )
+            return False
+
+    async def _periodic_cycle_output(self) -> None:
+        """
+        Background task for periodic cycle logging.
+
+        Logs processing statistics at regular intervals for operational visibility.
+        """
+        logger.info(
+            "Cycle 0: processed=0, batches_written=0, pending=0 [cycle output every %ds]",
+            self.CYCLE_LOG_INTERVAL_SECONDS,
+        )
+        self._last_cycle_log = time.monotonic()
+
+        try:
+            while self._running:
+                await asyncio.sleep(1)
+
+                # Log cycle output at regular intervals
+                cycle_elapsed = time.monotonic() - self._last_cycle_log
+                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
+                    self._cycle_count += 1
+                    self._last_cycle_log = time.monotonic()
+
+                    logger.info(
+                        f"Cycle {self._cycle_count}: processed={self._records_processed}, "
+                        f"batches_written={self._batches_written}, pending={len(self._batch)}",
+                        extra={
+                            "cycle": self._cycle_count,
+                            "records_processed": self._records_processed,
+                            "batches_written": self._batches_written,
+                            "records_succeeded": self._records_succeeded,
+                            "pending_batch_size": len(self._batch),
+                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
+                        },
+                    )
+
+        except asyncio.CancelledError:
+            logger.debug("Periodic cycle output task cancelled")
+            raise
+
+
+__all__ = ["DeltaEventsWorker"]

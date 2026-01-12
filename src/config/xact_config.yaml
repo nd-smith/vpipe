@@ -1,0 +1,290 @@
+# =============================================================================
+# XACT DOMAIN CONFIGURATION
+# =============================================================================
+# Verisk XACT pipeline - property claim assignments and attachments
+# This file contains all XACT-specific Kafka topics, workers, retry config,
+# Delta table paths, and Eventhouse integration settings.
+# =============================================================================
+
+kafka:
+  # ===========================================================================
+  # XACT DOMAIN CONFIGURATION
+  # Verisk XACT pipeline - property claim assignments and attachments
+  # ===========================================================================
+  xact:
+    # -------------------------------------------------------------------------
+    # Topic Configuration
+    # -------------------------------------------------------------------------
+    topics:
+      events: "xact.events.raw"                  # Raw events from Event Hub/Eventhouse
+      downloads_pending: "xact.downloads.pending"  # Download tasks awaiting processing
+      downloads_cached: "xact.downloads.cached"    # Downloads cached locally, awaiting upload
+      downloads_results: "xact.downloads.results"  # Upload results for Delta processing
+      events_ingested: "xact.events.ingested"        # Events after ingestion processing
+      dlq: "xact.downloads.dlq"                    # Dead letter queue for failed messages
+
+    # Prefix for consumer group names in this domain
+    # Group names will be: {prefix}-{worker_name}
+    consumer_group_prefix: "xact"
+
+    # Retry configuration for download retry topics
+    # Delays in seconds for each retry attempt: 5min, 10min
+    retry_delays: [300, 600]
+
+    # Maximum number of retry attempts before sending to DLQ
+    max_retries: 4
+
+    # -------------------------------------------------------------------------
+    # Event Ingester Worker
+    # Consumes: xact.events.raw
+    # Produces to: xact.downloads.pending
+    # Purpose: Parse events, extract attachment metadata, create download tasks
+    # -------------------------------------------------------------------------
+    event_ingester:
+      consumer:
+        # Consumer group name (overrides default pattern)
+        group_id: "xact-event-ingester"
+
+        # Larger batches for high-volume event ingestion
+        max_poll_records: 1000
+
+        # Longer processing window for batch processing
+        max_poll_interval_ms: 3000000  # 10 minutes
+
+        # More tolerance for processing delays
+        session_timeout_ms: 45000  # 45 seconds
+
+        # Wait for more data to accumulate before returning
+        fetch_min_bytes: 10240  # 10 KB
+
+        # Maximum wait time for batch accumulation
+        fetch_max_wait_ms: 1000  # 1 second
+
+      producer:
+        # Only wait for leader acknowledgment (faster, slightly less durable)
+        acks: "1"
+
+        # Larger batches for better throughput
+        batch_size: 32768  # 32 KB
+
+        # Wait briefly for batch to fill
+        linger_ms: 100  # 100 milliseconds
+
+        # Fast compression for high throughput
+        compression_type: "lz4"
+
+      processing:
+        # Application-level batch size for event processing
+        batch_size: 1000
+
+        # Optional limit on number of batches to process (for testing)
+        # null = unlimited, integer = stop after N batches
+        max_batches: null
+
+        # Health check port
+        health_port: 8080
+
+    # -------------------------------------------------------------------------
+    # Download Worker
+    # Consumes: xact.downloads.pending + xact.downloads.retry.*
+    # Produces to: xact.downloads.cached
+    # Purpose: Download attachments from S3, cache locally for upload
+    # -------------------------------------------------------------------------
+    download_worker:
+      consumer:
+        group_id: "xact-download-worker"
+
+        # Smaller batches - downloads are slow operations
+        max_poll_records: 20
+
+        # Very long processing window - downloads can take time
+        max_poll_interval_ms: 900000  # 15 minutes
+
+        # Longer timeout for slow downloads
+        session_timeout_ms: 60000  # 60 seconds
+
+        # Wait longer for batch to accumulate
+        fetch_max_wait_ms: 2000  # 2 seconds
+
+      producer:
+        # Ensure cached download metadata is durable
+        acks: "all"
+
+        # No compression for small metadata messages
+        compression_type: "none"
+
+      processing:
+        # Maximum number of concurrent downloads (1-50)
+        # Higher = more throughput but more memory and connections
+        concurrency: 20
+
+        # Application batch size for download processing
+        batch_size: 20
+
+        # Timeout for individual download operations (seconds)
+        timeout_seconds: 60
+
+    # -------------------------------------------------------------------------
+    # Upload Worker
+    # Consumes: xact.downloads.cached
+    # Produces to: xact.downloads.results
+    # Purpose: Upload cached files to OneLake, produce results
+    # -------------------------------------------------------------------------
+    upload_worker:
+      consumer:
+        group_id: "xact-upload-worker"
+
+        # Smaller batches - uploads are slow operations
+        max_poll_records: 30
+
+        # Very long processing window - uploads can take time
+        max_poll_interval_ms: 900000  # 15 minutes
+
+        # Longer timeout for slow uploads
+        session_timeout_ms: 60000  # 60 seconds
+
+      producer:
+        # Ensure results are durable
+        acks: "all"
+
+        # No compression for metadata
+        compression_type: "none"
+
+      processing:
+        # Maximum number of concurrent uploads (1-50)
+        concurrency: 50
+
+        # Application batch size for upload processing
+        batch_size: 30
+
+    # -------------------------------------------------------------------------
+    # Delta Events Writer Worker
+    # Consumes: xact.downloads.results
+    # Produces to: delta-events.retry.*, delta-events.dlq
+    # Purpose: Write events to Delta tables in batches
+    # -------------------------------------------------------------------------
+    delta_events_writer:
+      consumer:
+        group_id: "xact-delta-events-writer"
+
+        # Large batches for efficient Delta writes
+        max_poll_records: 4000
+
+        # Longer processing window for batch writing
+        max_poll_interval_ms: 3000000  # 10 minutes
+
+        # More tolerance for batch processing
+        session_timeout_ms: 45000  # 45 seconds
+
+      producer:
+        # Ensure retry/DLQ messages are durable
+        acks: "all"
+
+        # Good compression for retry/DLQ topics
+        compression_type: "snappy"
+
+        max_request_size_bytes: 10485760  # 10
+
+      processing:
+        # Number of events per Delta batch write
+        batch_size: 4000
+
+        # Optional limit for testing (null = unlimited)
+        max_batches: null
+
+        # Flush pending events after this many seconds without a write (seconds)
+        # Ensures events are written even during low-traffic periods
+        flush_timeout_seconds: 60  # 2 minutes
+
+        # Retry delays for failed Delta writes (seconds)
+        retry_delays: [300, 600]  # 5m, 10m
+
+        # Maximum retries before DLQ
+        max_retries: 2
+
+        # Topic prefix for retry topics
+        retry_topic_prefix: "delta-events.retry"
+
+        # Dead letter queue topic
+        dlq_topic: "delta-events.dlq"
+
+# =============================================================================
+# DELTA LAKE TABLE CONFIGURATION - XACT DOMAIN
+# =============================================================================
+# Paths to Delta tables for the XACT pipeline.
+# Loaded from environment variables (see .env file)
+delta:
+  # Enable/disable Delta Lake writes globally
+  enable_writes: true
+
+  # XACT domain tables
+  xact:
+    # Path to xact_events table (for deduplication and analytics)
+    events_table_path: "${XACT_DELTA_EVENTS_TABLE}"
+
+    # Path to xact_attachments table (for tracking downloaded attachments)
+    inventory_table_path: "${XACT_DELTA_INVENTORY_TABLE}"
+
+    # Path to xact_attachments_failed table (for tracking permanent failures)
+    # Optional: If not set, permanent failures are only tracked in DLQ
+    failed_table_path: ""
+
+# =============================================================================
+# EVENTHOUSE INTEGRATION - XACT DOMAIN
+# =============================================================================
+# Configuration for Kafka pipeline event source from Eventhouse
+# Loaded from environment variables (see .env file)
+xact_eventhouse:
+  # ---------------------------------------------------------------------------
+  # Connection Settings
+  # ---------------------------------------------------------------------------
+  # Eventhouse cluster URL
+  cluster_url: "${EVENTHOUSE_CLUSTER_URL}"
+
+  # Database name
+  database: "${XACT_EVENTHOUSE_DATABASE}"
+
+  # ---------------------------------------------------------------------------
+  # Query Settings
+  # ---------------------------------------------------------------------------
+  # Maximum time for query execution (seconds)
+  query_timeout_seconds: 240
+
+  # Maximum retry attempts for failed queries
+  max_retries: 2
+
+  # Base delay for exponential backoff (seconds)
+  retry_base_delay_seconds: 10
+
+  # Maximum delay between retries (seconds)
+  retry_max_delay_seconds: 30.0
+
+  # Maximum concurrent connections
+  max_connections: 5
+
+  # ---------------------------------------------------------------------------
+  # Poller Settings
+  # ---------------------------------------------------------------------------
+  poller:
+    # How often to poll for new events (seconds)
+    poll_interval_seconds: 3
+
+    # Number of events to fetch per poll
+    batch_size: 8000
+
+    # Source table to query for events
+    source_table: "${XACT_EVENTHOUSE_SOURCE_TABLE}"
+
+    # Path to events table for tracking processed events
+    events_table_path: ""
+
+    # Backfill settings
+    backfill_start_stamp: null
+    backfill_stop_stamp: null
+    bulk_backfill: false
+
+    # Backpressure: pause polling if Kafka lag exceeds this
+    max_kafka_lag: 500000
+
+    # How often to check Kafka lag (seconds)
+    lag_check_interval_seconds: 60

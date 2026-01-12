@@ -1,0 +1,1 @@
+"""ClaimX domain tests."""

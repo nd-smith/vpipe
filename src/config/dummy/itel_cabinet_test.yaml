@@ -1,0 +1,130 @@
+# =============================================================================
+# itel Cabinet API Plugin Test Configuration
+# =============================================================================
+# This configuration generates dummy data that triggers the itel Cabinet API
+# plugin workflow. Use this to test the complete pipeline end-to-end without
+# needing production ClaimX data.
+#
+# Usage:
+#   METHOD 1: Add this configuration to your main config.yaml under the 'dummy:' key
+#   METHOD 2: Use this as a reference and set env vars (see below)
+#
+# What this does:
+#   1. Generates ClaimX events with task_id=32513 (itel Cabinet Repair Form)
+#   2. Events include realistic form data and attachments
+#   3. Plugin triggers and publishes to itel.cabinet.task.tracking topic
+#   4. Worker consumes and processes through enrichment pipeline
+#   5. Data written to Delta tables or sent to itel API
+#
+# Related Files:
+#   - config/plugins/itel_cabinet_api/config.yaml - Plugin configuration
+#   - config/plugins/itel_cabinet_api/workers.yaml - Worker configuration
+# =============================================================================
+
+# Generator configuration
+generator:
+  # Use itel Cabinet API plugin profile
+  # This ensures all generated events have task_id=32513 and include form data
+  plugin_profile: "itel_cabinet_api"
+
+  # Optional: Use seed for reproducible test data
+  # seed: 42
+
+  # Base URL for dummy file server (will be auto-configured)
+  base_url: "http://localhost:8765"
+
+  # Don't include failures for cleaner testing
+  include_failures: false
+
+# File server configuration
+file_server:
+  host: "0.0.0.0"
+  port: 8765
+  default_file_size: 100000
+  max_file_size: 10000000
+
+# Which domains to generate events for
+# For itel Cabinet testing, we only need ClaimX
+domains:
+  - claimx
+
+# Event generation settings
+# Generate 10 events per minute (1 every 6 seconds)
+events_per_minute: 10.0
+
+# Burst mode: Generate events in bursts for load testing
+# Set to true to test high-volume scenarios
+burst_mode: false
+burst_size: 50
+burst_interval_seconds: 60
+
+# Scenario settings
+# Generate all ClaimX event types (CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED, etc.)
+include_all_event_types: true
+
+# Max concurrent claims to track in memory
+max_active_claims: 100
+
+# Runtime limits
+# Stop after 100 events (remove for unlimited)
+max_events: 100
+
+# Stop after 30 minutes (remove for unlimited)
+# max_runtime_seconds: 1800
+
+# =============================================================================
+# Configuration Notes
+# =============================================================================
+#
+# Plugin Profile:
+#   When plugin_profile is set to "itel_cabinet_api", the dummy data generator
+#   will create ClaimX events specifically for itel Cabinet Repair Forms:
+#   - task_id: 32513
+#   - event_type: CUSTOM_TASK_ASSIGNED or CUSTOM_TASK_COMPLETED
+#   - Includes complete form data (customer info, cabinet details, photos)
+#   - Includes mock ClaimX API response structure
+#
+# Event Types Generated:
+#   - CUSTOM_TASK_ASSIGNED (30%): Task is assigned but not completed
+#   - CUSTOM_TASK_COMPLETED (70%): Task is completed with full form data
+#
+# Form Data Includes:
+#   - Customer information (name, email, phone)
+#   - Damage description
+#   - Cabinet sections (lower, upper, full height, island)
+#   - Linear feet measurements
+#   - Number of damaged boxes
+#   - Counter types
+#   - Photo attachments grouped by question
+#
+# Testing Workflow:
+#   1. Start Kafka (if not running)
+#   2. Start the itel Cabinet tracking worker:
+#      python -m kafka_pipeline.workers.itel_cabinet_tracking_worker
+#   3. Start the dummy data source with this config:
+#      python -m kafka_pipeline --mode dummy --config config/dummy/itel_cabinet_test.yaml
+#   4. Watch the worker logs for processing:
+#      tail -f logs/itel/tracking_worker.log
+#   5. Check Delta tables for written data:
+#      SELECT * FROM claimx_itel_forms ORDER BY ingested_at DESC LIMIT 10
+#
+# Monitoring:
+#   - Dummy source logs: Shows event generation progress
+#   - Worker logs: Shows enrichment pipeline processing
+#   - Kafka topic: itel.cabinet.task.tracking
+#   - Success topic: itel.cabinet.task.tracking.success
+#   - Error topic: itel.cabinet.task.tracking.errors
+#
+# Troubleshooting:
+#   - No events generated: Check domains includes "claimx"
+#   - Wrong event type: Verify plugin_profile is "itel_cabinet_api"
+#   - Plugin not triggered: Ensure plugin is enabled in config/plugins/itel_cabinet_api/config.yaml
+#   - Worker not consuming: Check worker is running and topic exists
+#
+# Advanced Testing:
+#   - Burst mode: Set burst_mode=true to test high-volume scenarios
+#   - Seed for reproducibility: Set seed=42 for deterministic data
+#   - Increase rate: Set events_per_minute=60 for faster testing
+#   - Unlimited: Remove max_events and max_runtime_seconds
+#
+# =============================================================================

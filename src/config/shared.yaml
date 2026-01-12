@@ -1,0 +1,179 @@
+# =============================================================================
+# SHARED CONFIGURATION
+# =============================================================================
+# This file contains configuration shared across all domains (XACT, ClaimX)
+# including connection settings, defaults, storage paths, and global settings.
+#
+# Configuration is loaded from YAML files in the config/ directory.
+# Environment variables ARE supported using ${VAR_NAME} syntax.
+# Sensitive values should be loaded from .env file (see .env.example).
+# =============================================================================
+
+# =============================================================================
+# PIPELINE EVENT SOURCE
+# =============================================================================
+# Determines which event source the Kafka pipeline uses for ingestion
+event_source: "eventhouse"  # Options: "eventhouse" or "eventhub"
+
+# =============================================================================
+# KAFKA CONNECTION AND DEFAULTS
+# =============================================================================
+kafka:
+  # ===========================================================================
+  # SHARED CONNECTION SETTINGS
+  # Applied to all consumers and producers across all domains
+  # ===========================================================================
+  connection:
+    # Comma-separated list of Kafka broker addresses (host:port)
+    bootstrap_servers: "localhost:9094"
+
+    # Security protocol for broker communication
+    # Options: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+    security_protocol: "PLAINTEXT"
+
+    # SASL authentication mechanism
+    # Options: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
+    sasl_mechanism: "OAUTHBEARER"
+
+    # Username for SASL/PLAIN authentication or Azure Event Hubs
+    sasl_plain_username: ""
+
+    # Password for SASL/PLAIN authentication or Azure Event Hubs
+    sasl_plain_password: ""
+
+    # Maximum time to wait for any request to complete (milliseconds)
+    # Prevents requests from hanging indefinitely during network issues
+    request_timeout_ms: 120000  # 2 minutes
+
+    # How often to refresh cluster metadata (milliseconds)
+    # Lower values detect broker changes faster, but increase overhead
+    metadata_max_age_ms: 300000  # 5 minutes
+
+    # Close idle connections after this duration (milliseconds)
+    # Should be longer than max_poll_interval_ms to avoid reconnects
+    connections_max_idle_ms: 540000  # 9 minutes
+
+  # ===========================================================================
+  # DEFAULT CONSUMER SETTINGS
+  # Applied to all consumers unless overridden in worker-specific config
+  # ===========================================================================
+  consumer_defaults:
+    # Where to start consuming if no committed offset exists
+    # Options: earliest (start from beginning), latest (only new messages), none (error)
+    auto_offset_reset: "earliest"
+
+    # Automatically commit offsets after processing
+    # false = manual commit (recommended for at-least-once processing)
+    enable_auto_commit: false
+
+    # Maximum number of records returned in a single poll() call
+    # Higher = more throughput but more memory. Lower = less latency
+    max_poll_records: 1000
+
+    # Maximum time between poll() calls before consumer is considered dead (milliseconds)
+    # Must be > session_timeout_ms. Increase for slow message processing
+    max_poll_interval_ms: 300000
+
+    # Minimum bytes to accumulate before returning from a fetch request
+    # Higher = better throughput, higher latency. 1 = return immediately
+    fetch_min_bytes: 1
+
+    # Maximum time to wait for fetch_min_bytes to accumulate (milliseconds)
+    # Controls how long broker waits before returning data
+    fetch_max_wait_ms: 500
+
+    # Timeout for detecting consumer failures (milliseconds)
+    # Consumer is removed from group if no heartbeat received within this time
+    session_timeout_ms: 60000
+
+    # How often to send heartbeats to the broker (milliseconds)
+    # Must be < session_timeout_ms / 3 to avoid false timeouts
+    heartbeat_interval_ms: 3000
+
+    # Strategy for assigning partitions to consumers in a group
+    # Options: RoundRobin, Range, Sticky
+    partition_assignment_strategy: "RoundRobin"
+
+  # ===========================================================================
+  # DEFAULT PRODUCER SETTINGS
+  # Applied to all producers unless overridden in worker-specific config
+  # ===========================================================================
+  producer_defaults:
+    # Number of acknowledgments producer requires before considering send successful
+    # Options: 0 (no ack), 1 (leader only), all (all in-sync replicas)
+    # all = most durable but slowest, 0 = fastest but may lose data
+    acks: "all"
+
+    # Maximum number of retry attempts for failed sends
+    # Producer will retry transient errors up to this many times
+    retries: 3
+
+    # Delay between retry attempts (milliseconds)
+    # Exponential backoff may be applied on top of this base delay
+    retry_backoff_ms: 1000
+
+    # Maximum size of a batch in bytes before sending
+    # Larger batches = better throughput but higher latency and memory
+    batch_size: 16384  # 16 KB
+
+    # Time to wait for batch to fill before sending (milliseconds)
+    # 0 = send immediately, >0 = wait up to this long to batch more records
+    linger_ms: 10
+
+    # Compression algorithm for message batches
+    # Options: none, gzip, snappy, lz4, zstd
+    # Compression reduces network bandwidth but increases CPU usage
+    compression_type: "lz4"
+
+    # Maximum number of unacknowledged requests per connection
+    # Lower values provide stronger ordering guarantees
+    max_in_flight_requests_per_connection: 5
+
+    # Total bytes of buffer memory for producer (bytes)
+    # Producer will block if buffer fills up
+    buffer_memory: 33554432  # 32 MB
+
+# =============================================================================
+# SHARED STORAGE CONFIGURATION
+# =============================================================================
+storage:
+  # OneLake paths by domain (abfss:// URIs)
+  # Format: abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Files/{domain}
+  # Loaded from ONELAKE_BASE_PATH environment variable
+  onelake_domain_paths:
+    xact: "${ONELAKE_BASE_PATH}/xact"
+    claimx: "${ONELAKE_BASE_PATH}/claimx"
+
+  # Fallback path if domain not in onelake_domain_paths
+  onelake_base_path: "${ONELAKE_BASE_PATH}"
+
+  # Local directory for caching downloads awaiting upload
+  cache_dir: "/tmp/kafka_pipeline_cache"
+
+# =============================================================================
+# SHARED SETTINGS
+# =============================================================================
+health:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  log_dir: "logs"
+
+observability:
+  json_logs: true
+  log_upload_enabled: true
+  log_upload_interval_cycles: 10
+  log_retention_days: 7
+  memory_checkpoints_enabled: true
+  memory_checkpoint_level: "DEBUG"
+  memory_profiling_enabled: true
+  memory_snapshot_interval: 5
+  memory_alert_threshold_mb: 4096
+
+# Runtime metadata
+worker_id: "worker-01"
+test_mode: false

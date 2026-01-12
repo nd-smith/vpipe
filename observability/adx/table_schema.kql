@@ -1,0 +1,18 @@
+// Create table for Pipeline Logs
+.create table PipelineLogs (
+    Timestamp: datetime,
+    Level: string,
+    Message: string,
+    Logger: string,
+    Module: string,
+    TraceId: string,
+    WorkerId: string,
+    CycleId: string,
+    Domain: string,
+    Stage: string,
+    Exception: string,
+    Properties: dynamic
+)
+
+// Enable streaming ingestion for low latency
+.alter table PipelineLogs policy streamingingestion enable
