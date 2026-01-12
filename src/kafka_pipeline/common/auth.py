@@ -264,7 +264,17 @@ class AzureAuth:
             raise AzureAuthError(f"Azure CLI token request timed out for {resource}")
 
     def get_storage_token(self, force_refresh: bool = False) -> Optional[str]:
-        """Get token for OneLake/ADLS storage operations."""
+        """
+        Get token for OneLake/ADLS storage operations.
+
+        Priority order:
+        1. Token file (if AZURE_TOKEN_FILE configured)
+        2. Azure CLI (if available and token file fails)
+        3. None (for SPN mode which uses credentials directly)
+        """
+        token = None
+
+        # Try token file first (highest priority)
         if self.token_file:
             # Check if file was modified - if so, clear cache to force re-read
             if self._is_token_file_modified():
@@ -291,14 +301,15 @@ class AzureAuth:
                 log_with_context(
                     logger,
                     logging.WARNING,
-                    "Token file configured but unavailable",
+                    "Token file failed, will try CLI fallback",
                     token_file=self.token_file,
                     error=str(e),
                 )
-                return None
+                # Fall through to try CLI as fallback
 
-        if self.use_cli:
-            # Check cache first for CLI mode too
+        # Try CLI (either primary mode or fallback from file failure)
+        if self.use_cli or (self.token_file and token is None):
+            # Check cache first for CLI mode
             if not force_refresh:
                 cached = self._cache.get(self.STORAGE_RESOURCE)
                 if cached:
@@ -313,6 +324,12 @@ class AzureAuth:
             try:
                 token = self._fetch_cli_token(self.STORAGE_RESOURCE)
                 self._cache.set(self.STORAGE_RESOURCE, token)
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "Acquired token from CLI" + (" (fallback from file)" if self.token_file else ""),
+                    resource=self.STORAGE_RESOURCE,
+                )
                 return token
             except AzureAuthError as e:
                 log_with_context(
@@ -321,9 +338,9 @@ class AzureAuth:
                     "Azure CLI token acquisition failed",
                     error=str(e),
                 )
-                return None
+                # Continue to return None (SPN mode or no valid auth)
 
-        # SPN mode doesn't use tokens - return None to use credentials
+        # SPN mode doesn't use tokens - return None to use credentials directly
         return None
 
     def get_storage_options(self, force_refresh: bool = False) -> Dict[str, str]:
@@ -350,8 +367,24 @@ class AzureAuth:
         return {}
 
     def clear_cache(self, resource: Optional[str] = None) -> None:
-        """Clear cached tokens."""
+        """
+        Clear cached tokens and force re-read of token file.
+
+        On auth errors, this should be called to:
+        1. Clear in-memory token cache
+        2. Reset file mtime tracking so next call re-reads from file
+        """
         self._cache.clear(resource)
+        # Also reset file mtime to force re-read on next access
+        # This ensures we pick up any token file updates from external refresh scripts
+        self._token_file_mtime = None
+        log_with_context(
+            logger,
+            logging.DEBUG,
+            "Cleared auth cache and reset file tracking",
+            resource=resource or "all",
+            token_file=self.token_file,
+        )
 
 
 # =============================================================================
