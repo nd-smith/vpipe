@@ -818,6 +818,7 @@ async def run_claimx_enrichment_worker(
         config=kafka_config,
         domain="claimx",
         enable_delta_writes=pipeline_config.enable_delta_writes,
+        projects_table_path=pipeline_config.claimx_projects_table_path,
     )
     shutdown_event = get_shutdown_event()
 

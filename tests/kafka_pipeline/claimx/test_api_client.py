@@ -23,7 +23,7 @@ from kafka_pipeline.claimx.api_client import (
     ClaimXApiError,
     classify_api_error,
 )
-from kafka_pipeline.common.exceptions import ErrorCategory
+from core.types import ErrorCategory
 
 
 # ============================================================================

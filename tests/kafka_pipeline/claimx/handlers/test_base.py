@@ -25,7 +25,7 @@ from kafka_pipeline.claimx.handlers.base import (
 )
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
-from kafka_pipeline.common.exceptions import ErrorCategory
+from core.types import ErrorCategory
 
 
 # =================================================================

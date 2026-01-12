@@ -102,6 +102,7 @@ class ClaimXEnrichmentWorker:
         enrichment_topic: str = "",
         download_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
+        projects_table_path: str = "",
     ):
         """
         Initialize ClaimX enrichment worker.
@@ -114,6 +115,7 @@ class ClaimXEnrichmentWorker:
             enrichment_topic: Topic name for enrichment tasks (e.g., "claimx.enrichment.pending")
             download_topic: Topic name for download tasks (e.g., "claimx.downloads.pending")
             producer_config: Optional separate Kafka config for producer
+            projects_table_path: Path to projects Delta table (for cache preloading)
         """
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -191,9 +193,7 @@ class ClaimXEnrichmentWorker:
         self._cycle_task: Optional[asyncio.Task] = None
 
         # Store projects table path for cache preloading
-        self._projects_table_path = self.consumer_config.get_delta_config(
-            self.domain, "projects_table_path"
-        )
+        self._projects_table_path = projects_table_path
 
         logger.info(
             "Initialized ClaimXEnrichmentWorker",

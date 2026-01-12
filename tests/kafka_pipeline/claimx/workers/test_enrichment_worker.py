@@ -283,7 +283,9 @@ class TestClaimXEnrichmentWorker:
 
             blob_path = worker._generate_blob_path(media_row)
 
-            assert blob_path == "claimx/proj-67890/media/document.pdf"
+            # Note: 'claimx/' prefix is not included because OneLake domain-specific
+            # base path already contains it
+            assert blob_path == "proj-67890/media/document.pdf"
 
     async def test_get_retry_topic(self, kafka_config):
         """Test retry topic name generation."""

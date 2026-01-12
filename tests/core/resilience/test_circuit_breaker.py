@@ -36,8 +36,8 @@ from core.types import ErrorCategory
 # =============================================================================
 
 
-class TestException(Exception):
-    """Test exception with category."""
+class MockException(Exception):
+    """Mock exception with category for testing."""
 
     def __init__(self, message: str, category: ErrorCategory = ErrorCategory.TRANSIENT):
         super().__init__(message)
@@ -118,8 +118,8 @@ def test_transition_closed_to_open(breaker):
     # Trigger failures up to threshold
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -132,8 +132,8 @@ def test_transition_open_to_half_open(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -150,8 +150,8 @@ def test_transition_half_open_to_closed(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # Wait for timeout
@@ -171,8 +171,8 @@ def test_transition_half_open_to_open_on_failure(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # Wait for timeout
@@ -181,8 +181,8 @@ def test_transition_half_open_to_open_on_failure(breaker):
 
     # One failure should reopen
     try:
-        breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-    except TestException:
+        breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+    except MockException:
         pass
 
     assert breaker.state == CircuitState.OPEN
@@ -193,8 +193,8 @@ def test_half_open_call_limiting(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # Wait for timeout
@@ -220,8 +220,8 @@ def test_failure_count_increments(breaker):
     """Failure count should increment on transient errors."""
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     stats = breaker.stats
@@ -234,8 +234,8 @@ def test_success_resets_failure_count(breaker):
     # Two failures
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # One success
@@ -244,8 +244,8 @@ def test_success_resets_failure_count(breaker):
     # Two more failures (should not open circuit)
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.CLOSED
@@ -260,10 +260,10 @@ def test_auth_errors_ignored_when_configured(breaker):
         try:
             breaker.call(
                 lambda: (_ for _ in ()).throw(
-                    TestException("auth fail", ErrorCategory.AUTH)
+                    MockException("auth fail", ErrorCategory.AUTH)
                 )
             )
-        except TestException:
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.CLOSED
@@ -284,10 +284,10 @@ def test_auth_errors_counted_when_not_ignored():
         try:
             breaker.call(
                 lambda: (_ for _ in ()).throw(
-                    TestException("auth fail", ErrorCategory.AUTH)
+                    MockException("auth fail", ErrorCategory.AUTH)
                 )
             )
-        except TestException:
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -307,10 +307,10 @@ def test_permanent_errors_not_counted():
         try:
             breaker.call(
                 lambda: (_ for _ in ()).throw(
-                    TestException("permanent fail", ErrorCategory.PERMANENT)
+                    MockException("permanent fail", ErrorCategory.PERMANENT)
                 )
             )
-        except TestException:
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.CLOSED
@@ -326,8 +326,8 @@ def test_circuit_open_rejects_calls(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -345,8 +345,8 @@ def test_circuit_open_error_includes_retry_after(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # Immediately check retry_after
@@ -377,8 +377,8 @@ def test_statistics_tracking(breaker):
     # 2 failures
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     stats = breaker.stats
@@ -393,8 +393,8 @@ def test_rejected_calls_counted(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # Attempt calls while open
@@ -413,8 +413,8 @@ def test_state_changes_counted(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     stats = breaker.stats
@@ -447,8 +447,8 @@ def test_metrics_collection(metrics_collector):
 
     # Failure
     try:
-        breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-    except TestException:
+        breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+    except MockException:
         pass
 
     # Verify failure counter
@@ -468,8 +468,8 @@ def test_state_metrics(metrics_collector):
     # Open circuit
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     # State should be OPEN (2)
@@ -513,10 +513,10 @@ def test_concurrent_access():
         for i in range(10):
             try:
                 if should_fail:
-                    breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
+                    breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
                 else:
                     breaker.call(lambda: "success")
-            except (TestException, CircuitOpenError):
+            except (MockException, CircuitOpenError):
                 pass
 
     # Run 4 threads (2 failing, 2 succeeding)
@@ -552,7 +552,7 @@ async def test_async_function_support():
 
     async def async_failure():
         await asyncio.sleep(0.01)
-        raise TestException("fail")
+        raise MockException("fail")
 
     # Success
     result = await breaker.call_async(async_success)
@@ -562,7 +562,7 @@ async def test_async_function_support():
     for i in range(2):
         try:
             await breaker.call_async(async_failure)
-        except TestException:
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -583,7 +583,7 @@ def test_circuit_protected_decorator():
     @circuit_protected("test_decorator", CircuitBreakerConfig(failure_threshold=2, timeout_seconds=1.0))
     def protected_function(should_fail: bool):
         if should_fail:
-            raise TestException("fail")
+            raise MockException("fail")
         return "success"
 
     # Success
@@ -593,7 +593,7 @@ def test_circuit_protected_decorator():
     for i in range(2):
         try:
             protected_function(True)
-        except TestException:
+        except MockException:
             pass
 
     # Should be rejected now
@@ -629,8 +629,8 @@ def test_manual_reset(breaker):
     # Open the circuit
     for i in range(3):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -672,8 +672,8 @@ def test_state_change_callback():
     # Open the circuit
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert len(callback_calls) == 1
@@ -692,8 +692,8 @@ def test_state_change_callback_exception_handled():
     # Should not raise, just log warning
     for i in range(2):
         try:
-            breaker.call(lambda: (_ for _ in ()).throw(TestException("fail")))
-        except TestException:
+            breaker.call(lambda: (_ for _ in ()).throw(MockException("fail")))
+        except MockException:
             pass
 
     assert breaker.state == CircuitState.OPEN
@@ -728,7 +728,7 @@ def test_manual_success_recording(breaker):
 
 def test_manual_failure_recording(breaker):
     """Manual failure recording should work for context manager pattern."""
-    breaker.record_failure(TestException("fail"))
+    breaker.record_failure(MockException("fail"))
 
     stats = breaker.stats
     assert stats.failed_calls == 1
