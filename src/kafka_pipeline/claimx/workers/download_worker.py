@@ -950,9 +950,10 @@ class ClaimXDownloadWorker:
         )
 
         cached_topic = self.config.get_topic(self.domain, "downloads_cached")
+        # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self.producer.send(
             topic=cached_topic,
-            key=task_message.media_id,
+            key=task_message.source_event_id,
             value=cached_message,
         )
 

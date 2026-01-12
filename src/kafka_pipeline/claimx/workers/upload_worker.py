@@ -570,9 +570,10 @@ class ClaimXUploadWorker:
                 created_at=datetime.now(timezone.utc),
             )
 
+            # Use source_event_id as key for consistent partitioning across all ClaimX topics
             await self.producer.send(
                 topic=self.results_topic,
-                key=media_id,
+                key=cached_message.source_event_id,
                 value=result_message,
             )
 
@@ -631,9 +632,10 @@ class ClaimXUploadWorker:
                     created_at=datetime.now(timezone.utc),
                 )
 
+                # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 await self.producer.send(
                     topic=self.results_topic,
-                    key=cached_message.media_id,
+                    key=cached_message.source_event_id,
                     value=result_message,
                 )
             except Exception as produce_error:

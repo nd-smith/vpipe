@@ -1228,10 +1228,12 @@ class ClaimXEnrichmentWorker:
 
         try:
             # Produce EntityRowsMessage to Kafka
+            # Use event_id as key for consistent partitioning across all ClaimX topics
+            event_id = tasks[0].event_id if tasks else batch_id
             await self.producer.send(
                 topic=self.entity_rows_topic,
                 value=entity_rows,
-                key=batch_id, # Key by batch ID
+                key=event_id,
             )
 
             logger.info(
@@ -1287,9 +1289,10 @@ class ClaimXEnrichmentWorker:
 
         for task in download_tasks:
             try:
+                # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 metadata = await self.producer.send(
                     topic=self.download_topic,
-                    key=task.media_id,
+                    key=task.source_event_id,
                     value=task,
                     headers={"event_id": task.source_event_id},
                 )

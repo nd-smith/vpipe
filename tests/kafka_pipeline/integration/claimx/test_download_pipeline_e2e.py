@@ -101,9 +101,10 @@ class TestClaimXDownloadPipelineE2E:
                     download_url=download_url,
                 )
 
+                # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 await kafka_producer.send(
                     topic=test_claimx_config.claimx_downloads_pending_topic,
-                    key=task.media_id,
+                    key=task.source_event_id,
                     value=task,
                 )
                 logger.info(f"Produced download task for media {media_id}")
@@ -274,9 +275,10 @@ class TestClaimXDownloadPipelineE2E:
                     download_url=expired_url,
                 )
 
+                # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 await kafka_producer.send(
                     topic=test_claimx_config.claimx_downloads_pending_topic,
-                    key=task.media_id,
+                    key=task.source_event_id,
                     value=task,
                 )
                 logger.info(f"Produced download task with expired URL for media {media_id}")
@@ -351,9 +353,10 @@ class TestClaimXDownloadPipelineE2E:
                     download_url=missing_url,
                 )
 
+                # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 await kafka_producer.send(
                     topic=test_claimx_config.claimx_downloads_pending_topic,
-                    key=task.media_id,
+                    key=task.source_event_id,
                     value=task,
                 )
                 logger.info(f"Produced download task for missing file (media {media_id})")
@@ -439,9 +442,10 @@ class TestClaimXDownloadPipelineE2E:
                         project_id=project_id,
                         download_url=f"https://s3.amazonaws.com/claimx-test/media_{media_id}.jpg",
                     )
+                    # Use source_event_id as key for consistent partitioning
                     await kafka_producer.send(
                         topic=test_claimx_config.claimx_downloads_pending_topic,
-                        key=task.media_id,
+                        key=task.source_event_id,
                         value=task,
                     )
 
