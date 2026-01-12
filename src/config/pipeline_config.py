@@ -612,10 +612,11 @@ class ClaimXEventhouseSourceConfig:
         poller_data = claimx_eventhouse_data.get("poller", {})
         dedup_data = claimx_eventhouse_data.get("dedup", {})
 
-        # Get cluster_url (no fallback to xact/global env vars)
+        # Get cluster_url with fallback to shared EVENTHOUSE_CLUSTER_URL
+        # Priority: CLAIMX_EVENTHOUSE_CLUSTER_URL > EVENTHOUSE_CLUSTER_URL > YAML value
         cluster_url = os.getenv(
             "CLAIMX_EVENTHOUSE_CLUSTER_URL",
-            claimx_eventhouse_data.get("cluster_url", "")
+            os.getenv("EVENTHOUSE_CLUSTER_URL", claimx_eventhouse_data.get("cluster_url", ""))
         )
         database = os.getenv(
             "CLAIMX_EVENTHOUSE_DATABASE",
@@ -625,7 +626,8 @@ class ClaimXEventhouseSourceConfig:
         if not cluster_url:
             raise ValueError(
                 "ClaimX Eventhouse cluster_url is required. "
-                "Set in config.yaml under 'claimx_eventhouse:' or via CLAIMX_EVENTHOUSE_CLUSTER_URL env var."
+                "Set via CLAIMX_EVENTHOUSE_CLUSTER_URL or EVENTHOUSE_CLUSTER_URL env var, "
+                "or in config.yaml under 'claimx_eventhouse:'."
             )
         if not database:
             raise ValueError(
