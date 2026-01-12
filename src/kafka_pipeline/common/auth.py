@@ -366,12 +366,20 @@ def get_auth() -> AzureAuth:
     global _auth_instance
     if _auth_instance is None:
         _auth_instance = AzureAuth()
+        # Debug: Log singleton creation to help diagnose auth issues
+        print(f"DEBUG [auth]: Created AzureAuth singleton, mode={_auth_instance.auth_mode}, token_file={_auth_instance.token_file}")
     return _auth_instance
 
 
 def get_storage_options(force_refresh: bool = False) -> Dict[str, str]:
     """Get storage auth options from singleton."""
-    return get_auth().get_storage_options(force_refresh)
+    opts = get_auth().get_storage_options(force_refresh)
+    # Debug: Log what storage options are being returned
+    if opts:
+        print(f"DEBUG [auth]: get_storage_options returning keys={list(opts.keys())}")
+    else:
+        print(f"DEBUG [auth]: get_storage_options returning EMPTY dict (no credentials)")
+    return opts
 
 
 def clear_token_cache(resource: Optional[str] = None) -> None:
