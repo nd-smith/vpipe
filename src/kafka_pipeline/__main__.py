@@ -79,6 +79,10 @@ from prometheus_client import start_http_server
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger, setup_logging, setup_multi_worker_logging
 
+# Project root directory (where .env file is located)
+# __main__.py is at src/kafka_pipeline/__main__.py, so root is 3 levels up
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
 # Worker stages for multi-worker logging
 WORKER_STAGES = [
     "xact-poller", "xact-event-ingester", "xact-local-ingester", "xact-delta-writer", "xact-delta-retry", "xact-download", "xact-upload", "xact-result-processor",
@@ -1119,7 +1123,8 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 def main():
     """Main entry point."""
     # Load environment variables from .env file before any config access
-    load_dotenv()
+    # Explicitly specify path to ensure .env is found regardless of working directory
+    load_dotenv(PROJECT_ROOT / ".env")
 
     global logger
     args = parse_args()

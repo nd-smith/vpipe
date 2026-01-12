@@ -33,8 +33,13 @@ from typing import Any, Dict, List, Optional
 import yaml
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaError
+from dotenv import load_dotenv
 
 from core.logging import setup_logging, get_logger
+
+# Project root directory (where .env file is located)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+
 from kafka_pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,
@@ -407,6 +412,9 @@ def load_connections() -> list[ConnectionConfig]:
 
 async def main():
     """Main entry point."""
+    # Load environment variables from .env file before any config access
+    load_dotenv(PROJECT_ROOT / ".env")
+
     # Parse arguments
     parser = argparse.ArgumentParser(
         description="iTel Cabinet API Worker - Sends completed tasks to iTel Cabinet API"
