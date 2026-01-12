@@ -1127,6 +1127,17 @@ def main():
     # Explicitly specify path to ensure .env is found regardless of working directory
     load_dotenv(PROJECT_ROOT / ".env")
 
+    # Debug: Log auth-related env vars to help diagnose token file issues
+    _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
+    _debug_token_exists = Path(_debug_token_file).exists() if _debug_token_file else False
+    print(f"DEBUG [auth]: PROJECT_ROOT={PROJECT_ROOT}")
+    print(f"DEBUG [auth]: AZURE_TOKEN_FILE={_debug_token_file}")
+    print(f"DEBUG [auth]: Token file exists={_debug_token_exists}")
+    if _debug_token_file and not _debug_token_exists:
+        # Try resolving relative to PROJECT_ROOT
+        _resolved = PROJECT_ROOT / _debug_token_file
+        print(f"DEBUG [auth]: Resolved path={_resolved}, exists={_resolved.exists()}")
+
     global logger
     args = parse_args()
 
