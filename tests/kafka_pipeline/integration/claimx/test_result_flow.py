@@ -59,9 +59,10 @@ class TestClaimXResultProcessingIntegration:
                 source_event_id="evt-001",
             )
 
+            # Use source_event_id as key for consistent partitioning across all ClaimX topics
             await kafka_producer.send(
                 topic=test_claimx_config.claimx_downloads_results_topic,
-                key=result.media_id,
+                key=result.source_event_id,
                 value=result,
             )
 
@@ -111,9 +112,10 @@ class TestClaimXResultProcessingIntegration:
                 source_event_id="evt-002",
             )
 
+            # Use source_event_id as key for consistent partitioning across all ClaimX topics
             await kafka_producer.send(
                 topic=test_claimx_config.claimx_downloads_results_topic,
-                key=result.media_id,
+                key=result.source_event_id,
                 value=result,
             )
 
@@ -160,9 +162,10 @@ class TestClaimXResultProcessingIntegration:
                 source_event_id="evt-003",
             )
 
+            # Use source_event_id as key for consistent partitioning across all ClaimX topics
             await kafka_producer.send(
                 topic=test_claimx_config.claimx_downloads_results_topic,
-                key=result.media_id,
+                key=result.source_event_id,
                 value=result,
             )
 
@@ -230,11 +233,11 @@ class TestClaimXResultProcessingIntegration:
                 ),
             ]
 
-            # Send all results
+            # Send all results - use source_event_id as key for consistent partitioning
             for result in results:
                 await kafka_producer.send(
                     topic=test_claimx_config.claimx_downloads_results_topic,
-                    key=result.media_id,
+                    key=result.source_event_id,
                     value=result,
                 )
 
@@ -298,9 +301,10 @@ class TestClaimXResultProcessingIntegration:
                     blob_path="project_98765/media_5000.jpg",
                 )
 
+                # Use source_event_id as key for consistent partitioning
                 await kafka_producer.send(
                     topic=test_claimx_config.claimx_downloads_results_topic,
-                    key=result.media_id,
+                    key=result.source_event_id,
                     value=result,
                 )
 

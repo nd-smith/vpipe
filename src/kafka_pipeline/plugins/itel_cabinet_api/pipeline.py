@@ -361,11 +361,11 @@ class ItelCabinetPipeline:
             'source': 'itel_cabinet_tracking_worker',
         }
 
-        # Publish to Kafka
+        # Publish to Kafka - use event_id as key for consistent partitioning
         await self.kafka.send(
             topic=self.output_topic,
             value=json.dumps(payload).encode('utf-8'),
-            key=str(event.assignment_id).encode('utf-8'),
+            key=event.event_id.encode('utf-8'),
         )
 
         logger.info(
