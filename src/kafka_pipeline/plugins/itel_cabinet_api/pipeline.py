@@ -182,7 +182,7 @@ class ItelCabinetPipeline:
         )
 
         # Fetch from ClaimX API
-        task_data = await self._fetch_claimx_task(event.task_id)
+        task_data = await self._fetch_claimx_assignment(event.assignment_id)
 
         # Parse form data
         submission = parse_cabinet_form(task_data, event.event_id)
@@ -206,27 +206,28 @@ class ItelCabinetPipeline:
 
         return submission, attachments
 
-    async def _fetch_claimx_task(self, task_id: int) -> dict:
+    async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         """
-        Fetch task details from ClaimX API.
+        Fetch assignment details from ClaimX API.
 
         Args:
-            task_id: Task ID to fetch
+            assignment_id: Assignment ID to fetch
 
         Returns:
-            Task data from API
+            Assignment data from API
 
         Raises:
             Exception: If API call fails
         """
-        endpoint = f"/api/v1/tasks/{task_id}"
+        endpoint = f"/customTasks/assignment/{assignment_id}"
 
-        logger.debug(f"Fetching task from ClaimX", extra={'task_id': task_id})
+        logger.debug(f"Fetching assignment from ClaimX", extra={'assignment_id': assignment_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
             method='GET',
             path=endpoint,
+            params={'full': 'true'},
         )
 
         if status < 200 or status >= 300:
