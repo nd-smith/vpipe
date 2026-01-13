@@ -67,7 +67,7 @@ class ConnectionConfig:
 
         # Set default auth header if not provided
         if self.auth_header is None:
-            if self.auth_type == AuthType.BEARER:
+            if self.auth_type in (AuthType.BEARER, AuthType.BASIC):
                 self.auth_header = "Authorization"
             elif self.auth_type == AuthType.API_KEY:
                 self.auth_header = "X-API-Key"
