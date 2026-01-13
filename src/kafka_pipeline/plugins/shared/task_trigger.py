@@ -64,7 +64,7 @@ class TaskTriggerPlugin(Plugin):
     # Only ClaimX domain, after enrichment (when we have task data)
     domains = [Domain.CLAIMX]
     stages = [PipelineStage.ENRICHMENT_COMPLETE]
-    event_types = ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"]
+    # event_types set dynamically in __init__ based on trigger config
 
     # Run early so other plugins see the results
     priority = 50
@@ -78,6 +78,39 @@ class TaskTriggerPlugin(Plugin):
         # Whether to include project data in published messages
         "include_project_data": False,
     }
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize plugin with config and compute event_types dynamically.
+
+        Only subscribes to event types that have actions configured:
+        - CUSTOM_TASK_ASSIGNED if any trigger has on_assigned
+        - CUSTOM_TASK_COMPLETED if any trigger has on_completed
+        - Both if any trigger has on_any
+        """
+        super().__init__(config)
+
+        # Determine which event types we actually need based on trigger config
+        triggers = self.config.get("triggers", {})
+        needs_assigned = False
+        needs_completed = False
+
+        for trigger_config in triggers.values():
+            if trigger_config.get("on_any"):
+                needs_assigned = True
+                needs_completed = True
+                break
+            if trigger_config.get("on_assigned"):
+                needs_assigned = True
+            if trigger_config.get("on_completed"):
+                needs_completed = True
+
+        # Build event_types list based on what's configured
+        self.event_types: List[str] = []
+        if needs_assigned:
+            self.event_types.append("CUSTOM_TASK_ASSIGNED")
+        if needs_completed:
+            self.event_types.append("CUSTOM_TASK_COMPLETED")
 
     async def execute(self, context: PluginContext) -> PluginResult:
         """
