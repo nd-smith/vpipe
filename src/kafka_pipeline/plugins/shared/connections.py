@@ -298,8 +298,9 @@ class ConnectionManager:
                         )
                         raise aiohttp.ServerTimeoutError()
 
-                    # For other errors or final attempt, return as-is
-                    # Caller decides how to handle status codes
+                    # Read body inside context manager before connection closes
+                    # This is required because the context manager closes the connection on exit
+                    await response.read()
                     return response
 
     async def request_json(
