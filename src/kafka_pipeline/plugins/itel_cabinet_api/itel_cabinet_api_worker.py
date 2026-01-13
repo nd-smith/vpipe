@@ -179,205 +179,49 @@ class ItelCabinetApiWorker:
         """
         Transform tracking worker payload into iTel API format.
 
-        Takes submission/attachments and builds iTel Cabinet API payload
-        with camelCase fields and nested structures.
+        Now uses the readable_report format which organizes data by topic
+        for easier consumption.
 
         Args:
-            payload: Message from tracking worker with submission and attachments
+            payload: Message from tracking worker with submission, attachments, and readable_report
 
         Returns:
             iTel API formatted payload
         """
         submission = payload.get('submission', {})
         attachments = payload.get('attachments', [])
+        readable_report = payload.get('readable_report', {})
 
-        # Log sample attachment to verify data structure
-        if attachments:
-            sample_att = attachments[0]
-            logger.info(
-                f"Processing {len(attachments)} attachments. Sample attachment structure:",
-                extra={
-                    'assignment_id': submission.get('assignment_id'),
-                    'sample_keys': list(sample_att.keys()) if isinstance(sample_att, dict) else f'not a dict: {type(sample_att)}',
-                    'sample_media_id': sample_att.get('media_id') if isinstance(sample_att, dict) else None,
-                    'sample_question_key': sample_att.get('question_key') if isinstance(sample_att, dict) else None,
-                }
-            )
-        else:
-            logger.warning(
-                "No attachments found in payload",
-                extra={'assignment_id': submission.get('assignment_id')}
-            )
-
-        # Group attachments by question_key
-        attachments_by_key = {}
-        for att in attachments:
-            key = att.get('question_key')
-            if key:
-                if key not in attachments_by_key:
-                    attachments_by_key[key] = []
-                attachments_by_key[key].append(att)
-            else:
-                logger.warning(
-                    f"Attachment missing question_key",
-                    extra={'attachment': att}
-                )
-
-        # Count attachments with valid media_ids for diagnostic purposes
-        media_id_count = sum(1 for att in attachments if att.get('media_id'))
         logger.info(
-            f"Grouped {len(attachments)} attachments into {len(attachments_by_key)} keys. "
-            f"Attachments with valid media_id: {media_id_count}/{len(attachments)}",
+            f"Processing payload with readable_report",
             extra={
                 'assignment_id': submission.get('assignment_id'),
-                'question_keys': list(attachments_by_key.keys()),
+                'topics_count': len(readable_report.get('topics', {})),
             }
         )
 
-        # Build iTel API payload
+        # Build iTel API payload using readable_report
+        # The readable_report already has all form data organized by topic
         api_payload = {
-            # Required fields
-            "assignmentId": submission.get("assignment_id"),
-            "projectId": submission.get("project_id"),
-            "formId": submission.get("form_id"),
-            "formResponseId": submission.get("form_response_id"),
-            "status": submission.get("status"),
-            "dateAssigned": submission.get("date_assigned"),
+            # Traceability
+            "traceId": payload.get("event_id"),  # For end-to-end tracing
 
-            # Optional top-level fields
-            "dateCompleted": submission.get("date_completed"),
-            "assignorEmail": submission.get("assignor_email"),
-            "damageDescription": submission.get("damage_description"),
-            "additionalNotes": submission.get("additional_notes"),
-            "countertopsLf": submission.get("countertops_lf"),
+            # Metadata from readable_report.meta
+            "meta": readable_report.get("meta", {}),
 
-            # Customer info
+            # Topic-organized data from readable_report.topics
+            "data": readable_report.get("topics", {}),
+
+            # Customer info from submission
             "customer": {
                 "firstName": submission.get("customer_first_name"),
                 "lastName": submission.get("customer_last_name"),
                 "email": submission.get("customer_email"),
                 "phone": submission.get("customer_phone"),
             },
-
-            # Cabinet sections
-            "lowerCabinets": self._build_cabinet_section("lower", submission, attachments_by_key),
-            "upperCabinets": self._build_cabinet_section("upper", submission, attachments_by_key),
-            "fullHeightCabinets": self._build_cabinet_section("full_height", submission, attachments_by_key),
-            "islandCabinets": self._build_cabinet_section("island", submission, attachments_by_key),
-
-            # Overview media
-            "overviewMedia": self._build_media_array("overview_photos", attachments_by_key),
         }
 
         return api_payload
-
-    def _build_cabinet_section(
-        self,
-        cabinet_type: str,
-        submission: dict,
-        attachments_by_key: dict,
-    ) -> Optional[dict]:
-        """Build cabinet section with media."""
-        damaged_key = f"{cabinet_type}_cabinets_damaged"
-        is_damaged = submission.get(damaged_key)
-
-        if not is_damaged and not submission.get(f"{cabinet_type}_cabinets_lf"):
-            return None
-
-        section = {
-            "damaged": is_damaged,
-            "linearFeet": submission.get(f"{cabinet_type}_cabinets_lf"),
-            "numDamagedBoxes": submission.get(f"num_damaged_{cabinet_type}_boxes"),
-            "detached": submission.get(f"{cabinet_type}_cabinets_detached"),
-            "faceFramesDoorsDrawersAvailable": submission.get(f"{cabinet_type}_face_frames_doors_drawers_available"),
-            "faceFramesDoorsDrawersDamaged": submission.get(f"{cabinet_type}_face_frames_doors_drawers_damaged"),
-            "finishedEndPanelsDamaged": submission.get(f"{cabinet_type}_finished_end_panels_damaged"),
-            "endPanelDamagePresent": submission.get(f"{cabinet_type}_end_panel_damage_present"),
-            "counterType": submission.get(f"{cabinet_type}_counter_type"),
-        }
-
-        # Add media - include all three media types for each cabinet section
-        media = []
-
-        # Cabinet box photos
-        box_key = f"{cabinet_type}_cabinet_box"
-        logger.debug(f"Checking for {box_key} in attachments_by_key: {box_key in attachments_by_key}")
-        if box_key in attachments_by_key:
-            media.extend(self._build_media_array(box_key, attachments_by_key))
-
-        # Face frames, doors, and drawers photos
-        face_frames_key = f"{cabinet_type}_face_frames_doors_drawers"
-        logger.debug(f"Checking for {face_frames_key} in attachments_by_key: {face_frames_key in attachments_by_key}")
-        if face_frames_key in attachments_by_key:
-            media.extend(self._build_media_array(face_frames_key, attachments_by_key))
-
-        # End panels photos (note: full_height uses different key pattern from parser)
-        if cabinet_type == "full_height":
-            panel_key = "full_height_end_panels"
-        else:
-            panel_key = f"{cabinet_type}_cabinet_end_panels"
-        logger.debug(f"Checking for {panel_key} in attachments_by_key: {panel_key in attachments_by_key}")
-        if panel_key in attachments_by_key:
-            media.extend(self._build_media_array(panel_key, attachments_by_key))
-
-        logger.debug(f"Built {len(media)} media entries for {cabinet_type} cabinet section")
-        section["media"] = media
-
-        return section
-
-    def _build_media_array(
-        self,
-        question_key: str,
-        attachments_by_key: dict,
-    ) -> List[dict]:
-        """Build media array for a question."""
-        attachments = attachments_by_key.get(question_key, [])
-        if not attachments:
-            logger.debug(f"No attachments found for question_key: {question_key}")
-            return []
-
-        first = attachments[0]
-
-        # Extract media_ids - try multiple possible key names for robustness
-        # The primary key is "media_id" but we also check for alternatives
-        media_id_keys = ["media_id", "mediaId", "claim_media_id", "claimMediaId"]
-
-        media_ids = []
-        for att in attachments:
-            # Try each possible key name
-            media_id = None
-            used_key = None
-            for key in media_id_keys:
-                if key in att:
-                    media_id = att[key]
-                    used_key = key
-                    break
-
-            if media_id:
-                media_ids.append(media_id)
-            else:
-                # Log the attachment to understand why media_id is missing/falsy
-                logger.warning(
-                    f"Attachment missing or has falsy media_id for question_key={question_key}",
-                    extra={
-                        'attachment_keys': list(att.keys()) if isinstance(att, dict) else type(att).__name__,
-                        'tried_keys': media_id_keys,
-                        'found_key': used_key,
-                        'media_id_value': media_id,
-                        'media_id_type': type(media_id).__name__ if media_id is not None else 'NoneType',
-                    }
-                )
-
-        logger.debug(
-            f"Built media array for {question_key}: {len(attachments)} attachments, {len(media_ids)} media_ids",
-            extra={'media_ids': media_ids}
-        )
-
-        return [{
-            "questionKey": question_key,
-            "questionText": first.get("question_text", ""),
-            "claimMediaIds": media_ids
-        }]
 
     async def _send_to_api(self, api_payload: dict):
         """Send payload to iTel Cabinet API."""
@@ -495,6 +339,18 @@ def load_connections() -> list[ConnectionConfig]:
 
         base_url = os.path.expandvars(conn_data["base_url"])
         auth_token = os.path.expandvars(conn_data.get("auth_token", ""))
+
+        # Validate that environment variables were actually expanded
+        if "${" in base_url:
+            raise ValueError(
+                f"Environment variable not expanded in base_url for connection '{conn_name}': {base_url}. "
+                f"Check that all required environment variables are set in .env file."
+            )
+        if auth_token and "${" in auth_token:
+            raise ValueError(
+                f"Environment variable not expanded in auth_token for connection '{conn_name}'. "
+                f"Check that all required environment variables are set in .env file."
+            )
 
         auth_type = conn_data.get("auth_type", "none")
         if isinstance(auth_type, str):

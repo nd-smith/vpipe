@@ -13,7 +13,7 @@ from typing import Optional
 from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 from .models import TaskEvent, CabinetSubmission, CabinetAttachment, ProcessedTask
-from .parsers import parse_cabinet_form, parse_cabinet_attachments
+from .parsers import parse_cabinet_form, parse_cabinet_attachments, get_readable_report
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,9 @@ class ItelCabinetPipeline:
 
         # Step 2: Conditionally enrich (only for COMPLETED status)
         if event.task_status == 'COMPLETED':
-            submission, attachments = await self._enrich_completed_task(event)
+            submission, attachments, readable_report = await self._enrich_completed_task(event)
         else:
-            submission, attachments = None, []
+            submission, attachments, readable_report = None, [], None
             logger.debug(
                 f"Skipping enrichment for non-completed task",
                 extra={'task_status': event.task_status}
@@ -115,12 +115,13 @@ class ItelCabinetPipeline:
 
         # Step 4: Publish to API worker topic (only for COMPLETED)
         if event.task_status == 'COMPLETED' and submission:
-            await self._publish_for_api(event, submission, attachments)
+            await self._publish_for_api(event, submission, attachments, readable_report)
 
         return ProcessedTask(
             event=event,
             submission=submission,
             attachments=attachments,
+            readable_report=readable_report,
         )
 
     def _validate_event(self, event: TaskEvent) -> None:
@@ -157,7 +158,7 @@ class ItelCabinetPipeline:
     async def _enrich_completed_task(
         self,
         event: TaskEvent,
-    ) -> tuple[CabinetSubmission, list[CabinetAttachment]]:
+    ) -> tuple[CabinetSubmission, list[CabinetAttachment], dict]:
         """
         Fetch and parse full task data for completed tasks.
 
@@ -165,13 +166,14 @@ class ItelCabinetPipeline:
         1. Fetch task details from ClaimX API
         2. Parse cabinet form data
         3. Parse attachments
-        4. Optionally download media files
+        4. Generate readable report for API consumption
+        5. Optionally download media files
 
         Args:
             event: Task event
 
         Returns:
-            Tuple of (submission, attachments)
+            Tuple of (submission, attachments, readable_report)
 
         Raises:
             Exception: If ClaimX API call or parsing fails
@@ -195,6 +197,9 @@ class ItelCabinetPipeline:
             event.event_id,
         )
 
+        # Generate readable report for API consumption
+        readable_report = get_readable_report(task_data, event.event_id)
+
         logger.info(
             "Task enriched successfully",
             extra={
@@ -207,7 +212,7 @@ class ItelCabinetPipeline:
         if self.download_media and attachments:
             logger.warning("Media download not yet implemented")
 
-        return submission, attachments
+        return submission, attachments, readable_report
 
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         """
@@ -326,16 +331,18 @@ class ItelCabinetPipeline:
         event: TaskEvent,
         submission: CabinetSubmission,
         attachments: list[CabinetAttachment],
+        readable_report: Optional[dict],
     ) -> None:
         """
         Publish to API worker topic.
 
-        Builds payload with submission and attachments for iTel API worker.
+        Builds payload with submission, attachments, and readable report for iTel API worker.
 
         Args:
             event: Task event
             submission: Parsed submission
             attachments: Parsed attachments
+            readable_report: Topic-organized report for API consumption
         """
         logger.info(
             "Publishing to API worker topic",
@@ -359,6 +366,7 @@ class ItelCabinetPipeline:
             # Parsed data (ready for API transformation)
             'submission': submission.to_dict(),
             'attachments': [att.to_dict() for att in attachments],
+            'readable_report': readable_report,  # NEW: Topic-organized format
 
             # Metadata
             'published_at': datetime.utcnow().isoformat(),

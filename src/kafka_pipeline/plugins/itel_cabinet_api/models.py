@@ -78,62 +78,71 @@ class CabinetSubmission:
     status: str
     event_id: str  # Kafka event ID for traceability
 
+    # Task metadata (from parse.py integration)
+    task_id: Optional[int] = None
+    task_name: Optional[str] = None
+
     # Dates
-    date_assigned: Optional[str]
-    date_completed: Optional[str]
+    date_assigned: Optional[str] = None
+    date_completed: Optional[str] = None
+    ingested_at: Optional[datetime] = None
 
     # Customer information
-    customer_first_name: Optional[str]
-    customer_last_name: Optional[str]
-    customer_email: Optional[str]
-    customer_phone: Optional[str]
-    assignor_email: Optional[str]
+    customer_first_name: Optional[str] = None
+    customer_last_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    assignor_email: Optional[str] = None
+    external_link_url: Optional[str] = None
 
     # General damage information
-    damage_description: Optional[str]
-    additional_notes: Optional[str]
-    countertops_lf: Optional[float]
+    damage_description: Optional[str] = None
+    additional_notes: Optional[str] = None
+    countertops_lf: Optional[float] = None
+
+    # Raw data blob (preserves original structure as JSON string)
+    raw_data: Optional[str] = None
 
     # Lower cabinets
-    lower_cabinets_damaged: Optional[bool]
-    lower_cabinets_lf: Optional[float]
-    num_damaged_lower_boxes: Optional[int]
-    lower_cabinets_detached: Optional[bool]
-    lower_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
-    lower_face_frames_doors_drawers_damaged: Optional[bool]
-    lower_finished_end_panels_damaged: Optional[bool]
-    lower_end_panel_damage_present: Optional[bool]
-    lower_counter_type: Optional[str]
+    lower_cabinets_damaged: Optional[bool] = None
+    lower_cabinets_lf: Optional[float] = None
+    num_damaged_lower_boxes: Optional[int] = None
+    lower_cabinets_detached: Optional[bool] = None
+    lower_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    lower_face_frames_doors_drawers_damaged: Optional[bool] = None
+    lower_finished_end_panels_damaged: Optional[bool] = None
+    lower_end_panel_damage_present: Optional[bool] = None
+    lower_counter_type: Optional[str] = None
 
     # Upper cabinets
-    upper_cabinets_damaged: Optional[bool]
-    upper_cabinets_lf: Optional[float]
-    num_damaged_upper_boxes: Optional[int]
-    upper_cabinets_detached: Optional[bool]
-    upper_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
-    upper_face_frames_doors_drawers_damaged: Optional[bool]
-    upper_finished_end_panels_damaged: Optional[bool]
-    upper_end_panel_damage_present: Optional[bool]
+    upper_cabinets_damaged: Optional[bool] = None
+    upper_cabinets_lf: Optional[float] = None
+    num_damaged_upper_boxes: Optional[int] = None
+    upper_cabinets_detached: Optional[bool] = None
+    upper_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    upper_face_frames_doors_drawers_damaged: Optional[bool] = None
+    upper_finished_end_panels_damaged: Optional[bool] = None
+    upper_end_panel_damage_present: Optional[bool] = None
 
     # Full height cabinets
-    full_height_cabinets_damaged: Optional[bool]
-    full_height_cabinets_lf: Optional[float]
-    num_damaged_full_height_boxes: Optional[int]
-    full_height_cabinets_detached: Optional[bool]
-    full_height_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
-    full_height_face_frames_doors_drawers_damaged: Optional[bool]
-    full_height_finished_end_panels_damaged: Optional[bool]
+    full_height_cabinets_damaged: Optional[bool] = None
+    full_height_cabinets_lf: Optional[float] = None
+    num_damaged_full_height_boxes: Optional[int] = None
+    full_height_cabinets_detached: Optional[bool] = None
+    full_height_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    full_height_face_frames_doors_drawers_damaged: Optional[bool] = None
+    full_height_finished_end_panels_damaged: Optional[bool] = None
 
     # Island cabinets
-    island_cabinets_damaged: Optional[bool]
-    island_cabinets_lf: Optional[float]
-    num_damaged_island_boxes: Optional[int]
-    island_cabinets_detached: Optional[bool]
-    island_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
-    island_face_frames_doors_drawers_damaged: Optional[bool]
-    island_finished_end_panels_damaged: Optional[bool]
-    island_end_panel_damage_present: Optional[bool]
-    island_counter_type: Optional[str]
+    island_cabinets_damaged: Optional[bool] = None
+    island_cabinets_lf: Optional[float] = None
+    num_damaged_island_boxes: Optional[int] = None
+    island_cabinets_detached: Optional[bool] = None
+    island_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    island_face_frames_doors_drawers_damaged: Optional[bool] = None
+    island_finished_end_panels_damaged: Optional[bool] = None
+    island_end_panel_damage_present: Optional[bool] = None
+    island_counter_type: Optional[str] = None
 
     # Metadata
     created_at: Optional[datetime] = None
@@ -158,12 +167,16 @@ class CabinetAttachment:
     assignment_id: int
     project_id: int  # ClaimX project ID
     event_id: str  # Kafka event ID for traceability
+    control_id: str  # Form control ID for tracking
     question_key: str
     question_text: str
+    topic_category: str  # e.g., "Lower Cabinets", "Upper Cabinets", "General"
     media_id: int  # ClaimX media ID (was claim_media_id)
     blob_path: Optional[str] = None
     display_order: int = 0
     created_at: Optional[datetime] = None
+    is_active: bool = True
+    media_type: str = "image/jpeg"  # Default assumption
 
     def to_dict(self) -> dict:
         """Convert to dictionary for Delta write."""
@@ -186,6 +199,7 @@ class ProcessedTask:
     event: TaskEvent
     submission: Optional[CabinetSubmission]
     attachments: list[CabinetAttachment]
+    readable_report: Optional[dict] = None  # Topic-organized report for API consumption
 
     def was_enriched(self) -> bool:
         """Check if task was fully enriched (vs metadata-only)."""

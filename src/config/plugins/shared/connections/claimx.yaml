@@ -21,23 +21,22 @@ connections:
   # Used by iTel Cabinet tracking worker to fetch full task details for enrichment.
   #
   # Required Environment Variables:
-  #   - CLAIMX_API_BASE_URL: ClaimX API base URL (e.g., https://api.claimx.com)
+  #   - CLAIMX_API_BASE_PATH: ClaimX API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
   #   - CLAIMX_API_TOKEN: Bearer token for ClaimX API authentication
   #
   # Endpoints Used:
-  #   - GET /api/v1/tasks/{task_id} - Fetch complete task details
-  #   - GET /api/v1/projects/{project_id} - (Optional) Fetch project details
+  #   - GET /customTasks/assignment/{assignment_id} - Fetch complete assignment details
   #
   # Usage Example:
   #   In workers.yaml enrichment pipeline:
   #   - type: lookup
   #     config:
   #       connection: claimx_api
-  #       endpoint: /api/v1/tasks/{task_id}
+  #       endpoint: /customTasks/assignment/{assignment_id}
   # ===========================================================================
   claimx_api:
     name: claimx_api
-    base_url: ${CLAIMX_API_BASE_URL}  # e.g., https://api.claimx.com
+    base_url: ${CLAIMX_API_BASE_PATH}  # e.g., https://www.claimxperience.com/service/cxedirest
     auth_type: basic
     auth_token: ${CLAIMX_API_TOKEN}
     timeout_seconds: 30
@@ -77,7 +76,7 @@ connections:
 # Environment Variable Setup:
 #   Before starting workers, export required variables:
 #
-#   export CLAIMX_API_BASE_URL="https://api.claimx.com"
+#   export CLAIMX_API_BASE_PATH="https://www.claimxperience.com/service/cxedirest"
 #   export CLAIMX_API_TOKEN="your-bearer-token-here"
 #
 # Testing Connection:

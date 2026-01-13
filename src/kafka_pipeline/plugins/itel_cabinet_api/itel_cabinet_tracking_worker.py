@@ -220,6 +220,18 @@ def load_connections() -> list[ConnectionConfig]:
         base_url = os.path.expandvars(conn_data["base_url"])
         auth_token = os.path.expandvars(conn_data.get("auth_token", ""))
 
+        # Validate that environment variables were actually expanded
+        if "${" in base_url:
+            raise ValueError(
+                f"Environment variable not expanded in base_url for connection '{conn_name}': {base_url}. "
+                f"Check that all required environment variables are set in .env file."
+            )
+        if auth_token and "${" in auth_token:
+            raise ValueError(
+                f"Environment variable not expanded in auth_token for connection '{conn_name}'. "
+                f"Check that all required environment variables are set in .env file."
+            )
+
         auth_type = conn_data.get("auth_type", "none")
         if isinstance(auth_type, str):
             auth_type = AuthType(auth_type)
