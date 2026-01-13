@@ -252,8 +252,21 @@ class MediaDownloader:
                 }
             )
 
+            # Extract relative path from full abfss:// path
+            # Full: abfss://...@onelake.dfs.fabric.microsoft.com/{lakehouse_id}/Files/...
+            # Store: Files/...
+            relative_blob_path = full_blob_path
+            if "/" in full_blob_path:
+                # Find the lakehouse ID (GUID after the host) and extract path after it
+                parts = full_blob_path.split("/")
+                # Find index of "Files" and keep everything from there
+                for i, part in enumerate(parts):
+                    if part == "Files":
+                        relative_blob_path = "/".join(parts[i:])
+                        break
+
             # Update attachment with blob_path, media_type, and file_extension
-            attachment.blob_path = full_blob_path
+            attachment.blob_path = relative_blob_path
             attachment.media_type = self._detect_mime_type(file_extension)
             attachment.file_extension = file_extension
 
