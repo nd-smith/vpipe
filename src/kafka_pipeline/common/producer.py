@@ -152,9 +152,17 @@ class BaseKafkaProducer:
         acks_value = self.producer_config.get("acks", "all")
         if isinstance(acks_value, str) and acks_value.isdigit():
             acks_value = int(acks_value)
+
+        # Enable idempotent producer by default to prevent duplicate messages
+        # during network retries. Can be disabled via config if needed.
+        # When enabled, Kafka assigns a Producer ID and tracks sequence numbers
+        # to deduplicate retried messages at the broker level.
+        enable_idempotence = self.producer_config.get("enable_idempotence", True)
+
         kafka_producer_config.update({
             "acks": acks_value,
             "retry_backoff_ms": self.producer_config.get("retry_backoff_ms", 1000),
+            "enable_idempotence": enable_idempotence,
         })
 
         # Optional producer settings (only add if present)
@@ -207,6 +215,7 @@ class BaseKafkaProducer:
             bootstrap_servers=self.config.bootstrap_servers,
             acks=self.producer_config.get("acks", "all"),
             compression_type=self.producer_config.get("compression_type", "none"),
+            enable_idempotence=enable_idempotence,
         )
 
     async def stop(self) -> None:

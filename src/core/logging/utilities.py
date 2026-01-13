@@ -100,6 +100,7 @@ def format_cycle_output(
     skipped: int = 0,
     in_flight: Optional[int] = None,
     error_breakdown: Optional[dict[str, int]] = None,
+    deduplicated: Optional[int] = None,
 ) -> str:
     """
     Format standardized cycle output for workers.
@@ -111,6 +112,7 @@ def format_cycle_output(
         skipped: Number of records skipped (default: 0)
         in_flight: Number of records currently being processed (optional)
         error_breakdown: Error category breakdown, e.g., {"transient": 20, "permanent": 14}
+        deduplicated: Number of records deduplicated (optional, for event ingester)
 
     Returns:
         Formatted cycle output string
@@ -130,6 +132,9 @@ def format_cycle_output(
         parts.append(f"Failed: {failed}")
 
     parts.append(f"Skipped: {skipped}")
+
+    if deduplicated is not None:
+        parts.append(f"Deduplicated: {deduplicated}")
 
     if in_flight is not None:
         parts.append(f"In-flight: {in_flight}")
