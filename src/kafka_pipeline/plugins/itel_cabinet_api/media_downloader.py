@@ -252,9 +252,10 @@ class MediaDownloader:
                 }
             )
 
-            # Update attachment with blob_path
+            # Update attachment with blob_path, media_type, and file_extension
             attachment.blob_path = full_blob_path
             attachment.media_type = self._detect_mime_type(file_extension)
+            attachment.file_extension = file_extension
 
             return attachment
 
