@@ -159,6 +159,18 @@ class BaseKafkaProducer:
         # to deduplicate retried messages at the broker level.
         enable_idempotence = self.producer_config.get("enable_idempotence", True)
 
+        # Idempotent producer requires acks=all - override if necessary
+        if enable_idempotence and acks_value != "all":
+            log_with_context(
+                logger,
+                logging.WARNING,
+                "Overriding acks to 'all' because enable_idempotence=True requires it",
+                configured_acks=acks_value,
+                domain=domain,
+                worker_name=worker_name,
+            )
+            acks_value = "all"
+
         kafka_producer_config.update({
             "acks": acks_value,
             "retry_backoff_ms": self.producer_config.get("retry_backoff_ms", 1000),
