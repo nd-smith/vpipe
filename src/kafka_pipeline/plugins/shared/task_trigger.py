@@ -95,11 +95,18 @@ class TaskTriggerPlugin(Plugin):
         needs_assigned = False
         needs_completed = False
 
-        for trigger_config in triggers.values():
+        # Build set of configured task_ids for fast lookup in should_run
+        # Include both int and str versions since task_id type may vary
+        self._configured_task_ids: set = set()
+        for task_id, trigger_config in triggers.items():
+            self._configured_task_ids.add(task_id)
+            self._configured_task_ids.add(str(task_id))
+            if isinstance(task_id, str) and task_id.isdigit():
+                self._configured_task_ids.add(int(task_id))
+
             if trigger_config.get("on_any"):
                 needs_assigned = True
                 needs_completed = True
-                break
             if trigger_config.get("on_assigned"):
                 needs_assigned = True
             if trigger_config.get("on_completed"):
@@ -111,6 +118,26 @@ class TaskTriggerPlugin(Plugin):
             self.event_types.append("CUSTOM_TASK_ASSIGNED")
         if needs_completed:
             self.event_types.append("CUSTOM_TASK_COMPLETED")
+
+    def should_run(self, context: PluginContext) -> bool:
+        """
+        Check if this plugin should run for the given context.
+
+        Filters in order of selectivity (most selective first):
+        1. task_id - eliminates ~99% of events
+        2. domain/stage/event_type - standard plugin filters
+        """
+        # First check task_id (most selective filter)
+        task = context.get_first_task()
+        if not task:
+            return False
+
+        task_id = task.get("task_id")
+        if task_id not in self._configured_task_ids:
+            return False
+
+        # Then apply standard plugin filters (domain, stage, event_type)
+        return super().should_run(context)
 
     async def execute(self, context: PluginContext) -> PluginResult:
         """
