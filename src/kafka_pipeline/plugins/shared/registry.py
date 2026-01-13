@@ -369,7 +369,7 @@ class ActionExecutor:
                 topic=topic,
                 key=key,
                 value=payload,
-                headers=[(k, v.encode()) for k, v in headers.items()],
+                headers=headers,
             )
             log_with_context(
                 logger,
