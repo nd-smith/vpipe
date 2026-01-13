@@ -166,8 +166,8 @@ class BaseKafkaProducer:
                 logging.WARNING,
                 "Overriding acks to 'all' because enable_idempotence=True requires it",
                 configured_acks=acks_value,
-                domain=domain,
-                worker_name=worker_name,
+                domain=self.domain,
+                worker_name=self.worker_name,
             )
             acks_value = "all"
 
