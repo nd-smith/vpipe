@@ -187,7 +187,8 @@ kafka:
 
       processing:
         # Number of events per Delta batch write
-        batch_size: 4000
+        # Optimized for 2-3 concurrent workers (original 4000 / ~2.5)
+        batch_size: 1500
 
         # Optional limit for testing (null = unlimited)
         max_batches: null

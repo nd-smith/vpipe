@@ -166,7 +166,8 @@ kafka:
         compression_type: "snappy"
 
       processing:
-        batch_size: 4000
+        # Optimized for 2-3 concurrent workers (original 4000 / ~2.5)
+        batch_size: 1500
 
         # Flush pending events after this many seconds without a write (seconds)
         # Ensures events are written even during low-traffic periods
@@ -200,7 +201,8 @@ kafka:
         compression_type: "snappy"
 
       processing:
-        batch_size: 100
+        # Optimized for 2-3 concurrent workers (original 100 / ~2.5)
+        batch_size: 40
         # Critical for running multiple workers - keeps batches small and frequent
         batch_timeout_seconds: 10
         max_retries: 3
