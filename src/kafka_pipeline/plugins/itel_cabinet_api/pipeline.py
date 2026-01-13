@@ -186,9 +186,12 @@ class ItelCabinetPipeline:
 
         # Parse form data
         submission = parse_cabinet_form(task_data, event.event_id)
+        # Get project_id from task_data (as int for delta schema)
+        project_id = int(task_data.get("projectId", event.project_id))
         attachments = parse_cabinet_attachments(
             task_data,
             event.assignment_id,
+            project_id,
             event.event_id,
         )
 
