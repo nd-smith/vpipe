@@ -373,8 +373,9 @@ class DeltaTableWriter(LoggedClass):
                             mismatches.append(
                                 f"{col}: Null -> {polars_type}"
                             )
+                            # Cast existing column (not literal) to preserve DataFrame structure
                             cast_exprs.append(
-                                pl.lit(None).cast(polars_type).alias(col)
+                                pl.col(col).cast(polars_type, strict=False).alias(col)
                             )
                         elif source_dtype != polars_type:
                             mismatches.append(
@@ -681,7 +682,7 @@ class DeltaTableWriter(LoggedClass):
             # (schema evolution will handle type inference on first write)
             for col in df.columns:
                 if df[col].dtype == pl.Null:
-                    df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+                    df = df.with_columns(pl.col(col).cast(pl.Utf8, strict=False).alias(col))
 
         # Create table if doesn't exist
         if not self._table_exists(opts):
