@@ -170,24 +170,18 @@ class PluginOrchestrator:
                 continue
 
             try:
-                log_with_context(
-                    logger,
-                    logging.INFO,
-                    "Executing plugin",
-                    plugin_name=plugin.name,
-                    stage=context.stage.value,
-                    event_id=context.event_id,
-                    event_type=context.event_type,
-                    project_id=context.project_id,
-                )
-
                 result = await plugin.execute(context)
                 results.append((plugin.name, result))
 
+                # Use DEBUG for skipped plugins (no actions), INFO when actually executing
+                is_skipped = len(result.actions) == 0
+                log_level = logging.DEBUG if is_skipped else logging.INFO
+                log_message = "Plugin skipped" if is_skipped else "Plugin executed"
+
                 log_with_context(
                     logger,
-                    logging.INFO,
-                    "Plugin executed",
+                    log_level,
+                    log_message,
                     plugin_name=plugin.name,
                     success=result.success,
                     result_message=result.message,
