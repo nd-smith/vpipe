@@ -170,7 +170,8 @@ kafka:
 
         # Flush pending events after this many seconds without a write (seconds)
         # Ensures events are written even during low-traffic periods
-        flush_timeout_seconds: 60  # 2 minutes
+        # Critical for running multiple workers - keeps batches small and frequent
+        batch_timeout_seconds: 10
 
         retry_delays: [300, 600]
         max_retries: 2
@@ -200,7 +201,8 @@ kafka:
 
       processing:
         batch_size: 100
-        batch_timeout_seconds: 30.0
+        # Critical for running multiple workers - keeps batches small and frequent
+        batch_timeout_seconds: 10
         max_retries: 3
 
         retry_delays: [60, 300, 900]

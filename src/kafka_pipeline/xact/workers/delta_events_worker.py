@@ -104,6 +104,7 @@ class DeltaEventsWorker:
         processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
         self.batch_size = processing_config.get("batch_size", 100)
         self.max_batches = processing_config.get("max_batches")  # None = unlimited
+        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 10.0)
 
         # Retry configuration from worker processing settings
         self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
@@ -112,6 +113,8 @@ class DeltaEventsWorker:
 
         # Batch state
         self._batch: List[Dict[str, Any]] = []
+        self._batch_lock = asyncio.Lock()
+        self._batch_timer: Optional[asyncio.Task] = None
         self._batches_written = 0
         self._total_events_written = 0
 
@@ -157,6 +160,7 @@ class DeltaEventsWorker:
                 "events_topic": config.get_topic(domain, "events"),
                 "events_table_path": events_table_path,
                 "batch_size": self.batch_size,
+                "batch_timeout_seconds": self.batch_timeout_seconds,
                 "max_batches": self.max_batches,
                 "retry_delays": self._retry_delays,
                 "retry_topic_prefix": self._retry_topic_prefix,
@@ -188,6 +192,9 @@ class DeltaEventsWorker:
 
         # Start cycle output background task
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+
+        # Start batch timer for periodic flushing
+        self._reset_batch_timer()
 
         # Create and start consumer with message handler
         # Disable per-message commits - we commit after batch writes to ensure
@@ -225,6 +232,14 @@ class DeltaEventsWorker:
             self._cycle_task.cancel()
             try:
                 await self._cycle_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel batch timer
+        if self._batch_timer and not self._batch_timer.done():
+            self._batch_timer.cancel()
+            try:
+                await self._batch_timer
             except asyncio.CancelledError:
                 pass
 
@@ -292,22 +307,24 @@ class DeltaEventsWorker:
             )
             raise
 
-        # Add to batch (raw dict with data already as dict)
-        self._batch.append(message_data)
+        # Add to batch with lock (raw dict with data already as dict)
+        async with self._batch_lock:
+            self._batch.append(message_data)
 
-        logger.debug(
-            "Added event to batch",
-            extra={
-                "trace_id": message_data.get("traceId"),
-                "event_id": message_data.get("eventId"),
-                "batch_size": len(self._batch),
-                "batch_threshold": self.batch_size,
-            },
-        )
+            logger.debug(
+                "Added event to batch",
+                extra={
+                    "trace_id": message_data.get("traceId"),
+                    "event_id": message_data.get("eventId"),
+                    "batch_size": len(self._batch),
+                    "batch_threshold": self.batch_size,
+                },
+            )
 
-        # Flush batch if full
-        if len(self._batch) >= self.batch_size:
-            await self._flush_batch()
+            # Flush batch if full
+            if len(self._batch) >= self.batch_size:
+                await self._flush_batch()
+                self._reset_batch_timer()
 
     async def _flush_batch(self) -> None:
         """
@@ -480,6 +497,36 @@ class DeltaEventsWorker:
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")
             raise
+
+    async def _periodic_flush(self) -> None:
+        """
+        Timer callback to periodically flush batch regardless of size.
+
+        This ensures events are written even during low-traffic periods,
+        improving latency for the last events in a batch.
+        """
+        try:
+            while self._running:
+                await asyncio.sleep(self.batch_timeout_seconds)
+                async with self._batch_lock:
+                    if self._batch:
+                        logger.debug(
+                            "Flushing batch on timeout",
+                            extra={
+                                "batch_size": len(self._batch),
+                                "timeout_seconds": self.batch_timeout_seconds,
+                            },
+                        )
+                        await self._flush_batch()
+        except asyncio.CancelledError:
+            logger.debug("Periodic flush task cancelled")
+            raise
+
+    def _reset_batch_timer(self) -> None:
+        """Reset the batch flush timer."""
+        if self._batch_timer and not self._batch_timer.done():
+            self._batch_timer.cancel()
+        self._batch_timer = asyncio.create_task(self._periodic_flush())
 
 
 __all__ = ["DeltaEventsWorker"]
