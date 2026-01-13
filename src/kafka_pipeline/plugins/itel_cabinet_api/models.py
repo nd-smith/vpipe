@@ -177,6 +177,7 @@ class CabinetAttachment:
     created_at: Optional[datetime] = None
     is_active: bool = True
     media_type: str = "image/jpeg"  # Default assumption
+    file_extension: Optional[str] = None  # e.g., "jpg", "png", "pdf"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for Delta write."""
