@@ -41,7 +41,7 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.retry.handler import RetryHandler
+from kafka_pipeline.xact.retry.download_handler import RetryHandler
 from kafka_pipeline.xact.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
 from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage

@@ -35,7 +35,7 @@ from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.metrics import record_delta_write
-from kafka_pipeline.xact.retry.handler import DeltaRetryHandler
+from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.xact.writers import DeltaEventsWriter
 
 logger = get_logger(__name__)
@@ -142,6 +142,7 @@ class DeltaEventsWorker:
             retry_delays=self._retry_delays,
             retry_topic_prefix=self._retry_topic_prefix,
             dlq_topic=self._dlq_topic,
+            domain=self.domain,
         )
 
         # Health check server - use worker-specific port from config

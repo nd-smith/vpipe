@@ -31,7 +31,7 @@ from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import record_delta_write
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.xact.retry.handler import DeltaRetryHandler
+from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
 from kafka_pipeline.xact.writers.delta_inventory import (
     DeltaInventoryWriter,
@@ -127,6 +127,7 @@ class ResultProcessor:
             table_path=inventory_table_path,
             retry_topic_prefix="result-processor.retry",
             dlq_topic="result-processor.dlq",
+            domain=self.domain,
         )
 
         # Batching state - separate batches for success and failed
