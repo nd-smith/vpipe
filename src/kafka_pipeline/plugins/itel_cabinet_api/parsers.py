@@ -224,11 +224,15 @@ def _parse_form_response(response: dict) -> dict:
                     form_data[field_name] = value
 
             elif answer_type == "number":
-                # Numeric answers
+                # Numeric answers - may be a primitive or dict with value/name
                 number_answer = answer_export.get("numberAnswer")
                 field_name = _question_to_field_name(question_text)
                 if number_answer is not None:
-                    form_data[field_name] = int(number_answer)
+                    # Handle dict structure (e.g., {"value": 123} or {"name": 123})
+                    if isinstance(number_answer, dict):
+                        number_answer = number_answer.get("value") or number_answer.get("name")
+                    if number_answer is not None:
+                        form_data[field_name] = int(number_answer)
 
             elif answer_type == "text":
                 # Text answers
