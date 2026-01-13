@@ -296,10 +296,19 @@ async def main():
     )
     await producer.start()
 
-    # Setup Delta writer
-    delta_tables = worker_config.get('delta_tables', {})
-    submissions_path = f"abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/{delta_tables.get('submissions', 'claimx_itel_forms')}"
-    attachments_path = f"abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/{delta_tables.get('attachments', 'claimx_itel_attachments')}"
+    # Setup Delta writer - table paths from environment variables
+    submissions_path = os.environ.get("ITEL_DELTA_FORMS_TABLE")
+    attachments_path = os.environ.get("ITEL_DELTA_ATTACHMENTS_TABLE")
+
+    if not submissions_path or not attachments_path:
+        logger.error(
+            "Missing required delta table environment variables. "
+            "Please set ITEL_DELTA_FORMS_TABLE and ITEL_DELTA_ATTACHMENTS_TABLE"
+        )
+        sys.exit(1)
+
+    logger.info(f"Delta submissions table: {submissions_path}")
+    logger.info(f"Delta attachments table: {attachments_path}")
 
     delta_writer = ItelCabinetDeltaWriter(
         submissions_table_path=submissions_path,
