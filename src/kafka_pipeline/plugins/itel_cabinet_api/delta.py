@@ -18,12 +18,14 @@ logger = logging.getLogger(__name__)
 
 # Explicit schema for claimx_itel_forms table
 # Matches the Delta table schema exactly to prevent type inference issues
+# IMPORTANT: Column order must match the target table exactly
 SUBMISSIONS_SCHEMA: Dict[str, pl.DataType] = {
     "assignment_id": pl.Int64,
     "project_id": pl.Utf8,
     "form_id": pl.Utf8,
     "form_response_id": pl.Utf8,
     "status": pl.Utf8,
+    "event_id": pl.Utf8,  # Position 6 in DB schema
     "date_assigned": pl.Datetime("us", "UTC"),
     "date_completed": pl.Datetime("us", "UTC"),
     "customer_first_name": pl.Utf8,
@@ -53,7 +55,7 @@ SUBMISSIONS_SCHEMA: Dict[str, pl.DataType] = {
     "upper_face_frames_doors_drawers_damaged": pl.Boolean,
     "upper_finished_end_panels_damaged": pl.Boolean,
     "upper_end_panel_damage_present": pl.Boolean,
-    # Full height cabinets
+    # Full height cabinets (no end_panel_damage_present or counter_type)
     "full_height_cabinets_damaged": pl.Boolean,
     "full_height_cabinets_lf": pl.Int32,
     "num_damaged_full_height_boxes": pl.Int32,
@@ -74,7 +76,6 @@ SUBMISSIONS_SCHEMA: Dict[str, pl.DataType] = {
     # Metadata
     "created_at": pl.Datetime("us", "UTC"),
     "updated_at": pl.Datetime("us", "UTC"),
-    "event_id": pl.Utf8,
 }
 
 
