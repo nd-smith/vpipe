@@ -38,7 +38,7 @@ connections:
   claimx_api:
     name: claimx_api
     base_url: ${CLAIMX_API_BASE_URL}  # e.g., https://api.claimx.com
-    auth_type: bearer
+    auth_type: basic
     auth_token: ${CLAIMX_API_TOKEN}
     timeout_seconds: 30
     max_retries: 3

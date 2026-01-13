@@ -152,13 +152,16 @@ class ItelCabinetTrackingWorker:
                     await self.consumer.commit()  # Skip bad message
 
                 except Exception as e:
-                    # Processing error - log and continue
+                    # Processing error - log, commit to skip, and continue
                     logger.exception(
                         f"Failed to process message: {e}",
                         extra={'offset': message.offset}
                     )
-                    # Don't commit - will retry on restart
-                    # In production, you might want to send to DLQ after N retries
+                    # Commit to skip failed message and continue polling
+                    # Without this, consumer stays stuck on the same message
+                    # TODO: Add retry logic with DLQ for production
+                    await self.consumer.commit()
+                    continue
 
         except KafkaError as e:
             logger.exception(f"Kafka error: {e}")
