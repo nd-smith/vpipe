@@ -103,9 +103,17 @@ class ClaimXEventIngesterWorker:
         # Cycle output tracking
         self._records_processed = 0
         self._records_succeeded = 0
+        self._records_deduplicated = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
+
+        # In-memory dedup cache: event_id -> timestamp
+        # Prevents duplicate event processing when Eventhouse sends duplicates
+        # or when Kafka retries cause the same message to be delivered twice
+        self._dedup_cache: dict[str, float] = {}
+        self._dedup_cache_ttl_seconds = 86400  # 24 hours
+        self._dedup_cache_max_size = 100_000  # ~3MB memory for 100k entries
 
         # Health check server - use worker-specific port from config
         # Use port=0 by default for dynamic port assignment (avoids conflicts with multiple workers)
@@ -405,6 +413,20 @@ class ClaimXEventIngesterWorker:
         # Set logging context for this request (enables trace correlation)
         set_log_context(trace_id=event.event_id)
 
+        # Check for duplicates (same event_id processed recently)
+        if self._is_duplicate(event_id):
+            self._records_deduplicated += 1
+            logger.debug(
+                "Skipping duplicate ClaimX event",
+                extra={
+                    "event_id": event_id,
+                    "event_type": event.event_type,
+                    "project_id": event.project_id,
+                },
+            )
+            record_event_ingested(domain=self.domain, status="deduplicated")
+            return
+
         # Track records processed
         self._records_processed += 1
 
@@ -422,6 +444,12 @@ class ClaimXEventIngesterWorker:
         # Create enrichment task for this event
         # All events need enrichment (to fetch entity data from API)
         await self._create_enrichment_task(event)
+
+        # Mark event as processed in dedup cache
+        self._mark_processed(event_id)
+
+        # Periodic cleanup of expired cache entries
+        self._cleanup_dedup_cache()
 
         # Record successful ingestion and duration
         duration = time.perf_counter() - start_time
@@ -486,6 +514,75 @@ class ClaimXEventIngesterWorker:
             )
             raise
 
+    def _is_duplicate(self, event_id: str) -> bool:
+        """
+        Check if event_id is in dedup cache (already processed recently).
+
+        Returns:
+            True if event_id was processed within TTL window, False otherwise
+        """
+        now = time.time()
+
+        # Check if in cache and not expired
+        if event_id in self._dedup_cache:
+            cached_time = self._dedup_cache[event_id]
+            if now - cached_time < self._dedup_cache_ttl_seconds:
+                return True
+            # Expired - remove from cache
+            del self._dedup_cache[event_id]
+
+        return False
+
+    def _mark_processed(self, event_id: str) -> None:
+        """
+        Mark an event_id as processed in the dedup cache.
+
+        If the cache is at max capacity, evicts the oldest 10% of entries.
+
+        Args:
+            event_id: The event_id to mark as processed
+        """
+        now = time.time()
+
+        # If cache is full, evict oldest entries (simple LRU)
+        if len(self._dedup_cache) >= self._dedup_cache_max_size:
+            # Sort by timestamp and remove oldest 10%
+            sorted_items = sorted(self._dedup_cache.items(), key=lambda x: x[1])
+            evict_count = self._dedup_cache_max_size // 10
+            for event_id_to_evict, _ in sorted_items[:evict_count]:
+                del self._dedup_cache[event_id_to_evict]
+
+            logger.debug(
+                "Evicted old entries from event dedup cache",
+                extra={
+                    "evicted_count": evict_count,
+                    "cache_size": len(self._dedup_cache),
+                },
+            )
+
+        # Add to cache
+        self._dedup_cache[event_id] = now
+
+    def _cleanup_dedup_cache(self) -> None:
+        """Remove expired entries from dedup cache (TTL-based cleanup)."""
+        now = time.time()
+        expired_keys = [
+            event_id
+            for event_id, cached_time in self._dedup_cache.items()
+            if now - cached_time >= self._dedup_cache_ttl_seconds
+        ]
+
+        for event_id in expired_keys:
+            del self._dedup_cache[event_id]
+
+        if expired_keys:
+            logger.debug(
+                "Cleaned up expired event dedup cache entries",
+                extra={
+                    "expired_count": len(expired_keys),
+                    "cache_size": len(self._dedup_cache),
+                },
+            )
 
     async def _periodic_cycle_output(self) -> None:
         """
@@ -509,11 +606,13 @@ class ClaimXEventIngesterWorker:
 
                     logger.info(
                         f"Cycle {self._cycle_count}: processed={self._records_processed}, "
-                        f"succeeded={self._records_succeeded}",
+                        f"succeeded={self._records_succeeded}, deduplicated={self._records_deduplicated}",
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
+                            "records_deduplicated": self._records_deduplicated,
+                            "dedup_cache_size": len(self._dedup_cache),
                             "cycle_interval_seconds": 30,
                         },
                     )
