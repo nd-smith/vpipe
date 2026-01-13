@@ -227,25 +227,27 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
         Returns:
             True if successful
         """
+        # Pre-process row with explicit type conversion
+        processed = self._process_submission_row(submission_row)
+
+        # Create DataFrame with explicit schema
+        df = pl.DataFrame([processed], schema=SUBMISSIONS_SCHEMA)
+
+        # Temporarily switch table path for this operation
+        # IMPORTANT: Must update both self.table_path AND _delta_writer.table_path
+        # The _delta_writer uses its own table_path for schema alignment and merge
+        original_path = self.table_path
+        original_writer_path = self._delta_writer.table_path
+        self.table_path = self.submissions_table_path
+        self._delta_writer.table_path = self.submissions_table_path
+
         try:
-            # Pre-process row with explicit type conversion
-            processed = self._process_submission_row(submission_row)
-
-            # Create DataFrame with explicit schema
-            df = pl.DataFrame([processed], schema=SUBMISSIONS_SCHEMA)
-
-            # Temporarily switch table path for this operation
-            original_path = self.table_path
-            self.table_path = self.submissions_table_path
-
             # Merge into Delta table
             success = await self._async_merge(
                 df,
                 merge_keys=["assignment_id"],
                 preserve_columns=["created_at"],
             )
-
-            self.table_path = original_path
 
             if success:
                 logger.info(
@@ -269,6 +271,11 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
             )
             return False
 
+        finally:
+            # Always restore original paths
+            self.table_path = original_path
+            self._delta_writer.table_path = original_writer_path
+
     async def write_attachments(self, attachment_rows: list[dict]) -> bool:
         """
         Write attachments to Delta table using MERGE.
@@ -282,27 +289,29 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
         if not attachment_rows:
             return True
 
+        # Pre-process all rows with explicit type conversion
+        processed_rows = [
+            self._process_attachment_row(row) for row in attachment_rows
+        ]
+
+        # Create DataFrame with explicit schema
+        df = pl.DataFrame(processed_rows, schema=ATTACHMENTS_SCHEMA)
+
+        # Temporarily switch table path for this operation
+        # IMPORTANT: Must update both self.table_path AND _delta_writer.table_path
+        # The _delta_writer uses its own table_path for schema alignment and merge
+        original_path = self.table_path
+        original_writer_path = self._delta_writer.table_path
+        self.table_path = self.attachments_table_path
+        self._delta_writer.table_path = self.attachments_table_path
+
         try:
-            # Pre-process all rows with explicit type conversion
-            processed_rows = [
-                self._process_attachment_row(row) for row in attachment_rows
-            ]
-
-            # Create DataFrame with explicit schema
-            df = pl.DataFrame(processed_rows, schema=ATTACHMENTS_SCHEMA)
-
-            # Temporarily switch table path for this operation
-            original_path = self.table_path
-            self.table_path = self.attachments_table_path
-
             # Merge into Delta table
             success = await self._async_merge(
                 df,
                 merge_keys=["assignment_id", "media_id"],
                 preserve_columns=["created_at"],
             )
-
-            self.table_path = original_path
 
             if success:
                 logger.info(
@@ -325,3 +334,8 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
                 exc_info=True,
             )
             return False
+
+        finally:
+            # Always restore original paths
+            self.table_path = original_path
+            self._delta_writer.table_path = original_writer_path
