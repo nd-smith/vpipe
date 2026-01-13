@@ -94,6 +94,7 @@ class ItelCabinetTrackingWorker:
             group_id=self.kafka_config['consumer_group'],
             value_deserializer=lambda m: json.loads(m.decode('utf-8')),
             enable_auto_commit=False,  # Manual commit for exactly-once
+            auto_offset_reset='earliest',  # Process existing messages when no committed offset
             metadata_max_age_ms=30000,  # Refresh metadata every 30s (helps with topic discovery)
         )
 
