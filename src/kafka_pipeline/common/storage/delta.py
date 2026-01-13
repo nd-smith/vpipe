@@ -368,6 +368,14 @@ class DeltaTableWriter(LoggedClass):
                                 f"{col}: source={source_dtype}, target={target_arrow_type} (unmapped)"
                             )
                             cast_exprs.append(pl.col(col))
+                        elif source_dtype == pl.Null:
+                            # NULL-typed columns must be cast to target type for delta-rs CASE WHEN
+                            mismatches.append(
+                                f"{col}: Null -> {polars_type}"
+                            )
+                            cast_exprs.append(
+                                pl.lit(None).cast(polars_type).alias(col)
+                            )
                         elif source_dtype != polars_type:
                             mismatches.append(
                                 f"{col}: {source_dtype} -> {polars_type}"
@@ -662,16 +670,18 @@ class DeltaTableWriter(LoggedClass):
                 rows_written=len(df),
             )
 
-        # Cast any null-typed columns to string (they'll get cast again by Delta)
-        for col in df.columns:
-            if df[col].dtype == pl.Null:
-                df = df.with_columns(pl.col(col).cast(pl.Utf8))
-
         opts = get_storage_options()
 
         # Align source schema with target to prevent type coercion errors in CASE WHEN
+        # This also handles NULL-typed columns by casting to correct target type
         if self._table_exists(opts):
             df = self._align_schema_with_target(df, opts)
+        else:
+            # Table doesn't exist yet - cast NULL columns to Utf8 as default
+            # (schema evolution will handle type inference on first write)
+            for col in df.columns:
+                if df[col].dtype == pl.Null:
+                    df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
 
         # Create table if doesn't exist
         if not self._table_exists(opts):
