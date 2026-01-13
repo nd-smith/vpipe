@@ -28,6 +28,7 @@ from pydantic import ValidationError
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     event_ingestion_duration_seconds,
@@ -489,7 +490,7 @@ class ClaimXEventIngesterWorker:
                 headers={"event_id": event.event_id},
             )
 
-            logger.info(
+            logger.debug(
                 "Created ClaimX enrichment task",
                 extra={
                     "event_id": event.event_id,
@@ -588,10 +589,8 @@ class ClaimXEventIngesterWorker:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0, succeeded=0 (pending=0) [cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output (with deduplicated tracking)
+        logger.info(format_cycle_output(0, 0, 0, 0, deduplicated=0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -604,9 +603,16 @@ class ClaimXEventIngesterWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
+                    # Use standardized cycle output format with dedup tracking
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=0,
+                        skipped=0,
+                        deduplicated=self._records_deduplicated,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed}, "
-                        f"succeeded={self._records_succeeded}, deduplicated={self._records_deduplicated}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,

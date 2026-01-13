@@ -27,6 +27,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.claimx.monitoring import HealthCheckServer
@@ -539,7 +540,7 @@ class ClaimXUploadWorker:
             # Calculate processing time
             processing_time_ms = int((time.time() - start_time) * 1000)
 
-            logger.info(
+            logger.debug(
                 "Uploaded file to OneLake",
                 extra={
                     "correlation_id": cached_message.source_event_id,
@@ -591,21 +592,23 @@ class ClaimXUploadWorker:
             processing_time_ms = int((time.time() - start_time) * 1000)
 
             # Build error log extra fields
-            error_extra = {
-                "media_id": media_id,
-                "processing_time_ms": processing_time_ms,
-                "error_category": "permanent",  # Upload failures are typically permanent
-            }
-
-            # Add correlation_id and project_id if cached_message was parsed
+            # Extract event_id and project_id if cached_message was parsed
+            event_id = None
+            project_id = None
             if 'cached_message' in locals() and cached_message is not None:
-                error_extra["correlation_id"] = cached_message.source_event_id
-                error_extra["project_id"] = cached_message.project_id
+                event_id = cached_message.source_event_id
+                project_id = cached_message.project_id
 
-            logger.error(
-                f"Upload failed: {e}",
-                extra=error_extra,
-                exc_info=True,
+            # Use standardized error logging
+            log_worker_error(
+                logger,
+                "Upload failed",
+                event_id=event_id,
+                error_category="permanent",  # Upload failures are typically permanent
+                exc=e,
+                media_id=media_id,
+                project_id=project_id,
+                processing_time_ms=processing_time_ms,
             )
             consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
             record_processing_error(self.topic, consumer_group, "upload_error")
@@ -658,11 +661,8 @@ class ClaimXUploadWorker:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0), pending=0 "
-            "[cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -678,10 +678,16 @@ class ClaimXUploadWorker:
                     async with self._in_flight_lock:
                          in_flight = len(self._in_flight_tasks)
 
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                        in_flight=in_flight,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}), in_flight={in_flight}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,

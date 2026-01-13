@@ -84,8 +84,7 @@ class TaskTriggerPlugin(Plugin):
         Check if task matches a trigger and execute actions.
 
         Args:
-            context: Plugin context with enriched task data
-
+v
         Returns:
             PluginResult with actions to execute
         """

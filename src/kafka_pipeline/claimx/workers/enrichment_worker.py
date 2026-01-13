@@ -28,6 +28,7 @@ from pydantic import ValidationError
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
@@ -907,30 +908,28 @@ class ClaimXEnrichmentWorker:
             )
 
         except ClaimXApiError as e:
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Handler failed with API error",
-                extra={
-                    "handler": handler_class.__name__,
-                    "event_id": task.event_id,
-                    "error_category": e.category.value,
-                    "error": str(e)[:200],
-                },
-                exc_info=True,
+                event_id=task.event_id,
+                error_category=e.category.value,
+                exc=e,
+                handler=handler_class.__name__,
             )
             await self._handle_enrichment_failure(task, e, e.category)
 
         except Exception as e:
             error_category = ErrorCategory.UNKNOWN
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Handler failed with unexpected error",
-                extra={
-                    "handler": handler_class.__name__,
-                    "event_id": task.event_id,
-                    "error_type": type(e).__name__,
-                    "error_category": error_category.value,
-                    "error": str(e)[:200],
-                },
-                exc_info=True,
+                event_id=task.event_id,
+                error_category=error_category.value,
+                exc=e,
+                handler=handler_class.__name__,
+                error_type=type(e).__name__,
             )
             await self._handle_enrichment_failure(task, e, error_category)
 
@@ -938,11 +937,8 @@ class ClaimXEnrichmentWorker:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0) "
-            "[cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -955,10 +951,15 @@ class ClaimXEnrichmentWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}) | project_cache_size={self.project_cache.size()}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,
@@ -1363,18 +1364,18 @@ class ClaimXEnrichmentWorker:
         """
         assert self.retry_handler is not None, "Retry handler not initialized"
 
-        logger.warning(
+        # Use standardized error logging
+        log_worker_error(
+            logger,
             "Enrichment task failed",
-            extra={
-                "event_id": task.event_id,
-                "event_type": task.event_type,
-                "project_id": task.project_id,
-                "error_category": error_category.value,
-                "retry_count": task.retry_count,
-                "error": str(error)[:200],
-            },
+            event_id=task.event_id,
+            error_category=error_category.value,
+            exc=error,
+            event_type=task.event_type,
+            project_id=task.project_id,
+            retry_count=task.retry_count,
         )
-        
+
         self._records_failed += 1
 
         # Route through retry handler
