@@ -191,6 +191,24 @@ class ItelCabinetApiWorker:
         submission = payload.get('submission', {})
         attachments = payload.get('attachments', [])
 
+        # Log sample attachment to verify data structure
+        if attachments:
+            sample_att = attachments[0]
+            logger.info(
+                f"Processing {len(attachments)} attachments. Sample attachment structure:",
+                extra={
+                    'assignment_id': submission.get('assignment_id'),
+                    'sample_keys': list(sample_att.keys()) if isinstance(sample_att, dict) else f'not a dict: {type(sample_att)}',
+                    'sample_media_id': sample_att.get('media_id') if isinstance(sample_att, dict) else None,
+                    'sample_question_key': sample_att.get('question_key') if isinstance(sample_att, dict) else None,
+                }
+            )
+        else:
+            logger.warning(
+                "No attachments found in payload",
+                extra={'assignment_id': submission.get('assignment_id')}
+            )
+
         # Group attachments by question_key
         attachments_by_key = {}
         for att in attachments:
@@ -199,6 +217,22 @@ class ItelCabinetApiWorker:
                 if key not in attachments_by_key:
                     attachments_by_key[key] = []
                 attachments_by_key[key].append(att)
+            else:
+                logger.warning(
+                    f"Attachment missing question_key",
+                    extra={'attachment': att}
+                )
+
+        # Count attachments with valid media_ids for diagnostic purposes
+        media_id_count = sum(1 for att in attachments if att.get('media_id'))
+        logger.info(
+            f"Grouped {len(attachments)} attachments into {len(attachments_by_key)} keys. "
+            f"Attachments with valid media_id: {media_id_count}/{len(attachments)}",
+            extra={
+                'assignment_id': submission.get('assignment_id'),
+                'question_keys': list(attachments_by_key.keys()),
+            }
+        )
 
         # Build iTel API payload
         api_payload = {
@@ -267,11 +301,13 @@ class ItelCabinetApiWorker:
 
         # Cabinet box photos
         box_key = f"{cabinet_type}_cabinet_box"
+        logger.debug(f"Checking for {box_key} in attachments_by_key: {box_key in attachments_by_key}")
         if box_key in attachments_by_key:
             media.extend(self._build_media_array(box_key, attachments_by_key))
 
         # Face frames, doors, and drawers photos
         face_frames_key = f"{cabinet_type}_face_frames_doors_drawers"
+        logger.debug(f"Checking for {face_frames_key} in attachments_by_key: {face_frames_key in attachments_by_key}")
         if face_frames_key in attachments_by_key:
             media.extend(self._build_media_array(face_frames_key, attachments_by_key))
 
@@ -280,9 +316,11 @@ class ItelCabinetApiWorker:
             panel_key = "full_height_end_panels"
         else:
             panel_key = f"{cabinet_type}_cabinet_end_panels"
+        logger.debug(f"Checking for {panel_key} in attachments_by_key: {panel_key in attachments_by_key}")
         if panel_key in attachments_by_key:
             media.extend(self._build_media_array(panel_key, attachments_by_key))
 
+        logger.debug(f"Built {len(media)} media entries for {cabinet_type} cabinet section")
         section["media"] = media
 
         return section
@@ -295,13 +333,50 @@ class ItelCabinetApiWorker:
         """Build media array for a question."""
         attachments = attachments_by_key.get(question_key, [])
         if not attachments:
+            logger.debug(f"No attachments found for question_key: {question_key}")
             return []
 
         first = attachments[0]
+
+        # Extract media_ids - try multiple possible key names for robustness
+        # The primary key is "media_id" but we also check for alternatives
+        media_id_keys = ["media_id", "mediaId", "claim_media_id", "claimMediaId"]
+
+        media_ids = []
+        for att in attachments:
+            # Try each possible key name
+            media_id = None
+            used_key = None
+            for key in media_id_keys:
+                if key in att:
+                    media_id = att[key]
+                    used_key = key
+                    break
+
+            if media_id:
+                media_ids.append(media_id)
+            else:
+                # Log the attachment to understand why media_id is missing/falsy
+                logger.warning(
+                    f"Attachment missing or has falsy media_id for question_key={question_key}",
+                    extra={
+                        'attachment_keys': list(att.keys()) if isinstance(att, dict) else type(att).__name__,
+                        'tried_keys': media_id_keys,
+                        'found_key': used_key,
+                        'media_id_value': media_id,
+                        'media_id_type': type(media_id).__name__ if media_id is not None else 'NoneType',
+                    }
+                )
+
+        logger.debug(
+            f"Built media array for {question_key}: {len(attachments)} attachments, {len(media_ids)} media_ids",
+            extra={'media_ids': media_ids}
+        )
+
         return [{
             "questionKey": question_key,
             "questionText": first.get("question_text", ""),
-            "claimMediaIds": [att.get("media_id") for att in attachments if att.get("media_id")]
+            "claimMediaIds": media_ids
         }]
 
     async def _send_to_api(self, api_payload: dict):
@@ -339,17 +414,39 @@ class ItelCabinetApiWorker:
 
         assignment_id = api_payload.get('assignmentId', 'unknown')
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"payload_{assignment_id}_{timestamp}.json"
-        output_path = output_dir / filename
 
-        with open(output_path, 'w') as f:
+        # Write the transformed API payload
+        api_filename = f"payload_{assignment_id}_{timestamp}.json"
+        api_output_path = output_dir / api_filename
+
+        with open(api_output_path, 'w') as f:
             json.dump(api_payload, f, indent=2, default=str)
 
+        # Also write the original Kafka payload for debugging
+        original_filename = f"original_{assignment_id}_{timestamp}.json"
+        original_output_path = output_dir / original_filename
+
+        with open(original_output_path, 'w') as f:
+            json.dump(original_payload, f, indent=2, default=str)
+
+        # Log details about attachments for debugging
+        attachments = original_payload.get('attachments', [])
+        if attachments:
+            sample_att = attachments[0]
+            logger.info(
+                f"[TEST MODE] Sample attachment keys: {list(sample_att.keys()) if isinstance(sample_att, dict) else 'not a dict'}",
+                extra={
+                    'sample_attachment': sample_att,
+                    'total_attachments': len(attachments),
+                }
+            )
+
         logger.info(
-            "[TEST MODE] Payload written to file",
+            "[TEST MODE] Payloads written to files",
             extra={
                 'assignment_id': assignment_id,
-                'file': str(output_path),
+                'api_payload_file': str(api_output_path),
+                'original_payload_file': str(original_output_path),
             }
         )
 
