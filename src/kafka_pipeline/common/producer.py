@@ -8,9 +8,10 @@ Provides async Kafka producer functionality with:
 - Header support for message routing
 """
 
+import json
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import RecordMetadata
@@ -261,7 +262,7 @@ class BaseKafkaProducer:
         self,
         topic: str,
         key: str,
-        value: BaseModel,
+        value: Union[BaseModel, Dict[str, Any]],
         headers: Optional[Dict[str, str]] = None,
     ) -> RecordMetadata:
         """
@@ -273,7 +274,7 @@ class BaseKafkaProducer:
         Args:
             topic: Kafka topic name
             key: Message key (used for partitioning)
-            value: Pydantic model to serialize as message value
+            value: Pydantic model or dict to serialize as message value
             headers: Optional key-value pairs for message headers
 
         Returns:
@@ -286,8 +287,11 @@ class BaseKafkaProducer:
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
 
-        # Serialize value to JSON bytes
-        value_bytes = value.model_dump_json().encode("utf-8")
+        # Serialize value to JSON bytes (handle both BaseModel and dict)
+        if isinstance(value, BaseModel):
+            value_bytes = value.model_dump_json().encode("utf-8")
+        else:
+            value_bytes = json.dumps(value).encode("utf-8")
 
         # Convert headers to list of tuples with byte values
         headers_list = None
