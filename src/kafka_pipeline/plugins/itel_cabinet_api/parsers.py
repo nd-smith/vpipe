@@ -14,17 +14,22 @@ from .models import CabinetSubmission, CabinetAttachment
 logger = logging.getLogger(__name__)
 
 
-# Question control ID to question_key mapping
-MEDIA_QUESTION_MAPPING = {
-    "control-110496963": "overview_photos",
-    "control-989806632": "lower_cabinet_box",
-    "control-374047064": "lower_cabinet_end_panels",
-    "control-767670035": "upper_cabinet_box",
-    "control-488956803": "upper_cabinet_end_panels",
-    "control-734859955": "full_height_cabinet_box",
-    "control-959393098": "full_height_end_panels",
-    "control-393858054": "island_cabinet_box",
-    "control-532071774": "island_cabinet_end_panels",
+# Question text to question_key mapping for media attachments
+# (Control IDs are reused across cabinet types, so we map by question text)
+MEDIA_QUESTION_TEXT_MAPPING = {
+    "Upload Overview Photo(s)": "overview_photos",
+    "Captured Lower Cabinet Box": "lower_cabinet_box",
+    "Captured Lower Face Frames, Doors, and Drawers": "lower_face_frames_doors_drawers",
+    "Captured Lower Cabinet End Panels": "lower_cabinet_end_panels",
+    "Captured Upper Cabinet Box": "upper_cabinet_box",
+    "Captured Upper Face Frames, Doors, and Drawers": "upper_face_frames_doors_drawers",
+    "Captured Upper Cabinet End Panels": "upper_cabinet_end_panels",
+    "Captured Full Height/Pantry Cabinets": "full_height_cabinet_box",
+    "Captured Full Height/Pantry Face Frames, Doors, and Drawers": "full_height_face_frames_doors_drawers",
+    "Captured Full Height/Pantry End Panels": "full_height_end_panels",
+    "Captured Island Cabinet Box": "island_cabinet_box",
+    "Captured Island Face Frames, Doors, and Drawers": "island_face_frames_doors_drawers",
+    "Captured Island Cabinet End Panels": "island_cabinet_end_panels",
 }
 
 
@@ -154,16 +159,20 @@ def parse_cabinet_attachments(
         questions = group.get("questionAndAnswers", [])
 
         for question in questions:
-            control_id = question.get("formControl", {}).get("id")
             question_text = question.get("questionText", "")
+            answer_export = question.get("responseAnswerExport", {})
 
-            # Check if this is a media question we care about
-            question_key = MEDIA_QUESTION_MAPPING.get(control_id)
-            if not question_key:
+            # Only process image type answers
+            if answer_export.get("type") != "image":
                 continue
 
+            # Check if this is a media question we care about (by question text)
+            question_key = MEDIA_QUESTION_TEXT_MAPPING.get(question_text)
+            if not question_key:
+                # Fall back to generic key from question text
+                question_key = question_text.lower().replace(" ", "_").replace("/", "_")
+
             # Extract claimMediaIds from response
-            answer_export = question.get("responseAnswerExport", {})
             claim_media_ids = answer_export.get("claimMediaIds", [])
 
             # Create attachment record for each media ID
@@ -235,8 +244,8 @@ def _parse_form_response(response: dict) -> dict:
                         form_data[field_name] = int(number_answer)
 
             elif answer_type == "text":
-                # Text answers
-                text_answer = answer_export.get("textAnswer")
+                # Text answers - API uses "text" field
+                text_answer = answer_export.get("text")
                 field_name = _question_to_field_name(question_text)
                 form_data[field_name] = text_answer
 
@@ -253,48 +262,53 @@ def _question_to_field_name(question_text: str) -> str:
         "Lower Cabinets Damaged?" -> "lower_cabinets_damaged"
         "Number of Damaged Lower Cabinet Boxes" -> "num_damaged_lower_boxes"
     """
-    # Explicit mapping for known questions
+    # Explicit mapping for known questions (matching actual ClaimX API responses)
     field_mapping = {
+        # Cabinet Types Damaged
         "Lower Cabinets Damaged?": "lower_cabinets_damaged",
-        "Linear Feet of Lower Cabinets": "lower_cabinets_lf",
-        "Number of Damaged Lower Cabinet Boxes": "num_damaged_lower_boxes",
-        "Lower Cabinets Detached from Wall?": "lower_cabinets_detached",
-        "Lower Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "lower_face_frames_doors_drawers_available",
-        "Lower Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "lower_face_frames_doors_drawers_damaged",
-        "Lower Cabinets - Finished End Panels Damaged?": "lower_finished_end_panels_damaged",
-        "Lower Cabinets - End Panel Damage Present?": "lower_end_panel_damage_present",
-        "Lower Cabinets - Counter Type": "lower_counter_type",
-
         "Upper Cabinets Damaged?": "upper_cabinets_damaged",
-        "Linear Feet of Upper Cabinets": "upper_cabinets_lf",
-        "Number of Damaged Upper Cabinet Boxes": "num_damaged_upper_boxes",
-        "Upper Cabinets Detached from Wall?": "upper_cabinets_detached",
-        "Upper Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "upper_face_frames_doors_drawers_available",
-        "Upper Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "upper_face_frames_doors_drawers_damaged",
-        "Upper Cabinets - Finished End Panels Damaged?": "upper_finished_end_panels_damaged",
-        "Upper Cabinets - End Panel Damage Present?": "upper_end_panel_damage_present",
-
         "Full Height Cabinets Damaged?": "full_height_cabinets_damaged",
-        "Linear Feet of Full Height Cabinets": "full_height_cabinets_lf",
-        "Number of Damaged Full Height Cabinet Boxes": "num_damaged_full_height_boxes",
-        "Full Height Cabinets Detached from Wall?": "full_height_cabinets_detached",
-        "Full Height Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "full_height_face_frames_doors_drawers_available",
-        "Full Height Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "full_height_face_frames_doors_drawers_damaged",
-        "Full Height Cabinets - Finished End Panels Damaged?": "full_height_finished_end_panels_damaged",
-
         "Island Cabinets Damaged?": "island_cabinets_damaged",
-        "Linear Feet of Island Cabinets": "island_cabinets_lf",
-        "Number of Damaged Island Cabinet Boxes": "num_damaged_island_boxes",
-        "Island Cabinets Detached from Floor?": "island_cabinets_detached",
-        "Island Cabinets - Face Frames, Doors, and Drawer Fronts Available?": "island_face_frames_doors_drawers_available",
-        "Island Cabinets - Face Frames, Doors, and Drawer Fronts Damaged?": "island_face_frames_doors_drawers_damaged",
-        "Island Cabinets - Finished End Panels Damaged?": "island_finished_end_panels_damaged",
-        "Island Cabinets - End Panel Damage Present?": "island_end_panel_damage_present",
-        "Island Cabinets - Counter Type": "island_counter_type",
 
-        "Describe the Damage": "damage_description",
-        "Additional Notes": "additional_notes",
-        "Countertops - Linear Feet": "countertops_lf",
+        # Linear Feet Capture
+        "Lower Cabinets (linear feet)": "lower_cabinets_lf",
+        "Upper Cabinets (linear feet)": "upper_cabinets_lf",
+        "Full-Height Cabinets (linear feet)": "full_height_cabinets_lf",
+        "Island Cabinets (linear feet)": "island_cabinets_lf",
+        "Countertops (linear feet)": "countertops_lf",
+
+        # Damage Description
+        "Enter Damaged Description": "damage_description",
+        "Now that you have been through the process, please provide any other details that you think would be relevant to the cabinet damage": "additional_notes",
+
+        # Lower Cabinets
+        "Enter Number of Damaged Lower Boxes": "num_damaged_lower_boxes",
+        "Are The Lower Cabinets Detached?": "lower_cabinets_detached",
+        "Are All The Face Frames, Doors, And Drawers Available?": "lower_face_frames_doors_drawers_available",
+        "Are All The Face Frames, Doors, And Drawer Fronts Damaged?": "lower_face_frames_doors_drawers_damaged",
+        "Are The Lower Finished End Panels Damaged?": "lower_finished_end_panels_damaged",
+        "Is there lower cabinet end panel damage?": "lower_end_panel_damage_present",
+        "Select Lower Cabinet Counter Type": "lower_counter_type",
+        "If multiple counter types are present, please list the additional types here": "lower_counter_type_additional",
+
+        # Upper Cabinets
+        "Enter Number of Damaged Upper Boxes": "num_damaged_upper_boxes",
+        "Are The Upper Cabinets Detached?": "upper_cabinets_detached",
+        "Is there upper cabinet end panel damage?": "upper_end_panel_damage_present",
+        "Are The Upper Finished End Panels Damaged?": "upper_finished_end_panels_damaged",
+
+        # Full Height/Pantry Cabinets
+        "Enter Number of Damaged Full Height Boxes": "num_damaged_full_height_boxes",
+        "Are The Full Height Cabinets Detached?": "full_height_cabinets_detached",
+        " Are All The Face Frames, Doors, And Drawer Fronts Damaged?": "full_height_face_frames_doors_drawers_damaged",
+        "Are the Full Height Finished End Panels Damaged?": "full_height_finished_end_panels_damaged",
+
+        # Island Cabinets
+        "Enter Number of Damaged Island Boxes": "num_damaged_island_boxes",
+        "Are The Island Cabinets Detached?": "island_cabinets_detached",
+        "Are the Island Finished End Panels Damaged?": "island_finished_end_panels_damaged",
+        "Is there island cabinet end panel damage?": "island_end_panel_damage_present",
+        "Select Island Cabinet Counter Type": "island_counter_type",
     }
 
     return field_mapping.get(question_text, question_text.lower().replace(" ", "_").replace("?", ""))
