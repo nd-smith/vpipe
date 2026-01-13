@@ -14,6 +14,7 @@ from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 from .models import TaskEvent, CabinetSubmission, CabinetAttachment, ProcessedTask
 from .parsers import parse_cabinet_form, parse_cabinet_attachments, get_readable_report
+from .media_downloader import MediaDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class ItelCabinetPipeline:
         delta_writer,  # ItelCabinetDeltaWriter
         kafka_producer,
         config: dict,
+        onelake_attachments_path: Optional[str] = None,
     ):
         """
         Initialize pipeline with dependencies.
@@ -46,6 +48,7 @@ class ItelCabinetPipeline:
             delta_writer: For writing to Delta tables (ItelCabinetDeltaWriter)
             kafka_producer: For publishing to downstream topics
             config: Pipeline configuration
+            onelake_attachments_path: OneLake base path for media uploads (from env)
         """
         self.connections = connection_manager
         self.delta = delta_writer
@@ -57,12 +60,17 @@ class ItelCabinetPipeline:
         self.output_topic = config.get('output_topic', 'itel.cabinet.completed')
         self.download_media = config.get('download_media', False)
 
+        # Media downloader (lazy initialized)
+        self.onelake_attachments_path = onelake_attachments_path
+        self._media_downloader: Optional[MediaDownloader] = None
+
         logger.info(
             "ItelCabinetPipeline initialized",
             extra={
                 'claimx_connection': self.claimx_connection,
                 'output_topic': self.output_topic,
                 'download_media': self.download_media,
+                'has_onelake_path': onelake_attachments_path is not None,
             }
         )
 
@@ -208,9 +216,16 @@ class ItelCabinetPipeline:
             }
         )
 
-        # TODO: Add media download if configured
+        # Download media files if configured
         if self.download_media and attachments:
-            logger.warning("Media download not yet implemented")
+            if not self.onelake_attachments_path:
+                logger.warning(
+                    "Media download enabled but ITEL_ATTACHMENTS_PATH not configured - skipping downloads"
+                )
+            else:
+                attachments = await self._download_media_files(
+                    attachments, project_id, event.assignment_id
+                )
 
         return submission, attachments, readable_report
 
@@ -244,6 +259,72 @@ class ItelCabinetPipeline:
             )
 
         return response
+
+    async def _download_media_files(
+        self,
+        attachments: list[CabinetAttachment],
+        project_id: int,
+        assignment_id: int,
+    ) -> list[CabinetAttachment]:
+        """
+        Download media files for attachments and upload to OneLake.
+
+        Creates MediaDownloader on first call (lazy initialization).
+        Continues on partial failures - logs errors but returns all attachments.
+
+        Args:
+            attachments: Attachments to download media for
+            project_id: Project ID for path construction
+            assignment_id: Assignment ID for path construction
+
+        Returns:
+            Attachments with blob_path updated for successful downloads
+        """
+        if not attachments:
+            return attachments
+
+        logger.info(
+            "Downloading media files",
+            extra={
+                'assignment_id': assignment_id,
+                'attachment_count': len(attachments),
+            }
+        )
+
+        # Lazy initialize media downloader
+        if self._media_downloader is None:
+            self._media_downloader = MediaDownloader(
+                connection_manager=self.connections,
+                onelake_base_path=self.onelake_attachments_path,
+                claimx_connection=self.claimx_connection,
+            )
+
+        # Download and upload media
+        try:
+            async with self._media_downloader:
+                updated_attachments = await self._media_downloader.download_and_upload(
+                    attachments, project_id, assignment_id
+                )
+
+            logger.info(
+                "Media download complete",
+                extra={
+                    'assignment_id': assignment_id,
+                    'total': len(attachments),
+                    'with_blob_path': sum(1 for a in updated_attachments if a.blob_path),
+                }
+            )
+
+            return updated_attachments
+
+        except Exception as e:
+            logger.error(
+                f"Media download failed: {e}",
+                extra={'assignment_id': assignment_id},
+                exc_info=True,
+            )
+            # Return original attachments even if download failed
+            return attachments
 
     async def _write_to_delta(
         self,

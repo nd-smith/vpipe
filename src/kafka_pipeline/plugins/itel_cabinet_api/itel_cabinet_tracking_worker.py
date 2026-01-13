@@ -327,12 +327,20 @@ async def main():
         attachments_table_path=attachments_path,
     )
 
+    # Get OneLake attachments path (optional - only needed if download_media=true)
+    onelake_attachments_path = os.environ.get("ITEL_ATTACHMENTS_PATH")
+    if onelake_attachments_path:
+        logger.info(f"OneLake attachments path: {onelake_attachments_path}")
+    else:
+        logger.info("ITEL_ATTACHMENTS_PATH not set - media download will be skipped")
+
     # Create pipeline
     pipeline = ItelCabinetPipeline(
         connection_manager=connection_manager,
         delta_writer=delta_writer,
         kafka_producer=producer,
         config=worker_config.get('pipeline', {}),
+        onelake_attachments_path=onelake_attachments_path,
     )
 
     # Create and run worker

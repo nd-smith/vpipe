@@ -18,14 +18,17 @@ connections:
   # ===========================================================================
   # ClaimX API Connection
   # ===========================================================================
-  # Used by iTel Cabinet tracking worker to fetch full task details for enrichment.
+  # Used by iTel Cabinet tracking worker for:
+  #   1. Fetching full task details for enrichment
+  #   2. Fetching media metadata for downloads (when download_media=true)
   #
   # Required Environment Variables:
   #   - CLAIMX_API_BASE_PATH: ClaimX API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
-  #   - CLAIMX_API_TOKEN: Bearer token for ClaimX API authentication
+  #   - CLAIMX_API_TOKEN: Basic token for ClaimX API authentication
   #
   # Endpoints Used:
-  #   - GET /customTasks/assignment/{assignment_id} - Fetch complete assignment details
+  #   - GET /customTasks/assignment/{assignment_id}?full=true - Fetch complete assignment details
+  #   - GET /export/project/{project_id}/media?mediaIds={id} - Fetch media metadata with download URLs
   #
   # Usage Example:
   #   In workers.yaml enrichment pipeline:
