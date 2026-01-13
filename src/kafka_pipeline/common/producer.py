@@ -11,7 +11,15 @@ Provides async Kafka producer functionality with:
 import json
 import logging
 import time
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+
+def _json_serializer(obj: Any) -> str:
+    """JSON serializer for objects not serializable by default."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import RecordMetadata
@@ -291,7 +299,7 @@ class BaseKafkaProducer:
         if isinstance(value, BaseModel):
             value_bytes = value.model_dump_json().encode("utf-8")
         else:
-            value_bytes = json.dumps(value).encode("utf-8")
+            value_bytes = json.dumps(value, default=_json_serializer).encode("utf-8")
 
         # Convert headers to list of tuples with byte values
         headers_list = None
