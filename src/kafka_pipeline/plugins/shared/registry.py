@@ -351,6 +351,8 @@ class ActionExecutor:
         topic = params["topic"]
         payload = params.get("payload", {})
         headers = {**context.headers, **params.get("headers", {})}
+        # Use event_id as key (project standard), allow override via params
+        key = params.get("key", context.event_id)
 
         log_with_context(
             logger,
@@ -365,6 +367,7 @@ class ActionExecutor:
         if self.producer:
             await self.producer.send(
                 topic=topic,
+                key=key,
                 value=payload,
                 headers=[(k, v.encode()) for k, v in headers.items()],
             )
