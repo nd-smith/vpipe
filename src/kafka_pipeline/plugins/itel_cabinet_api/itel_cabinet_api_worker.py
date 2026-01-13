@@ -262,13 +262,24 @@ class ItelCabinetApiWorker:
             "counterType": submission.get(f"{cabinet_type}_counter_type"),
         }
 
-        # Add media
+        # Add media - include all three media types for each cabinet section
         media = []
+
+        # Cabinet box photos
         box_key = f"{cabinet_type}_cabinet_box"
         if box_key in attachments_by_key:
             media.extend(self._build_media_array(box_key, attachments_by_key))
 
-        panel_key = f"{cabinet_type}_cabinet_end_panels"
+        # Face frames, doors, and drawers photos
+        face_frames_key = f"{cabinet_type}_face_frames_doors_drawers"
+        if face_frames_key in attachments_by_key:
+            media.extend(self._build_media_array(face_frames_key, attachments_by_key))
+
+        # End panels photos (note: full_height uses different key pattern from parser)
+        if cabinet_type == "full_height":
+            panel_key = "full_height_end_panels"
+        else:
+            panel_key = f"{cabinet_type}_cabinet_end_panels"
         if panel_key in attachments_by_key:
             media.extend(self._build_media_array(panel_key, attachments_by_key))
 
