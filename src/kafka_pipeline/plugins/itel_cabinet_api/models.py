@@ -156,10 +156,11 @@ class CabinetAttachment:
     Media attachment linked to form question.
     """
     assignment_id: int
+    project_id: int  # ClaimX project ID
     event_id: str  # Kafka event ID for traceability
     question_key: str
     question_text: str
-    claim_media_id: int
+    media_id: int  # ClaimX media ID (was claim_media_id)
     blob_path: Optional[str] = None
     display_order: int = 0
     created_at: Optional[datetime] = None

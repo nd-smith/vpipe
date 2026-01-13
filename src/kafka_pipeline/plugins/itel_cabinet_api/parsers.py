@@ -133,6 +133,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
 def parse_cabinet_attachments(
     task_data: dict,
     assignment_id: int,
+    project_id: int,
     event_id: str,
 ) -> list[CabinetAttachment]:
     """
@@ -141,6 +142,7 @@ def parse_cabinet_attachments(
     Args:
         task_data: Full task data from ClaimX API
         assignment_id: Assignment ID
+        project_id: ClaimX project ID
         event_id: Event ID for traceability
 
     Returns:
@@ -176,14 +178,15 @@ def parse_cabinet_attachments(
             claim_media_ids = answer_export.get("claimMediaIds", [])
 
             # Create attachment record for each media ID
-            for media_id in claim_media_ids:
-                if media_id:
+            for mid in claim_media_ids:
+                if mid:
                     attachments.append(CabinetAttachment(
                         assignment_id=assignment_id,
+                        project_id=project_id,
                         event_id=event_id,
                         question_key=question_key,
                         question_text=question_text,
-                        claim_media_id=media_id,
+                        media_id=mid,
                         blob_path=None,  # Populated by media downloader if configured
                         display_order=display_order,
                         created_at=now,

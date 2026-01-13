@@ -98,13 +98,14 @@ submissions_schema = StructType([
 attachments_schema = StructType([
     StructField("id", LongType(), False),  # Auto-generated
     StructField("assignment_id", LongType(), False),
-    StructField("event_id", StringType(), True),  # Kafka event ID for traceability
+    StructField("project_id", LongType(), False),  # ClaimX project ID
     StructField("question_key", StringType(), False),
     StructField("question_text", StringType(), False),
-    StructField("claim_media_id", LongType(), False),
+    StructField("media_id", LongType(), False),  # ClaimX media ID
     StructField("blob_path", StringType(), True),
     StructField("display_order", IntegerType(), False),
     StructField("created_at", TimestampType(), True),
+    StructField("event_id", StringType(), True),  # Kafka event ID for traceability
 ])
 
 

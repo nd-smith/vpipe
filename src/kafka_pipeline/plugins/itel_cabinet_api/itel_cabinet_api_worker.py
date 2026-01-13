@@ -301,7 +301,7 @@ class ItelCabinetApiWorker:
         return [{
             "questionKey": question_key,
             "questionText": first.get("question_text", ""),
-            "claimMediaIds": [att.get("claim_media_id") for att in attachments if att.get("claim_media_id")]
+            "claimMediaIds": [att.get("media_id") for att in attachments if att.get("media_id")]
         }]
 
     async def _send_to_api(self, api_payload: dict):

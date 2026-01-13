@@ -76,6 +76,6 @@ class ItelCabinetDeltaWriter:
 
         return await self.attachments_writer.merge_records(
             records=attachment_rows,
-            merge_keys=["assignment_id", "claim_media_id"],
+            merge_keys=["assignment_id", "media_id"],
             preserve_columns=["created_at"],
         )
