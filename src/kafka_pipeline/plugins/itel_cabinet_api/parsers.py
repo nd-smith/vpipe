@@ -224,8 +224,13 @@ def _parse_form_response(response: dict) -> dict:
                 field_name = _question_to_field_name(question_text)
 
                 # Convert Yes/No to boolean for boolean fields
+                # Exception: *_available fields stay as "Yes"/"No" strings per table schema
                 if value in ("Yes", "No"):
-                    if any(keyword in question_text.lower() for keyword in ["damaged", "detached", "present", "available"]):
+                    is_available_field = field_name.endswith("_available")
+                    if is_available_field:
+                        # Keep as string for *_face_frames_doors_drawers_available fields
+                        form_data[field_name] = value
+                    elif any(keyword in question_text.lower() for keyword in ["damaged", "detached", "present"]):
                         form_data[field_name] = (value == "Yes")
                     else:
                         form_data[field_name] = value

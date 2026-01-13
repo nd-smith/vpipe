@@ -99,7 +99,7 @@ class CabinetSubmission:
     lower_cabinets_lf: Optional[float]
     num_damaged_lower_boxes: Optional[int]
     lower_cabinets_detached: Optional[bool]
-    lower_face_frames_doors_drawers_available: Optional[bool]
+    lower_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
     lower_face_frames_doors_drawers_damaged: Optional[bool]
     lower_finished_end_panels_damaged: Optional[bool]
     lower_end_panel_damage_present: Optional[bool]
@@ -110,7 +110,7 @@ class CabinetSubmission:
     upper_cabinets_lf: Optional[float]
     num_damaged_upper_boxes: Optional[int]
     upper_cabinets_detached: Optional[bool]
-    upper_face_frames_doors_drawers_available: Optional[bool]
+    upper_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
     upper_face_frames_doors_drawers_damaged: Optional[bool]
     upper_finished_end_panels_damaged: Optional[bool]
     upper_end_panel_damage_present: Optional[bool]
@@ -120,7 +120,7 @@ class CabinetSubmission:
     full_height_cabinets_lf: Optional[float]
     num_damaged_full_height_boxes: Optional[int]
     full_height_cabinets_detached: Optional[bool]
-    full_height_face_frames_doors_drawers_available: Optional[bool]
+    full_height_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
     full_height_face_frames_doors_drawers_damaged: Optional[bool]
     full_height_finished_end_panels_damaged: Optional[bool]
 
@@ -129,7 +129,7 @@ class CabinetSubmission:
     island_cabinets_lf: Optional[float]
     num_damaged_island_boxes: Optional[int]
     island_cabinets_detached: Optional[bool]
-    island_face_frames_doors_drawers_available: Optional[bool]
+    island_face_frames_doors_drawers_available: Optional[str]  # "Yes"/"No" string per table schema
     island_face_frames_doors_drawers_damaged: Optional[bool]
     island_finished_end_panels_damaged: Optional[bool]
     island_end_panel_damage_present: Optional[bool]
