@@ -25,6 +25,7 @@ from pydantic import ValidationError
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
@@ -261,15 +262,15 @@ class ClaimXResultProcessor:
             message_data = json.loads(record.value.decode("utf-8"))
             result = ClaimXUploadResultMessage.model_validate(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Failed to parse ClaimXUploadResultMessage",
-                extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                    "error": str(e),
-                },
-                exc_info=True,
+                error_category="permanent",
+                exc=e,
+                topic=record.topic,
+                partition=record.partition,
+                offset=record.offset,
             )
             record_processing_error(record.topic, self.consumer_group, "parse_error")
             # We raise here to let BaseKafkaConsumer handle DLQ routing if configured
@@ -302,22 +303,24 @@ class ClaimXResultProcessor:
 
         elif result.status == "failed_permanent":
             self._records_failed += 1
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Upload failed permanently",
-                extra={
-                    "media_id": result.media_id,
-                    "error": result.error_message,
-                },
+                error_category="permanent",
+                media_id=result.media_id,
+                error_message=result.error_message,
             )
 
         elif result.status == "failed":
             self._records_failed += 1
-            logger.warning(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Upload failed (transient)",
-                extra={
-                    "media_id": result.media_id,
-                    "error": result.error_message,
-                },
+                error_category="transient",
+                media_id=result.media_id,
+                error_message=result.error_message,
             )
 
         # Record message consumption metric
@@ -364,7 +367,7 @@ class ClaimXResultProcessor:
             # Convert batch to Polars DataFrame for efficient merge
             now = datetime.now(timezone.utc)
             rows = []
-            
+
             for result in batch:
                 rows.append({
                     "media_id": result.media_id,
@@ -377,51 +380,52 @@ class ClaimXResultProcessor:
                     "created_at": now,
                     "updated_at": now,
                 })
-            
+
             df = pl.DataFrame(rows)
-            
+
             # Write to Delta
             await self.inventory_writer._async_merge(
                 df,
                 merge_keys=["media_id"],
                 preserve_columns=["created_at"],
             )
-            
+
             # Commit offsets only after successful write
             if self.consumer:
                 await self.consumer.commit()
-                
+
             self._batches_written += 1
             self._total_records_written += batch_size
-            
-            logger.info(
-                f"Successfully flushed batch of {batch_size} records",
+
+            logger.debug(
+                "Successfully flushed batch of records",
                 extra={
-                    "batch_id": batch_id, 
+                    "batch_id": batch_id,
                     "batch_size": batch_size,
                     "batches_written": self._batches_written
                 }
             )
-            
+
         except Exception as e:
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Failed to flush batch to Delta",
-                extra={"batch_id": batch_id, "error": str(e)},
-                exc_info=True
+                error_category="transient",
+                exc=e,
+                batch_id=batch_id,
+                batch_size=batch_size,
             )
             # In a real scenario, we might want to route to a retry topic or DLQ here
-            # For now, we unfortunately lose the batch from a Delta perspective, 
+            # For now, we unfortunately lose the batch from a Delta perspective,
             # but offsets are NOT committed so they will be reprocessed on restart.
 
     async def _periodic_cycle_output(self) -> None:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0) "
-            "[cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -433,15 +437,19 @@ class ClaimXResultProcessor:
                 if cycle_elapsed >= 30:  # 30 matches standard interval
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
-                    
+
                     async with self._batch_lock:
                         pending = len(self._batch)
 
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}), pending={pending}, "
-                        f"written={self._total_records_written}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,
@@ -455,7 +463,8 @@ class ClaimXResultProcessor:
                     )
 
         except asyncio.CancelledError:
-            pass
+            logger.debug("Periodic cycle output task cancelled")
+            raise
 
 
 __all__ = ["ClaimXResultProcessor"]

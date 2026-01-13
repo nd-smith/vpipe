@@ -12,6 +12,7 @@ from typing import List, Optional
 from aiokafka.structs import ConsumerRecord
 
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
@@ -96,9 +97,15 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         self._batch_lock = asyncio.Lock()
         self._batch_timer: Optional[asyncio.Task] = None
 
-        # Metrics
+        # Metrics and cycle output tracking
         self._batches_written = 0
+        self._records_processed = 0
         self._records_succeeded = 0
+        self._records_failed = 0
+        self._records_skipped = 0
+        self._last_cycle_log = None
+        self._cycle_count = 0
+        self._cycle_task: Optional[asyncio.Task] = None
 
         # Health check server - use worker-specific port from config
         health_port = processing_config.get("health_port", 8086)
@@ -133,6 +140,9 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         # Start batch timer for periodic flushing
         self._reset_batch_timer()
 
+        # Start cycle output background task
+        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+
         # Update health check readiness
         self.health_server.set_ready(kafka_connected=True)
 
@@ -140,6 +150,14 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
 
     async def stop(self) -> None:
         """Stop the worker."""
+        # Cancel cycle output task
+        if self._cycle_task and not self._cycle_task.done():
+            self._cycle_task.cancel()
+            try:
+                await self._cycle_task
+            except asyncio.CancelledError:
+                pass
+
         # Cancel batch timer
         if self._batch_timer:
             self._batch_timer.cancel()
@@ -160,6 +178,8 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         """
         Handle a single message (add to batch).
         """
+        self._records_processed += 1
+
         try:
             message_data = json.loads(record.value.decode("utf-8"))
             entity_rows = EntityRowsMessage.model_validate(message_data)
@@ -176,17 +196,18 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                 self._reset_batch_timer()
 
         except Exception as e:
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Failed to parse EntityRowsMessage",
-                extra={
-                    "error": str(e),
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                },
-                exc_info=True,
+                error_category="permanent",
+                exc=e,
+                topic=record.topic,
+                partition=record.partition,
+                offset=record.offset,
             )
             # Cannot retry parse errors, strict schema
+            self._records_failed += 1
             
     async def _flush_batch(self) -> None:
         """Write accumulated batch to Delta Lake."""
@@ -230,7 +251,7 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
             self._batches_written += 1
             self._records_succeeded += total_rows
 
-            logger.info(
+            logger.debug(
                 "Entity batch written to Delta tables",
                 extra={
                     "tables_written": list(counts.keys()),
@@ -251,14 +272,16 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                 )
                 
         except Exception as e:
-            logger.error(
+            self._records_failed += merged_rows.row_count()
+
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Failed to write entity batch to Delta",
-                extra={
-                    "error": str(e),
-                    "messages_in_batch": batch_size,
-                    "entity_row_count": merged_rows.row_count(),
-                },
-                exc_info=True
+                error_category="transient",
+                exc=e,
+                messages_in_batch=batch_size,
+                entity_row_count=merged_rows.row_count(),
             )
 
             # Route to retry/DLQ via the retry handler
@@ -338,4 +361,47 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         if self._batch_timer:
             self._batch_timer.cancel()
         self._batch_timer = asyncio.create_task(self._periodic_flush())
+
+    async def _periodic_cycle_output(self) -> None:
+        """
+        Background task for periodic cycle logging.
+        """
+        import time as time_module
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0))
+        self._last_cycle_log = time_module.monotonic()
+        self._cycle_count = 0
+
+        try:
+            while True:  # Runs until cancelled
+                await asyncio.sleep(1)
+
+                cycle_elapsed = time_module.monotonic() - self._last_cycle_log
+                if cycle_elapsed >= 30:  # 30 matches standard interval
+                    self._cycle_count += 1
+                    self._last_cycle_log = time_module.monotonic()
+
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                    )
+                    logger.info(
+                        cycle_msg,
+                        extra={
+                            "cycle": self._cycle_count,
+                            "records_processed": self._records_processed,
+                            "records_succeeded": self._records_succeeded,
+                            "records_failed": self._records_failed,
+                            "records_skipped": self._records_skipped,
+                            "batches_written": self._batches_written,
+                            "cycle_interval_seconds": 30,
+                        },
+                    )
+
+        except asyncio.CancelledError:
+            logger.debug("Periodic cycle output task cancelled")
+            raise
 
