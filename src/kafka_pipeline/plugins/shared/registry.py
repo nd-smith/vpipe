@@ -190,7 +190,7 @@ class PluginOrchestrator:
                     "Plugin executed",
                     plugin_name=plugin.name,
                     success=result.success,
-                    message=result.message,
+                    result_message=result.message,
                     actions_count=len(result.actions),
                     event_id=context.event_id,
                     event_type=context.event_type,

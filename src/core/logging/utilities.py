@@ -4,6 +4,15 @@ import logging
 from typing import Any
 
 
+# Reserved LogRecord attribute names that cannot be used in extra dict
+_RESERVED_LOG_KEYS = frozenset({
+    "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
+    "module", "lineno", "funcName", "created", "asctime", "msecs",
+    "relativeCreated", "thread", "threadName", "processName", "process",
+    "message", "exc_info", "exc_text", "stack_info",
+})
+
+
 def log_with_context(
     logger: logging.Logger,
     level: int,
@@ -18,6 +27,7 @@ def log_with_context(
         level: Log level (logging.INFO, etc.)
         msg: Log message
         **kwargs: Additional context fields (trace_id, duration_ms, etc.)
+                  Note: exc_info=True is supported and handled specially.
 
     Example:
         log_with_context(
@@ -27,7 +37,13 @@ def log_with_context(
             http_status=200,
         )
     """
-    logger.log(level, msg, extra=kwargs)
+    # Handle exc_info specially - it's a direct parameter to log(), not extra
+    exc_info = kwargs.pop("exc_info", None)
+
+    # Filter out reserved keys to prevent LogRecord conflicts
+    extra = {k: v for k, v in kwargs.items() if k not in _RESERVED_LOG_KEYS}
+
+    logger.log(level, msg, exc_info=exc_info, extra=extra)
 
 
 def log_exception(
