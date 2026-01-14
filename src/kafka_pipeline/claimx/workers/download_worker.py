@@ -1004,7 +1004,7 @@ class ClaimXDownloadWorker:
             media_id=task_message.media_id,
             project_id=task_message.project_id,
             download_url=task_message.download_url,
-            error_message=outcome.error_message,
+            failure_reason=outcome.error_message,
             status_code=outcome.status_code,
             processing_time_ms=processing_time_ms,
             retry_count=task_message.retry_count,

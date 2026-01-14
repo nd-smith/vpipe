@@ -53,7 +53,6 @@ from kafka_pipeline.common.metrics import (
     update_downloads_concurrent,
     update_downloads_batch_size,
     message_processing_duration_seconds,
-    record_download_timeout,
 )
 
 logger = get_logger(__name__)

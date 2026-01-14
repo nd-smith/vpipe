@@ -200,7 +200,7 @@ class TestClaimXUploadWorker:
         worker.producer.send.assert_called_once()
         send_call = worker.producer.send.call_args
         assert send_call.kwargs["topic"] == "test.claimx.downloads.results"
-        assert send_call.kwargs["key"] == "media-111"
+        assert send_call.kwargs["key"] == "evt-12345"
 
         result_message = send_call.kwargs["value"]
         assert isinstance(result_message, ClaimXUploadResultMessage)
