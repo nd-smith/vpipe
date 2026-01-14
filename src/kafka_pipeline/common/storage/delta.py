@@ -9,8 +9,11 @@ Migrated from verisk_pipeline.storage.delta for kafka_pipeline reorganization (R
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
+import os
+import warnings
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -75,6 +78,30 @@ def _on_auth_error() -> None:
     _refresh_all_credentials()
 
 
+def get_open_file_descriptors() -> int:
+    """
+    Get count of open file descriptors for the current process.
+
+    Returns:
+        Number of open file descriptors, or -1 if unable to determine.
+    """
+    try:
+        pid = os.getpid()
+        # On Linux/Unix systems, /proc/pid/fd contains one entry per open FD
+        fd_dir = f"/proc/{pid}/fd"
+        if os.path.exists(fd_dir):
+            return len(os.listdir(fd_dir))
+
+        # Fallback: try to count via resource module (less accurate but portable)
+        import resource
+        soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        # We can't easily count open FDs on all platforms, return -1 to indicate unknown
+        return -1
+    except Exception as e:
+        logger.debug(f"Could not get file descriptor count: {e}")
+        return -1
+
+
 class DeltaTableReader(LoggedClass):
     """
     Reader for Delta tables with auth retry support.
@@ -95,7 +122,58 @@ class DeltaTableReader(LoggedClass):
         """
         self.table_path = table_path
         self.storage_options = storage_options
+        self._delta_table: Optional[DeltaTable] = None
+        self._closed = False
+        self._init_lock = asyncio.Lock()
         super().__init__()
+
+    async def __aenter__(self) -> "DeltaTableReader":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
+        """Async context manager exit - ensures cleanup."""
+        await self.close()
+
+    async def close(self) -> None:
+        """
+        Close Delta table and release file handles.
+
+        This method is idempotent - calling it multiple times is safe.
+        """
+        if self._closed:
+            return
+
+        async with self._init_lock:
+            if self._closed:
+                return
+
+            if self._delta_table is not None:
+                self._log(
+                    logging.DEBUG,
+                    "Closing Delta table reader",
+                    table_path=self.table_path,
+                )
+                # Release the DeltaTable reference to allow file handles to close
+                self._delta_table = None
+
+            self._closed = True
+
+    def __del__(self) -> None:
+        """Destructor - warns if table was not properly closed."""
+        if hasattr(self, "_closed") and not self._closed:
+            warnings.warn(
+                f"DeltaTableReader for {self.table_path} was not properly closed. "
+                "Use async context manager: 'async with DeltaTableReader(...) as reader:' "
+                "or call await reader.close() explicitly.",
+                ResourceWarning,
+                stacklevel=2,
+            )
 
     @logged_operation(level=logging.DEBUG)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
@@ -308,8 +386,62 @@ class DeltaTableWriter(LoggedClass):
         self.z_order_columns = z_order_columns or []
         self._reader = DeltaTableReader(table_path)
         self._optimization_scheduler: Optional[Any] = None
+        self._delta_table: Optional[DeltaTable] = None
+        self._closed = False
+        self._init_lock = asyncio.Lock()
 
         super().__init__()
+
+    async def __aenter__(self) -> "DeltaTableWriter":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
+        """Async context manager exit - ensures cleanup."""
+        await self.close()
+
+    async def close(self) -> None:
+        """
+        Close Delta table and release file handles.
+
+        This method is idempotent - calling it multiple times is safe.
+        """
+        if self._closed:
+            return
+
+        async with self._init_lock:
+            if self._closed:
+                return
+
+            # Close reader first
+            await self._reader.close()
+
+            if self._delta_table is not None:
+                self._log(
+                    logging.DEBUG,
+                    "Closing Delta table writer",
+                    table_path=self.table_path,
+                )
+                # Release the DeltaTable reference to allow file handles to close
+                self._delta_table = None
+
+            self._closed = True
+
+    def __del__(self) -> None:
+        """Destructor - warns if table was not properly closed."""
+        if hasattr(self, "_closed") and not self._closed:
+            warnings.warn(
+                f"DeltaTableWriter for {self.table_path} was not properly closed. "
+                "Use async context manager: 'async with DeltaTableWriter(...) as writer:' "
+                "or call await writer.close() explicitly.",
+                ResourceWarning,
+                stacklevel=2,
+            )
 
     def _table_exists(self, opts: Dict[str, str]) -> bool:
         """Check if Delta table exists."""
@@ -1344,4 +1476,5 @@ __all__ = [
     "DELTA_CIRCUIT_CONFIG",
     "suggest_z_order_columns",
     "RECOMMENDED_Z_ORDER_COLUMNS",
+    "get_open_file_descriptors",
 ]
