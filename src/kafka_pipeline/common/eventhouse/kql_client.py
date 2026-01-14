@@ -310,13 +310,15 @@ class KQLClient:
     - Service Principal (via environment variables)
 
     Example:
+        import logging
+        logger = logging.getLogger(__name__)
         config = EventhouseConfig.from_env()
         async with KQLClient(config) as client:
             result = await client.execute_query(
                 "Events | where ingestion_time() > ago(1h) | take 100"
             )
             for row in result.rows:
-                print(row)
+                logger.debug("Query result row", row=row)
     """
 
     def __init__(self, config: EventhouseConfig):

@@ -9,14 +9,17 @@ Provides async Kafka consumer functionality with:
 - Graceful shutdown handling
 - Message handler pattern for processing logic
 - itelligent error classification and routing
+- Dead letter queue (DLQ) routing for permanent errors (WP-211)
 """
 
 import asyncio
+import json
 import logging
+import socket
 import time
 from typing import Awaitable, Callable, List, Optional
 
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord, TopicPartition
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
@@ -37,6 +40,8 @@ from kafka_pipeline.common.metrics import (
     update_consumer_lag,
     update_consumer_offset,
     message_processing_duration_seconds,
+    record_consumer_shutdown,
+    record_consumer_shutdown_error,
 )
 
 logger = get_logger(__name__)
@@ -111,6 +116,10 @@ class BaseKafkaConsumer:
         self.message_handler = message_handler
         self._consumer: Optional[AIOKafkaConsumer] = None
         self._running = False
+
+        # DLQ producer for routing permanent errors (WP-211)
+        # Created lazily when first DLQ message needs to be sent
+        self._dlq_producer: Optional[AIOKafkaProducer] = None
 
         # Get worker-specific consumer config (merged with defaults)
         self.consumer_config = config.get_worker_config(domain, worker_name, "consumer")
@@ -259,6 +268,7 @@ class BaseKafkaConsumer:
         Stop the Kafka consumer and cleanup resources.
 
         Commits any pending offsets and closes the connection gracefully.
+        Also stops the DLQ producer if it was created.
         Safe to call multiple times.
         """
         if not self._running or self._consumer is None:
@@ -274,6 +284,22 @@ class BaseKafkaConsumer:
                 await self._consumer.commit()
                 # Stop the consumer
                 await self._consumer.stop()
+
+            # Stop DLQ producer if it exists
+            if self._dlq_producer is not None:
+                try:
+                    await self._dlq_producer.flush()
+                    await self._dlq_producer.stop()
+                    logger.info("DLQ producer stopped successfully")
+                except Exception as dlq_error:
+                    log_exception(
+                        logger,
+                        dlq_error,
+                        "Error stopping DLQ producer",
+                    )
+                finally:
+                    self._dlq_producer = None
+
             logger.info("Kafka consumer stopped successfully")
         except Exception as e:
             log_exception(
@@ -498,11 +524,11 @@ class BaseKafkaConsumer:
         self, message: ConsumerRecord, error: Exception, duration: float
     ) -> None:
         """
-        Handle message processing errors with itelligent routing.
+        Handle message processing errors with intelligent routing.
 
         Classifies the error and determines appropriate action:
+        - PERMANENT: Send to DLQ and commit offset (no retry - poison pill removed)
         - TRANSIENT: Log and don't commit (message will be retried on next poll)
-        - PERMANENT: Log for DLQ routing (future: send to DLQ topic)
         - AUTH: Log and don't commit (will reprocess after token refresh)
         - CIRCUIT_OPEN: Log and don't commit (will reprocess when circuit closes)
         - UNKNOWN: Log and don't commit (conservative retry)
@@ -536,7 +562,7 @@ class BaseKafkaConsumer:
         }
 
         # Route based on error category
-        if error_category == ErrorCategory.TRANSIENT:
+        if error_category == ErrorCategory.PERMANENT:
             log_exception(
                 logger,
                 error,
@@ -547,16 +573,42 @@ class BaseKafkaConsumer:
             # Don't commit offset - message will be reprocessed
             # TODO (WP-209): Send to retry topic with exponential backoff
 
-        elif error_category == ErrorCategory.PERMANENT:
+        if error_category == ErrorCategory.PERMANENT:
             log_exception(
                 logger,
                 error,
-                "Permanent error processing message - should route to DLQ",
+                "Permanent error processing message - routing to DLQ",
                 **common_context,
             )
-            # Don't commit offset yet
-            # TODO (WP-211): Send to DLQ topic for manual review
-            # For now, just log - message will be reprocessed (not ideal)
+
+            # Send to DLQ topic (WP-211)
+            try:
+                await self._send_to_dlq(message, error, error_category)
+
+                # Commit offset after successful DLQ routing to advance past poison pill
+                # This prevents the message from blocking the partition forever
+                if self._enable_message_commit:
+                    await self._consumer.commit()
+                    log_with_context(
+                        logger,
+                        logging.INFO,
+                        "Offset committed after DLQ routing - partition can advance",
+                        topic=message.topic,
+                        partition=message.partition,
+                        offset=message.offset,
+                    )
+
+            except Exception as dlq_error:
+                # If DLQ send failed, log but don't commit offset
+                # Message will be reprocessed (same as before DLQ implementation)
+                log_exception(
+                    logger,
+                    dlq_error,
+                    "DLQ routing failed - message will be retried",
+                    **common_context,
+                )
+
+        elif error_category == ErrorCategory.TRANSIENT:
 
         elif error_category == ErrorCategory.AUTH:
             log_exception(
@@ -590,8 +642,8 @@ class BaseKafkaConsumer:
             # Don't commit offset - conservative retry for unknown errors
 
         # Note: We don't re-raise the exception here because we want to continue
-        # processing other messages. The offset won't be committed, so this message
-        # will be retried on the next poll.
+        # processing other messages. The offset won't be committed (except for PERMANENT
+        # errors routed to DLQ), so this message will be retried on the next poll.
 
     def _update_partition_metrics(self, message: ConsumerRecord) -> None:
         """
@@ -632,6 +684,178 @@ class BaseKafkaConsumer:
                 partition=message.partition,
                 error=str(e),
             )
+
+
+    async def _ensure_dlq_producer(self) -> None:
+        """
+        Ensure DLQ producer is initialized.
+
+        Creates a Kafka producer for sending messages to DLQ topics if it doesn't exist.
+        The producer is created lazily when the first DLQ message needs to be sent.
+
+        This avoids creating unnecessary connections if DLQ is never used.
+        """
+        if self._dlq_producer is not None:
+            return
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Initializing DLQ producer for permanent error routing",
+            domain=self.domain,
+            worker_name=self.worker_name,
+        )
+
+        # Build DLQ producer configuration (similar to consumer connection config)
+        dlq_producer_config = {
+            "bootstrap_servers": self.config.bootstrap_servers,
+            "value_serializer": lambda v: v,  # We'll handle serialization manually
+            "request_timeout_ms": self.config.request_timeout_ms,
+            "metadata_max_age_ms": self.config.metadata_max_age_ms,
+            "connections_max_idle_ms": self.config.connections_max_idle_ms,
+            # DLQ producer settings - prefer reliability over throughput
+            "acks": "all",  # Wait for all replicas
+            "enable_idempotence": True,  # Prevent duplicates
+            "retry_backoff_ms": 1000,
+        }
+
+        # Configure security based on protocol
+        if self.config.security_protocol != "PLAINTEXT":
+            dlq_producer_config["security_protocol"] = self.config.security_protocol
+            dlq_producer_config["sasl_mechanism"] = self.config.sasl_mechanism
+
+            # Add authentication based on mechanism
+            if self.config.sasl_mechanism == "OAUTHBEARER":
+                oauth_callback = create_kafka_oauth_callback()
+                dlq_producer_config["sasl_oauth_token_provider"] = oauth_callback
+            elif self.config.sasl_mechanism == "PLAIN":
+                dlq_producer_config["sasl_plain_username"] = self.config.sasl_plain_username
+                dlq_producer_config["sasl_plain_password"] = self.config.sasl_plain_password
+
+        # Create and start DLQ producer
+        self._dlq_producer = AIOKafkaProducer(**dlq_producer_config)
+        await self._dlq_producer.start()
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "DLQ producer started successfully",
+            bootstrap_servers=self.config.bootstrap_servers,
+        )
+
+    async def _send_to_dlq(
+        self, message: ConsumerRecord, error: Exception, error_category: ErrorCategory
+    ) -> None:
+        """
+        Send a failed message to the dead-letter queue with full context.
+
+        Creates a DLQ message containing:
+        - Original message key, value, headers, topic, partition, offset
+        - Error details: type, message, category
+        - Metadata: timestamp, worker ID, consumer group
+
+        DLQ messages are sent to topic "{original_topic}.dlq"
+
+        Args:
+            message: The original ConsumerRecord that failed processing
+            error: The exception that occurred during processing
+            error_category: Classification of the error (PERMANENT, TRANSIENT, etc.)
+
+        Raises:
+            Exception: If DLQ producer fails to send message (logged but not re-raised)
+        """
+        # Ensure DLQ producer is initialized
+        await self._ensure_dlq_producer()
+
+        # Build DLQ topic name
+        dlq_topic = f"{message.topic}.dlq"
+
+        # Get hostname for worker identification
+        try:
+            worker_id = socket.gethostname()
+        except Exception:
+            worker_id = "unknown"
+
+        # Build DLQ message with full context
+        dlq_message = {
+            "original_topic": message.topic,
+            "original_partition": message.partition,
+            "original_offset": message.offset,
+            "original_key": message.key.decode("utf-8") if message.key else None,
+            "original_value": message.value.decode("utf-8") if message.value else None,
+            "original_headers": {
+                k: v.decode("utf-8") if isinstance(v, bytes) else v
+                for k, v in (message.headers or [])
+            },
+            "original_timestamp": message.timestamp,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "error_category": error_category.value,
+            "consumer_group": self.group_id,
+            "worker_id": worker_id,
+            "domain": self.domain,
+            "worker_name": self.worker_name,
+            "dlq_timestamp": time.time(),
+        }
+
+        # Serialize DLQ message to JSON
+        dlq_value = json.dumps(dlq_message).encode("utf-8")
+
+        # Use original message key for DLQ (maintains partitioning)
+        dlq_key = message.key or f"dlq-{message.offset}".encode("utf-8")
+
+        # Add DLQ headers
+        dlq_headers = [
+            ("dlq_source_topic", message.topic.encode("utf-8")),
+            ("dlq_error_category", error_category.value.encode("utf-8")),
+            ("dlq_consumer_group", self.group_id.encode("utf-8")),
+        ]
+
+        try:
+            # Send to DLQ through producer
+            metadata = await self._dlq_producer.send_and_wait(
+                dlq_topic,
+                key=dlq_key,
+                value=dlq_value,
+                headers=dlq_headers,
+            )
+
+            log_with_context(
+                logger,
+                logging.INFO,
+                "Message sent to DLQ successfully",
+                dlq_topic=dlq_topic,
+                dlq_partition=metadata.partition,
+                dlq_offset=metadata.offset,
+                original_topic=message.topic,
+                original_partition=message.partition,
+                original_offset=message.offset,
+                error_category=error_category.value,
+                error_type=type(error).__name__,
+            )
+
+            # Record DLQ metric based on error category
+            if error_category == ErrorCategory.PERMANENT:
+                record_dlq_permanent(message.topic, self.group_id)
+            else:
+                # TRANSIENT errors that exhausted retries
+                record_dlq_transient(message.topic, self.group_id)
+
+        except Exception as dlq_error:
+            # Log DLQ send failure but don't re-raise
+            # We don't want DLQ failures to crash the consumer
+            log_exception(
+                logger,
+                dlq_error,
+                "Failed to send message to DLQ - message will be retried",
+                dlq_topic=dlq_topic,
+                original_topic=message.topic,
+                original_partition=message.partition,
+                original_offset=message.offset,
+                error_category=error_category.value,
+            )
+            # Note: Since we couldn't send to DLQ, offset won't be committed,
+            # so message will be reprocessed (same as before DLQ implementation)
 
     @property
     def is_running(self) -> bool:
