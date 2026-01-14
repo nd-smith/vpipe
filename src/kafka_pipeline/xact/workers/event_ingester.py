@@ -43,6 +43,7 @@ from kafka_pipeline.common.metrics import (
     event_ingestion_duration_seconds,
     record_event_ingested,
     record_event_task_produced,
+    record_processing_error,
 )
 
 logger = get_logger(__name__)
@@ -289,25 +290,43 @@ class EventIngesterWorker:
             return
 
         # Produce to ingested topic (ALL events)
+        # CRITICAL: Must await send confirmation before allowing offset commit
         try:
-            await self.producer.send(
+            metadata = await self.producer.send(
                 topic=self.producer_config.get_topic(self.domain, "events_ingested"),
                 key=event.trace_id,
                 value=event,
                 headers={"trace_id": event.trace_id, "event_id": event_id},
             )
+            logger.debug(
+                "Event produced to ingested topic",
+                extra={
+                    "trace_id": event.trace_id,
+                    "event_id": event_id,
+                    "partition": metadata.partition,
+                    "offset": metadata.offset,
+                },
+            )
         except Exception as e:
+            # Record send failure metric
+            record_processing_error(
+                topic=self.producer_config.get_topic(self.domain, "events_ingested"),
+                consumer_group=f"{self.domain}-event-ingester",
+                error_type="SEND_FAILED"
+            )
+
             logger.error(
-                "Failed to produce to ingested topic",
+                "Failed to produce to ingested topic - will retry on next poll",
                 extra={
                     "trace_id": event.trace_id,
                     "event_id": event_id,
                     "error": str(e),
+                    "error_type": type(e).__name__,
                 },
                 exc_info=True,
             )
-            # We arguably should raise here to prevent processing if ingestion fails
-            # ensuring consistent state in Delta vs downloads
+            # Re-raise to prevent offset commit - message will be retried
+            # This ensures at-least-once semantics: if send fails, we retry
             raise
 
         logger.info(
@@ -444,6 +463,7 @@ class EventIngesterWorker:
         )
 
         # Produce download task to pending topic
+        # CRITICAL: Must await send confirmation before allowing offset commit
         try:
             metadata = await self.producer.send(
                 topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
@@ -473,16 +493,27 @@ class EventIngesterWorker:
                 },
             )
         except Exception as e:
+            # Record send failure metric
+            record_processing_error(
+                topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
+                consumer_group=f"{self.domain}-event-ingester",
+                error_type="SEND_FAILED"
+            )
+
             logger.error(
-                "Failed to produce download task",
+                "Failed to produce download task - will retry on next poll",
                 extra={
                     "trace_id": event.trace_id,
                     "event_id": event.event_id,
+                    "media_id": media_id,
                     "blob_path": blob_path,
                     "error": str(e),
+                    "error_type": type(e).__name__,
                 },
                 exc_info=True,
             )
+            # Re-raise to prevent offset commit - message will be retried
+            # This ensures at-least-once semantics: if send fails, we retry
             raise
 
     async def _periodic_cycle_output(self) -> None:
