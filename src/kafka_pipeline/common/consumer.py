@@ -37,6 +37,8 @@ from kafka_pipeline.common.metrics import (
     update_consumer_lag,
     update_consumer_offset,
     message_processing_duration_seconds,
+    record_consumer_shutdown,
+    record_consumer_shutdown_error,
 )
 
 logger = get_logger(__name__)
