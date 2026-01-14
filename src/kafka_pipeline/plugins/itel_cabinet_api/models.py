@@ -172,12 +172,11 @@ class CabinetAttachment:
     question_text: str
     topic_category: str  # e.g., "Lower Cabinets", "Upper Cabinets", "General"
     media_id: int  # ClaimX media ID (was claim_media_id)
-    blob_path: Optional[str] = None
+    url: Optional[str] = None  # Download URL from ClaimX
     display_order: int = 0
     created_at: Optional[datetime] = None
     is_active: bool = True
     media_type: str = "image/jpeg"  # Default assumption
-    file_extension: Optional[str] = None  # e.g., "jpg", "png", "pdf"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for Delta write."""

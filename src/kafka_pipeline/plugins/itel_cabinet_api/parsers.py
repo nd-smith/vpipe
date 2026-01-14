@@ -266,17 +266,20 @@ class DataBuilder:
         return 'General'
 
     @staticmethod
-    def process(api_obj: ApiResponse, event_id: str) -> tuple[dict, list[dict], dict]:
+    def process(api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None) -> tuple[dict, list[dict], dict]:
         """
         Main processing method - transforms API response into three outputs.
 
         Args:
             api_obj: Parsed API response dataclass
             event_id: Event ID for traceability
+            media_url_map: Optional mapping of media_id to download URL
 
         Returns:
             Tuple of (form_row, attachments_rows, readable_report)
         """
+        if media_url_map is None:
+            media_url_map = {}
         if not api_obj:
             return {}, [], {}
 
@@ -359,13 +362,22 @@ class DataBuilder:
                                 "created_at": now,
                                 "is_active": True,
                                 "media_type": "image/jpeg",  # Default assumption
-                                "blob_path": None  # Populated by downloader
+                                "url": media_url_map.get(media_id)  # Download URL from ClaimX
                             })
 
                     # 3. Populate Readable Report (Categorized)
+                    # For image type, transform answer from list of IDs to list of objects with media_id and url
+                    if qa.response_answer_export.type == 'image' and isinstance(answer_val, list):
+                        enriched_answer = [
+                            {"media_id": media_id, "url": media_url_map.get(media_id)}
+                            for media_id in answer_val
+                        ]
+                    else:
+                        enriched_answer = answer_val
+
                     readable_item = {
                         "question": clean_question_text,
-                        "answer": answer_val,
+                        "answer": enriched_answer,
                         "type": qa.response_answer_export.type,
                         "control_id": qa.form_control.id
                     }
@@ -535,6 +547,7 @@ def parse_cabinet_attachments(
     assignment_id: int,
     project_id: int,
     event_id: str,
+    media_url_map: dict[int, str] = None,
 ) -> list[CabinetAttachment]:
     """
     Extract media attachments from ClaimX task response.
@@ -544,9 +557,10 @@ def parse_cabinet_attachments(
         assignment_id: Assignment ID
         project_id: ClaimX project ID
         event_id: Event ID for traceability
+        media_url_map: Optional mapping of media_id to download URL
 
     Returns:
-        List of attachment records
+        List of attachment records with URLs enriched
     """
     logger.debug(f"Parsing attachments for assignment_id={assignment_id}")
 
@@ -554,7 +568,7 @@ def parse_cabinet_attachments(
     api_obj = from_dict(ApiResponse, task_data)
 
     # Use DataBuilder to process
-    _, attachments_rows, _ = DataBuilder.process(api_obj, event_id)
+    _, attachments_rows, _ = DataBuilder.process(api_obj, event_id, media_url_map)
 
     # Convert to CabinetAttachment models
     attachments = []
@@ -568,7 +582,7 @@ def parse_cabinet_attachments(
             question_text=att_row["question_text"],
             topic_category=att_row["topic_category"],
             media_id=att_row["media_id"],
-            blob_path=att_row["blob_path"],  # Will be None, populated elsewhere
+            url=att_row["url"],  # Download URL from ClaimX
             display_order=att_row["display_order"],
             created_at=att_row["created_at"],
             is_active=att_row["is_active"],
@@ -579,19 +593,20 @@ def parse_cabinet_attachments(
     return attachments
 
 
-def get_readable_report(task_data: dict, event_id: str) -> dict:
+def get_readable_report(task_data: dict, event_id: str, media_url_map: dict[int, str] = None) -> dict:
     """
     Generate readable report for API consumption.
 
-    This is the new output format that organizes form data by topic
-    for easier consumption by the iTel API worker.
+    This output format organizes form data by topic for easier consumption
+    by the iTel API worker. Image answers are enriched with download URLs.
 
     Args:
         task_data: Full task data from ClaimX API
         event_id: Event ID for traceability
+        media_url_map: Optional mapping of media_id to download URL
 
     Returns:
-        Readable report dict with topics organized by category
+        Readable report dict with topics organized by category and media URLs enriched
     """
     logger.debug(f"Generating readable report for assignment_id={task_data.get('assignmentId')}")
 
@@ -599,6 +614,6 @@ def get_readable_report(task_data: dict, event_id: str) -> dict:
     api_obj = from_dict(ApiResponse, task_data)
 
     # Use DataBuilder to process
-    _, _, readable_report = DataBuilder.process(api_obj, event_id)
+    _, _, readable_report = DataBuilder.process(api_obj, event_id, media_url_map)
 
     return readable_report

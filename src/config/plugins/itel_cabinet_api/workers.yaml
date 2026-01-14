@@ -40,7 +40,6 @@ workers:
     pipeline:
       claimx_connection: claimx_api
       output_topic: itel.cabinet.completed
-      download_media: true  # Download media files and upload to OneLake (requires ITEL_ATTACHMENTS_PATH)
 
   # ===========================================================================
   # iTel Cabinet API Worker
@@ -86,7 +85,4 @@ workers:
 # Delta tables (tracking worker)
 # export ITEL_DELTA_FORMS_TABLE="abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/claimx_itel_forms"
 # export ITEL_DELTA_ATTACHMENTS_TABLE="abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/claimx_itel_attachments"
-#
-# OneLake attachments storage (optional - required if download_media=true)
-# export ITEL_ATTACHMENTS_PATH="abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/itel_cabinet_form/attachments"
 # =============================================================================

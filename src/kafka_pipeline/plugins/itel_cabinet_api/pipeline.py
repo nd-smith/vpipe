@@ -14,7 +14,6 @@ from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 from .models import TaskEvent, CabinetSubmission, CabinetAttachment, ProcessedTask
 from .parsers import parse_cabinet_form, parse_cabinet_attachments, get_readable_report
-from .media_downloader import MediaDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,6 @@ class ItelCabinetPipeline:
         delta_writer,  # ItelCabinetDeltaWriter
         kafka_producer,
         config: dict,
-        onelake_attachments_path: Optional[str] = None,
     ):
         """
         Initialize pipeline with dependencies.
@@ -48,7 +46,6 @@ class ItelCabinetPipeline:
             delta_writer: For writing to Delta tables (ItelCabinetDeltaWriter)
             kafka_producer: For publishing to downstream topics
             config: Pipeline configuration
-            onelake_attachments_path: OneLake base path for media uploads (from env)
         """
         self.connections = connection_manager
         self.delta = delta_writer
@@ -58,19 +55,12 @@ class ItelCabinetPipeline:
         # Configuration settings
         self.claimx_connection = config.get('claimx_connection', 'claimx_api')
         self.output_topic = config.get('output_topic', 'itel.cabinet.completed')
-        self.download_media = config.get('download_media', False)
-
-        # Media downloader (lazy initialized)
-        self.onelake_attachments_path = onelake_attachments_path
-        self._media_downloader: Optional[MediaDownloader] = None
 
         logger.info(
             "ItelCabinetPipeline initialized",
             extra={
                 'claimx_connection': self.claimx_connection,
                 'output_topic': self.output_topic,
-                'download_media': self.download_media,
-                'has_onelake_path': onelake_attachments_path is not None,
             }
         )
 
@@ -172,10 +162,10 @@ class ItelCabinetPipeline:
 
         Flow:
         1. Fetch task details from ClaimX API
-        2. Parse cabinet form data
-        3. Parse attachments
-        4. Generate readable report for API consumption
-        5. Optionally download media files
+        2. Fetch all project media to build URL lookup map
+        3. Parse cabinet form data
+        4. Parse attachments with URLs enriched
+        5. Generate readable report with URLs for API consumption
 
         Args:
             event: Task event
@@ -194,19 +184,26 @@ class ItelCabinetPipeline:
         # Fetch from ClaimX API
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
 
+        # Get project_id from task_data (as int)
+        project_id = int(task_data.get("projectId", event.project_id))
+
+        # Fetch all project media and build lookup map
+        media_url_map = await self._fetch_project_media_urls(project_id)
+
         # Parse form data
         submission = parse_cabinet_form(task_data, event.event_id)
-        # Get project_id from task_data (as int for delta schema)
-        project_id = int(task_data.get("projectId", event.project_id))
+
+        # Parse attachments with URL enrichment
         attachments = parse_cabinet_attachments(
             task_data,
             event.assignment_id,
             project_id,
             event.event_id,
+            media_url_map,
         )
 
-        # Generate readable report for API consumption
-        readable_report = get_readable_report(task_data, event.event_id)
+        # Generate readable report with URL-enriched media
+        readable_report = get_readable_report(task_data, event.event_id, media_url_map)
 
         logger.info(
             "Task enriched successfully",
@@ -216,18 +213,8 @@ class ItelCabinetPipeline:
             }
         )
 
-        # Download media files if configured
-        if self.download_media and attachments:
-            if not self.onelake_attachments_path:
-                logger.warning(
-                    "Media download enabled but ITEL_ATTACHMENTS_PATH not configured - skipping downloads"
-                )
-            else:
-                attachments = await self._download_media_files(
-                    attachments, project_id, event.assignment_id
-                )
-
         return submission, attachments, readable_report
+
 
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         """
@@ -260,71 +247,68 @@ class ItelCabinetPipeline:
 
         return response
 
-    async def _download_media_files(
-        self,
-        attachments: list[CabinetAttachment],
-        project_id: int,
-        assignment_id: int,
-    ) -> list[CabinetAttachment]:
+    async def _fetch_project_media_urls(self, project_id: int) -> dict[int, str]:
         """
-        Download media files for attachments and upload to OneLake.
-
-        Creates MediaDownloader on first call (lazy initialization).
-        Continues on partial failures - logs errors but returns all attachments.
+        Fetch all media for a project and build media_id -> download URL lookup map.
 
         Args:
-            attachments: Attachments to download media for
-            project_id: Project ID for path construction
-            assignment_id: Assignment ID for path construction
+            project_id: ClaimX project ID
 
         Returns:
-            Attachments with blob_path updated for successful downloads
+            Dictionary mapping media_id to fullDownloadLink URL
+
+        Raises:
+            Exception: If API call fails
         """
-        if not attachments:
-            return attachments
+        endpoint = f"/export/project/{project_id}/media"
+
+        logger.debug(f"Fetching all project media", extra={'project_id': project_id})
+
+        status, response = await self.connections.request_json(
+            connection_name=self.claimx_connection,
+            method='GET',
+            path=endpoint,
+            params={},  # No mediaIds param = get all media
+        )
+
+        if status < 200 or status >= 300:
+            logger.warning(
+                f"Failed to fetch project media: HTTP {status}",
+                extra={'project_id': project_id, 'status': status}
+            )
+            return {}
+
+        # Normalize response to list
+        if isinstance(response, list):
+            media_list = response
+        elif isinstance(response, dict):
+            if "data" in response:
+                media_list = response["data"]
+            elif "media" in response:
+                media_list = response["media"]
+            else:
+                media_list = [response]
+        else:
+            media_list = []
+
+        # Build lookup map: media_id -> download URL
+        media_url_map = {}
+        for media in media_list:
+            media_id = media.get("mediaID")
+            download_url = media.get("fullDownloadLink")
+            if media_id and download_url:
+                media_url_map[media_id] = download_url
 
         logger.info(
-            "Downloading media files",
+            f"Fetched project media URLs",
             extra={
-                'assignment_id': assignment_id,
-                'attachment_count': len(attachments),
+                'project_id': project_id,
+                'total_media': len(media_list),
+                'with_urls': len(media_url_map),
             }
         )
 
-        # Lazy initialize media downloader
-        if self._media_downloader is None:
-            self._media_downloader = MediaDownloader(
-                connection_manager=self.connections,
-                onelake_base_path=self.onelake_attachments_path,
-                claimx_connection=self.claimx_connection,
-            )
-
-        # Download and upload media
-        try:
-            async with self._media_downloader:
-                updated_attachments = await self._media_downloader.download_and_upload(
-                    attachments, project_id, assignment_id
-                )
-
-            logger.info(
-                "Media download complete",
-                extra={
-                    'assignment_id': assignment_id,
-                    'total': len(attachments),
-                    'with_blob_path': sum(1 for a in updated_attachments if a.blob_path),
-                }
-            )
-
-            return updated_attachments
-
-        except Exception as e:
-            logger.error(
-                f"Media download failed: {e}",
-                extra={'assignment_id': assignment_id},
-                exc_info=True,
-            )
-            # Return original attachments even if download failed
-            return attachments
+        return media_url_map
 
     async def _write_to_delta(
         self,

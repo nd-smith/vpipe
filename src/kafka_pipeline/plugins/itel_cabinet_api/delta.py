@@ -94,12 +94,11 @@ ATTACHMENTS_SCHEMA: Dict[str, pl.DataType] = {
     "question_text": pl.Utf8,
     "topic_category": pl.Utf8,
     "media_id": pl.Int64,
-    "blob_path": pl.Utf8,
+    "url": pl.Utf8,
     "display_order": pl.Int32,
     "created_at": pl.Datetime("us", "UTC"),
     "is_active": pl.Boolean,
     "media_type": pl.Utf8,
-    "file_extension": pl.Utf8,
 }
 
 
@@ -215,13 +214,6 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
                 processed[col_name] = str(val) if val is not None else None
             else:
                 processed[col_name] = val
-
-        # Extract file_extension from blob_path if not already set
-        # blob_path format: {project_id}/{assignment_id}/media/{media_id}.{ext}
-        if not processed.get("file_extension") and processed.get("blob_path"):
-            blob_path = processed["blob_path"]
-            if "." in blob_path:
-                processed["file_extension"] = blob_path.rsplit(".", 1)[1].lower()
 
         return processed
 
