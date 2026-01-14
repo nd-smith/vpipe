@@ -10,8 +10,9 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field, fields, is_dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import parse_qs, urlparse
 
 from .models import CabinetSubmission, CabinetAttachment
 
@@ -74,6 +75,44 @@ class DateTimeEncoder(json.JSONEncoder):
         if isinstance(o, datetime):
             return o.isoformat()
         return super().default(o)
+
+
+def parse_url_expiration(url: str) -> dict:
+    """
+    Extract TTL info from ClaimX signed URL.
+
+    ClaimX URLs include expiration parameters:
+        ?systemDate=<ms_timestamp>&expires=<duration_ms>&sign=...
+
+    Args:
+        url: ClaimX download URL
+
+    Returns:
+        {"expires_at": ISO timestamp, "ttl_seconds": int} or {} if unparseable
+    """
+    if not url:
+        return {}
+    try:
+        params = parse_qs(urlparse(url).query)
+        system_date_list = params.get('systemDate', [])
+        expires_list = params.get('expires', [])
+
+        if not system_date_list or not expires_list:
+            return {}
+
+        system_date = int(system_date_list[0])
+        expires_ms = int(expires_list[0])
+
+        if system_date and expires_ms:
+            expires_at_ms = system_date + expires_ms
+            expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
+            return {
+                "expires_at": expires_at.isoformat(),
+                "ttl_seconds": expires_ms // 1000
+            }
+    except (ValueError, IndexError, TypeError) as e:
+        logger.debug(f"Could not parse URL expiration: {e}")
+    return {}
 
 
 # ==========================================
@@ -325,6 +364,14 @@ class DataBuilder:
             },
             "topics": defaultdict(list)
         }
+
+        # Extract media URL expiration from first available URL
+        if media_url_map:
+            first_url = next(iter(media_url_map.values()), None)
+            url_expiration = parse_url_expiration(first_url)
+            if url_expiration:
+                readable_report["meta"]["media_urls_expire_at"] = url_expiration["expires_at"]
+                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration["ttl_seconds"]
 
         # For the raw_data column (preserves original group structure)
         raw_data_flat = defaultdict(list)
