@@ -12,10 +12,11 @@ import argparse
 import asyncio
 import json
 import logging
+import signal
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from aiokafka.structs import ConsumerRecord
 from dotenv import load_dotenv
@@ -34,6 +35,131 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class CLITaskManager:
+    """Manage async tasks with proper cancellation and cleanup."""
+
+    def __init__(self):
+        """Initialize task manager with signal handlers."""
+        self.tasks: Set[asyncio.Task] = set()
+        self._shutdown = False
+        self._shutdown_event = asyncio.Event()
+        self._original_handlers = {}
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for graceful shutdown."""
+        def signal_handler(signum, frame):
+            """Handle shutdown signals."""
+            if not self._shutdown:
+                logger.info(f"Received signal {signum}, initiating shutdown...")
+                self._shutdown = True
+                # Set the event in a thread-safe way
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.call_soon_threadsafe(self._shutdown_event.set)
+                except RuntimeError:
+                    # No running loop, set directly
+                    pass
+
+        # Save original handlers
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            self._original_handlers[sig] = signal.signal(sig, signal_handler)
+
+    def _restore_signal_handlers(self):
+        """Restore original signal handlers."""
+        for sig, handler in self._original_handlers.items():
+            signal.signal(sig, handler)
+
+    async def __aenter__(self):
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit async context manager and cleanup tasks."""
+        await self.shutdown()
+        self._restore_signal_handlers()
+        return False
+
+    def create_task(self, coro, name: str = None) -> asyncio.Task:
+        """
+        Create and track a task.
+
+        Args:
+            coro: Coroutine to create task from
+            name: Optional task name for debugging
+
+        Returns:
+            Created asyncio.Task
+        """
+        task = asyncio.create_task(coro, name=name)
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        return task
+
+    async def shutdown(self, timeout: float = 5.0):
+        """
+        Shutdown all tasks gracefully.
+
+        Args:
+            timeout: Maximum time to wait for tasks to cancel (seconds)
+        """
+        if not self.tasks:
+            return
+
+        logger.info(f"Shutting down {len(self.tasks)} tasks...")
+
+        # Cancel all tasks
+        for task in self.tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete with timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*self.tasks, return_exceptions=True),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Task shutdown timed out after {timeout}s")
+        except Exception as e:
+            logger.error(f"Error during task shutdown: {e}")
+
+        logger.info("Task shutdown complete")
+
+    async def wait_all(self, timeout: float = None):
+        """
+        Wait for all tasks to complete.
+
+        Args:
+            timeout: Optional timeout in seconds
+
+        Returns:
+            List of task results
+        """
+        if not self.tasks:
+            return []
+
+        try:
+            if timeout:
+                return await asyncio.wait_for(
+                    asyncio.gather(*self.tasks, return_exceptions=True),
+                    timeout=timeout
+                )
+            else:
+                return await asyncio.gather(*self.tasks, return_exceptions=True)
+        except asyncio.TimeoutError:
+            logger.warning(f"Wait timed out after {timeout}s")
+            raise
+
+    def is_shutdown_requested(self) -> bool:
+        """Check if shutdown has been requested."""
+        return self._shutdown
+
+    async def wait_for_shutdown(self):
+        """Wait for shutdown signal."""
+        await self._shutdown_event.wait()
 
 
 class DLQCLIManager:
@@ -273,45 +399,44 @@ async def main_list(args):
     # We'll manually fetch without committing
     manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
 
-    try:
-        # Start producer (needed for replay/resolve later)
-        await manager.handler._producer.start() if not manager.handler._producer else None
+    async with CLITaskManager() as task_manager:
+        try:
+            # Start producer (needed for replay/resolve later)
+            await manager.handler._producer.start() if not manager.handler._producer else None
 
-        # Create consumer manually without starting message loop
-        # Inline import: lazy loading for CLI commands (only import what's needed)
-        from kafka_pipeline.common.consumer import BaseKafkaConsumer
-        manager.handler._consumer = BaseKafkaConsumer(
-            config=config,
-            domain=domain,
-            worker_name="dlq_cli",
-            topics=[config.get_topic(domain, "dlq")],
-            message_handler=lambda r: asyncio.sleep(0),  # No-op handler
-        )
+            # Create consumer manually without starting message loop
+            # Inline import: lazy loading for CLI commands (only import what's needed)
+            from kafka_pipeline.common.consumer import BaseKafkaConsumer
+            manager.handler._consumer = BaseKafkaConsumer(
+                config=config,
+                domain=domain,
+                worker_name="dlq_cli",
+                topics=[config.get_topic(domain, "dlq")],
+                message_handler=lambda r: asyncio.sleep(0),  # No-op handler
+            )
 
-        # Start consumer (connects but we'll fetch manually)
-        consumer_start = asyncio.create_task(manager.handler._consumer.start())
-        await asyncio.sleep(0.5)  # Give consumer time to connect
+            # Start consumer (connects but we'll fetch manually)
+            consumer_task = task_manager.create_task(
+                manager.handler._consumer.start(),
+                name="dlq_consumer"
+            )
+            await asyncio.sleep(0.5)  # Give consumer time to connect
 
-        # Fetch messages
-        await manager.fetch_messages(limit=args.limit, timeout_ms=args.timeout)
-        manager.list_messages()
+            # Fetch messages
+            await manager.fetch_messages(limit=args.limit, timeout_ms=args.timeout)
+            manager.list_messages()
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Error: {e}")
-        logger.error("List command failed", exc_info=True)
-        sys.exit(1)
-    finally:
-        # Stop consumer
-        if manager.handler._consumer:
-            consumer_start.cancel()
-            try:
-                await consumer_start
-            except asyncio.CancelledError:
-                pass
-            await manager.handler._consumer.stop()
-        await manager.stop()
+        except KeyboardInterrupt:
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            print(f"Error: {e}")
+            logger.error("List command failed", exc_info=True)
+            sys.exit(1)
+        finally:
+            # Stop consumer
+            if manager.handler._consumer:
+                await manager.handler._consumer.stop()
+            await manager.stop()
 
 
 async def main_view(args):
@@ -321,41 +446,40 @@ async def main_view(args):
     domain = "xact"
     manager = DLQCLIManager(config)
 
-    try:
-        # Start and fetch messages
-        manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
-        await manager.handler._producer.start() if not manager.handler._producer else None
+    async with CLITaskManager() as task_manager:
+        try:
+            # Start and fetch messages
+            manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+            await manager.handler._producer.start() if not manager.handler._producer else None
 
-        from kafka_pipeline.common.consumer import BaseKafkaConsumer
-        manager.handler._consumer = BaseKafkaConsumer(
-            config=config,
-            domain=domain,
-            worker_name="dlq_cli",
-            topics=[config.get_topic(domain, "dlq")],
-            message_handler=lambda r: asyncio.sleep(0),
-        )
+            from kafka_pipeline.common.consumer import BaseKafkaConsumer
+            manager.handler._consumer = BaseKafkaConsumer(
+                config=config,
+                domain=domain,
+                worker_name="dlq_cli",
+                topics=[config.get_topic(domain, "dlq")],
+                message_handler=lambda r: asyncio.sleep(0),
+            )
 
-        consumer_start = asyncio.create_task(manager.handler._consumer.start())
-        await asyncio.sleep(0.5)
+            consumer_task = task_manager.create_task(
+                manager.handler._consumer.start(),
+                name="dlq_consumer"
+            )
+            await asyncio.sleep(0.5)
 
-        await manager.fetch_messages(limit=100, timeout_ms=5000)
-        manager.view_message(args.trace_id)
+            await manager.fetch_messages(limit=100, timeout_ms=5000)
+            manager.view_message(args.trace_id)
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Error: {e}")
-        logger.error("View command failed", exc_info=True)
-        sys.exit(1)
-    finally:
-        if manager.handler._consumer:
-            consumer_start.cancel()
-            try:
-                await consumer_start
-            except asyncio.CancelledError:
-                pass
-            await manager.handler._consumer.stop()
-        await manager.stop()
+        except KeyboardInterrupt:
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            print(f"Error: {e}")
+            logger.error("View command failed", exc_info=True)
+            sys.exit(1)
+        finally:
+            if manager.handler._consumer:
+                await manager.handler._consumer.stop()
+            await manager.stop()
 
 
 async def main_replay(args):
@@ -365,51 +489,50 @@ async def main_replay(args):
     domain = "xact"
     manager = DLQCLIManager(config)
 
-    try:
-        # Start handler components
-        manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+    async with CLITaskManager() as task_manager:
+        try:
+            # Start handler components
+            manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
 
-        # Start producer for replay
-        from kafka_pipeline.common.producer import BaseKafkaProducer
-        manager.handler._producer = BaseKafkaProducer(
-            config=config,
-            domain=domain,
-            worker_name="dlq_cli",
-        )
-        await manager.handler._producer.start()
+            # Start producer for replay
+            from kafka_pipeline.common.producer import BaseKafkaProducer
+            manager.handler._producer = BaseKafkaProducer(
+                config=config,
+                domain=domain,
+                worker_name="dlq_cli",
+            )
+            await manager.handler._producer.start()
 
-        # Start consumer to fetch messages
-        from kafka_pipeline.common.consumer import BaseKafkaConsumer
-        manager.handler._consumer = BaseKafkaConsumer(
-            config=config,
-            domain=domain,
-            worker_name="dlq_cli",
-            topics=[config.get_topic(domain, "dlq")],
-            message_handler=lambda r: asyncio.sleep(0),
-        )
+            # Start consumer to fetch messages
+            from kafka_pipeline.common.consumer import BaseKafkaConsumer
+            manager.handler._consumer = BaseKafkaConsumer(
+                config=config,
+                domain=domain,
+                worker_name="dlq_cli",
+                topics=[config.get_topic(domain, "dlq")],
+                message_handler=lambda r: asyncio.sleep(0),
+            )
 
-        consumer_start = asyncio.create_task(manager.handler._consumer.start())
-        await asyncio.sleep(0.5)
+            consumer_task = task_manager.create_task(
+                manager.handler._consumer.start(),
+                name="dlq_consumer"
+            )
+            await asyncio.sleep(0.5)
 
-        await manager.fetch_messages(limit=100, timeout_ms=5000)
-        await manager.replay_message(args.trace_id)
+            await manager.fetch_messages(limit=100, timeout_ms=5000)
+            await manager.replay_message(args.trace_id)
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Error: {e}")
-        logger.error("Replay command failed", exc_info=True)
-        sys.exit(1)
-    finally:
-        if manager.handler._consumer:
-            consumer_start.cancel()
-            try:
-                await consumer_start
-            except asyncio.CancelledError:
-                pass
-            await manager.handler._consumer.stop()
-        if manager.handler._producer:
-            await manager.handler._producer.stop()
+        except KeyboardInterrupt:
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            print(f"Error: {e}")
+            logger.error("Replay command failed", exc_info=True)
+            sys.exit(1)
+        finally:
+            if manager.handler._consumer:
+                await manager.handler._consumer.stop()
+            if manager.handler._producer:
+                await manager.handler._producer.stop()
 
 
 async def main_resolve(args):
@@ -419,51 +542,50 @@ async def main_resolve(args):
     domain = "xact"
     manager = DLQCLIManager(config)
 
-    try:
-        # Start handler components
-        manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+    async with CLITaskManager() as task_manager:
+        try:
+            # Start handler components
+            manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
 
-        # Start producer (needed by handler)
-        from kafka_pipeline.common.producer import BaseKafkaProducer
-        manager.handler._producer = BaseKafkaProducer(
-            config=config,
-            domain=domain,
-            worker_name="dlq_cli",
-        )
-        await manager.handler._producer.start()
+            # Start producer (needed by handler)
+            from kafka_pipeline.common.producer import BaseKafkaProducer
+            manager.handler._producer = BaseKafkaProducer(
+                config=config,
+                domain=domain,
+                worker_name="dlq_cli",
+            )
+            await manager.handler._producer.start()
 
-        # Start consumer
-        from kafka_pipeline.common.consumer import BaseKafkaConsumer
-        manager.handler._consumer = BaseKafkaConsumer(
-            config=config,
-            domain=domain,
-            worker_name="dlq_cli",
-            topics=[config.get_topic(domain, "dlq")],
-            message_handler=lambda r: asyncio.sleep(0),
-        )
+            # Start consumer
+            from kafka_pipeline.common.consumer import BaseKafkaConsumer
+            manager.handler._consumer = BaseKafkaConsumer(
+                config=config,
+                domain=domain,
+                worker_name="dlq_cli",
+                topics=[config.get_topic(domain, "dlq")],
+                message_handler=lambda r: asyncio.sleep(0),
+            )
 
-        consumer_start = asyncio.create_task(manager.handler._consumer.start())
-        await asyncio.sleep(0.5)
+            consumer_task = task_manager.create_task(
+                manager.handler._consumer.start(),
+                name="dlq_consumer"
+            )
+            await asyncio.sleep(0.5)
 
-        await manager.fetch_messages(limit=100, timeout_ms=5000)
-        await manager.resolve_message(args.trace_id)
+            await manager.fetch_messages(limit=100, timeout_ms=5000)
+            await manager.resolve_message(args.trace_id)
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Error: {e}")
-        logger.error("Resolve command failed", exc_info=True)
-        sys.exit(1)
-    finally:
-        if manager.handler._consumer:
-            consumer_start.cancel()
-            try:
-                await consumer_start
-            except asyncio.CancelledError:
-                pass
-            await manager.handler._consumer.stop()
-        if manager.handler._producer:
-            await manager.handler._producer.stop()
+        except KeyboardInterrupt:
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            print(f"Error: {e}")
+            logger.error("Resolve command failed", exc_info=True)
+            sys.exit(1)
+        finally:
+            if manager.handler._consumer:
+                await manager.handler._consumer.stop()
+            if manager.handler._producer:
+                await manager.handler._producer.stop()
 
 
 def main():

@@ -609,6 +609,14 @@ class BaseKafkaConsumer:
                 )
 
         elif error_category == ErrorCategory.TRANSIENT:
+            # Transient errors - don't commit, will retry
+            log_exception(
+                logger,
+                error,
+                "Transient error - will reprocess message",
+                level=logging.WARNING,
+                **common_context,
+            )
 
         elif error_category == ErrorCategory.AUTH:
             log_exception(
