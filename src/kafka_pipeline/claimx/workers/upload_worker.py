@@ -203,7 +203,7 @@ class ClaimXUploadWorker:
         # Start producer
         await self.producer.start()
 
-        # Initialize OneLake client for claimx domain
+        # Initialize OneLake client for claimx domain with proper error handling
         onelake_path = self.config.onelake_domain_paths.get(self.domain)
         if not onelake_path:
             # Fall back to base path
@@ -217,18 +217,46 @@ class ClaimXUploadWorker:
                 extra={"onelake_base_path": onelake_path},
             )
 
-        self.onelake_client = OneLakeClient(onelake_path)
-        await self.onelake_client.__aenter__()
-        logger.info(
-            "Initialized OneLake client for claimx domain",
-            extra={
-                "domain": self.domain,
-                "onelake_path": onelake_path,
-            },
-        )
+        # Use proper error handling with cleanup on failure
+        try:
+            self.onelake_client = OneLakeClient(onelake_path)
+            await self.onelake_client.__aenter__()
+            logger.info(
+                "Initialized OneLake client for claimx domain",
+                extra={
+                    "domain": self.domain,
+                    "onelake_path": onelake_path,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize OneLake client: {e}",
+                exc_info=True,
+            )
+            # Clean up producer and health server since we're failing after they started
+            await self.producer.stop()
+            await self.health_server.stop()
+            raise
 
-        # Create Kafka consumer
-        await self._create_consumer()
+        # Create Kafka consumer with cleanup on failure
+        try:
+            await self._create_consumer()
+        except Exception as e:
+            logger.error(
+                f"Failed to create Kafka consumer: {e}",
+                exc_info=True,
+            )
+            # Clean up OneLake client, producer, and health server on consumer creation failure
+            if self.onelake_client is not None:
+                try:
+                    await self.onelake_client.close()
+                except Exception as cleanup_error:
+                    logger.warning(f"Error cleaning up OneLake client: {cleanup_error}")
+                finally:
+                    self.onelake_client = None
+            await self.producer.stop()
+            await self.health_server.stop()
+            raise
 
         self._running = True
 
