@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vpipe"
+version = "0.1.0"
+description = "Verisk Pipeline - Kafka-based data pipeline for ClaimX and XACT"
+readme = "README.md"
+requires-python = ">=3.12"
+
+[tool.mypy]
+# Strict mode enables all optional error checking flags
+strict = true
+
+# Warn about unawaited coroutines - CRITICAL for async code
+warn_unawaited = true
+
+# Additional strictness settings
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+
+# Disallow untyped definitions
+disallow_untyped_defs = true
+disallow_untyped_calls = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+
+# Disallow dynamic typing
+disallow_any_unimported = false
+disallow_any_expr = false
+disallow_any_decorated = false
+disallow_any_explicit = false
+disallow_any_generics = true
+disallow_subclassing_any = true
+
+# None and Optional handling
+no_implicit_optional = true
+strict_optional = true
+
+# Error messages
+show_error_context = true
+show_column_numbers = true
+show_error_codes = true
+pretty = true
+
+# Python version
+python_version = "3.12"
+
+# Paths
+mypy_path = "src"
+files = ["src"]
+
+# Exclude patterns
+exclude = [
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "aiokafka.*",
+    "azure.*",
+    "deltalake.*",
+    "polars.*",
+    "prometheus_client.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# pytest configuration (migrated from pytest.ini)
+minversion = "7.0"
+pythonpath = ["src"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "integration: Integration tests requiring Docker and Kafka testcontainers",
+    "performance: Performance/load tests (may be long-running)",
+    "slow: Slow tests that may take several minutes",
+    "extended: Extended tests that may take hours (e.g., 4-hour sustained load tests)",
+]
+
+[tool.ruff]
+# Ruff linter configuration (optional but recommended)
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"tests/**/*.py" = ["ARG"]  # Allow unused arguments in tests

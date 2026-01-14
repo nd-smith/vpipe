@@ -264,6 +264,20 @@ retry_delay_seconds = Histogram(
     buckets=(60, 120, 300, 600, 1200, 2400, 3600),  # 1m to 1h
 )
 
+# DLQ routing metrics by error category (WP-211)
+messages_dlq_permanent = Counter(
+    "kafka_messages_dlq_permanent_total",
+    "Total messages sent to DLQ due to permanent errors",
+    ["topic", "consumer_group"],
+)
+
+messages_dlq_transient = Counter(
+    "kafka_messages_dlq_transient_total",
+    "Total messages sent to DLQ due to transient errors (retry exhausted)",
+    ["topic", "consumer_group"],
+)
+
+
 
 def record_event_ingested(domain: str, status: str = "success") -> None:
     """
@@ -350,6 +364,29 @@ def record_dlq_message(domain: str, reason: str) -> None:
         reason: Reason for DLQ (exhausted, permanent, error)
     """
     dlq_messages_total.labels(domain=domain, reason=reason).inc()
+
+
+def record_dlq_permanent(topic: str, consumer_group: str) -> None:
+    """
+    Record a message sent to DLQ due to permanent error.
+
+    Args:
+        topic: Kafka topic name
+        consumer_group: Consumer group ID
+    """
+    messages_dlq_permanent.labels(topic=topic, consumer_group=consumer_group).inc()
+
+
+def record_dlq_transient(topic: str, consumer_group: str) -> None:
+    """
+    Record a message sent to DLQ due to transient error (retry exhausted).
+
+    Args:
+        topic: Kafka topic name
+        consumer_group: Consumer group ID
+    """
+    messages_dlq_transient.labels(topic=topic, consumer_group=consumer_group).inc()
+
 
 
 def record_message_produced(topic: str, message_bytes: int, success: bool = True) -> None:
@@ -581,6 +618,11 @@ __all__ = [
     "record_retry_attempt",
     "record_retry_exhausted",
     "record_dlq_message",
+    # DLQ routing metrics (WP-211)
+    "messages_dlq_permanent",
+    "messages_dlq_transient",
+    "record_dlq_permanent",
+    "record_dlq_transient",
     "record_dlq_permanent",
     "record_dlq_transient",
     # Consumer shutdown metrics (WP-39)

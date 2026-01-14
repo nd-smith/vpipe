@@ -1,6 +1,282 @@
 """Configuration validator for merged config files.
 
 Validates that merged configuration from split YAML files produces correct
+configuration structure with proper merge semantics. Also includes security
+validation to prevent secrets from being stored in YAML files.
+"""
+
+import os
+import re
+from typing import Any, Dict, List, Optional, Set
+
+
+# =============================================================================
+# SECRET VALIDATION - SECURITY CRITICAL
+# =============================================================================
+# These patterns identify fields that should NEVER be stored in YAML files.
+# All secrets must be loaded from environment variables only.
+# =============================================================================
+
+# Environment variables that MUST be set (validation fails if any are missing)
+REQUIRED_ENV_SECRETS: List[str] = [
+    "CLAIMX_API_TOKEN",  # ClaimX API authentication token
+    "ONELAKE_BASE_PATH",  # OneLake storage base path (may contain credentials)
+]
+
+# Optional environment variables that may contain secrets
+# These will be validated if present in YAML but won't fail if missing
+OPTIONAL_ENV_SECRETS: List[str] = [
+    "ITEL_CABINET_API_TOKEN",  # iTel Cabinet API token (not yet implemented)
+    "EVENTHOUSE_CLUSTER_URL",  # May contain embedded credentials
+    "CLAIMX_API_BASE_PATH",  # ClaimX API base URL
+    "CLAIMX_API_USERNAME",  # Alternative to token-based auth
+    "CLAIMX_API_PASSWORD",  # Alternative to token-based auth
+]
+
+# Patterns that indicate a field contains secret data
+# These are used to detect secrets in YAML values
+SECRET_PATTERNS: List[str] = [
+    r"token",
+    r"password",
+    r"secret",
+    r"key",
+    r"credential",
+    r"auth",
+    r"bearer",
+    r"api[_-]?key",
+]
+
+
+class ConfigValidator:
+    """Validates configuration for security and correctness.
+
+    Primary responsibilities:
+    1. Prevent secrets from being stored in YAML files
+    2. Ensure secrets are loaded from environment variables
+    3. Validate environment variables are set
+    4. Provide helpful error messages without leaking secrets
+    """
+
+    def __init__(self):
+        """Initialize validator with secret patterns."""
+        # Compile regex patterns for efficient matching
+        self._secret_patterns = [
+            re.compile(pattern, re.IGNORECASE) for pattern in SECRET_PATTERNS
+        ]
+
+    def validate_no_secrets_in_yaml(
+        self, config: Dict[str, Any], path: str = ""
+    ) -> List[str]:
+        """Validate that no secrets are stored in YAML configuration.
+
+        This method recursively scans the entire configuration tree looking for
+        fields that appear to contain secrets. It checks:
+        1. Field names matching secret patterns (token, password, key, etc.)
+        2. Values that look like credentials (not env var placeholders)
+        3. Values that are not properly using ${VAR_NAME} syntax
+
+        Args:
+            config: Configuration dictionary to validate
+            path: Current path in config tree (for error messages)
+
+        Returns:
+            List of error messages for any secrets found in YAML
+
+        Examples:
+            >>> validator = ConfigValidator()
+            >>> config = {"api_token": "abc123"}
+            >>> errors = validator.validate_no_secrets_in_yaml(config)
+            >>> print(errors)
+            ['Secret found in YAML: api_token = [REDACTED]']
+
+            >>> config = {"api_token": "${CLAIMX_API_TOKEN}"}
+            >>> errors = validator.validate_no_secrets_in_yaml(config)
+            >>> print(errors)
+            []
+        """
+        errors: List[str] = []
+
+        for key, value in config.items():
+            current_path = f"{path}.{key}" if path else key
+
+            # Check if this is a nested dictionary - recurse
+            if isinstance(value, dict):
+                errors.extend(self.validate_no_secrets_in_yaml(value, current_path))
+                continue
+
+            # Check if field name matches a secret pattern
+            if self._is_secret_field(key):
+                # Check if value is properly using environment variable
+                if not self._is_env_var_reference(value):
+                    # Found a secret in YAML!
+                    errors.append(
+                        f"Secret found in YAML: {current_path}\n"
+                        f"  Expected: Environment variable reference (e.g., ${{ENV_VAR}})\n"
+                        f"  Found: Hard-coded value\n"
+                        f"  Action: Move this secret to an environment variable"
+                    )
+
+        return errors
+
+    def load_secrets_from_env(self) -> Dict[str, Optional[str]]:
+        """Load secrets from environment variables.
+
+        Loads all required and optional secret environment variables,
+        validates that required ones are set, and returns them in a
+        dictionary for use in configuration.
+
+        Returns:
+            Dictionary mapping environment variable names to their values
+
+        Raises:
+            ValueError: If any required environment variables are missing
+
+        Examples:
+            >>> validator = ConfigValidator()
+            >>> secrets = validator.load_secrets_from_env()
+            >>> print(secrets.get("CLAIMX_API_TOKEN"))
+            'token_value_from_env'
+        """
+        secrets: Dict[str, Optional[str]] = {}
+        missing_required: List[str] = []
+
+        # Load required secrets
+        for var_name in REQUIRED_ENV_SECRETS:
+            value = os.getenv(var_name)
+            secrets[var_name] = value
+
+            if value is None or value == "":
+                missing_required.append(var_name)
+
+        # Raise error if any required secrets are missing
+        if missing_required:
+            error_msg = self._format_missing_secrets_error(missing_required)
+            raise ValueError(error_msg)
+
+        # Load optional secrets (don't fail if missing)
+        for var_name in OPTIONAL_ENV_SECRETS:
+            value = os.getenv(var_name)
+            secrets[var_name] = value
+
+        return secrets
+
+    def _is_secret_field(self, field_name: str) -> bool:
+        """Check if a field name indicates it contains secret data.
+
+        Args:
+            field_name: Name of configuration field
+
+        Returns:
+            True if field name matches a secret pattern
+        """
+        for pattern in self._secret_patterns:
+            if pattern.search(field_name):
+                return True
+        return False
+
+    def _is_env_var_reference(self, value: Any) -> bool:
+        """Check if a value is an environment variable reference.
+
+        Valid env var references:
+        - ${VAR_NAME}
+        - Empty string (allowed - will be loaded from env later)
+        - None (allowed - will be loaded from env later)
+
+        Args:
+            value: Value to check
+
+        Returns:
+            True if value is using proper env var syntax or is empty
+        """
+        # None or empty string is OK - might be loaded from env later
+        if value is None or value == "":
+            return True
+
+        # If not a string, it can't be a secret (numbers, booleans, etc.)
+        if not isinstance(value, str):
+            return True
+
+        # Check if it's an environment variable reference
+        # Pattern: ${VAR_NAME} anywhere in the string
+        env_var_pattern = r"\$\{[A-Z_][A-Z0-9_]*\}"
+        if re.search(env_var_pattern, value):
+            return True
+
+        # If the value looks like a URL, path, or other non-secret data, allow it
+        # This prevents false positives for fields like "auth_type: bearer"
+        if self._is_non_secret_value(value):
+            return True
+
+        # Otherwise, it's likely a hard-coded secret
+        return False
+
+    def _is_non_secret_value(self, value: str) -> bool:
+        """Check if a value is likely not a secret.
+
+        This prevents false positives for fields that match secret patterns
+        but contain non-sensitive configuration values.
+
+        Args:
+            value: String value to check
+
+        Returns:
+            True if value is likely not a secret
+        """
+        # Known non-secret values
+        non_secrets = [
+            "bearer",
+            "basic",
+            "api_key",
+            "none",
+            "plaintext",
+            "ssl",
+            "sasl_plaintext",
+            "sasl_ssl",
+            "oauthbearer",
+        ]
+
+        return value.lower() in non_secrets
+
+    def _format_missing_secrets_error(self, missing: List[str]) -> str:
+        """Format a helpful error message for missing environment variables.
+
+        Args:
+            missing: List of missing environment variable names
+
+        Returns:
+            Formatted error message with instructions
+        """
+        lines = [
+            "Configuration Error: Required environment variables not set",
+            "",
+            "The following environment variables are required but missing:",
+        ]
+
+        for var_name in missing:
+            lines.append(f"  - {var_name}")
+
+        lines.extend(
+            [
+                "",
+                "Action Required:",
+                "1. Create a .env file in your project root (or set variables in your shell)",
+                "2. Add the missing variables with appropriate values",
+                "3. NEVER commit secrets to version control",
+                "",
+                "Example .env file:",
+                "  CLAIMX_API_TOKEN=your-token-here",
+                "  ONELAKE_BASE_PATH=abfss://workspace@onelake.dfs.fabric.microsoft.com/...",
+                "",
+                "For production, use a secure secret management system (Azure Key Vault, etc.)",
+            ]
+        )
+
+        return "\n".join(lines)
+
+
+"""Configuration validator for merged config files.
+
+Validates that merged configuration from split YAML files produces correct
 configuration structure with proper merge semantics.
 """
 
