@@ -29,6 +29,25 @@ from core.security.url_validation import validate_download_url
 logger = logging.getLogger(__name__)
 
 
+def _classify_timeout_type(error_message: str) -> str:
+    """
+    Classify timeout error type from error message.
+
+    Args:
+        error_message: Error message from timeout exception
+
+    Returns:
+        Timeout type: 'connection', 'socket_read', or 'total'
+    """
+    error_lower = error_message.lower()
+    if "connect" in error_lower or "connection" in error_lower:
+        return "connection"
+    elif "read" in error_lower or "socket" in error_lower:
+        return "socket_read"
+    else:
+        return "total"
+
+
 class AttachmentDownloader:
     """
     Unified downloader for attachments with validation and error handling.
@@ -280,6 +299,19 @@ class AttachmentDownloader:
         )
 
         if error:
+            # Log timeout errors with additional context
+            if "timeout" in error.error_message.lower():
+                timeout_type = _classify_timeout_type(error.error_message)
+                logger.warning(
+                    "Download timeout",
+                    extra={
+                        "url": task.url,
+                        "timeout_type": timeout_type,
+                        "timeout_seconds": task.timeout,
+                        "error_message": error.error_message,
+                    },
+                )
+
             return DownloadOutcome.download_failure(
                 error_message=error.error_message,
                 error_category=error.error_category,
@@ -345,6 +377,19 @@ class AttachmentDownloader:
         )
 
         if error:
+            # Log timeout errors with additional context
+            if "timeout" in error.error_message.lower():
+                timeout_type = _classify_timeout_type(error.error_message)
+                logger.warning(
+                    "Download timeout (streaming)",
+                    extra={
+                        "url": task.url,
+                        "timeout_type": timeout_type,
+                        "timeout_seconds": task.timeout,
+                        "error_message": error.error_message,
+                    },
+                )
+
             return DownloadOutcome.download_failure(
                 error_message=error.error_message,
                 error_category=error.error_category,

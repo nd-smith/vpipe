@@ -165,9 +165,18 @@ async def stream_download_url(
         )
 
     except asyncio.TimeoutError as e:
+        # Timeout during download - could be connection, read, or total timeout
         return None, StreamDownloadError(
             status_code=None,
             error_message=f"Download timeout after {timeout}s",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+
+    except aiohttp.ServerTimeoutError as e:
+        # Server timeout - server took too long to respond
+        return None, StreamDownloadError(
+            status_code=None,
+            error_message=f"Server timeout: {str(e)}",
             error_category=ErrorCategory.TRANSIENT,
         )
 
