@@ -318,7 +318,7 @@ class KQLClient:
                 "Events | where ingestion_time() > ago(1h) | take 100"
             )
             for row in result.rows:
-                logger.debug("Query result row", row=row)
+                logger.debug("Query result row", extra={"row": row})
     """
 
     def __init__(self, config: EventhouseConfig):

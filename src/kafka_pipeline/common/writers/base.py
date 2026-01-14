@@ -56,7 +56,7 @@ def get_inmemory_registry():
         import logging
         logger = logging.getLogger(__name__)
         registry = get_inmemory_registry()
-        logger.debug("Registry stats", stats=registry.get_stats())
+        logger.debug("Registry stats", extra={"stats": registry.get_stats()})
         events = registry.get_table("xact_events").read()
     """
     return _get_inmemory_registry()
