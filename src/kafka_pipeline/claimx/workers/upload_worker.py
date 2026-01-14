@@ -493,7 +493,12 @@ class ClaimXUploadWorker:
                 await asyncio.sleep(1)  # Brief pause before retry  # Brief pause before retry
 
     async def _process_batch(self, messages: List[ConsumerRecord]) -> None:
-        """Process a batch of messages concurrently."""
+        """
+        Process a batch of messages concurrently.
+
+        CRITICAL (Issue #38): Verifies all uploads succeeded before committing offsets.
+        Failed uploads are tracked and offsets are not committed for those messages.
+        """
         assert self._consumer is not None
         assert self._semaphore is not None
 
@@ -509,17 +514,49 @@ class ClaimXUploadWorker:
 
         results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Handle any exceptions
+        # CRITICAL (Issue #38): Verify all uploads succeeded before committing offsets
+        failed_count = 0
+        success_count = 0
+        exception_count = 0
+
         for result in results:
             if isinstance(result, Exception):
                 logger.error(f"Unexpected error in upload: {result}", exc_info=True)
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
+                exception_count += 1
+            elif isinstance(result, UploadResult):
+                if result.success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+            else:
+                logger.warning(f"Unexpected result type: {type(result)}")
+                exception_count += 1
 
-        # Commit offsets after batch
-        try:
-            await self._consumer.commit()
-        except Exception as e:
-            logger.error(f"Failed to commit offsets: {e}", exc_info=True)
+        # Only commit offsets if ALL uploads in batch succeeded
+        # This ensures at-least-once semantics: failed uploads will be retried
+        if failed_count == 0 and exception_count == 0:
+            try:
+                await self._consumer.commit()
+                logger.debug(
+                    "Committed offsets after successful batch",
+                    extra={
+                        "batch_size": len(messages),
+                        "success_count": success_count,
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to commit offsets: {e}", exc_info=True)
+        else:
+            logger.warning(
+                "Skipping offset commit due to upload failures in batch",
+                extra={
+                    "batch_size": len(messages),
+                    "success_count": success_count,
+                    "failed_count": failed_count,
+                    "exception_count": exception_count,
+                },
+            )
 
     async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
         """Process single message with semaphore for concurrency control."""
