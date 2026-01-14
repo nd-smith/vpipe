@@ -366,19 +366,37 @@ def get_auth() -> AzureAuth:
     global _auth_instance
     if _auth_instance is None:
         _auth_instance = AzureAuth()
-        # Debug: Log singleton creation to help diagnose auth issues
-        print(f"DEBUG [auth]: Created AzureAuth singleton, mode={_auth_instance.auth_mode}, token_file={_auth_instance.token_file}")
+        # Log singleton creation to help diagnose auth issues
+        log_with_context(
+            logger,
+            logging.DEBUG,
+            "Created AzureAuth singleton",
+            auth_mode=_auth_instance.auth_mode,
+            token_file=_auth_instance.token_file or "not_set",
+        )
     return _auth_instance
 
 
 def get_storage_options(force_refresh: bool = False) -> Dict[str, str]:
     """Get storage auth options from singleton."""
     opts = get_auth().get_storage_options(force_refresh)
-    # Debug: Log what storage options are being returned
+    # Log what storage options are being returned (metadata only, no credentials)
     if opts:
-        print(f"DEBUG [auth]: get_storage_options returning keys={list(opts.keys())}")
+        # Only log keys, never log actual credential values
+        log_with_context(
+            logger,
+            logging.DEBUG,
+            "Storage options returned",
+            option_keys=list(opts.keys()),
+            force_refresh=force_refresh,
+        )
     else:
-        print(f"DEBUG [auth]: get_storage_options returning EMPTY dict (no credentials)")
+        log_with_context(
+            logger,
+            logging.DEBUG,
+            "Storage options returned empty (no credentials configured)",
+            force_refresh=force_refresh,
+        )
     return opts
 
 

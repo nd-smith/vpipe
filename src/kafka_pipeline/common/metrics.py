@@ -581,6 +581,16 @@ __all__ = [
     "record_retry_attempt",
     "record_retry_exhausted",
     "record_dlq_message",
+    "record_dlq_permanent",
+    "record_dlq_transient",
+    # Consumer shutdown metrics (WP-39)
+    "consumer_shutdown_duration_seconds",
+    "consumer_shutdown_timeout_total",
+    "consumer_shutdown_error_total",
+    "record_consumer_shutdown",
+    "record_consumer_shutdown_error",
+    "messages_dlq_permanent",
+    "messages_dlq_transient",
     # Helper functions
     "record_message_produced",
     "record_message_consumed",
@@ -605,3 +615,56 @@ __all__ = [
     "update_uploads_concurrent",
     "uploads_concurrent",
 ]
+
+# =============================================================================
+# Consumer Shutdown Metrics (WP-39)
+# =============================================================================
+consumer_shutdown_duration_seconds = Histogram(
+    "kafka_consumer_shutdown_duration_seconds",
+    "Time taken to shutdown Kafka consumer",
+    ["consumer_group", "status"],  # status: success/timeout/error
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0),
+)
+
+consumer_shutdown_timeout_total = Counter(
+    "kafka_consumer_shutdown_timeout_total",
+    "Total number of consumer shutdown timeouts",
+    ["consumer_group"],
+)
+
+consumer_shutdown_error_total = Counter(
+    "kafka_consumer_shutdown_error_total",
+    "Total number of consumer shutdown errors",
+    ["consumer_group", "error_type"],  # error_type: timeout/force_close/unknown
+)
+
+
+def record_consumer_shutdown(
+    consumer_group: str, duration: float, status: str = "success"
+) -> None:
+    """
+    Record a consumer shutdown event.
+
+    Args:
+        consumer_group: Consumer group ID
+        duration: Shutdown duration in seconds
+        status: Shutdown status (success, timeout, error)
+    """
+    consumer_shutdown_duration_seconds.labels(
+        consumer_group=consumer_group, status=status
+    ).observe(duration)
+    if status == "timeout":
+        consumer_shutdown_timeout_total.labels(consumer_group=consumer_group).inc()
+
+
+def record_consumer_shutdown_error(consumer_group: str, error_type: str) -> None:
+    """
+    Record a consumer shutdown error.
+
+    Args:
+        consumer_group: Consumer group ID
+        error_type: Type of error (timeout, force_close, unknown)
+    """
+    consumer_shutdown_error_total.labels(
+        consumer_group=consumer_group, error_type=error_type
+    ).inc()
