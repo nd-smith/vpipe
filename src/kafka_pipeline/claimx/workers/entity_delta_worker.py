@@ -213,6 +213,8 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
     async def _flush_batch(self) -> None:
         """Write accumulated batch to Delta Lake."""
         batch_size = 0
+        merged_rows = None
+
         async with self._batch_lock:
             if not self._batch:
                 return
@@ -224,8 +226,7 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
             for msg in self._batch:
                 merged_rows.merge(msg)
 
-            batch_to_proces = self._batch.copy() # Keep for error handling if needed
-            self._batch.clear()
+            # Don't clear batch yet - only after successful write and commit
 
         if merged_rows.is_empty():
             logger.warning(
@@ -235,6 +236,9 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                     "entity_row_count": merged_rows.row_count(),
                 },
             )
+            # Clear batch since there's nothing to write
+            async with self._batch_lock:
+                self._batch.clear()
             return
 
         try:
@@ -247,6 +251,13 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
             )
 
             counts = await self.entity_writer.write_all(merged_rows)
+
+            # Commit offsets after successful write
+            await self.commit()
+
+            # Only clear batch after both write and commit succeeded
+            async with self._batch_lock:
+                self._batch.clear()
 
             total_rows = sum(counts.values())
             self._batches_written += 1
@@ -261,9 +272,6 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                 },
             )
 
-            # Commit offsets if successful
-            await self.commit()
-
             # Metrics
             for table_name, row_count in counts.items():
                 record_delta_write(
@@ -275,42 +283,54 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         except Exception as e:
             self._records_failed += merged_rows.row_count()
 
+            # Classify error to determine handling strategy
+            error_category = self._classify_delta_error(e)
+
             # Use standardized error logging
             log_worker_error(
                 logger,
                 "Failed to write entity batch to Delta",
-                error_category="transient",
+                error_category=error_category.value,
                 exc=e,
                 messages_in_batch=batch_size,
                 entity_row_count=merged_rows.row_count(),
             )
 
-            # Route to retry/DLQ via the retry handler
-            if self.retry_handler:
-                # Extract event data for retry context
-                events = []
-                for entity_type in ["projects", "contacts", "media", "tasks",
-                                    "task_templates", "external_links", "video_collab"]:
-                    entity_list = getattr(merged_rows, entity_type, [])
-                    for entity in entity_list:
-                        events.append({
-                            "entity_type": entity_type,
-                            "event_id": merged_rows.event_id,
-                            "event_type": merged_rows.event_type,
-                            "project_id": merged_rows.project_id,
-                            **entity,
-                        })
+            # Extract event data for retry context
+            events = []
+            for entity_type in ["projects", "contacts", "media", "tasks",
+                                "task_templates", "external_links", "video_collab"]:
+                entity_list = getattr(merged_rows, entity_type, [])
+                for entity in entity_list:
+                    events.append({
+                        "entity_type": entity_type,
+                        "event_id": merged_rows.event_id,
+                        "event_type": merged_rows.event_type,
+                        "project_id": merged_rows.project_id,
+                        **entity,
+                    })
 
-                if events:
+            # Handle PERMANENT errors: send to DLQ and clear batch
+            if error_category == ErrorCategory.PERMANENT:
+                logger.warning(
+                    "Permanent Delta write error detected, sending batch to DLQ",
+                    extra={
+                        "batch_size": batch_size,
+                        "error_type": type(e).__name__,
+                    },
+                )
+
+                # Route to DLQ via retry handler
+                if self.retry_handler and events:
                     try:
                         await self.retry_handler.handle_batch_failure(
                             batch=events,
                             error=e,
                             retry_count=0,
-                            error_category="transient",
+                            error_category=error_category.value,
                         )
                         logger.info(
-                            "Entity batch sent to retry topic",
+                            "Entity batch sent to DLQ",
                             extra={
                                 "event_count": len(events),
                                 "event_id": merged_rows.event_id,
@@ -318,7 +338,7 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                         )
                     except Exception as retry_error:
                         logger.error(
-                            "Failed to send entity batch to retry topic - DATA LOSS",
+                            "Failed to send entity batch to DLQ - DATA LOSS",
                             extra={
                                 "original_error": str(e),
                                 "retry_error": str(retry_error),
@@ -327,7 +347,49 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                             },
                             exc_info=True,
                         )
-            else:
+
+                # Clear batch after routing to DLQ since this error won't succeed on retry
+                async with self._batch_lock:
+                    self._batch.clear()
+                return
+
+            # For TRANSIENT errors, route to retry topic but keep batch intact
+            logger.info(
+                "Transient Delta write error, routing to retry topic",
+                extra={
+                    "batch_size": batch_size,
+                    "error_category": error_category.value,
+                    "error_type": type(e).__name__,
+                },
+            )
+
+            if self.retry_handler and events:
+                try:
+                    await self.retry_handler.handle_batch_failure(
+                        batch=events,
+                        error=e,
+                        retry_count=0,
+                        error_category=error_category.value,
+                    )
+                    logger.info(
+                        "Entity batch sent to retry topic",
+                        extra={
+                            "event_count": len(events),
+                            "event_id": merged_rows.event_id,
+                        },
+                    )
+                except Exception as retry_error:
+                    logger.error(
+                        "Failed to send entity batch to retry topic - DATA LOSS",
+                        extra={
+                            "original_error": str(e),
+                            "retry_error": str(retry_error),
+                            "event_count": len(events),
+                            "event_id": merged_rows.event_id,
+                        },
+                        exc_info=True,
+                    )
+            elif not self.retry_handler:
                 # No retry handler - log critical error
                 logger.critical(
                     "Entity batch write failed with no retry handler configured - DATA LOSS",
@@ -337,6 +399,52 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                         "entity_row_count": merged_rows.row_count(),
                     },
                 )
+
+            # Keep batch intact for TRANSIENT errors - don't clear
+            # This prevents data loss if retry topic send fails
+
+    def _classify_delta_error(self, error: Exception) -> ErrorCategory:
+        """
+        Classify Delta write errors into categories for handling decisions.
+
+        Args:
+            error: Exception from Delta write operation
+
+        Returns:
+            ErrorCategory indicating how to handle this error
+        """
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+
+        # Schema validation errors are PERMANENT (won't succeed on retry)
+        if "schema" in error_str or "validation" in error_str:
+            return ErrorCategory.PERMANENT
+
+        # File not found or path errors are PERMANENT
+        if "not found" in error_str or "404" in error_str:
+            return ErrorCategory.PERMANENT
+
+        # Permission/auth errors need credential refresh
+        if "401" in error_str or "403" in error_str or "unauthorized" in error_str:
+            return ErrorCategory.AUTH
+
+        # Timeout and connection errors are TRANSIENT
+        if "timeout" in error_str or "timeout" in error_type:
+            return ErrorCategory.TRANSIENT
+
+        if "connection" in error_str or "network" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Throttling errors are TRANSIENT
+        if "429" in error_str or "throttl" in error_str or "rate limit" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Service unavailable is TRANSIENT
+        if "503" in error_str or "service unavailable" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Default to TRANSIENT for unknown errors (safe default - allows retry)
+        return ErrorCategory.TRANSIENT
 
     async def _periodic_flush(self) -> None:
         """Timer callback to periodically flush batch regardless of size."""

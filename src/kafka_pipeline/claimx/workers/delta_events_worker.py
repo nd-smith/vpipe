@@ -305,28 +305,112 @@ class ClaimXDeltaEventsWorker:
             await self._handle_failed_batch(batch_to_write, e)
 
     async def _handle_failed_batch(self, batch: List[Dict[str, Any]], error: Exception) -> None:
-        """Handle failed batch by keeping local logic simple or routing to retry."""
+        """
+        Handle failed batch with error classification and DLQ routing.
+
+        Routes PERMANENT errors to DLQ and clears batch.
+        Keeps batch intact for TRANSIENT errors to enable retry.
+        """
+        # Classify error to determine handling strategy
+        error_category = self._classify_delta_error(error)
+
         # Use standardized error logging
         log_worker_error(
             logger,
             "Batch write failed",
-            error_category="transient",
+            error_category=error_category.value,
             exc=error,
             batch_size=len(batch),
         )
 
-        # In a real impl, we'd route to retry topic using retry_handler
-        # ensuring data isn't lost.
-        # For this refactor, I'll ensure we at least log vividly.
-        # Ideally: await self.retry_handler.handle_batch_failure(...)
+        # Handle PERMANENT errors: send to DLQ and clear batch
+        if error_category == ErrorCategory.PERMANENT:
+            logger.warning(
+                "Permanent Delta write error detected, sending batch to DLQ",
+                extra={
+                    "batch_size": len(batch),
+                    "error_type": type(error).__name__,
+                },
+            )
+
+            # Send to DLQ via retry handler
+            if hasattr(self, 'retry_handler'):
+                await self.retry_handler.handle_batch_failure(
+                    batch=batch,
+                    error=error,
+                    retry_count=0,
+                    error_category=error_category.value,
+                    batch_id=uuid.uuid4().hex[:8]
+                )
+
+            # Clear batch after routing to DLQ since this error won't succeed on retry
+            self._batch.clear()
+            return
+
+        # For TRANSIENT errors, route to retry topic but keep batch intact
+        logger.info(
+            "Transient Delta write error, routing to retry topic",
+            extra={
+                "batch_size": len(batch),
+                "error_category": error_category.value,
+                "error_type": type(error).__name__,
+            },
+        )
+
         if hasattr(self, 'retry_handler'):
-             await self.retry_handler.handle_batch_failure(
+            await self.retry_handler.handle_batch_failure(
                 batch=batch,
                 error=error,
                 retry_count=0,
-                error_category="transient",
+                error_category=error_category.value,
                 batch_id=uuid.uuid4().hex[:8]
             )
+
+        # Keep batch intact for TRANSIENT errors - don't clear
+        # This prevents data loss if retry topic send fails
+
+    def _classify_delta_error(self, error: Exception) -> ErrorCategory:
+        """
+        Classify Delta write errors into categories for handling decisions.
+
+        Args:
+            error: Exception from Delta write operation
+
+        Returns:
+            ErrorCategory indicating how to handle this error
+        """
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+
+        # Schema validation errors are PERMANENT (won't succeed on retry)
+        if "schema" in error_str or "validation" in error_str:
+            return ErrorCategory.PERMANENT
+
+        # File not found or path errors are PERMANENT
+        if "not found" in error_str or "404" in error_str:
+            return ErrorCategory.PERMANENT
+
+        # Permission/auth errors need credential refresh
+        if "401" in error_str or "403" in error_str or "unauthorized" in error_str:
+            return ErrorCategory.AUTH
+
+        # Timeout and connection errors are TRANSIENT
+        if "timeout" in error_str or "timeout" in error_type:
+            return ErrorCategory.TRANSIENT
+
+        if "connection" in error_str or "network" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Throttling errors are TRANSIENT
+        if "429" in error_str or "throttl" in error_str or "rate limit" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Service unavailable is TRANSIENT
+        if "503" in error_str or "service unavailable" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Default to TRANSIENT for unknown errors (safe default - allows retry)
+        return ErrorCategory.TRANSIENT
 
     async def _periodic_flush(self) -> None:
         """Timer callback to flush batch."""
