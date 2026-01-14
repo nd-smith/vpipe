@@ -138,9 +138,18 @@ async def download_url(
             )
 
     except asyncio.TimeoutError as e:
+        # Timeout during download - could be connection, read, or total timeout
         return None, DownloadError(
             status_code=None,
             error_message=f"Download timeout after {timeout}s",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+
+    except aiohttp.ServerTimeoutError as e:
+        # Server timeout - server took too long to respond
+        return None, DownloadError(
+            status_code=None,
+            error_message=f"Server timeout: {str(e)}",
             error_category=ErrorCategory.TRANSIENT,
         )
 
@@ -157,25 +166,39 @@ def create_session(
     max_connections: int = 100,
     max_connections_per_host: int = 10,
     enable_ssl: bool = True,
+    timeout_total: int = 300,
+    timeout_connect: int = 30,
+    timeout_sock_read: int = 60,
+    timeout_sock_connect: int = 30,
 ) -> aiohttp.ClientSession:
     """
-    Create aiohttp ClientSession with optimized connection pooling.
+    Create aiohttp ClientSession with optimized connection pooling and timeouts.
 
     Connection pool configuration balances performance and resource usage:
     - max_connections: Total concurrent connections across all hosts
     - max_connections_per_host: Concurrent connections to single host
     - SSL verification: Always enabled for security (can disable for testing)
 
+    Timeout configuration prevents indefinite hangs:
+    - timeout_total: Total time for the entire request (default: 300s)
+    - timeout_connect: Time to establish connection (default: 30s)
+    - timeout_sock_read: Time between reads (default: 60s)
+    - timeout_sock_connect: Socket connection timeout (default: 30s)
+
     Args:
         max_connections: Total connection pool size (default: 100)
         max_connections_per_host: Per-host connection limit (default: 10)
         enable_ssl: Enable SSL verification (default: True)
+        timeout_total: Total timeout in seconds (default: 300)
+        timeout_connect: Connection timeout in seconds (default: 30)
+        timeout_sock_read: Socket read timeout in seconds (default: 60)
+        timeout_sock_connect: Socket connection timeout in seconds (default: 30)
 
     Returns:
         Configured aiohttp.ClientSession
 
     Example:
-        session = create_session(max_connections=50)
+        session = create_session(max_connections=50, timeout_total=180)
         try:
             response, error = await download_url(url, session)
             # ... handle response
@@ -193,9 +216,18 @@ def create_session(
         limit=max_connections,
         limit_per_host=max_connections_per_host,
         ssl=enable_ssl,
+        ttl_dns_cache=300,
+        enable_cleanup_closed=True,
     )
 
-    return aiohttp.ClientSession(connector=connector)
+    timeout = aiohttp.ClientTimeout(
+        total=timeout_total,
+        connect=timeout_connect,
+        sock_read=timeout_sock_read,
+        sock_connect=timeout_sock_connect,
+    )
+
+    return aiohttp.ClientSession(connector=connector, timeout=timeout)
 
 
 __all__ = [

@@ -132,6 +132,12 @@ downloads_batch_size = Gauge(
     ["worker"],
 )
 
+downloads_timeout_total = Counter(
+    "kafka_downloads_timeout_total",
+    "Total number of download timeouts",
+    ["worker", "timeout_type"],  # timeout_type: connection, total, socket_read
+)
+
 uploads_concurrent = Gauge(
     "kafka_uploads_concurrent",
     "Number of uploads currently in progress",
@@ -541,6 +547,17 @@ def update_uploads_concurrent(worker: str, count: int) -> None:
     uploads_concurrent.labels(worker=worker).set(count)
 
 
+def record_download_timeout(worker: str, timeout_type: str) -> None:
+    """
+    Record a download timeout event.
+
+    Args:
+        worker: Worker identifier (e.g., "download_worker")
+        timeout_type: Type of timeout (connection, total, socket_read)
+    """
+    downloads_timeout_total.labels(worker=worker, timeout_type=timeout_type).inc()
+
+
 __all__ = [
     # Metrics
     "messages_produced_total",
@@ -559,6 +576,7 @@ __all__ = [
     "consumer_assigned_partitions",
     "downloads_concurrent",
     "downloads_batch_size",
+    "downloads_timeout_total",
     "delta_writes_total",
     "delta_events_written_total",
     "delta_write_duration_seconds",
@@ -594,6 +612,7 @@ __all__ = [
     "update_assigned_partitions",
     "update_downloads_concurrent",
     "update_downloads_batch_size",
+    "record_download_timeout",
     "record_delta_write",
     # OneLake helper functions
     "record_onelake_operation",
