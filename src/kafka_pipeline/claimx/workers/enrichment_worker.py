@@ -97,7 +97,7 @@ class ClaimXEnrichmentWorker:
     def __init__(
         self,
         config: KafkaConfig,
-        entity_writer: Any = None, # Deprecated, kept for signature compat if needed, or remove
+        entity_writer: Any = None,
         domain: str = "claimx",
         enable_delta_writes: bool = True,
         enrichment_topic: str = "",
@@ -411,17 +411,8 @@ class ClaimXEnrichmentWorker:
                 circuit_open=self.api_client.is_circuit_open,
             )
             
-            # Start consumption loop
+            # Start consumption loop (await blocks until stopped for compatibility with BaseKafkaConsumer)
             self._consume_task = asyncio.create_task(self._consume_loop())
-            
-            # Wait for consume loop if we want to block (but usually start() is async and returns)
-            # Typically workers run until stopped.
-            # If the caller expects start() to block until stop(), we should await logic here.
-            # But the original start() blocked because BaseKafkaConsumer.start() blocked.
-            # We should probably await the consume task to mimic that behavior if existing code expects it.
-            # However, usually start() spawns tasks. Let's check how it's called.
-            # BaseKafkaConsumer.start() does `await self._consume_loop()`.
-            # So I should await here too to be compatible.
             await self._consume_task
             
         except asyncio.CancelledError:
@@ -441,11 +432,8 @@ class ClaimXEnrichmentWorker:
         logger.info("Stopping ClaimXEnrichmentWorker")
         self._running = False
 
-        # Wait for consume loop to finish
+        # Wait for consume loop to finish (loop checks _running flag)
         if self._consume_task and not self._consume_task.done():
-            # If we are blocking in start(), cancelling will raise there.
-            # But we want graceful shutdown. The loop checks _running.
-            # If the loop is stuck in getmany(), we might need to wait or rely on timeout.
             pass
 
         # Cancel cycle output task
@@ -1016,109 +1004,9 @@ class ClaimXEnrichmentWorker:
             # Query existing projects from Delta table
             # NOTE: In decoupled mode, we might not have direct access to the writer/table path easily
             # We can skip this check or need to pass table path explicitly to worker config
-            # For now, disabling pre-flight check in decoupled writer mode as we don't hold the writer
+            # Pre-flight check disabled in decoupled writer mode (entity_writer no longer exists)
+            # Legacy pre-flight logic removed - project existence is now handled by downstream delta writer
             return
-            
-            # Legacy code removed:
-            # projects_writer = self.entity_writer._writers.get("projects")
-            if not projects_writer:
-                logger.warning("No projects writer available, skipping pre-flight check")
-                return
-
-            table_path = projects_writer.table_path
-
-            # Check if table exists
-            try:
-                dt = DeltaTable(table_path)
-                df = dt.to_pyarrow_dataset().to_table().to_pandas()
-                existing_project_ids = set(df["project_id"].astype(str).unique())
-            except Exception as e:
-                # Table might not exist yet - that's OK
-                logger.debug(
-                    "Projects table not yet initialized",
-                    extra={"table_path": table_path, "error": str(e)[:100]},
-                )
-                existing_project_ids = set()
-
-            # Find missing projects
-            missing_project_ids = [
-                pid for pid in unique_project_ids if pid not in existing_project_ids
-            ]
-
-            if not missing_project_ids:
-                logger.debug("Pre-flight: All projects exist in Delta table")
-                return
-
-            logger.info(
-                "Pre-flight: Fetching missing projects from API",
-                extra={
-                    "missing_count": len(missing_project_ids),
-                    "missing_ids": missing_project_ids[:10],  # Sample
-                },
-            )
-
-            # Fetch missing projects from API
-            from kafka_pipeline.claimx.handlers.transformers import ProjectTransformer
-
-            project_rows = []
-            api_errors = 0
-
-            for project_id in missing_project_ids:
-                try:
-                    response = await self.api_client.get_project(int(project_id))
-
-                    # Transform to project row
-                    project_row = ProjectTransformer.to_project_row(
-                        response,
-                        event_id="pre-flight-check",
-                    )
-
-                    if project_row.get("project_id") is not None:
-                        project_rows.append(project_row)
-
-                except ClaimXApiError as e:
-                    api_errors += 1
-                    logger.warning(
-                        "Pre-flight: Failed to fetch project",
-                        extra={
-                            "project_id": project_id,
-                            "error": str(e)[:100],
-                            "status_code": e.status_code,
-                        },
-                    )
-                    # Continue with other projects
-                except Exception as e:
-                    api_errors += 1
-                    logger.warning(
-                        "Pre-flight: Unexpected error fetching project",
-                        extra={
-                            "project_id": project_id,
-                            "error": str(e)[:100],
-                        },
-                    )
-                    # Continue with other projects
-
-            # Write fetched projects to Delta
-            if project_rows:
-                from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
-
-                entity_rows = EntityRowsMessage(projects=project_rows)
-                # In decoupled mode, we must produce these rows to Kafka too
-                await self._produce_entity_rows(entity_rows, tasks=[]) 
-
-                logger.info(
-                    "Pre-flight: Wrote missing projects to Delta",
-                    extra={
-                        "projects_written": counts.get("projects", 0),
-                        "api_errors": api_errors,
-                    },
-                )
-
-            elif api_errors > 0:
-                logger.warning(
-                    "Pre-flight: Could not fetch any missing projects",
-                    extra={"api_errors": api_errors},
-                )
 
         except Exception as e:
             # Pre-flight errors are non-fatal
