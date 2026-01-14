@@ -1127,17 +1127,6 @@ def main():
     # Explicitly specify path to ensure .env is found regardless of working directory
     load_dotenv(PROJECT_ROOT / ".env")
 
-    # Debug: Log auth-related env vars to help diagnose token file issues
-    _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
-    _debug_token_exists = Path(_debug_token_file).exists() if _debug_token_file else False
-    print(f"DEBUG [auth]: PROJECT_ROOT={PROJECT_ROOT}")
-    print(f"DEBUG [auth]: AZURE_TOKEN_FILE={_debug_token_file}")
-    print(f"DEBUG [auth]: Token file exists={_debug_token_exists}")
-    if _debug_token_file and not _debug_token_exists:
-        # Try resolving relative to PROJECT_ROOT
-        _resolved = PROJECT_ROOT / _debug_token_file
-        print(f"DEBUG [auth]: Resolved path={_resolved}, exists={_resolved.exists()}")
-
     global logger
     args = parse_args()
 
@@ -1189,6 +1178,25 @@ def main():
 
     # Re-get logger after setup to use new handlers
     logger = get_logger(__name__)
+
+    # Log auth-related env vars to help diagnose token file issues (metadata only)
+    _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
+    if _debug_token_file:
+        _debug_token_exists = Path(_debug_token_file).exists()
+        logger.debug(
+            "Auth configuration detected",
+            project_root=str(PROJECT_ROOT),
+            token_file=_debug_token_file,
+            token_file_exists=_debug_token_exists,
+        )
+        if not _debug_token_exists:
+            # Try resolving relative to PROJECT_ROOT
+            _resolved = PROJECT_ROOT / _debug_token_file
+            logger.debug(
+                "Attempting to resolve token file path relative to project root",
+                resolved_path=str(_resolved),
+                resolved_exists=_resolved.exists(),
+            )
 
     # Start Prometheus metrics server
     logger.info(f"Starting metrics server on port {args.metrics_port}")

@@ -132,12 +132,6 @@ downloads_batch_size = Gauge(
     ["worker"],
 )
 
-downloads_timeout_total = Counter(
-    "kafka_downloads_timeout_total",
-    "Total number of download timeouts",
-    ["worker", "timeout_type"],  # timeout_type: connection, total, socket_read
-)
-
 uploads_concurrent = Gauge(
     "kafka_uploads_concurrent",
     "Number of uploads currently in progress",
@@ -270,6 +264,20 @@ retry_delay_seconds = Histogram(
     buckets=(60, 120, 300, 600, 1200, 2400, 3600),  # 1m to 1h
 )
 
+# DLQ routing metrics by error category (WP-211)
+messages_dlq_permanent = Counter(
+    "kafka_messages_dlq_permanent_total",
+    "Total messages sent to DLQ due to permanent errors",
+    ["topic", "consumer_group"],
+)
+
+messages_dlq_transient = Counter(
+    "kafka_messages_dlq_transient_total",
+    "Total messages sent to DLQ due to transient errors (retry exhausted)",
+    ["topic", "consumer_group"],
+)
+
+
 
 def record_event_ingested(domain: str, status: str = "success") -> None:
     """
@@ -356,6 +364,29 @@ def record_dlq_message(domain: str, reason: str) -> None:
         reason: Reason for DLQ (exhausted, permanent, error)
     """
     dlq_messages_total.labels(domain=domain, reason=reason).inc()
+
+
+def record_dlq_permanent(topic: str, consumer_group: str) -> None:
+    """
+    Record a message sent to DLQ due to permanent error.
+
+    Args:
+        topic: Kafka topic name
+        consumer_group: Consumer group ID
+    """
+    messages_dlq_permanent.labels(topic=topic, consumer_group=consumer_group).inc()
+
+
+def record_dlq_transient(topic: str, consumer_group: str) -> None:
+    """
+    Record a message sent to DLQ due to transient error (retry exhausted).
+
+    Args:
+        topic: Kafka topic name
+        consumer_group: Consumer group ID
+    """
+    messages_dlq_transient.labels(topic=topic, consumer_group=consumer_group).inc()
+
 
 
 def record_message_produced(topic: str, message_bytes: int, success: bool = True) -> None:
@@ -547,17 +578,6 @@ def update_uploads_concurrent(worker: str, count: int) -> None:
     uploads_concurrent.labels(worker=worker).set(count)
 
 
-def record_download_timeout(worker: str, timeout_type: str) -> None:
-    """
-    Record a download timeout event.
-
-    Args:
-        worker: Worker identifier (e.g., "download_worker")
-        timeout_type: Type of timeout (connection, total, socket_read)
-    """
-    downloads_timeout_total.labels(worker=worker, timeout_type=timeout_type).inc()
-
-
 __all__ = [
     # Metrics
     "messages_produced_total",
@@ -576,7 +596,6 @@ __all__ = [
     "consumer_assigned_partitions",
     "downloads_concurrent",
     "downloads_batch_size",
-    "downloads_timeout_total",
     "delta_writes_total",
     "delta_events_written_total",
     "delta_write_duration_seconds",
@@ -599,6 +618,21 @@ __all__ = [
     "record_retry_attempt",
     "record_retry_exhausted",
     "record_dlq_message",
+    # DLQ routing metrics (WP-211)
+    "messages_dlq_permanent",
+    "messages_dlq_transient",
+    "record_dlq_permanent",
+    "record_dlq_transient",
+    "record_dlq_permanent",
+    "record_dlq_transient",
+    # Consumer shutdown metrics (WP-39)
+    "consumer_shutdown_duration_seconds",
+    "consumer_shutdown_timeout_total",
+    "consumer_shutdown_error_total",
+    "record_consumer_shutdown",
+    "record_consumer_shutdown_error",
+    "messages_dlq_permanent",
+    "messages_dlq_transient",
     # Helper functions
     "record_message_produced",
     "record_message_consumed",
@@ -612,7 +646,6 @@ __all__ = [
     "update_assigned_partitions",
     "update_downloads_concurrent",
     "update_downloads_batch_size",
-    "record_download_timeout",
     "record_delta_write",
     # OneLake helper functions
     "record_onelake_operation",
@@ -624,3 +657,56 @@ __all__ = [
     "update_uploads_concurrent",
     "uploads_concurrent",
 ]
+
+# =============================================================================
+# Consumer Shutdown Metrics (WP-39)
+# =============================================================================
+consumer_shutdown_duration_seconds = Histogram(
+    "kafka_consumer_shutdown_duration_seconds",
+    "Time taken to shutdown Kafka consumer",
+    ["consumer_group", "status"],  # status: success/timeout/error
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0),
+)
+
+consumer_shutdown_timeout_total = Counter(
+    "kafka_consumer_shutdown_timeout_total",
+    "Total number of consumer shutdown timeouts",
+    ["consumer_group"],
+)
+
+consumer_shutdown_error_total = Counter(
+    "kafka_consumer_shutdown_error_total",
+    "Total number of consumer shutdown errors",
+    ["consumer_group", "error_type"],  # error_type: timeout/force_close/unknown
+)
+
+
+def record_consumer_shutdown(
+    consumer_group: str, duration: float, status: str = "success"
+) -> None:
+    """
+    Record a consumer shutdown event.
+
+    Args:
+        consumer_group: Consumer group ID
+        duration: Shutdown duration in seconds
+        status: Shutdown status (success, timeout, error)
+    """
+    consumer_shutdown_duration_seconds.labels(
+        consumer_group=consumer_group, status=status
+    ).observe(duration)
+    if status == "timeout":
+        consumer_shutdown_timeout_total.labels(consumer_group=consumer_group).inc()
+
+
+def record_consumer_shutdown_error(consumer_group: str, error_type: str) -> None:
+    """
+    Record a consumer shutdown error.
+
+    Args:
+        consumer_group: Consumer group ID
+        error_type: Type of error (timeout, force_close, unknown)
+    """
+    consumer_shutdown_error_total.labels(
+        consumer_group=consumer_group, error_type=error_type
+    ).inc()

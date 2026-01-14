@@ -275,11 +275,14 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         except Exception as e:
             self._records_failed += merged_rows.row_count()
 
+            # Classify error using DeltaRetryHandler for proper DLQ routing
+            error_category = self.retry_handler.classify_delta_error(e) if self.retry_handler else ErrorCategory.UNKNOWN
+
             # Use standardized error logging
             log_worker_error(
                 logger,
                 "Failed to write entity batch to Delta",
-                error_category="transient",
+                error_category=error_category.value,
                 exc=e,
                 messages_in_batch=batch_size,
                 entity_row_count=merged_rows.row_count(),
@@ -307,15 +310,28 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                             batch=events,
                             error=e,
                             retry_count=0,
-                            error_category="transient",
+                            error_category=error_category,
                         )
-                        logger.info(
-                            "Entity batch sent to retry topic",
-                            extra={
-                                "event_count": len(events),
-                                "event_id": merged_rows.event_id,
-                            },
-                        )
+
+                        # Log appropriate message based on error category
+                        if error_category == ErrorCategory.PERMANENT:
+                            logger.warning(
+                                "Entity batch sent to DLQ (permanent error)",
+                                extra={
+                                    "event_count": len(events),
+                                    "event_id": merged_rows.event_id,
+                                    "error_category": error_category.value,
+                                },
+                            )
+                        else:
+                            logger.info(
+                                "Entity batch sent to retry topic",
+                                extra={
+                                    "event_count": len(events),
+                                    "event_id": merged_rows.event_id,
+                                    "error_category": error_category.value,
+                                },
+                            )
                     except Exception as retry_error:
                         logger.error(
                             "Failed to send entity batch to retry topic - DATA LOSS",
