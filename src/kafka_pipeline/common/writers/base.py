@@ -53,8 +53,10 @@ def get_inmemory_registry():
 
     Useful for debugging/querying in-memory tables:
         from kafka_pipeline.common.writers.base import get_inmemory_registry
+        import logging
+        logger = logging.getLogger(__name__)
         registry = get_inmemory_registry()
-        print(registry.get_stats())
+        logger.debug("Registry stats", stats=registry.get_stats())
         events = registry.get_table("xact_events").read()
     """
     return _get_inmemory_registry()

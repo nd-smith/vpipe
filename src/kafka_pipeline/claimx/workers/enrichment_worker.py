@@ -534,11 +534,15 @@ class ClaimXEnrichmentWorker:
     async def _consume_loop(self) -> None:
         """
         Main consumption loop.
-        
+
         Fetches messages in batches and processes them.
+
+        CRITICAL (Issue #38): Commits offsets only after verifying all background tasks
+        (entity row production) complete successfully. This prevents data loss from
+        race conditions where offsets are committed before writes finish.
         """
         logger.info("Started consumption loop")
-        
+
         try:
             while self._running:
                 # Poll for messages
@@ -547,22 +551,36 @@ class ClaimXEnrichmentWorker:
                     timeout_ms=1000,
                     max_records=self.max_poll_records
                 )
-                
+
                 if not msg_dict:
                     continue
-                    
+
                 count = sum(len(msgs) for msgs in msg_dict.values())
                 start_time = time.monotonic()
-                
+
                 for partition, messages in msg_dict.items():
                     for msg in messages:
                         await self._handle_enrichment_task(msg)
-                        
-                # Commit offsets after processing all messages
-                # Each task is processed immediately (no batching at enricher level).
-                # Entity rows are produced to Kafka where the delta writer batches them.
+
+                # CRITICAL (Issue #38): Wait for all background tasks created during processing
+                # to complete before committing offsets. This ensures entity rows are produced
+                # to Kafka before we advance the consumer offset.
+                if self._pending_tasks:
+                    pending_count = len(self._pending_tasks)
+                    logger.debug(
+                        "Waiting for background tasks before offset commit",
+                        extra={
+                            "pending_count": pending_count,
+                            "batch_size": count,
+                        },
+                    )
+                    # Wait for all pending tasks with timeout
+                    await self._wait_for_pending_tasks(timeout_seconds=30)
+
+                # Commit offsets after all background tasks complete
+                # If background tasks failed, they were routed to retry/DLQ
                 await self.consumer.commit()
-                
+
                 # Update metrics
                 update_assigned_partitions(self.consumer_group, len(self.consumer.assignment()))
 

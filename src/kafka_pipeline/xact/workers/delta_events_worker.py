@@ -435,6 +435,13 @@ class DeltaEventsWorker:
             return success
 
         except Exception as e:
+            # Classify error using DeltaRetryHandler for proper DLQ routing
+            error_category = self.retry_handler.classify_delta_error(e)
+
+            # Store error info for _flush_batch to use
+            self._last_write_error = e
+            self._last_error_category = error_category
+
             trace_ids = []
             event_ids = []
             for evt in batch[:10]:
@@ -442,12 +449,15 @@ class DeltaEventsWorker:
                     trace_ids.append(evt.get("traceId") or evt.get("trace_id"))
                 if evt.get("eventId") or evt.get("event_id"):
                     event_ids.append(evt.get("eventId") or evt.get("event_id"))
+
             logger.error(
-                "Unexpected error writing batch to Delta",
+                "Delta write error - classified for routing",
                 extra={
                     "batch_id": batch_id,
                     "batch_size": batch_size,
-                    "error": str(e),
+                    "error_category": error_category.value,
+                    "error_type": type(e).__name__,
+                    "error": str(e)[:200],
                     "trace_ids": trace_ids,
                     "event_ids": event_ids,
                 },
