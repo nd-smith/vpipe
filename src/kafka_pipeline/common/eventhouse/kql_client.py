@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 from azure.core.credentials import AccessToken
-from azure.identity import DefaultAzureCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.data.exceptions import KustoServiceError
 from core.errors.classifiers import StorageErrorClassifier
@@ -344,8 +344,10 @@ class KQLClient:
     async def connect(self) -> None:
         """Establish connection to Eventhouse.
 
-        Uses token file authentication if AZURE_TOKEN_FILE is set,
-        otherwise falls back to DefaultAzureCredential.
+        Authentication priority:
+        1. Token file (if AZURE_TOKEN_FILE is set)
+        2. SPN credentials (if AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID are set)
+        3. DefaultAzureCredential (managed identity, CLI, etc.)
         """
         async with self._lock:
             if self._client is not None:
@@ -364,6 +366,25 @@ class KQLClient:
                 token_file = os.getenv("AZURE_TOKEN_FILE")
                 auth_mode = "default"
 
+                # Helper to get SPN or default credential
+                def get_spn_or_default_credential():
+                    client_id = os.getenv("AZURE_CLIENT_ID")
+                    client_secret = os.getenv("AZURE_CLIENT_SECRET")
+                    tenant_id = os.getenv("AZURE_TENANT_ID")
+
+                    if client_id and client_secret and tenant_id:
+                        logger.info(
+                            "Using SPN credentials for Eventhouse authentication",
+                            extra={"client_id": client_id[:8] + "..."},
+                        )
+                        return ClientSecretCredential(
+                            tenant_id=tenant_id,
+                            client_id=client_id,
+                            client_secret=client_secret,
+                        ), "spn"
+                    else:
+                        return DefaultAzureCredential(), "default"
+
                 if token_file:
                     token_path = Path(token_file)
                     if token_path.exists():
@@ -379,19 +400,18 @@ class KQLClient:
                             )
                         except Exception as e:
                             logger.warning(
-                                "Token file auth failed, falling back to DefaultAzureCredential",
+                                "Token file auth failed, trying SPN/default",
                                 extra={"error": str(e)[:200]},
                             )
-                            self._credential = DefaultAzureCredential()
+                            self._credential, auth_mode = get_spn_or_default_credential()
                     else:
                         logger.warning(
-                            "AZURE_TOKEN_FILE set but file not found, using DefaultAzureCredential",
+                            "AZURE_TOKEN_FILE set but file not found, trying SPN/default",
                             extra={"token_file": token_file},
                         )
-                        self._credential = DefaultAzureCredential()
+                        self._credential, auth_mode = get_spn_or_default_credential()
                 else:
-                    # Use DefaultAzureCredential for authentication
-                    self._credential = DefaultAzureCredential()
+                    self._credential, auth_mode = get_spn_or_default_credential()
 
                 # Build connection string with token credential
                 kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
