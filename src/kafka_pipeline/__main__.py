@@ -1165,6 +1165,25 @@ def main():
     # Explicitly specify path to ensure .env is found regardless of working directory
     load_dotenv(PROJECT_ROOT / ".env")
 
+    # Debug: Log auth-related env vars to help diagnose token file issues
+    _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
+    _debug_token_exists = Path(_debug_token_file).exists() if _debug_token_file else False
+    print(f"DEBUG [auth]: PROJECT_ROOT={PROJECT_ROOT}")
+    print(f"DEBUG [auth]: AZURE_TOKEN_FILE={_debug_token_file}")
+    print(f"DEBUG [auth]: Token file exists={_debug_token_exists}")
+    if _debug_token_file and not _debug_token_exists:
+        # Try resolving relative to PROJECT_ROOT
+        _resolved = PROJECT_ROOT / _debug_token_file
+        print(f"DEBUG [auth]: Resolved path={_resolved}, exists={_resolved.exists()}")
+
+    # Debug: Log SPN credentials
+    _debug_client_id = os.getenv("AZURE_CLIENT_ID")
+    _debug_tenant_id = os.getenv("AZURE_TENANT_ID")
+    _debug_client_secret = os.getenv("AZURE_CLIENT_SECRET")
+    print(f"DEBUG [auth]: AZURE_CLIENT_ID={_debug_client_id[:8] + '...' if _debug_client_id else None}")
+    print(f"DEBUG [auth]: AZURE_TENANT_ID={_debug_tenant_id[:8] + '...' if _debug_tenant_id else None}")
+    print(f"DEBUG [auth]: AZURE_CLIENT_SECRET={'set' if _debug_client_secret else None}")
+
     global logger
     args = parse_args()
 
