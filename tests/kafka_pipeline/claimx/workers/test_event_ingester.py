@@ -196,8 +196,9 @@ class TestClaimXEventIngesterWorker:
             first_call = mock_producer.send.call_args
             first_event_id = first_call.kwargs["value"].event_id
 
-            # Reset mock
+            # Reset mock and clear dedup cache
             mock_producer.reset_mock()
+            worker._dedup_cache.clear()
 
             # Process again
             await worker._handle_event_message(sample_consumer_record)

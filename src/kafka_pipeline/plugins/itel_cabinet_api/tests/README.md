@@ -6,7 +6,7 @@ This directory contains API payload files generated when the worker runs in dev 
 
 Start the API worker in dev mode:
 ```bash
-python -m kafka_pipeline.workers.itel_cabinet_api_worker --dev
+python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
 ```
 
 ## Output Files

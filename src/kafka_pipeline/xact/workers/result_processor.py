@@ -31,7 +31,7 @@ from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import record_delta_write
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.xact.retry.handler import DeltaRetryHandler
+from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
 from kafka_pipeline.xact.writers.delta_inventory import (
     DeltaInventoryWriter,
@@ -114,6 +114,10 @@ class ResultProcessor:
         self.batch_timeout_seconds = batch_timeout_seconds or self.BATCH_TIMEOUT_SECONDS
         self.max_batches = max_batches
 
+        # Domain and worker configuration (must be set before using them)
+        self.domain = "xact"
+        self.worker_name = "result_processor"
+
         # Delta writers
         self._inventory_writer = DeltaInventoryWriter(table_path=inventory_table_path)
         self._failed_writer: Optional[DeltaFailedAttachmentsWriter] = None
@@ -127,6 +131,7 @@ class ResultProcessor:
             table_path=inventory_table_path,
             retry_topic_prefix="result-processor.retry",
             dlq_topic="result-processor.dlq",
+            domain=self.domain,
         )
 
         # Batching state - separate batches for success and failed
@@ -147,10 +152,6 @@ class ResultProcessor:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-
-        # Domain and worker configuration
-        self.domain = "xact"
-        self.worker_name = "result_processor"
 
         # Store topics for logging
         self._results_topic = config.get_topic(self.domain, "downloads_results")

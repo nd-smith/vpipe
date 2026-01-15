@@ -64,7 +64,7 @@ class TaskTriggerPlugin(Plugin):
     # Only ClaimX domain, after enrichment (when we have task data)
     domains = [Domain.CLAIMX]
     stages = [PipelineStage.ENRICHMENT_COMPLETE]
-    event_types = ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"]
+    # event_types set dynamically in __init__ based on trigger config
 
     # Run early so other plugins see the results
     priority = 50
@@ -79,13 +79,72 @@ class TaskTriggerPlugin(Plugin):
         "include_project_data": False,
     }
 
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize plugin with config and compute event_types dynamically.
+
+        Only subscribes to event types that have actions configured:
+        - CUSTOM_TASK_ASSIGNED if any trigger has on_assigned
+        - CUSTOM_TASK_COMPLETED if any trigger has on_completed
+        - Both if any trigger has on_any
+        """
+        super().__init__(config)
+
+        # Determine which event types we actually need based on trigger config
+        triggers = self.config.get("triggers", {})
+        needs_assigned = False
+        needs_completed = False
+
+        # Build set of configured task_ids for fast lookup in should_run
+        # Include both int and str versions since task_id type may vary
+        self._configured_task_ids: set = set()
+        for task_id, trigger_config in triggers.items():
+            self._configured_task_ids.add(task_id)
+            self._configured_task_ids.add(str(task_id))
+            if isinstance(task_id, str) and task_id.isdigit():
+                self._configured_task_ids.add(int(task_id))
+
+            if trigger_config.get("on_any"):
+                needs_assigned = True
+                needs_completed = True
+            if trigger_config.get("on_assigned"):
+                needs_assigned = True
+            if trigger_config.get("on_completed"):
+                needs_completed = True
+
+        # Build event_types list based on what's configured
+        self.event_types: List[str] = []
+        if needs_assigned:
+            self.event_types.append("CUSTOM_TASK_ASSIGNED")
+        if needs_completed:
+            self.event_types.append("CUSTOM_TASK_COMPLETED")
+
+    def should_run(self, context: PluginContext) -> bool:
+        """
+        Check if this plugin should run for the given context.
+
+        Filters in order of selectivity (most selective first):
+        1. task_id - eliminates ~99% of events
+        2. domain/stage/event_type - standard plugin filters
+        """
+        # First check task_id (most selective filter)
+        task = context.get_first_task()
+        if not task:
+            return False
+
+        task_id = task.get("task_id")
+        if task_id not in self._configured_task_ids:
+            return False
+
+        # Then apply standard plugin filters (domain, stage, event_type)
+        return super().should_run(context)
+
     async def execute(self, context: PluginContext) -> PluginResult:
         """
         Check if task matches a trigger and execute actions.
 
         Args:
-            context: Plugin context with enriched task data
-
+v
         Returns:
             PluginResult with actions to execute
         """

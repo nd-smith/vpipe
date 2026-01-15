@@ -107,7 +107,7 @@ event = generator.generate_itel_cabinet_event(event_type="CUSTOM_TASK_ASSIGNED")
 
 2. **Start itel Cabinet Worker**:
    ```bash
-   python -m kafka_pipeline.workers.itel_cabinet_tracking_worker
+   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
    ```
 
 3. **Start Dummy Data Producer**:

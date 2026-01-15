@@ -1083,6 +1083,44 @@ async def run_all_workers(
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def start_metrics_server(preferred_port: int) -> int:
+    """Start Prometheus metrics server with automatic port fallback.
+
+    Tries the preferred port first. If it's already in use, automatically
+    finds an available port by letting the OS assign one.
+
+    Args:
+        preferred_port: Desired port number (e.g., 8000)
+
+    Returns:
+        Actual port number that the server is listening on
+
+    Raises:
+        OSError: If unable to start server on any port
+    """
+    import socket
+
+    try:
+        # Try preferred port first
+        start_http_server(preferred_port)
+        return preferred_port
+    except OSError as e:
+        if e.errno == 98:  # Address already in use
+            logger.info(f"Port {preferred_port} already in use, finding available port...")
+
+            # Find an available port by creating a temporary socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', 0))  # Bind to any available port
+                s.listen(1)
+                available_port = s.getsockname()[1]
+
+            # Now start the metrics server on the available port
+            start_http_server(available_port)
+            return available_port
+        else:
+            raise
+
+
 def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     """Set up signal handlers for graceful shutdown.
 
@@ -1198,9 +1236,35 @@ def main():
     # Re-get logger after setup to use new handlers
     logger = get_logger(__name__)
 
-    # Start Prometheus metrics server
-    logger.info(f"Starting metrics server on port {args.metrics_port}")
-    start_http_server(args.metrics_port)
+    # Log auth-related env vars to help diagnose token file issues (metadata only)
+    _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
+    if _debug_token_file:
+        _debug_token_exists = Path(_debug_token_file).exists()
+        logger.debug(
+            "Auth configuration detected",
+            extra={
+                "project_root": str(PROJECT_ROOT),
+                "token_file": _debug_token_file,
+                "token_file_exists": _debug_token_exists,
+            }
+        )
+        if not _debug_token_exists:
+            # Try resolving relative to PROJECT_ROOT
+            _resolved = PROJECT_ROOT / _debug_token_file
+            logger.debug(
+                "Attempting to resolve token file path relative to project root",
+                extra={
+                    "resolved_path": str(_resolved),
+                    "resolved_exists": _resolved.exists(),
+                }
+            )
+
+    # Start Prometheus metrics server with automatic port fallback
+    actual_port = start_metrics_server(args.metrics_port)
+    if actual_port != args.metrics_port:
+        logger.info(f"Metrics server started on port {actual_port} (fallback from {args.metrics_port})")
+    else:
+        logger.info(f"Metrics server started on port {actual_port}")
 
     # Load configuration
     # Dev mode bypasses Event Hub/Eventhouse requirements for local testing.

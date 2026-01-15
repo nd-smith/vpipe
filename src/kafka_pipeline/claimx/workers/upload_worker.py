@@ -27,6 +27,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.claimx.monitoring import HealthCheckServer
@@ -202,7 +203,7 @@ class ClaimXUploadWorker:
         # Start producer
         await self.producer.start()
 
-        # Initialize OneLake client for claimx domain
+        # Initialize OneLake client for claimx domain with proper error handling
         onelake_path = self.config.onelake_domain_paths.get(self.domain)
         if not onelake_path:
             # Fall back to base path
@@ -216,18 +217,46 @@ class ClaimXUploadWorker:
                 extra={"onelake_base_path": onelake_path},
             )
 
-        self.onelake_client = OneLakeClient(onelake_path)
-        await self.onelake_client.__aenter__()
-        logger.info(
-            "Initialized OneLake client for claimx domain",
-            extra={
-                "domain": self.domain,
-                "onelake_path": onelake_path,
-            },
-        )
+        # Use proper error handling with cleanup on failure
+        try:
+            self.onelake_client = OneLakeClient(onelake_path)
+            await self.onelake_client.__aenter__()
+            logger.info(
+                "Initialized OneLake client for claimx domain",
+                extra={
+                    "domain": self.domain,
+                    "onelake_path": onelake_path,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize OneLake client: {e}",
+                exc_info=True,
+            )
+            # Clean up producer and health server since we're failing after they started
+            await self.producer.stop()
+            await self.health_server.stop()
+            raise
 
-        # Create Kafka consumer
-        await self._create_consumer()
+        # Create Kafka consumer with cleanup on failure
+        try:
+            await self._create_consumer()
+        except Exception as e:
+            logger.error(
+                f"Failed to create Kafka consumer: {e}",
+                exc_info=True,
+            )
+            # Clean up OneLake client, producer, and health server on consumer creation failure
+            if self.onelake_client is not None:
+                try:
+                    await self.onelake_client.close()
+                except Exception as cleanup_error:
+                    logger.warning(f"Error cleaning up OneLake client: {cleanup_error}")
+                finally:
+                    self.onelake_client = None
+            await self.producer.stop()
+            await self.health_server.stop()
+            raise
 
         self._running = True
 
@@ -464,7 +493,12 @@ class ClaimXUploadWorker:
                 await asyncio.sleep(1)  # Brief pause before retry  # Brief pause before retry
 
     async def _process_batch(self, messages: List[ConsumerRecord]) -> None:
-        """Process a batch of messages concurrently."""
+        """
+        Process a batch of messages concurrently.
+
+        CRITICAL (Issue #38): Verifies all uploads succeeded before committing offsets.
+        Failed uploads are tracked and offsets are not committed for those messages.
+        """
         assert self._consumer is not None
         assert self._semaphore is not None
 
@@ -480,17 +514,49 @@ class ClaimXUploadWorker:
 
         results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Handle any exceptions
+        # CRITICAL (Issue #38): Verify all uploads succeeded before committing offsets
+        failed_count = 0
+        success_count = 0
+        exception_count = 0
+
         for result in results:
             if isinstance(result, Exception):
                 logger.error(f"Unexpected error in upload: {result}", exc_info=True)
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
+                exception_count += 1
+            elif isinstance(result, UploadResult):
+                if result.success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+            else:
+                logger.warning(f"Unexpected result type: {type(result)}")
+                exception_count += 1
 
-        # Commit offsets after batch
-        try:
-            await self._consumer.commit()
-        except Exception as e:
-            logger.error(f"Failed to commit offsets: {e}", exc_info=True)
+        # Only commit offsets if ALL uploads in batch succeeded
+        # This ensures at-least-once semantics: failed uploads will be retried
+        if failed_count == 0 and exception_count == 0:
+            try:
+                await self._consumer.commit()
+                logger.debug(
+                    "Committed offsets after successful batch",
+                    extra={
+                        "batch_size": len(messages),
+                        "success_count": success_count,
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to commit offsets: {e}", exc_info=True)
+        else:
+            logger.warning(
+                "Skipping offset commit due to upload failures in batch",
+                extra={
+                    "batch_size": len(messages),
+                    "success_count": success_count,
+                    "failed_count": failed_count,
+                    "exception_count": exception_count,
+                },
+            )
 
     async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
         """Process single message with semaphore for concurrency control."""
@@ -539,7 +605,7 @@ class ClaimXUploadWorker:
             # Calculate processing time
             processing_time_ms = int((time.time() - start_time) * 1000)
 
-            logger.info(
+            logger.debug(
                 "Uploaded file to OneLake",
                 extra={
                     "correlation_id": cached_message.source_event_id,
@@ -591,21 +657,23 @@ class ClaimXUploadWorker:
             processing_time_ms = int((time.time() - start_time) * 1000)
 
             # Build error log extra fields
-            error_extra = {
-                "media_id": media_id,
-                "processing_time_ms": processing_time_ms,
-                "error_category": "permanent",  # Upload failures are typically permanent
-            }
-
-            # Add correlation_id and project_id if cached_message was parsed
+            # Extract event_id and project_id if cached_message was parsed
+            event_id = None
+            project_id = None
             if 'cached_message' in locals() and cached_message is not None:
-                error_extra["correlation_id"] = cached_message.source_event_id
-                error_extra["project_id"] = cached_message.project_id
+                event_id = cached_message.source_event_id
+                project_id = cached_message.project_id
 
-            logger.error(
-                f"Upload failed: {e}",
-                extra=error_extra,
-                exc_info=True,
+            # Use standardized error logging
+            log_worker_error(
+                logger,
+                "Upload failed",
+                event_id=event_id,
+                error_category="permanent",  # Upload failures are typically permanent
+                exc=e,
+                media_id=media_id,
+                project_id=project_id,
+                processing_time_ms=processing_time_ms,
             )
             consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
             record_processing_error(self.topic, consumer_group, "upload_error")
@@ -658,11 +726,8 @@ class ClaimXUploadWorker:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0), pending=0 "
-            "[cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -678,10 +743,16 @@ class ClaimXUploadWorker:
                     async with self._in_flight_lock:
                          in_flight = len(self._in_flight_tasks)
 
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                        in_flight=in_flight,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}), in_flight={in_flight}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,

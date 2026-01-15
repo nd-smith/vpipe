@@ -102,7 +102,7 @@ attachments_schema = StructType([
     StructField("question_key", StringType(), False),
     StructField("question_text", StringType(), False),
     StructField("media_id", LongType(), False),  # ClaimX media ID
-    StructField("blob_path", StringType(), True),
+    StructField("url", StringType(), True),  # Download URL from ClaimX
     StructField("display_order", IntegerType(), False),
     StructField("created_at", TimestampType(), True),
     StructField("event_id", StringType(), True),  # Kafka event ID for traceability

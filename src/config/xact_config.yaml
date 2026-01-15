@@ -187,14 +187,16 @@ kafka:
 
       processing:
         # Number of events per Delta batch write
-        batch_size: 4000
+        # Optimized for 2-3 concurrent workers (original 4000 / ~2.5)
+        batch_size: 1500
 
         # Optional limit for testing (null = unlimited)
         max_batches: null
 
         # Flush pending events after this many seconds without a write (seconds)
         # Ensures events are written even during low-traffic periods
-        flush_timeout_seconds: 60  # 2 minutes
+        # Critical for running multiple workers - keeps batches small and frequent
+        batch_timeout_seconds: 10
 
         # Retry delays for failed Delta writes (seconds)
         retry_delays: [300, 600]  # 5m, 10m

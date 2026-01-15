@@ -230,7 +230,7 @@ class TestClaimXDownloadWorker:
                 worker.producer.send.assert_called()
                 send_call = worker.producer.send.call_args
                 assert send_call.kwargs["topic"] == "test.claimx.downloads.cached"
-                assert send_call.kwargs["key"] == "media-111"
+                assert send_call.kwargs["key"] == "evt-12345"
 
                 cached_message = send_call.kwargs["value"]
                 assert isinstance(cached_message, ClaimXCachedDownloadMessage)

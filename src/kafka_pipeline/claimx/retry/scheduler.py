@@ -15,7 +15,7 @@ from aiokafka.structs import ConsumerRecord
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.claimx.retry.handler import DeltaRetryHandler
+from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.claimx.schemas.delta_batch import FailedDeltaBatch
 from kafka_pipeline.claimx.writers import ClaimXEventsDeltaWriter
 
@@ -77,6 +77,7 @@ class DeltaBatchRetryScheduler:
             config=config,
             producer=producer,
             table_path=table_path,
+            domain=self.domain,
         )
 
         # Get retry topics to consume

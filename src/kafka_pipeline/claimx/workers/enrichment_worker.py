@@ -28,6 +28,7 @@ from pydantic import ValidationError
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
@@ -96,7 +97,7 @@ class ClaimXEnrichmentWorker:
     def __init__(
         self,
         config: KafkaConfig,
-        entity_writer: Any = None, # Deprecated, kept for signature compat if needed, or remove
+        entity_writer: Any = None,
         domain: str = "claimx",
         enable_delta_writes: bool = True,
         enrichment_topic: str = "",
@@ -410,17 +411,8 @@ class ClaimXEnrichmentWorker:
                 circuit_open=self.api_client.is_circuit_open,
             )
             
-            # Start consumption loop
+            # Start consumption loop (await blocks until stopped for compatibility with BaseKafkaConsumer)
             self._consume_task = asyncio.create_task(self._consume_loop())
-            
-            # Wait for consume loop if we want to block (but usually start() is async and returns)
-            # Typically workers run until stopped.
-            # If the caller expects start() to block until stop(), we should await logic here.
-            # But the original start() blocked because BaseKafkaConsumer.start() blocked.
-            # We should probably await the consume task to mimic that behavior if existing code expects it.
-            # However, usually start() spawns tasks. Let's check how it's called.
-            # BaseKafkaConsumer.start() does `await self._consume_loop()`.
-            # So I should await here too to be compatible.
             await self._consume_task
             
         except asyncio.CancelledError:
@@ -440,11 +432,8 @@ class ClaimXEnrichmentWorker:
         logger.info("Stopping ClaimXEnrichmentWorker")
         self._running = False
 
-        # Wait for consume loop to finish
+        # Wait for consume loop to finish (loop checks _running flag)
         if self._consume_task and not self._consume_task.done():
-            # If we are blocking in start(), cancelling will raise there.
-            # But we want graceful shutdown. The loop checks _running.
-            # If the loop is stuck in getmany(), we might need to wait or rely on timeout.
             pass
 
         # Cancel cycle output task
@@ -545,11 +534,15 @@ class ClaimXEnrichmentWorker:
     async def _consume_loop(self) -> None:
         """
         Main consumption loop.
-        
+
         Fetches messages in batches and processes them.
+
+        CRITICAL (Issue #38): Commits offsets only after verifying all background tasks
+        (entity row production) complete successfully. This prevents data loss from
+        race conditions where offsets are committed before writes finish.
         """
         logger.info("Started consumption loop")
-        
+
         try:
             while self._running:
                 # Poll for messages
@@ -558,22 +551,36 @@ class ClaimXEnrichmentWorker:
                     timeout_ms=1000,
                     max_records=self.max_poll_records
                 )
-                
+
                 if not msg_dict:
                     continue
-                    
+
                 count = sum(len(msgs) for msgs in msg_dict.values())
                 start_time = time.monotonic()
-                
+
                 for partition, messages in msg_dict.items():
                     for msg in messages:
                         await self._handle_enrichment_task(msg)
-                        
-                # Commit offsets after processing all messages
-                # Each task is processed immediately (no batching at enricher level).
-                # Entity rows are produced to Kafka where the delta writer batches them.
+
+                # CRITICAL (Issue #38): Wait for all background tasks created during processing
+                # to complete before committing offsets. This ensures entity rows are produced
+                # to Kafka before we advance the consumer offset.
+                if self._pending_tasks:
+                    pending_count = len(self._pending_tasks)
+                    logger.debug(
+                        "Waiting for background tasks before offset commit",
+                        extra={
+                            "pending_count": pending_count,
+                            "batch_size": count,
+                        },
+                    )
+                    # Wait for all pending tasks with timeout
+                    await self._wait_for_pending_tasks(timeout_seconds=30)
+
+                # Commit offsets after all background tasks complete
+                # If background tasks failed, they were routed to retry/DLQ
                 await self.consumer.commit()
-                
+
                 # Update metrics
                 update_assigned_partitions(self.consumer_group, len(self.consumer.assignment()))
 
@@ -907,30 +914,28 @@ class ClaimXEnrichmentWorker:
             )
 
         except ClaimXApiError as e:
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Handler failed with API error",
-                extra={
-                    "handler": handler_class.__name__,
-                    "event_id": task.event_id,
-                    "error_category": e.category.value,
-                    "error": str(e)[:200],
-                },
-                exc_info=True,
+                event_id=task.event_id,
+                error_category=e.category.value,
+                exc=e,
+                handler=handler_class.__name__,
             )
             await self._handle_enrichment_failure(task, e, e.category)
 
         except Exception as e:
             error_category = ErrorCategory.UNKNOWN
-            logger.error(
+            # Use standardized error logging
+            log_worker_error(
+                logger,
                 "Handler failed with unexpected error",
-                extra={
-                    "handler": handler_class.__name__,
-                    "event_id": task.event_id,
-                    "error_type": type(e).__name__,
-                    "error_category": error_category.value,
-                    "error": str(e)[:200],
-                },
-                exc_info=True,
+                event_id=task.event_id,
+                error_category=error_category.value,
+                exc=e,
+                handler=handler_class.__name__,
+                error_type=type(e).__name__,
             )
             await self._handle_enrichment_failure(task, e, error_category)
 
@@ -938,11 +943,8 @@ class ClaimXEnrichmentWorker:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0) "
-            "[cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -955,10 +957,15 @@ class ClaimXEnrichmentWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}) | project_cache_size={self.project_cache.size()}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,
@@ -1015,109 +1022,9 @@ class ClaimXEnrichmentWorker:
             # Query existing projects from Delta table
             # NOTE: In decoupled mode, we might not have direct access to the writer/table path easily
             # We can skip this check or need to pass table path explicitly to worker config
-            # For now, disabling pre-flight check in decoupled writer mode as we don't hold the writer
+            # Pre-flight check disabled in decoupled writer mode (entity_writer no longer exists)
+            # Legacy pre-flight logic removed - project existence is now handled by downstream delta writer
             return
-            
-            # Legacy code removed:
-            # projects_writer = self.entity_writer._writers.get("projects")
-            if not projects_writer:
-                logger.warning("No projects writer available, skipping pre-flight check")
-                return
-
-            table_path = projects_writer.table_path
-
-            # Check if table exists
-            try:
-                dt = DeltaTable(table_path)
-                df = dt.to_pyarrow_dataset().to_table().to_pandas()
-                existing_project_ids = set(df["project_id"].astype(str).unique())
-            except Exception as e:
-                # Table might not exist yet - that's OK
-                logger.debug(
-                    "Projects table not yet initialized",
-                    extra={"table_path": table_path, "error": str(e)[:100]},
-                )
-                existing_project_ids = set()
-
-            # Find missing projects
-            missing_project_ids = [
-                pid for pid in unique_project_ids if pid not in existing_project_ids
-            ]
-
-            if not missing_project_ids:
-                logger.debug("Pre-flight: All projects exist in Delta table")
-                return
-
-            logger.info(
-                "Pre-flight: Fetching missing projects from API",
-                extra={
-                    "missing_count": len(missing_project_ids),
-                    "missing_ids": missing_project_ids[:10],  # Sample
-                },
-            )
-
-            # Fetch missing projects from API
-            from kafka_pipeline.claimx.handlers.transformers import ProjectTransformer
-
-            project_rows = []
-            api_errors = 0
-
-            for project_id in missing_project_ids:
-                try:
-                    response = await self.api_client.get_project(int(project_id))
-
-                    # Transform to project row
-                    project_row = ProjectTransformer.to_project_row(
-                        response,
-                        event_id="pre-flight-check",
-                    )
-
-                    if project_row.get("project_id") is not None:
-                        project_rows.append(project_row)
-
-                except ClaimXApiError as e:
-                    api_errors += 1
-                    logger.warning(
-                        "Pre-flight: Failed to fetch project",
-                        extra={
-                            "project_id": project_id,
-                            "error": str(e)[:100],
-                            "status_code": e.status_code,
-                        },
-                    )
-                    # Continue with other projects
-                except Exception as e:
-                    api_errors += 1
-                    logger.warning(
-                        "Pre-flight: Unexpected error fetching project",
-                        extra={
-                            "project_id": project_id,
-                            "error": str(e)[:100],
-                        },
-                    )
-                    # Continue with other projects
-
-            # Write fetched projects to Delta
-            if project_rows:
-                from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
-
-                entity_rows = EntityRowsMessage(projects=project_rows)
-                # In decoupled mode, we must produce these rows to Kafka too
-                await self._produce_entity_rows(entity_rows, tasks=[]) 
-
-                logger.info(
-                    "Pre-flight: Wrote missing projects to Delta",
-                    extra={
-                        "projects_written": counts.get("projects", 0),
-                        "api_errors": api_errors,
-                    },
-                )
-
-            elif api_errors > 0:
-                logger.warning(
-                    "Pre-flight: Could not fetch any missing projects",
-                    extra={"api_errors": api_errors},
-                )
 
         except Exception as e:
             # Pre-flight errors are non-fatal
@@ -1363,18 +1270,18 @@ class ClaimXEnrichmentWorker:
         """
         assert self.retry_handler is not None, "Retry handler not initialized"
 
-        logger.warning(
+        # Use standardized error logging
+        log_worker_error(
+            logger,
             "Enrichment task failed",
-            extra={
-                "event_id": task.event_id,
-                "event_type": task.event_type,
-                "project_id": task.project_id,
-                "error_category": error_category.value,
-                "retry_count": task.retry_count,
-                "error": str(error)[:200],
-            },
+            event_id=task.event_id,
+            error_category=error_category.value,
+            exc=error,
+            event_type=task.event_type,
+            project_id=task.project_id,
+            retry_count=task.retry_count,
         )
-        
+
         self._records_failed += 1
 
         # Route through retry handler

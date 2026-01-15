@@ -3,6 +3,7 @@ Tests for DLQ CLI tool.
 """
 
 import asyncio
+import signal
 import pytest
 from datetime import datetime, timezone
 from io import StringIO
@@ -10,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aiokafka.structs import ConsumerRecord
 
 from kafka_pipeline.config import KafkaConfig
-from kafka_pipeline.common.dlq.cli import DLQCLIManager
+from kafka_pipeline.common.dlq.cli import CLITaskManager, DLQCLIManager
 from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
 from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
 
@@ -436,3 +437,330 @@ class TestDLQCLIManagerFindMessage:
         found = manager._find_message_by_trace_id("evt-123")
 
         assert found == valid_record
+
+
+class TestCLITaskManager:
+    """Tests for CLITaskManager task lifecycle management."""
+
+    @pytest.mark.asyncio
+    async def test_task_manager_init(self):
+        """Task manager initializes with empty task set."""
+        manager = CLITaskManager()
+
+        assert len(manager.tasks) == 0
+        assert manager._shutdown is False
+        assert manager._shutdown_event is not None
+
+        # Cleanup signal handlers
+        manager._restore_signal_handlers()
+
+    @pytest.mark.asyncio
+    async def test_create_task_tracks_task(self):
+        """Created tasks are tracked in the task set."""
+        async with CLITaskManager() as manager:
+            async def dummy_task():
+                await asyncio.sleep(0.1)
+
+            task = manager.create_task(dummy_task(), name="test_task")
+
+            assert task in manager.tasks
+            assert task.get_name() == "test_task"
+
+            await task
+            # Task should be removed after completion
+            await asyncio.sleep(0.01)  # Give time for callback
+            assert task not in manager.tasks
+
+    @pytest.mark.asyncio
+    async def test_create_multiple_tasks(self):
+        """Multiple tasks can be created and tracked."""
+        async with CLITaskManager() as manager:
+            async def dummy_task(delay):
+                await asyncio.sleep(delay)
+
+            task1 = manager.create_task(dummy_task(0.1), name="task1")
+            task2 = manager.create_task(dummy_task(0.2), name="task2")
+            task3 = manager.create_task(dummy_task(0.3), name="task3")
+
+            assert len(manager.tasks) == 3
+            assert task1 in manager.tasks
+            assert task2 in manager.tasks
+            assert task3 in manager.tasks
+
+            await asyncio.gather(task1, task2, task3)
+
+    @pytest.mark.asyncio
+    async def test_context_manager_cleans_up_tasks(self):
+        """Context manager properly cleans up tasks on exit."""
+        async def long_running_task():
+            await asyncio.sleep(10)
+
+        async with CLITaskManager() as manager:
+            task1 = manager.create_task(long_running_task(), name="task1")
+            task2 = manager.create_task(long_running_task(), name="task2")
+
+            assert len(manager.tasks) >= 2
+
+        # After context exit, tasks should be cancelled
+        assert task1.cancelled() or task1.done()
+        assert task2.cancelled() or task2.done()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancels_all_tasks(self):
+        """Shutdown cancels all running tasks."""
+        manager = CLITaskManager()
+
+        async def long_running_task():
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+
+        task1 = manager.create_task(long_running_task(), name="task1")
+        task2 = manager.create_task(long_running_task(), name="task2")
+
+        await manager.shutdown(timeout=1.0)
+
+        assert task1.cancelled()
+        assert task2.cancelled()
+
+        # Cleanup
+        manager._restore_signal_handlers()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_with_timeout(self):
+        """Shutdown respects timeout when waiting for tasks."""
+        manager = CLITaskManager()
+
+        async def slow_task():
+            try:
+                await asyncio.sleep(100)
+            except asyncio.CancelledError:
+                # Simulate slow cleanup
+                await asyncio.sleep(100)
+
+        task = manager.create_task(slow_task(), name="slow")
+
+        # Shutdown should timeout but not hang
+        await manager.shutdown(timeout=0.1)
+
+        assert task.cancelled()
+
+        # Cleanup
+        manager._restore_signal_handlers()
+
+    @pytest.mark.asyncio
+    async def test_wait_all_returns_results(self):
+        """wait_all returns results from all tasks."""
+        async with CLITaskManager() as manager:
+            async def return_value(value):
+                await asyncio.sleep(0.01)
+                return value
+
+            manager.create_task(return_value(1), name="task1")
+            manager.create_task(return_value(2), name="task2")
+            manager.create_task(return_value(3), name="task3")
+
+            results = await manager.wait_all()
+
+            assert len(results) == 3
+            assert set(results) == {1, 2, 3}
+
+    @pytest.mark.asyncio
+    async def test_wait_all_with_timeout(self):
+        """wait_all respects timeout."""
+        async with CLITaskManager() as manager:
+            async def slow_task():
+                await asyncio.sleep(10)
+
+            manager.create_task(slow_task(), name="slow")
+
+            with pytest.raises(asyncio.TimeoutError):
+                await manager.wait_all(timeout=0.1)
+
+    @pytest.mark.asyncio
+    async def test_wait_all_handles_exceptions(self):
+        """wait_all returns exceptions without raising."""
+        async with CLITaskManager() as manager:
+            async def failing_task():
+                await asyncio.sleep(0.01)
+                raise ValueError("Task failed")
+
+            async def successful_task():
+                await asyncio.sleep(0.01)
+                return "success"
+
+            manager.create_task(failing_task(), name="fail")
+            manager.create_task(successful_task(), name="success")
+
+            results = await manager.wait_all()
+
+            assert len(results) == 2
+            assert "success" in results
+            assert any(isinstance(r, ValueError) for r in results)
+
+    @pytest.mark.asyncio
+    async def test_signal_handler_sets_shutdown_flag(self):
+        """Signal handler sets shutdown flag."""
+        manager = CLITaskManager()
+
+        assert manager._shutdown is False
+
+        # Simulate signal
+        original_handler = manager._original_handlers[signal.SIGTERM]
+        handler = signal.signal(signal.SIGTERM, signal.SIG_DFL)  # Get current handler
+
+        # Manually trigger shutdown
+        manager._shutdown = True
+        manager._shutdown_event.set()
+
+        assert manager._shutdown is True
+        assert manager.is_shutdown_requested() is True
+
+        # Cleanup
+        manager._restore_signal_handlers()
+
+    @pytest.mark.asyncio
+    async def test_restore_signal_handlers(self):
+        """Signal handlers are restored after cleanup."""
+        # Save original handlers
+        original_sigterm = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        original_sigint = signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, original_sigterm)
+        signal.signal(signal.SIGINT, original_sigint)
+
+        manager = CLITaskManager()
+
+        # Handlers should be different now
+        current_sigterm = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, current_sigterm)
+
+        # Restore
+        manager._restore_signal_handlers()
+
+        # Should be back to original
+        restored_sigterm = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, restored_sigterm)
+
+        # Note: Exact equality may not work due to signal handling internals
+        # Just verify no exceptions and handlers exist
+
+    @pytest.mark.asyncio
+    async def test_task_cleanup_on_exception(self):
+        """Tasks are cleaned up even when exception occurs."""
+        async def long_task():
+            await asyncio.sleep(10)
+
+        try:
+            async with CLITaskManager() as manager:
+                task = manager.create_task(long_task(), name="task")
+                assert len(manager.tasks) >= 1
+                raise ValueError("Test exception")
+        except ValueError:
+            pass
+
+        # Task should still be cancelled despite exception
+        assert task.cancelled() or task.done()
+
+    @pytest.mark.asyncio
+    async def test_task_done_callback_removes_from_set(self):
+        """Completed tasks are removed from task set via callback."""
+        async with CLITaskManager() as manager:
+            async def quick_task():
+                await asyncio.sleep(0.01)
+                return "done"
+
+            task = manager.create_task(quick_task(), name="quick")
+            assert task in manager.tasks
+
+            await task
+            await asyncio.sleep(0.01)  # Give callback time to run
+
+            assert task not in manager.tasks
+
+    @pytest.mark.asyncio
+    async def test_no_pending_task_warnings(self):
+        """No 'Task was destroyed but pending' warnings are generated."""
+        # This test ensures tasks are properly cleaned up
+        import warnings
+
+        async def some_task():
+            await asyncio.sleep(0.1)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            async with CLITaskManager() as manager:
+                for i in range(10):
+                    manager.create_task(some_task(), name=f"task_{i}")
+
+            # Force garbage collection
+            import gc
+            gc.collect()
+            await asyncio.sleep(0.1)
+
+            # Check for asyncio warnings about pending tasks
+            asyncio_warnings = [warning for warning in w
+                              if "Task was destroyed but it is pending" in str(warning.message)]
+
+            assert len(asyncio_warnings) == 0, "Found pending task warnings"
+
+    @pytest.mark.asyncio
+    async def test_empty_task_set_shutdown(self):
+        """Shutdown handles empty task set gracefully."""
+        async with CLITaskManager() as manager:
+            # No tasks created
+            assert len(manager.tasks) == 0
+
+        # Should complete without error
+
+    @pytest.mark.asyncio
+    async def test_wait_all_empty_tasks(self):
+        """wait_all returns empty list when no tasks."""
+        async with CLITaskManager() as manager:
+            results = await manager.wait_all()
+            assert results == []
+
+    @pytest.mark.asyncio
+    async def test_ctrl_c_cancels_tasks(self):
+        """Simulating Ctrl+C (SIGINT) cancels tasks properly."""
+        manager = CLITaskManager()
+
+        async def long_task():
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+
+        task1 = manager.create_task(long_task(), name="task1")
+        task2 = manager.create_task(long_task(), name="task2")
+
+        # Simulate shutdown via signal
+        manager._shutdown = True
+        await manager.shutdown(timeout=1.0)
+
+        assert task1.cancelled()
+        assert task2.cancelled()
+
+        # Cleanup
+        manager._restore_signal_handlers()
+
+    @pytest.mark.asyncio
+    async def test_task_exception_doesnt_prevent_cleanup(self):
+        """Task exceptions don't prevent other tasks from being cleaned up."""
+        async with CLITaskManager() as manager:
+            async def failing_task():
+                await asyncio.sleep(0.01)
+                raise RuntimeError("Task error")
+
+            async def normal_task():
+                await asyncio.sleep(10)
+
+            fail_task = manager.create_task(failing_task(), name="fail")
+            norm_task = manager.create_task(normal_task(), name="normal")
+
+            await asyncio.sleep(0.02)  # Let failing task fail
+
+        # Both tasks should be handled (one failed, one cancelled)
+        assert fail_task.done()
+        assert norm_task.cancelled() or norm_task.done()

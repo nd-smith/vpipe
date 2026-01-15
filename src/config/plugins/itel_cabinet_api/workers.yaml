@@ -40,7 +40,6 @@ workers:
     pipeline:
       claimx_connection: claimx_api
       output_topic: itel.cabinet.completed
-      download_media: false  # Set to true when media downloader is implemented
 
   # ===========================================================================
   # iTel Cabinet API Worker
@@ -72,9 +71,18 @@ workers:
 # =============================================================================
 # Environment Variables Required
 # =============================================================================
-# export CLAIMX_API_BASE_URL="https://api.claimx.com"
-# export CLAIMX_API_TOKEN="your-claimx-token"
+# ClaimX API connection
+# export CLAIMX_API_BASE_PATH="https://www.claimxperience.com/service/cxedirest"
+# export CLAIMX_API_TOKEN="your-claimx-basic-token"
+#
+# iTel API connection (required for API worker)
 # export ITEL_CABINET_API_BASE_URL="https://api.itelcabinet.com"
 # export ITEL_CABINET_API_TOKEN="your-itel-token"
+#
+# Kafka connection
 # export KAFKA_BOOTSTRAP_SERVERS="localhost:9094"
+#
+# Delta tables (tracking worker)
+# export ITEL_DELTA_FORMS_TABLE="abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/claimx_itel_forms"
+# export ITEL_DELTA_ATTACHMENTS_TABLE="abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/claimx_itel_attachments"
 # =============================================================================

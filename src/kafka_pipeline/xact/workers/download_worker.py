@@ -41,7 +41,7 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.retry.handler import RetryHandler
+from kafka_pipeline.xact.retry.download_handler import RetryHandler
 from kafka_pipeline.xact.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
 from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
@@ -237,12 +237,27 @@ class DownloadWorker:
         self._shutdown_event = asyncio.Event()
         self._in_flight_tasks = set()
 
-        # Create shared HTTP session with connection pooling
+        # Create shared HTTP session with comprehensive timeout configuration
+        # to prevent indefinite hangs (Issue #41)
         connector = aiohttp.TCPConnector(
-            limit=self.concurrency,
-            limit_per_host=self.concurrency,
+            limit=100,  # Total connection pool size
+            limit_per_host=10,  # Per-host connection limit
+            ttl_dns_cache=300,  # DNS cache TTL (5 minutes)
+            enable_cleanup_closed=True,  # Clean up closed connections
         )
-        self._http_session = aiohttp.ClientSession(connector=connector)
+
+        # Configure comprehensive timeouts to prevent indefinite hangs
+        timeout = aiohttp.ClientTimeout(
+            total=300,  # 5 minutes total timeout for entire request
+            connect=30,  # 30 seconds to establish connection
+            sock_read=60,  # 60 seconds between socket reads
+            sock_connect=30,  # 30 seconds for socket connection
+        )
+
+        self._http_session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+        )
 
         # Re-initialize downloader with shared session for connection pooling
         self.downloader = AttachmentDownloader(session=self._http_session)

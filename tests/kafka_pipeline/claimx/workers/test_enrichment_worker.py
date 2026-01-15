@@ -396,7 +396,7 @@ class TestClaimXEnrichmentWorker:
             mock_producer.send.assert_called_once()
             call_args = mock_producer.send.call_args
             assert call_args.kwargs["topic"] == "test.claimx.downloads.pending"
-            assert call_args.kwargs["key"] == "media-111"
+            assert call_args.kwargs["key"] == "evt-12345"
 
     async def test_request_shutdown(self, kafka_config):
         """Test graceful shutdown request."""

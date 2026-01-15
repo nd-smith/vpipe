@@ -119,7 +119,7 @@ docker-compose up -d kafka
 
 ### Step 2: Start the itel Cabinet Worker
 ```bash
-python -m kafka_pipeline.workers.itel_cabinet_tracking_worker
+python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
 ```
 
 ### Step 3: Start Dummy Producer
@@ -192,7 +192,7 @@ Check that:
 ### Events not triggering plugin
 Verify:
 1. Plugin is enabled: `config/plugins/itel_cabinet_api/config.yaml`
-2. Worker is running: `python -m kafka_pipeline.workers.itel_cabinet_tracking_worker`
+2. Worker is running: `python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker`
 3. Topic exists and has messages
 
 ## Quick Verification

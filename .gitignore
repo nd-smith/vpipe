@@ -28,7 +28,7 @@ venv/
 env/
 ENV/
 .venv
-
+.venv_gh
 # IDEs
 .vscode/
 .idea/

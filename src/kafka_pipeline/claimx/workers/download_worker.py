@@ -35,6 +35,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadTask, DownloadOutcome
 from core.errors.exceptions import CircuitOpenError
@@ -832,11 +833,8 @@ class ClaimXDownloadWorker:
         """
         Background task for periodic cycle logging.
         """
-        logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0), pending=0 "
-            "[cycle output every %ds]",
-            30,
-        )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -848,14 +846,20 @@ class ClaimXDownloadWorker:
                 if cycle_elapsed >= 30:  # 30 matches standard interval
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
-                    
+
                     async with self._in_flight_lock:
                          in_flight = len(self._in_flight_tasks)
 
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                        in_flight=in_flight,
+                    )
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}), in_flight={in_flight}",
+                        cycle_msg,
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,
@@ -893,7 +897,7 @@ class ClaimXDownloadWorker:
         """
         assert outcome.file_path is not None, "File path missing in successful outcome"
 
-        logger.info(
+        logger.debug(
             "ClaimX download completed successfully",
             extra={
                 "correlation_id": task_message.source_event_id,
@@ -919,7 +923,7 @@ class ClaimXDownloadWorker:
         # Move file from temp to cache (atomic on same filesystem)
         await asyncio.to_thread(shutil.move, str(outcome.file_path), str(cache_path))
 
-        logger.info(
+        logger.debug(
             "Cached file for upload",
             extra={
                 "media_id": task_message.media_id,
@@ -957,7 +961,7 @@ class ClaimXDownloadWorker:
             value=cached_message,
         )
 
-        logger.info(
+        logger.debug(
             "Produced ClaimX cached download message",
             extra={
                 "media_id": task_message.media_id,
@@ -991,19 +995,19 @@ class ClaimXDownloadWorker:
 
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
 
-        logger.warning(
-            "ClaimX download failed",
-            extra={
-                "correlation_id": task_message.source_event_id,
-                "media_id": task_message.media_id,
-                "project_id": task_message.project_id,
-                "download_url": task_message.download_url,
-                "error_message": outcome.error_message,
-                "error_category": error_category.value,
-                "status_code": outcome.status_code,
-                "processing_time_ms": processing_time_ms,
-                "retry_count": task_message.retry_count,
-            },
+        # Use standardized error logging
+        log_worker_error(
+            logger,
+            "Download failed",
+            event_id=task_message.source_event_id,
+            error_category=error_category.value,
+            media_id=task_message.media_id,
+            project_id=task_message.project_id,
+            download_url=task_message.download_url,
+            failure_reason=outcome.error_message,
+            status_code=outcome.status_code,
+            processing_time_ms=processing_time_ms,
+            retry_count=task_message.retry_count,
         )
 
         # Record error metric

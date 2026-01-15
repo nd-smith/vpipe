@@ -133,7 +133,7 @@ def test_itel_cabinet_generation():
     print()
     print("Next Steps:")
     print("  1. Start Kafka: docker-compose up -d kafka")
-    print("  2. Start worker: python -m kafka_pipeline.workers.itel_cabinet_tracking_worker")
+    print("  2. Start worker: python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker")
     print("  3. Start dummy source: python -m kafka_pipeline --mode dummy --config config/dummy/itel_cabinet_test.yaml")
     print("  4. Monitor logs: tail -f logs/itel/tracking_worker.log")
     print()

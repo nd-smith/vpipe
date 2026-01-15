@@ -13,7 +13,7 @@ from typing import Optional
 from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 from .models import TaskEvent, CabinetSubmission, CabinetAttachment, ProcessedTask
-from .parsers import parse_cabinet_form, parse_cabinet_attachments
+from .parsers import parse_cabinet_form, parse_cabinet_attachments, get_readable_report
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +55,12 @@ class ItelCabinetPipeline:
         # Configuration settings
         self.claimx_connection = config.get('claimx_connection', 'claimx_api')
         self.output_topic = config.get('output_topic', 'itel.cabinet.completed')
-        self.download_media = config.get('download_media', False)
 
         logger.info(
             "ItelCabinetPipeline initialized",
             extra={
                 'claimx_connection': self.claimx_connection,
                 'output_topic': self.output_topic,
-                'download_media': self.download_media,
             }
         )
 
@@ -102,9 +100,9 @@ class ItelCabinetPipeline:
 
         # Step 2: Conditionally enrich (only for COMPLETED status)
         if event.task_status == 'COMPLETED':
-            submission, attachments = await self._enrich_completed_task(event)
+            submission, attachments, readable_report = await self._enrich_completed_task(event)
         else:
-            submission, attachments = None, []
+            submission, attachments, readable_report = None, [], None
             logger.debug(
                 f"Skipping enrichment for non-completed task",
                 extra={'task_status': event.task_status}
@@ -115,12 +113,13 @@ class ItelCabinetPipeline:
 
         # Step 4: Publish to API worker topic (only for COMPLETED)
         if event.task_status == 'COMPLETED' and submission:
-            await self._publish_for_api(event, submission, attachments)
+            await self._publish_for_api(event, submission, attachments, readable_report)
 
         return ProcessedTask(
             event=event,
             submission=submission,
             attachments=attachments,
+            readable_report=readable_report,
         )
 
     def _validate_event(self, event: TaskEvent) -> None:
@@ -157,21 +156,22 @@ class ItelCabinetPipeline:
     async def _enrich_completed_task(
         self,
         event: TaskEvent,
-    ) -> tuple[CabinetSubmission, list[CabinetAttachment]]:
+    ) -> tuple[CabinetSubmission, list[CabinetAttachment], dict]:
         """
         Fetch and parse full task data for completed tasks.
 
         Flow:
         1. Fetch task details from ClaimX API
-        2. Parse cabinet form data
-        3. Parse attachments
-        4. Optionally download media files
+        2. Fetch all project media to build URL lookup map
+        3. Parse cabinet form data
+        4. Parse attachments with URLs enriched
+        5. Generate readable report with URLs for API consumption
 
         Args:
             event: Task event
 
         Returns:
-            Tuple of (submission, attachments)
+            Tuple of (submission, attachments, readable_report)
 
         Raises:
             Exception: If ClaimX API call or parsing fails
@@ -184,16 +184,26 @@ class ItelCabinetPipeline:
         # Fetch from ClaimX API
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
 
+        # Get project_id from task_data (as int)
+        project_id = int(task_data.get("projectId", event.project_id))
+
+        # Fetch all project media and build lookup map
+        media_url_map = await self._fetch_project_media_urls(project_id)
+
         # Parse form data
         submission = parse_cabinet_form(task_data, event.event_id)
-        # Get project_id from task_data (as int for delta schema)
-        project_id = int(task_data.get("projectId", event.project_id))
+
+        # Parse attachments with URL enrichment
         attachments = parse_cabinet_attachments(
             task_data,
             event.assignment_id,
             project_id,
             event.event_id,
+            media_url_map,
         )
+
+        # Generate readable report with URL-enriched media
+        readable_report = get_readable_report(task_data, event.event_id, media_url_map)
 
         logger.info(
             "Task enriched successfully",
@@ -203,11 +213,8 @@ class ItelCabinetPipeline:
             }
         )
 
-        # TODO: Add media download if configured
-        if self.download_media and attachments:
-            logger.warning("Media download not yet implemented")
+        return submission, attachments, readable_report
 
-        return submission, attachments
 
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         """
@@ -239,6 +246,69 @@ class ItelCabinetPipeline:
             )
 
         return response
+
+    async def _fetch_project_media_urls(self, project_id: int) -> dict[int, str]:
+        """
+        Fetch all media for a project and build media_id -> download URL lookup map.
+
+        Args:
+            project_id: ClaimX project ID
+
+        Returns:
+            Dictionary mapping media_id to fullDownloadLink URL
+
+        Raises:
+            Exception: If API call fails
+        """
+        endpoint = f"/export/project/{project_id}/media"
+
+        logger.debug(f"Fetching all project media", extra={'project_id': project_id})
+
+        status, response = await self.connections.request_json(
+            connection_name=self.claimx_connection,
+            method='GET',
+            path=endpoint,
+            params={},  # No mediaIds param = get all media
+        )
+
+        if status < 200 or status >= 300:
+            logger.warning(
+                f"Failed to fetch project media: HTTP {status}",
+                extra={'project_id': project_id, 'status': status}
+            )
+            return {}
+
+        # Normalize response to list
+        if isinstance(response, list):
+            media_list = response
+        elif isinstance(response, dict):
+            if "data" in response:
+                media_list = response["data"]
+            elif "media" in response:
+                media_list = response["media"]
+            else:
+                media_list = [response]
+        else:
+            media_list = []
+
+        # Build lookup map: media_id -> download URL
+        media_url_map = {}
+        for media in media_list:
+            media_id = media.get("mediaID")
+            download_url = media.get("fullDownloadLink")
+            if media_id and download_url:
+                media_url_map[media_id] = download_url
+
+        logger.info(
+            f"Fetched project media URLs",
+            extra={
+                'project_id': project_id,
+                'total_media': len(media_list),
+                'with_urls': len(media_url_map),
+            }
+        )
+
+        return media_url_map
 
     async def _write_to_delta(
         self,
@@ -326,16 +396,18 @@ class ItelCabinetPipeline:
         event: TaskEvent,
         submission: CabinetSubmission,
         attachments: list[CabinetAttachment],
+        readable_report: Optional[dict],
     ) -> None:
         """
         Publish to API worker topic.
 
-        Builds payload with submission and attachments for iTel API worker.
+        Builds payload with submission, attachments, and readable report for iTel API worker.
 
         Args:
             event: Task event
             submission: Parsed submission
             attachments: Parsed attachments
+            readable_report: Topic-organized report for API consumption
         """
         logger.info(
             "Publishing to API worker topic",
@@ -359,6 +431,7 @@ class ItelCabinetPipeline:
             # Parsed data (ready for API transformation)
             'submission': submission.to_dict(),
             'attachments': [att.to_dict() for att in attachments],
+            'readable_report': readable_report,  # NEW: Topic-organized format
 
             # Metadata
             'published_at': datetime.utcnow().isoformat(),

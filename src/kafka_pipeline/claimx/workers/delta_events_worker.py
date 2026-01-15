@@ -30,12 +30,13 @@ from typing import Any, Dict, List, Optional
 from aiokafka.structs import ConsumerRecord
 
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.metrics import record_delta_write
-from kafka_pipeline.claimx.retry.handler import DeltaRetryHandler
+from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.claimx.writers import ClaimXEventsDeltaWriter
 
 logger = get_logger(__name__)
@@ -113,6 +114,8 @@ class ClaimXDeltaEventsWorker:
         # Cycle output tracking
         self._records_processed = 0
         self._records_succeeded = 0
+        self._records_failed = 0
+        self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
@@ -159,6 +162,7 @@ class ClaimXDeltaEventsWorker:
             retry_delays=self._retry_delays,
             retry_topic_prefix=self._retry_topic_prefix,
             dlq_topic=self._dlq_topic,
+            domain=self.domain,
         )
 
         logger.info(
@@ -268,11 +272,11 @@ class ClaimXDeltaEventsWorker:
 
         batch_to_write = list(self._batch)
         self._batch.clear()
-        
+
         # Use simple try/except for write
         try:
             success = await self.delta_writer.write_events(batch_to_write)
-            
+
             record_delta_write(
                 table="claimx_events",
                 event_count=len(batch_to_write),
@@ -284,27 +288,129 @@ class ClaimXDeltaEventsWorker:
                 self._records_succeeded += len(batch_to_write)
                 if self.consumer:
                     await self.consumer.commit()
+
+                logger.debug(
+                    "Batch written successfully",
+                    extra={
+                        "batch_size": len(batch_to_write),
+                        "batches_written": self._batches_written,
+                    },
+                )
             else:
+                self._records_failed += len(batch_to_write)
                 await self._handle_failed_batch(batch_to_write, Exception("Write returned failure"))
 
         except Exception as e:
+            self._records_failed += len(batch_to_write)
             await self._handle_failed_batch(batch_to_write, e)
 
     async def _handle_failed_batch(self, batch: List[Dict[str, Any]], error: Exception) -> None:
-        """Handle failed batch by keeping local logic simple or routing to retry."""
-        logger.error(f"Batch write failed: {error}")
-        # In a real impl, we'd route to retry topic using retry_handler
-        # ensuring data isn't lost.
-        # For this refactor, I'll ensure we at least log vividly.
-        # Ideally: await self.retry_handler.handle_batch_failure(...)
+        """
+        Handle failed batch with error classification and DLQ routing.
+
+        Routes PERMANENT errors to DLQ and clears batch.
+        Keeps batch intact for TRANSIENT errors to enable retry.
+        """
+        # Classify error to determine handling strategy
+        error_category = self._classify_delta_error(error)
+
+        # Use standardized error logging
+        log_worker_error(
+            logger,
+            "Batch write failed",
+            error_category=error_category.value,
+            exc=error,
+            batch_size=len(batch),
+        )
+
+        # Handle PERMANENT errors: send to DLQ and clear batch
+        if error_category == ErrorCategory.PERMANENT:
+            logger.warning(
+                "Permanent Delta write error detected, sending batch to DLQ",
+                extra={
+                    "batch_size": len(batch),
+                    "error_type": type(error).__name__,
+                },
+            )
+
+            # Send to DLQ via retry handler
+            if hasattr(self, 'retry_handler'):
+                await self.retry_handler.handle_batch_failure(
+                    batch=batch,
+                    error=error,
+                    retry_count=0,
+                    error_category=error_category.value,
+                    batch_id=uuid.uuid4().hex[:8]
+                )
+
+            # Clear batch after routing to DLQ since this error won't succeed on retry
+            self._batch.clear()
+            return
+
+        # For TRANSIENT errors, route to retry topic but keep batch intact
+        logger.info(
+            "Transient Delta write error, routing to retry topic",
+            extra={
+                "batch_size": len(batch),
+                "error_category": error_category.value,
+                "error_type": type(error).__name__,
+            },
+        )
+
         if hasattr(self, 'retry_handler'):
-             await self.retry_handler.handle_batch_failure(
+            await self.retry_handler.handle_batch_failure(
                 batch=batch,
                 error=error,
                 retry_count=0,
-                error_category="transient",
+                error_category=error_category.value,
                 batch_id=uuid.uuid4().hex[:8]
             )
+
+        # Keep batch intact for TRANSIENT errors - don't clear
+        # This prevents data loss if retry topic send fails
+
+    def _classify_delta_error(self, error: Exception) -> ErrorCategory:
+        """
+        Classify Delta write errors into categories for handling decisions.
+
+        Args:
+            error: Exception from Delta write operation
+
+        Returns:
+            ErrorCategory indicating how to handle this error
+        """
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+
+        # Schema validation errors are PERMANENT (won't succeed on retry)
+        if "schema" in error_str or "validation" in error_str:
+            return ErrorCategory.PERMANENT
+
+        # File not found or path errors are PERMANENT
+        if "not found" in error_str or "404" in error_str:
+            return ErrorCategory.PERMANENT
+
+        # Permission/auth errors need credential refresh
+        if "401" in error_str or "403" in error_str or "unauthorized" in error_str:
+            return ErrorCategory.AUTH
+
+        # Timeout and connection errors are TRANSIENT
+        if "timeout" in error_str or "timeout" in error_type:
+            return ErrorCategory.TRANSIENT
+
+        if "connection" in error_str or "network" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Throttling errors are TRANSIENT
+        if "429" in error_str or "throttl" in error_str or "rate limit" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Service unavailable is TRANSIENT
+        if "503" in error_str or "service unavailable" in error_str:
+            return ErrorCategory.TRANSIENT
+
+        # Default to TRANSIENT for unknown errors (safe default - allows retry)
+        return ErrorCategory.TRANSIENT
 
     async def _periodic_flush(self) -> None:
         """Timer callback to flush batch."""
@@ -322,11 +428,41 @@ class ClaimXDeltaEventsWorker:
 
     async def _periodic_cycle_output(self) -> None:
         """Log progress periodically."""
-        while self._running:
-            await asyncio.sleep(self.CYCLE_LOG_INTERVAL_SECONDS)
-            logger.info(
-                f"Cycle: processed={self._records_processed}, batches={self._batches_written}",
-                extra={"domain": self.domain}
-            )
+        # Initial cycle output
+        logger.info(format_cycle_output(0, 0, 0, 0))
+        self._last_cycle_log = time.monotonic()
+        self._cycle_count = 0
+
+        try:
+            while self._running:
+                await asyncio.sleep(1)
+
+                cycle_elapsed = time.monotonic() - self._last_cycle_log
+                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
+                    self._cycle_count += 1
+                    self._last_cycle_log = time.monotonic()
+
+                    # Use standardized cycle output format
+                    cycle_msg = format_cycle_output(
+                        cycle_count=self._cycle_count,
+                        succeeded=self._records_succeeded,
+                        failed=self._records_failed,
+                        skipped=self._records_skipped,
+                    )
+                    logger.info(
+                        cycle_msg,
+                        extra={
+                            "cycle": self._cycle_count,
+                            "records_processed": self._records_processed,
+                            "records_succeeded": self._records_succeeded,
+                            "records_failed": self._records_failed,
+                            "records_skipped": self._records_skipped,
+                            "batches_written": self._batches_written,
+                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
+                        },
+                    )
+        except asyncio.CancelledError:
+            logger.debug("Periodic cycle output task cancelled")
+            raise
 
 __all__ = ["ClaimXDeltaEventsWorker"]
