@@ -1138,6 +1138,14 @@ def main():
         _resolved = PROJECT_ROOT / _debug_token_file
         print(f"DEBUG [auth]: Resolved path={_resolved}, exists={_resolved.exists()}")
 
+    # Debug: Log SPN credentials
+    _debug_client_id = os.getenv("AZURE_CLIENT_ID")
+    _debug_tenant_id = os.getenv("AZURE_TENANT_ID")
+    _debug_client_secret = os.getenv("AZURE_CLIENT_SECRET")
+    print(f"DEBUG [auth]: AZURE_CLIENT_ID={_debug_client_id[:8] + '...' if _debug_client_id else None}")
+    print(f"DEBUG [auth]: AZURE_TENANT_ID={_debug_tenant_id[:8] + '...' if _debug_tenant_id else None}")
+    print(f"DEBUG [auth]: AZURE_CLIENT_SECRET={'set' if _debug_client_secret else None}")
+
     global logger
     args = parse_args()
 
