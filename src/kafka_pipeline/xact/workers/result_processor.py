@@ -114,6 +114,10 @@ class ResultProcessor:
         self.batch_timeout_seconds = batch_timeout_seconds or self.BATCH_TIMEOUT_SECONDS
         self.max_batches = max_batches
 
+        # Domain and worker configuration (must be set before using them)
+        self.domain = "xact"
+        self.worker_name = "result_processor"
+
         # Delta writers
         self._inventory_writer = DeltaInventoryWriter(table_path=inventory_table_path)
         self._failed_writer: Optional[DeltaFailedAttachmentsWriter] = None
@@ -148,10 +152,6 @@ class ResultProcessor:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-
-        # Domain and worker configuration
-        self.domain = "xact"
-        self.worker_name = "result_processor"
 
         # Store topics for logging
         self._results_topic = config.get_topic(self.domain, "downloads_results")

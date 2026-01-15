@@ -100,7 +100,7 @@ max_events: 100
 # Testing Workflow:
 #   1. Start Kafka (if not running)
 #   2. Start the itel Cabinet tracking worker:
-#      python -m kafka_pipeline.workers.itel_cabinet_tracking_worker
+#      python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
 #   3. Start the dummy data source with this config:
 #      python -m kafka_pipeline --mode dummy --config config/dummy/itel_cabinet_test.yaml
 #   4. Watch the worker logs for processing:

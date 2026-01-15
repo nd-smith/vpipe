@@ -48,7 +48,7 @@ Generates standard XACT domain events.
 
 2. **Start the itel Cabinet worker**:
    ```bash
-   python -m kafka_pipeline.workers.itel_cabinet_tracking_worker
+   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
    ```
 
 3. **Start dummy data producer with itel profile**:
