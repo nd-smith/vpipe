@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 from azure.core.credentials import AccessToken
-from azure.identity import ClientSecretCredential, DefaultAzureCredential
+from azure.identity import DefaultAzureCredential
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.data.exceptions import KustoServiceError
 from core.errors.classifiers import StorageErrorClassifier
@@ -363,25 +363,13 @@ class KQLClient:
                 # Check for token file authentication first
                 token_file = os.getenv("AZURE_TOKEN_FILE")
                 auth_mode = "default"
+                kcsb = None
 
-                # Helper to get SPN or default credential
-                def get_spn_or_default_credential():
-                    client_id = os.getenv("AZURE_CLIENT_ID")
-                    client_secret = os.getenv("AZURE_CLIENT_SECRET")
-                    tenant_id = os.getenv("AZURE_TENANT_ID")
-
-                    if client_id and client_secret and tenant_id:
-                        logger.info(
-                            "Using SPN credentials for Eventhouse authentication",
-                            extra={"client_id": client_id[:8] + "..."},
-                        )
-                        return ClientSecretCredential(
-                            tenant_id=tenant_id,
-                            client_id=client_id,
-                            client_secret=client_secret,
-                        ), "spn"
-                    else:
-                        return DefaultAzureCredential(), "default"
+                # Check for SPN credentials
+                client_id = os.getenv("AZURE_CLIENT_ID")
+                client_secret = os.getenv("AZURE_CLIENT_SECRET")
+                tenant_id = os.getenv("AZURE_TENANT_ID")
+                has_spn = client_id and client_secret and tenant_id
 
                 if token_file:
                     token_path = Path(token_file)
@@ -392,6 +380,10 @@ class KQLClient:
                                 resource=KUSTO_RESOURCE,
                             )
                             auth_mode = "token_file"
+                            kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
+                                self.config.cluster_url,
+                                self._credential,
+                            )
                             logger.info(
                                 "Using token file for Eventhouse authentication",
                                 extra={"token_file": token_file},
@@ -401,21 +393,29 @@ class KQLClient:
                                 "Token file auth failed, trying SPN/default",
                                 extra={"error": str(e)[:200]},
                             )
-                            self._credential, auth_mode = get_spn_or_default_credential()
-                    else:
-                        logger.warning(
-                            "AZURE_TOKEN_FILE set but file not found, trying SPN/default",
-                            extra={"token_file": token_file},
-                        )
-                        self._credential, auth_mode = get_spn_or_default_credential()
-                else:
-                    self._credential, auth_mode = get_spn_or_default_credential()
 
-                # Build connection string with token credential
-                kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
-                    self.config.cluster_url,
-                    self._credential,
-                )
+                # Use SPN with direct AAD app key auth (more reliable than token credential)
+                if kcsb is None and has_spn:
+                    kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
+                        self.config.cluster_url,
+                        client_id,
+                        client_secret,
+                        tenant_id,
+                    )
+                    auth_mode = "spn"
+                    logger.info(
+                        "Using SPN credentials for Eventhouse authentication",
+                        extra={"client_id": client_id[:8] + "..."},
+                    )
+
+                # Fall back to DefaultAzureCredential
+                if kcsb is None:
+                    self._credential = DefaultAzureCredential()
+                    kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
+                        self.config.cluster_url,
+                        self._credential,
+                    )
+                    auth_mode = "default"
 
                 # Create client (sync client, will execute in thread pool)
                 self._client = KustoClient(kcsb)
