@@ -190,20 +190,31 @@ class ItelCabinetPipeline:
         # Fetch all project media and build lookup map
         media_url_map = await self._fetch_project_media_urls(project_id)
 
-        # Parse form data
-        submission = parse_cabinet_form(task_data, event.event_id)
+        # Parse form data with OpenTelemetry span
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
 
-        # Parse attachments with URL enrichment
-        attachments = parse_cabinet_attachments(
-            task_data,
-            event.assignment_id,
-            project_id,
-            event.event_id,
-            media_url_map,
-        )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("itel.parse", kind=SpanKind.INTERNAL) as span:
+            submission = parse_cabinet_form(task_data, event.event_id)
 
-        # Generate readable report with URL-enriched media
-        readable_report = get_readable_report(task_data, event.event_id, media_url_map)
+            # Parse attachments with URL enrichment
+            attachments = parse_cabinet_attachments(
+                task_data,
+                event.assignment_id,
+                project_id,
+                event.event_id,
+                media_url_map,
+            )
+
+            # Generate readable report with URL-enriched media
+            readable_report = get_readable_report(task_data, event.event_id, media_url_map)
+
+            # Set span attributes
+            span.set_attribute("assignment_id", event.assignment_id)
+            span.set_attribute("task_id", event.task_id)
+            span.set_attribute("project_id", project_id)
+            span.set_attribute("attachment_count", len(attachments))
 
         logger.info(
             "Task enriched successfully",
@@ -340,13 +351,26 @@ class ItelCabinetPipeline:
         else:
             submission_row = self._build_metadata_row(event)
 
-        # Write submission
-        await self.delta.write_submission(submission_row)
+        # Write to Delta with OpenTelemetry span
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
 
-        # Write attachments (if any)
-        if attachments:
-            attachment_rows = [att.to_dict() for att in attachments]
-            await self.delta.write_attachments(attachment_rows)
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("delta.write", kind=SpanKind.CLIENT) as span:
+            # Write submission
+            await self.delta.write_submission(submission_row)
+
+            # Write attachments (if any)
+            if attachments:
+                attachment_rows = [att.to_dict() for att in attachments]
+                await self.delta.write_attachments(attachment_rows)
+
+            # Set span attributes
+            span.set_attribute("assignment_id", event.assignment_id)
+            span.set_attribute("task_id", event.task_id)
+            span.set_attribute("has_submission", submission is not None)
+            span.set_attribute("attachment_count", len(attachments))
+            span.set_attribute("success", True)
 
         logger.info(
             "Delta write complete",

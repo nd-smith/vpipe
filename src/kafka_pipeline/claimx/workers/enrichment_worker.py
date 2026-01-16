@@ -286,6 +286,15 @@ class ClaimXEnrichmentWorker:
         logger.info("Starting ClaimXEnrichmentWorker")
         self._running = True
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-enrichment-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start cycle output background task
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 
@@ -822,7 +831,15 @@ class ClaimXEnrichmentWorker:
 
         try:
             # Process event with handler
-            handler_result = await handler.process([event])
+            from opentelemetry import trace
+            from opentelemetry.trace import SpanKind
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("claimx.api.enrich", kind=SpanKind.CLIENT) as span:
+                span.set_attribute("event.id", task.event_id)
+                span.set_attribute("event.type", task.event_type)
+                span.set_attribute("project.id", task.project_id)
+                handler_result = await handler.process([event])
 
             entity_rows = handler_result.rows
             self._records_succeeded += 1
@@ -923,6 +940,12 @@ class ClaimXEnrichmentWorker:
                 exc=e,
                 handler=handler_class.__name__,
             )
+            # Record error metric with category
+            record_processing_error(
+                topic=self.enrichment_topic,
+                consumer_group=self.consumer_group,
+                error_category=e.category.value,
+            )
             await self._handle_enrichment_failure(task, e, e.category)
 
         except Exception as e:
@@ -936,6 +959,12 @@ class ClaimXEnrichmentWorker:
                 exc=e,
                 handler=handler_class.__name__,
                 error_type=type(e).__name__,
+            )
+            # Record error metric with category
+            record_processing_error(
+                topic=self.enrichment_topic,
+                consumer_group=self.consumer_group,
+                error_category=error_category.value,
             )
             await self._handle_enrichment_failure(task, e, error_category)
 

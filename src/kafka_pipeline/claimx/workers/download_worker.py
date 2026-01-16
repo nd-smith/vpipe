@@ -34,6 +34,7 @@ from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
+from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.download.downloader import AttachmentDownloader
@@ -54,9 +55,9 @@ from kafka_pipeline.common.metrics import (
     update_assigned_partitions,
     update_downloads_concurrent,
     update_downloads_batch_size,
-    update_downloads_batch_size,
     message_processing_duration_seconds,
     claim_processing_seconds,
+    claim_media_bytes_total,
 )
 
 logger = get_logger(__name__)
@@ -222,6 +223,15 @@ class ClaimXDownloadWorker:
                 "download_concurrency": self.concurrency,
                 "download_batch_size": self.batch_size,
             },
+        )
+
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-download-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
         )
 
         # Start health check server first
@@ -702,11 +712,14 @@ class ClaimXDownloadWorker:
         async with self._in_flight_lock:
             self._in_flight_tasks.add(task_message.media_id)
 
+        # Set logging context for correlation
+        set_log_context(trace_id=task_message.source_event_id)
+
         try:
             logger.info(
                 "Processing ClaimX download task",
                 extra={
-                    "correlation_id": task_message.source_event_id,
+                    "event_id": task_message.source_event_id,
                     "media_id": task_message.media_id,
                     "project_id": task_message.project_id,
                     "download_url": task_message.download_url,
@@ -720,7 +733,15 @@ class ClaimXDownloadWorker:
             download_task = self._convert_to_download_task(task_message)
 
             # Perform download
-            outcome = await self.downloader.download(download_task)
+            from opentelemetry import trace
+            from opentelemetry.trace import SpanKind
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("download.execute", kind=SpanKind.CLIENT) as span:
+                span.set_attribute("media.id", task_message.media_id)
+                span.set_attribute("project.id", task_message.project_id)
+                span.set_attribute("event.id", task_message.source_event_id)
+                outcome = await self.downloader.download(download_task)
 
             # Calculate processing time
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
@@ -900,7 +921,7 @@ class ClaimXDownloadWorker:
         logger.debug(
             "ClaimX download completed successfully",
             extra={
-                "correlation_id": task_message.source_event_id,
+                "event_id": task_message.source_event_id,
                 "media_id": task_message.media_id,
                 "project_id": task_message.project_id,
                 "download_url": task_message.download_url,
@@ -930,6 +951,29 @@ class ClaimXDownloadWorker:
                 "cache_path": str(cache_path),
             },
         )
+
+        # Record media volume metric
+        if outcome.bytes_downloaded:
+            # Determine media type from file_type or content_type
+            media_type = "unknown"
+            if task_message.file_type:
+                file_type_lower = task_message.file_type.lower()
+                if "image" in file_type_lower or "jpg" in file_type_lower or "png" in file_type_lower:
+                    media_type = "image"
+                elif "video" in file_type_lower or "mp4" in file_type_lower or "mov" in file_type_lower:
+                    media_type = "video"
+                elif "pdf" in file_type_lower or "doc" in file_type_lower:
+                    media_type = "document"
+            elif outcome.content_type:
+                content_type_lower = outcome.content_type.lower()
+                if "image" in content_type_lower:
+                    media_type = "image"
+                elif "video" in content_type_lower:
+                    media_type = "video"
+                elif "pdf" in content_type_lower or "document" in content_type_lower:
+                    media_type = "document"
+
+            claim_media_bytes_total.labels(type=media_type).inc(outcome.bytes_downloaded)
 
         # Clean up empty temp directory
         try:

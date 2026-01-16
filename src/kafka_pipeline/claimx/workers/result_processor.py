@@ -163,6 +163,15 @@ class ClaimXResultProcessor:
         logger.info("Starting ClaimXResultProcessor")
         self._running = True
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-result-processor",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -258,9 +267,18 @@ class ClaimXResultProcessor:
             record: ConsumerRecord containing ClaimXUploadResultMessage JSON
         """
         # Decode and parse ClaimXUploadResultMessage
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
+
+        tracer = trace.get_tracer(__name__)
         try:
-            message_data = json.loads(record.value.decode("utf-8"))
-            result = ClaimXUploadResultMessage.model_validate(message_data)
+            with tracer.start_as_current_span("result.process", kind=SpanKind.INTERNAL) as span:
+                message_data = json.loads(record.value.decode("utf-8"))
+                result = ClaimXUploadResultMessage.model_validate(message_data)
+                span.set_attribute("media.id", result.media_id)
+                span.set_attribute("project.id", result.project_id)
+                span.set_attribute("event.id", result.source_event_id)
+                span.set_attribute("result.status", result.status)
         except (json.JSONDecodeError, ValidationError) as e:
             # Use standardized error logging
             log_worker_error(

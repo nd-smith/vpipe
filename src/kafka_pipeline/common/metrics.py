@@ -1,5 +1,5 @@
 """
-Prometheus metrics for Kafka pipeline monitoring.
+OpenTelemetry metrics for Kafka pipeline monitoring.
 
 Provides comprehensive instrumentation for:
 - Message production and consumption rates
@@ -9,274 +9,449 @@ Provides comprehensive instrumentation for:
 - Circuit breaker state tracking
 """
 
-from prometheus_client import Counter, Gauge, Histogram
+from typing import Dict, Tuple
+from opentelemetry import metrics
+from opentelemetry.metrics import Observation
 
-# Message production metrics
-messages_produced_total = Counter(
-    "kafka_messages_produced_total",
-    "Total number of messages produced to Kafka topics",
-    ["topic", "status"],  # status: success, error
-)
+# Get meter instance
+meter = metrics.get_meter(__name__)
 
-messages_produced_bytes = Counter(
-    "kafka_messages_produced_bytes_total",
-    "Total bytes of message data produced to Kafka topics",
-    ["topic"],
-)
+# State storage for observable gauges (since OTel uses callbacks instead of .set())
+_gauge_state: Dict[Tuple[str, ...], float] = {}
 
-# Message consumption metrics
-messages_consumed_total = Counter(
-    "kafka_messages_consumed_total",
-    "Total number of messages consumed from Kafka topics",
-    ["topic", "consumer_group", "status"],  # status: success, error
-)
-
-messages_consumed_bytes = Counter(
-    "kafka_messages_consumed_bytes_total",
-    "Total bytes of message data consumed from Kafka topics",
-    ["topic", "consumer_group"],
-)
-
-# Consumer lag tracking
-consumer_lag = Gauge(
-    "kafka_consumer_lag",
-    "Current lag in messages for consumer partitions",
-    ["topic", "partition", "consumer_group"],
-)
-
-consumer_offset = Gauge(
-    "kafka_consumer_offset",
-    "Current offset position for consumer partitions",
-    ["topic", "partition", "consumer_group"],
-)
-
-# Error tracking by category
-processing_errors_total = Counter(
-    "kafka_processing_errors_total",
-    "Total number of message processing errors by category",
-    ["topic", "consumer_group", "error_category"],
-)
-
-producer_errors_total = Counter(
-    "kafka_producer_errors_total",
-    "Total number of producer errors",
-    ["topic", "error_type"],
-)
-
-# Processing time metrics
-message_processing_duration_seconds = Histogram(
-    "kafka_message_processing_duration_seconds",
-    "Time spent processing individual messages",
-    ["topic", "consumer_group"],
-    buckets=(
-        0.005,
-        0.01,
-        0.025,
-        0.05,
-        0.1,
-        0.25,
-        0.5,
-        1.0,
-        2.5,
-        5.0,
-        10.0,
-        30.0,
-        60.0,
-    ),  # From 5ms to 60s
-)
-
-batch_processing_duration_seconds = Histogram(
-    "kafka_batch_processing_duration_seconds",
-    "Time spent processing message batches",
-    ["topic"],
-    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),  # From 100ms to 2min
-)
-
-# Circuit breaker metrics
-circuit_breaker_state = Gauge(
-    "kafka_circuit_breaker_state",
-    "Circuit breaker state (0=closed, 1=open, 2=half-open)",
-    ["component"],  # component: producer, consumer
-)
-
-circuit_breaker_failures = Counter(
-    "kafka_circuit_breaker_failures_total",
-    "Total number of circuit breaker failures",
-    ["component"],
-)
-
-# Connection health metrics
-kafka_connection_status = Gauge(
-    "kafka_connection_status",
-    "Kafka connection status (1=connected, 0=disconnected)",
-    ["component"],  # component: producer, consumer
-)
-
-# Partition assignment metrics
-consumer_assigned_partitions = Gauge(
-    "kafka_consumer_assigned_partitions",
-    "Number of partitions assigned to this consumer",
-    ["consumer_group"],
-)
-
-# Download concurrency metrics (WP-313)
-downloads_concurrent = Gauge(
-    "kafka_downloads_concurrent",
-    "Number of downloads currently in progress",
-    ["worker"],
-)
-
-downloads_batch_size = Gauge(
-    "kafka_downloads_batch_size",
-    "Size of the current download batch being processed",
-    ["worker"],
-)
-
-uploads_concurrent = Gauge(
-    "kafka_uploads_concurrent",
-    "Number of uploads currently in progress",
-    ["worker"],
-)
-
-# Delta Lake write metrics
-delta_writes_total = Counter(
-    "delta_writes_total",
-    "Total number of Delta Lake write operations",
-    ["table", "status"],  # status: success, error
-)
-
-delta_events_written_total = Counter(
-    "delta_events_written_total",
-    "Total number of events written to Delta tables",
-    ["table"],
-)
-
-delta_write_duration_seconds = Histogram(
-    "delta_write_duration_seconds",
-    "Time spent writing to Delta Lake tables",
-    ["table"],
-    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),  # From 100ms to 2min
-)
-
-# ClaimX API metrics
-claimx_api_requests_total = Counter(
-    "claimx_api_requests_total",
-    "Total number of requests to ClaimX API",
-    ["method", "endpoint", "status"],  # status: success, error
-)
-
-claimx_api_request_duration_seconds = Histogram(
-    "claimx_api_request_duration_seconds",
-    "Time spent waiting for ClaimX API responses",
-    ["method", "endpoint"],
-    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
-)
-
-# ClaimX Business Logic metrics
-claim_processing_seconds = Histogram(
-    "claim_processing_seconds",
-    "Time spent processing claim artifacts",
-    ["step"],  # step: download, enrichment, upload
-    buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
-)
-
-claim_media_bytes_total = Counter(
-    "claim_media_bytes_total",
-    "Total bytes of media processed",
-    ["type"],  # type: image, video, document
-)
 
 # =============================================================================
-# Event Ingestion Metrics (WP1)
+# Message Production Metrics
 # =============================================================================
-event_ingestion_total = Counter(
-    "kafka_events_ingested_total",
-    "Total events ingested",
-    ["domain", "status"],  # domain: claimx/xact, status: success/parse_error/validation_error
+
+messages_produced_counter = meter.create_counter(
+    name="kafka.messages.produced",
+    description="Total number of messages produced to Kafka topics",
+    unit="1",
 )
 
-event_ingestion_duration_seconds = Histogram(
-    "kafka_event_ingestion_duration_seconds",
-    "Time to ingest and process event",
-    ["domain"],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+messages_produced_bytes_counter = meter.create_counter(
+    name="kafka.messages.produced.bytes",
+    description="Total bytes of message data produced to Kafka topics",
+    unit="By",
 )
 
-event_tasks_produced_total = Counter(
-    "kafka_event_tasks_produced_total",
-    "Total downstream tasks produced from events",
-    ["domain", "task_type"],  # task_type: download_task, enrichment_task
-)
 
 # =============================================================================
-# OneLake Storage Metrics (WP2)
+# Message Consumption Metrics
 # =============================================================================
-onelake_operations_total = Counter(
-    "onelake_operations_total",
-    "Total OneLake operations",
-    ["operation", "status"],  # operation: upload/download/delete, status: success/error
+
+messages_consumed_counter = meter.create_counter(
+    name="kafka.messages.consumed",
+    description="Total number of messages consumed from Kafka topics",
+    unit="1",
 )
 
-onelake_operation_duration_seconds = Histogram(
-    "onelake_operation_duration_seconds",
-    "Duration of OneLake operations",
-    ["operation"],
-    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),
+messages_consumed_bytes_counter = meter.create_counter(
+    name="kafka.messages.consumed.bytes",
+    description="Total bytes of message data consumed from Kafka topics",
+    unit="By",
 )
 
-onelake_bytes_transferred_total = Counter(
-    "onelake_bytes_transferred_total",
-    "Total bytes transferred to/from OneLake",
-    ["operation"],  # upload/download
-)
-
-onelake_operation_errors_total = Counter(
-    "onelake_operation_errors_total",
-    "Total OneLake operation errors by type",
-    ["operation", "error_type"],  # error_type: timeout/auth/not_found/unknown
-)
 
 # =============================================================================
-# Retry Mechanism Metrics (WP6)
+# Consumer Lag Tracking (Observable Gauges)
 # =============================================================================
-retry_attempts_total = Counter(
-    "kafka_retry_attempts_total",
-    "Total retry attempts by domain and error category",
-    ["domain", "error_category"],  # error_category: transient/auth/circuit_open/unknown
+
+def _observe_consumer_lag(options):
+    """Callback for consumer lag observable gauge."""
+    for (topic, partition, consumer_group), lag in _gauge_state.items():
+        if isinstance(lag, (int, float)) and "lag" in str(topic):
+            yield Observation(
+                lag,
+                attributes={
+                    "topic": topic.split(":")[1] if ":" in str(topic) else topic,
+                    "partition": partition,
+                    "consumer_group": consumer_group,
+                },
+            )
+
+
+def _observe_consumer_offset(options):
+    """Callback for consumer offset observable gauge."""
+    for (topic, partition, consumer_group), offset in _gauge_state.items():
+        if isinstance(offset, (int, float)) and "offset" in str(topic):
+            yield Observation(
+                offset,
+                attributes={
+                    "topic": topic.split(":")[1] if ":" in str(topic) else topic,
+                    "partition": partition,
+                    "consumer_group": consumer_group,
+                },
+            )
+
+
+consumer_lag_gauge = meter.create_observable_gauge(
+    name="kafka.consumer.lag",
+    callbacks=[_observe_consumer_lag],
+    description="Current lag in messages for consumer partitions",
+    unit="1",
 )
 
-retry_exhausted_total = Counter(
-    "kafka_retry_exhausted_total",
-    "Total retries exhausted (sent to DLQ after max retries)",
-    ["domain", "error_category"],
+consumer_offset_gauge = meter.create_observable_gauge(
+    name="kafka.consumer.offset",
+    callbacks=[_observe_consumer_offset],
+    description="Current offset position for consumer partitions",
+    unit="1",
 )
 
-dlq_messages_total = Counter(
-    "kafka_dlq_messages_total",
-    "Total messages sent to dead-letter queue",
-    ["domain", "reason"],  # reason: exhausted/permanent/error
+
+# =============================================================================
+# Error Tracking
+# =============================================================================
+
+processing_errors_counter = meter.create_counter(
+    name="kafka.processing.errors",
+    description="Total number of message processing errors by category",
+    unit="1",
 )
 
-retry_delay_seconds = Histogram(
-    "kafka_retry_delay_seconds",
-    "Retry delay distribution",
-    ["domain"],
-    buckets=(60, 120, 300, 600, 1200, 2400, 3600),  # 1m to 1h
+producer_errors_counter = meter.create_counter(
+    name="kafka.producer.errors",
+    description="Total number of producer errors",
+    unit="1",
 )
 
-# DLQ routing metrics by error category (WP-211)
-messages_dlq_permanent = Counter(
-    "kafka_messages_dlq_permanent_total",
-    "Total messages sent to DLQ due to permanent errors",
-    ["topic", "consumer_group"],
+
+# =============================================================================
+# Processing Time Metrics
+# =============================================================================
+
+message_processing_duration_histogram = meter.create_histogram(
+    name="kafka.message.processing.duration",
+    description="Time spent processing individual messages",
+    unit="s",
 )
 
-messages_dlq_transient = Counter(
-    "kafka_messages_dlq_transient_total",
-    "Total messages sent to DLQ due to transient errors (retry exhausted)",
-    ["topic", "consumer_group"],
+batch_processing_duration_histogram = meter.create_histogram(
+    name="kafka.batch.processing.duration",
+    description="Time spent processing message batches",
+    unit="s",
 )
 
+
+# =============================================================================
+# Circuit Breaker Metrics
+# =============================================================================
+
+def _observe_circuit_breaker_state(options):
+    """Callback for circuit breaker state observable gauge."""
+    for (component,), state in _gauge_state.items():
+        if "circuit_breaker" in str(component):
+            yield Observation(
+                state,
+                attributes={"component": component.replace("circuit_breaker:", "")},
+            )
+
+
+circuit_breaker_state_gauge = meter.create_observable_gauge(
+    name="kafka.circuit_breaker.state",
+    callbacks=[_observe_circuit_breaker_state],
+    description="Circuit breaker state (0=closed, 1=open, 2=half-open)",
+    unit="1",
+)
+
+circuit_breaker_failures_counter = meter.create_counter(
+    name="kafka.circuit_breaker.failures",
+    description="Total number of circuit breaker failures",
+    unit="1",
+)
+
+
+# =============================================================================
+# Connection Health Metrics
+# =============================================================================
+
+def _observe_connection_status(options):
+    """Callback for connection status observable gauge."""
+    for (component,), status in _gauge_state.items():
+        if "connection" in str(component):
+            yield Observation(
+                status,
+                attributes={"component": component.replace("connection:", "")},
+            )
+
+
+kafka_connection_status_gauge = meter.create_observable_gauge(
+    name="kafka.connection.status",
+    callbacks=[_observe_connection_status],
+    description="Kafka connection status (1=connected, 0=disconnected)",
+    unit="1",
+)
+
+
+# =============================================================================
+# Partition Assignment Metrics
+# =============================================================================
+
+def _observe_assigned_partitions(options):
+    """Callback for assigned partitions observable gauge."""
+    for (consumer_group,), count in _gauge_state.items():
+        if "partitions" in str(consumer_group):
+            yield Observation(
+                count,
+                attributes={"consumer_group": consumer_group.replace("partitions:", "")},
+            )
+
+
+consumer_assigned_partitions_gauge = meter.create_observable_gauge(
+    name="kafka.consumer.assigned_partitions",
+    callbacks=[_observe_assigned_partitions],
+    description="Number of partitions assigned to this consumer",
+    unit="1",
+)
+
+
+# =============================================================================
+# Download/Upload Concurrency Metrics
+# =============================================================================
+
+def _observe_downloads_concurrent(options):
+    """Callback for concurrent downloads observable gauge."""
+    for (worker,), count in _gauge_state.items():
+        if "downloads_concurrent" in str(worker):
+            yield Observation(
+                count,
+                attributes={"worker": worker.replace("downloads_concurrent:", "")},
+            )
+
+
+def _observe_downloads_batch_size(options):
+    """Callback for download batch size observable gauge."""
+    for (worker,), size in _gauge_state.items():
+        if "downloads_batch" in str(worker):
+            yield Observation(
+                size,
+                attributes={"worker": worker.replace("downloads_batch:", "")},
+            )
+
+
+def _observe_uploads_concurrent(options):
+    """Callback for concurrent uploads observable gauge."""
+    for (worker,), count in _gauge_state.items():
+        if "uploads_concurrent" in str(worker):
+            yield Observation(
+                count,
+                attributes={"worker": worker.replace("uploads_concurrent:", "")},
+            )
+
+
+downloads_concurrent_gauge = meter.create_observable_gauge(
+    name="kafka.downloads.concurrent",
+    callbacks=[_observe_downloads_concurrent],
+    description="Number of downloads currently in progress",
+    unit="1",
+)
+
+downloads_batch_size_gauge = meter.create_observable_gauge(
+    name="kafka.downloads.batch_size",
+    callbacks=[_observe_downloads_batch_size],
+    description="Size of the current download batch being processed",
+    unit="1",
+)
+
+uploads_concurrent_gauge = meter.create_observable_gauge(
+    name="kafka.uploads.concurrent",
+    callbacks=[_observe_uploads_concurrent],
+    description="Number of uploads currently in progress",
+    unit="1",
+)
+
+
+# =============================================================================
+# Delta Lake Write Metrics
+# =============================================================================
+
+delta_writes_counter = meter.create_counter(
+    name="delta.writes",
+    description="Total number of Delta Lake write operations",
+    unit="1",
+)
+
+delta_events_written_counter = meter.create_counter(
+    name="delta.events.written",
+    description="Total number of events written to Delta tables",
+    unit="1",
+)
+
+delta_write_duration_histogram = meter.create_histogram(
+    name="delta.write.duration",
+    description="Time spent writing to Delta Lake tables",
+    unit="s",
+)
+
+
+# =============================================================================
+# ClaimX API Metrics
+# =============================================================================
+
+claimx_api_requests_counter = meter.create_counter(
+    name="claimx.api.requests",
+    description="Total number of requests to ClaimX API",
+    unit="1",
+)
+
+claimx_api_request_duration_histogram = meter.create_histogram(
+    name="claimx.api.request.duration",
+    description="Time spent waiting for ClaimX API responses",
+    unit="s",
+)
+
+
+# =============================================================================
+# ClaimX Business Logic Metrics
+# =============================================================================
+
+claim_processing_histogram = meter.create_histogram(
+    name="claim.processing.duration",
+    description="Time spent processing claim artifacts",
+    unit="s",
+)
+
+claim_media_bytes_counter = meter.create_counter(
+    name="claim.media.bytes",
+    description="Total bytes of media processed",
+    unit="By",
+)
+
+claimx_handler_duration_histogram = meter.create_histogram(
+    name="claimx.handler.duration",
+    description="Time spent processing events by handler",
+    unit="s",
+)
+
+claimx_handler_events_counter = meter.create_counter(
+    name="claimx.handler.events",
+    description="Total events processed by handler",
+    unit="1",
+)
+
+
+# =============================================================================
+# Event Ingestion Metrics
+# =============================================================================
+
+event_ingestion_counter = meter.create_counter(
+    name="kafka.events.ingested",
+    description="Total events ingested",
+    unit="1",
+)
+
+event_ingestion_duration_histogram = meter.create_histogram(
+    name="kafka.event.ingestion.duration",
+    description="Time to ingest and process event",
+    unit="s",
+)
+
+event_tasks_produced_counter = meter.create_counter(
+    name="kafka.event.tasks.produced",
+    description="Total downstream tasks produced from events",
+    unit="1",
+)
+
+
+# =============================================================================
+# OneLake Storage Metrics
+# =============================================================================
+
+onelake_operations_counter = meter.create_counter(
+    name="onelake.operations",
+    description="Total OneLake operations",
+    unit="1",
+)
+
+onelake_operation_duration_histogram = meter.create_histogram(
+    name="onelake.operation.duration",
+    description="Duration of OneLake operations",
+    unit="s",
+)
+
+onelake_bytes_transferred_counter = meter.create_counter(
+    name="onelake.bytes.transferred",
+    description="Total bytes transferred to/from OneLake",
+    unit="By",
+)
+
+onelake_operation_errors_counter = meter.create_counter(
+    name="onelake.operation.errors",
+    description="Total OneLake operation errors by type",
+    unit="1",
+)
+
+
+# =============================================================================
+# Retry Mechanism Metrics
+# =============================================================================
+
+retry_attempts_counter = meter.create_counter(
+    name="kafka.retry.attempts",
+    description="Total retry attempts by domain and error category",
+    unit="1",
+)
+
+retry_exhausted_counter = meter.create_counter(
+    name="kafka.retry.exhausted",
+    description="Total retries exhausted (sent to DLQ after max retries)",
+    unit="1",
+)
+
+dlq_messages_counter = meter.create_counter(
+    name="kafka.dlq.messages",
+    description="Total messages sent to dead-letter queue",
+    unit="1",
+)
+
+retry_delay_histogram = meter.create_histogram(
+    name="kafka.retry.delay",
+    description="Retry delay distribution",
+    unit="s",
+)
+
+# DLQ routing metrics by error category
+messages_dlq_permanent_counter = meter.create_counter(
+    name="kafka.messages.dlq.permanent",
+    description="Total messages sent to DLQ due to permanent errors",
+    unit="1",
+)
+
+messages_dlq_transient_counter = meter.create_counter(
+    name="kafka.messages.dlq.transient",
+    description="Total messages sent to DLQ due to transient errors (retry exhausted)",
+    unit="1",
+)
+
+
+# =============================================================================
+# Consumer Shutdown Metrics
+# =============================================================================
+
+consumer_shutdown_duration_histogram = meter.create_histogram(
+    name="kafka.consumer.shutdown.duration",
+    description="Time taken to shutdown Kafka consumer",
+    unit="s",
+)
+
+consumer_shutdown_timeout_counter = meter.create_counter(
+    name="kafka.consumer.shutdown.timeout",
+    description="Total number of consumer shutdown timeouts",
+    unit="1",
+)
+
+consumer_shutdown_error_counter = meter.create_counter(
+    name="kafka.consumer.shutdown.error",
+    description="Total number of consumer shutdown errors",
+    unit="1",
+)
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 
 def record_event_ingested(domain: str, status: str = "success") -> None:
@@ -287,7 +462,7 @@ def record_event_ingested(domain: str, status: str = "success") -> None:
         domain: Domain identifier (e.g., "claimx", "xact")
         status: Ingestion status (success, parse_error, validation_error)
     """
-    event_ingestion_total.labels(domain=domain, status=status).inc()
+    event_ingestion_counter.add(1, attributes={"domain": domain, "status": status})
 
 
 def record_event_task_produced(domain: str, task_type: str) -> None:
@@ -298,7 +473,7 @@ def record_event_task_produced(domain: str, task_type: str) -> None:
         domain: Domain identifier (e.g., "claimx", "xact")
         task_type: Type of task produced (download_task, enrichment_task)
     """
-    event_tasks_produced_total.labels(domain=domain, task_type=task_type).inc()
+    event_tasks_produced_counter.add(1, attributes={"domain": domain, "task_type": task_type})
 
 
 def record_onelake_operation(
@@ -313,10 +488,14 @@ def record_onelake_operation(
         duration: Operation duration in seconds
         bytes_transferred: Number of bytes transferred (for upload/download)
     """
-    onelake_operations_total.labels(operation=operation, status=status).inc()
-    onelake_operation_duration_seconds.labels(operation=operation).observe(duration)
+    onelake_operations_counter.add(
+        1, attributes={"operation": operation, "status": status}
+    )
+    onelake_operation_duration_histogram.record(duration, attributes={"operation": operation})
     if bytes_transferred > 0:
-        onelake_bytes_transferred_total.labels(operation=operation).inc(bytes_transferred)
+        onelake_bytes_transferred_counter.add(
+            bytes_transferred, attributes={"operation": operation}
+        )
 
 
 def record_onelake_error(operation: str, error_type: str) -> None:
@@ -327,7 +506,9 @@ def record_onelake_error(operation: str, error_type: str) -> None:
         operation: Operation type (upload, download, delete, exists)
         error_type: Error category (timeout, auth, not_found, unknown)
     """
-    onelake_operation_errors_total.labels(operation=operation, error_type=error_type).inc()
+    onelake_operation_errors_counter.add(
+        1, attributes={"operation": operation, "error_type": error_type}
+    )
 
 
 def record_retry_attempt(domain: str, error_category: str, delay_seconds: int = 0) -> None:
@@ -339,9 +520,11 @@ def record_retry_attempt(domain: str, error_category: str, delay_seconds: int = 
         error_category: Error category (transient, auth, circuit_open, unknown)
         delay_seconds: Delay before retry in seconds
     """
-    retry_attempts_total.labels(domain=domain, error_category=error_category).inc()
+    retry_attempts_counter.add(
+        1, attributes={"domain": domain, "error_category": error_category}
+    )
     if delay_seconds > 0:
-        retry_delay_seconds.labels(domain=domain).observe(delay_seconds)
+        retry_delay_histogram.record(delay_seconds, attributes={"domain": domain})
 
 
 def record_retry_exhausted(domain: str, error_category: str) -> None:
@@ -352,7 +535,9 @@ def record_retry_exhausted(domain: str, error_category: str) -> None:
         domain: Domain identifier (e.g., "claimx", "xact")
         error_category: Error category that exhausted retries
     """
-    retry_exhausted_total.labels(domain=domain, error_category=error_category).inc()
+    retry_exhausted_counter.add(
+        1, attributes={"domain": domain, "error_category": error_category}
+    )
 
 
 def record_dlq_message(domain: str, reason: str) -> None:
@@ -363,7 +548,7 @@ def record_dlq_message(domain: str, reason: str) -> None:
         domain: Domain identifier (e.g., "claimx", "xact")
         reason: Reason for DLQ (exhausted, permanent, error)
     """
-    dlq_messages_total.labels(domain=domain, reason=reason).inc()
+    dlq_messages_counter.add(1, attributes={"domain": domain, "reason": reason})
 
 
 def record_dlq_permanent(topic: str, consumer_group: str) -> None:
@@ -374,7 +559,9 @@ def record_dlq_permanent(topic: str, consumer_group: str) -> None:
         topic: Kafka topic name
         consumer_group: Consumer group ID
     """
-    messages_dlq_permanent.labels(topic=topic, consumer_group=consumer_group).inc()
+    messages_dlq_permanent_counter.add(
+        1, attributes={"topic": topic, "consumer_group": consumer_group}
+    )
 
 
 def record_dlq_transient(topic: str, consumer_group: str) -> None:
@@ -385,8 +572,9 @@ def record_dlq_transient(topic: str, consumer_group: str) -> None:
         topic: Kafka topic name
         consumer_group: Consumer group ID
     """
-    messages_dlq_transient.labels(topic=topic, consumer_group=consumer_group).inc()
-
+    messages_dlq_transient_counter.add(
+        1, attributes={"topic": topic, "consumer_group": consumer_group}
+    )
 
 
 def record_message_produced(topic: str, message_bytes: int, success: bool = True) -> None:
@@ -399,9 +587,9 @@ def record_message_produced(topic: str, message_bytes: int, success: bool = True
         success: Whether the production was successful
     """
     status = "success" if success else "error"
-    messages_produced_total.labels(topic=topic, status=status).inc()
+    messages_produced_counter.add(1, attributes={"topic": topic, "status": status})
     if success:
-        messages_produced_bytes.labels(topic=topic).inc(message_bytes)
+        messages_produced_bytes_counter.add(message_bytes, attributes={"topic": topic})
 
 
 def record_message_consumed(
@@ -417,18 +605,16 @@ def record_message_consumed(
         success: Whether the consumption was successful
     """
     status = "success" if success else "error"
-    messages_consumed_total.labels(
-        topic=topic, consumer_group=consumer_group, status=status
-    ).inc()
+    messages_consumed_counter.add(
+        1, attributes={"topic": topic, "consumer_group": consumer_group, "status": status}
+    )
     if success:
-        messages_consumed_bytes.labels(topic=topic, consumer_group=consumer_group).inc(
-            message_bytes
+        messages_consumed_bytes_counter.add(
+            message_bytes, attributes={"topic": topic, "consumer_group": consumer_group}
         )
 
 
-def record_processing_error(
-    topic: str, consumer_group: str, error_category: str
-) -> None:
+def record_processing_error(topic: str, consumer_group: str, error_category: str) -> None:
     """
     Record a message processing error.
 
@@ -437,9 +623,14 @@ def record_processing_error(
         consumer_group: Consumer group ID
         error_category: Error category (transient, permanent, auth, etc.)
     """
-    processing_errors_total.labels(
-        topic=topic, consumer_group=consumer_group, error_category=error_category
-    ).inc()
+    processing_errors_counter.add(
+        1,
+        attributes={
+            "topic": topic,
+            "consumer_group": consumer_group,
+            "error_category": error_category,
+        },
+    )
 
 
 def record_producer_error(topic: str, error_type: str) -> None:
@@ -450,12 +641,10 @@ def record_producer_error(topic: str, error_type: str) -> None:
         topic: Kafka topic name
         error_type: Type of error (e.g., timeout, connection_error)
     """
-    producer_errors_total.labels(topic=topic, error_type=error_type).inc()
+    producer_errors_counter.add(1, attributes={"topic": topic, "error_type": error_type})
 
 
-def update_consumer_lag(
-    topic: str, partition: int, consumer_group: str, lag: int
-) -> None:
+def update_consumer_lag(topic: str, partition: int, consumer_group: str, lag: int) -> None:
     """
     Update consumer lag gauge.
 
@@ -465,9 +654,9 @@ def update_consumer_lag(
         consumer_group: Consumer group ID
         lag: Number of messages behind the high watermark
     """
-    consumer_lag.labels(
-        topic=topic, partition=str(partition), consumer_group=consumer_group
-    ).set(lag)
+    # Store state for observable gauge callback
+    key = (f"lag:{topic}", str(partition), consumer_group)
+    _gauge_state[key] = lag
 
 
 def update_consumer_offset(
@@ -482,9 +671,9 @@ def update_consumer_offset(
         consumer_group: Consumer group ID
         offset: Current offset position
     """
-    consumer_offset.labels(
-        topic=topic, partition=str(partition), consumer_group=consumer_group
-    ).set(offset)
+    # Store state for observable gauge callback
+    key = (f"offset:{topic}", str(partition), consumer_group)
+    _gauge_state[key] = offset
 
 
 def update_circuit_breaker_state(component: str, state: int) -> None:
@@ -495,7 +684,9 @@ def update_circuit_breaker_state(component: str, state: int) -> None:
         component: Component name (producer, consumer)
         state: Circuit state (0=closed, 1=open, 2=half-open)
     """
-    circuit_breaker_state.labels(component=component).set(state)
+    # Store state for observable gauge callback
+    key = (f"circuit_breaker:{component}",)
+    _gauge_state[key] = state
 
 
 def record_circuit_breaker_failure(component: str) -> None:
@@ -505,7 +696,7 @@ def record_circuit_breaker_failure(component: str) -> None:
     Args:
         component: Component name (producer, consumer)
     """
-    circuit_breaker_failures.labels(component=component).inc()
+    circuit_breaker_failures_counter.add(1, attributes={"component": component})
 
 
 def update_connection_status(component: str, connected: bool) -> None:
@@ -516,7 +707,9 @@ def update_connection_status(component: str, connected: bool) -> None:
         component: Component name (producer, consumer)
         connected: Whether the component is connected
     """
-    kafka_connection_status.labels(component=component).set(1 if connected else 0)
+    # Store state for observable gauge callback
+    key = (f"connection:{component}",)
+    _gauge_state[key] = 1 if connected else 0
 
 
 def update_assigned_partitions(consumer_group: str, count: int) -> None:
@@ -527,7 +720,9 @@ def update_assigned_partitions(consumer_group: str, count: int) -> None:
         consumer_group: Consumer group ID
         count: Number of partitions assigned
     """
-    consumer_assigned_partitions.labels(consumer_group=consumer_group).set(count)
+    # Store state for observable gauge callback
+    key = (f"partitions:{consumer_group}",)
+    _gauge_state[key] = count
 
 
 def record_delta_write(table: str, event_count: int, success: bool = True) -> None:
@@ -540,9 +735,9 @@ def record_delta_write(table: str, event_count: int, success: bool = True) -> No
         success: Whether the write was successful
     """
     status = "success" if success else "error"
-    delta_writes_total.labels(table=table, status=status).inc()
+    delta_writes_counter.add(1, attributes={"table": table, "status": status})
     if success:
-        delta_events_written_total.labels(table=table).inc(event_count)
+        delta_events_written_counter.add(event_count, attributes={"table": table})
 
 
 def update_downloads_concurrent(worker: str, count: int) -> None:
@@ -553,7 +748,9 @@ def update_downloads_concurrent(worker: str, count: int) -> None:
         worker: Worker identifier (e.g., "download_worker")
         count: Number of downloads currently in progress
     """
-    downloads_concurrent.labels(worker=worker).set(count)
+    # Store state for observable gauge callback
+    key = (f"downloads_concurrent:{worker}",)
+    _gauge_state[key] = count
 
 
 def update_downloads_batch_size(worker: str, size: int) -> None:
@@ -564,7 +761,9 @@ def update_downloads_batch_size(worker: str, size: int) -> None:
         worker: Worker identifier (e.g., "download_worker")
         size: Number of messages in the current batch
     """
-    downloads_batch_size.labels(worker=worker).set(size)
+    # Store state for observable gauge callback
+    key = (f"downloads_batch:{worker}",)
+    _gauge_state[key] = size
 
 
 def update_uploads_concurrent(worker: str, count: int) -> None:
@@ -575,7 +774,90 @@ def update_uploads_concurrent(worker: str, count: int) -> None:
         worker: Worker identifier (e.g., "upload_worker")
         count: Number of uploads currently in progress
     """
-    uploads_concurrent.labels(worker=worker).set(count)
+    # Store state for observable gauge callback
+    key = (f"uploads_concurrent:{worker}",)
+    _gauge_state[key] = count
+
+
+def record_consumer_shutdown(
+    consumer_group: str, duration: float, status: str = "success"
+) -> None:
+    """
+    Record a consumer shutdown event.
+
+    Args:
+        consumer_group: Consumer group ID
+        duration: Shutdown duration in seconds
+        status: Shutdown status (success, timeout, error)
+    """
+    consumer_shutdown_duration_histogram.record(
+        duration, attributes={"consumer_group": consumer_group, "status": status}
+    )
+    if status == "timeout":
+        consumer_shutdown_timeout_counter.add(1, attributes={"consumer_group": consumer_group})
+
+
+def record_consumer_shutdown_error(consumer_group: str, error_type: str) -> None:
+    """
+    Record a consumer shutdown error.
+
+    Args:
+        consumer_group: Consumer group ID
+        error_type: Type of error (timeout, force_close, unknown)
+    """
+    consumer_shutdown_error_counter.add(
+        1, attributes={"consumer_group": consumer_group, "error_type": error_type}
+    )
+
+
+# =============================================================================
+# Legacy Compatibility - Direct metric exports
+# =============================================================================
+
+# For backward compatibility, export metrics with old names
+# (though in OTel, metrics are accessed through helper functions)
+messages_produced_total = messages_produced_counter
+messages_produced_bytes = messages_produced_bytes_counter
+messages_consumed_total = messages_consumed_counter
+messages_consumed_bytes = messages_consumed_bytes_counter
+consumer_lag = consumer_lag_gauge
+consumer_offset = consumer_offset_gauge
+processing_errors_total = processing_errors_counter
+producer_errors_total = producer_errors_counter
+message_processing_duration_seconds = message_processing_duration_histogram
+batch_processing_duration_seconds = batch_processing_duration_histogram
+circuit_breaker_state = circuit_breaker_state_gauge
+circuit_breaker_failures = circuit_breaker_failures_counter
+kafka_connection_status = kafka_connection_status_gauge
+consumer_assigned_partitions = consumer_assigned_partitions_gauge
+downloads_concurrent = downloads_concurrent_gauge
+downloads_batch_size = downloads_batch_size_gauge
+uploads_concurrent = uploads_concurrent_gauge
+delta_writes_total = delta_writes_counter
+delta_events_written_total = delta_events_written_counter
+delta_write_duration_seconds = delta_write_duration_histogram
+claimx_api_requests_total = claimx_api_requests_counter
+claimx_api_request_duration_seconds = claimx_api_request_duration_histogram
+claim_processing_seconds = claim_processing_histogram
+claim_media_bytes_total = claim_media_bytes_counter
+claimx_handler_duration_seconds = claimx_handler_duration_histogram
+claimx_handler_events_total = claimx_handler_events_counter
+event_ingestion_total = event_ingestion_counter
+event_ingestion_duration_seconds = event_ingestion_duration_histogram
+event_tasks_produced_total = event_tasks_produced_counter
+onelake_operations_total = onelake_operations_counter
+onelake_operation_duration_seconds = onelake_operation_duration_histogram
+onelake_bytes_transferred_total = onelake_bytes_transferred_counter
+onelake_operation_errors_total = onelake_operation_errors_counter
+retry_attempts_total = retry_attempts_counter
+retry_exhausted_total = retry_exhausted_counter
+dlq_messages_total = dlq_messages_counter
+retry_delay_seconds = retry_delay_histogram
+messages_dlq_permanent = messages_dlq_permanent_counter
+messages_dlq_transient = messages_dlq_transient_counter
+consumer_shutdown_duration_seconds = consumer_shutdown_duration_histogram
+consumer_shutdown_timeout_total = consumer_shutdown_timeout_counter
+consumer_shutdown_error_total = consumer_shutdown_error_counter
 
 
 __all__ = [
@@ -596,21 +878,22 @@ __all__ = [
     "consumer_assigned_partitions",
     "downloads_concurrent",
     "downloads_batch_size",
+    "uploads_concurrent",
     "delta_writes_total",
     "delta_events_written_total",
     "delta_write_duration_seconds",
-    # Event ingestion metrics (WP1)
+    # Event ingestion metrics
     "event_ingestion_total",
     "event_ingestion_duration_seconds",
     "event_tasks_produced_total",
     "record_event_ingested",
     "record_event_task_produced",
-    # OneLake metrics (WP2)
+    # OneLake metrics
     "onelake_operations_total",
     "onelake_operation_duration_seconds",
     "onelake_bytes_transferred_total",
     "onelake_operation_errors_total",
-    # Retry mechanism metrics (WP6)
+    # Retry mechanism metrics
     "retry_attempts_total",
     "retry_exhausted_total",
     "dlq_messages_total",
@@ -618,21 +901,17 @@ __all__ = [
     "record_retry_attempt",
     "record_retry_exhausted",
     "record_dlq_message",
-    # DLQ routing metrics (WP-211)
+    # DLQ routing metrics
     "messages_dlq_permanent",
     "messages_dlq_transient",
     "record_dlq_permanent",
     "record_dlq_transient",
-    "record_dlq_permanent",
-    "record_dlq_transient",
-    # Consumer shutdown metrics (WP-39)
+    # Consumer shutdown metrics
     "consumer_shutdown_duration_seconds",
     "consumer_shutdown_timeout_total",
     "consumer_shutdown_error_total",
     "record_consumer_shutdown",
     "record_consumer_shutdown_error",
-    "messages_dlq_permanent",
-    "messages_dlq_transient",
     # Helper functions
     "record_message_produced",
     "record_message_consumed",
@@ -645,68 +924,17 @@ __all__ = [
     "update_connection_status",
     "update_assigned_partitions",
     "update_downloads_concurrent",
-    "update_downloads_batch_size",
+    "updates_batch_size",
+    "update_uploads_concurrent",
     "record_delta_write",
     # OneLake helper functions
     "record_onelake_operation",
     "record_onelake_error",
+    # ClaimX metrics
     "claimx_api_requests_total",
     "claimx_api_request_duration_seconds",
     "claim_processing_seconds",
     "claim_media_bytes_total",
-    "update_uploads_concurrent",
-    "uploads_concurrent",
+    "claimx_handler_duration_seconds",
+    "claimx_handler_events_total",
 ]
-
-# =============================================================================
-# Consumer Shutdown Metrics (WP-39)
-# =============================================================================
-consumer_shutdown_duration_seconds = Histogram(
-    "kafka_consumer_shutdown_duration_seconds",
-    "Time taken to shutdown Kafka consumer",
-    ["consumer_group", "status"],  # status: success/timeout/error
-    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0),
-)
-
-consumer_shutdown_timeout_total = Counter(
-    "kafka_consumer_shutdown_timeout_total",
-    "Total number of consumer shutdown timeouts",
-    ["consumer_group"],
-)
-
-consumer_shutdown_error_total = Counter(
-    "kafka_consumer_shutdown_error_total",
-    "Total number of consumer shutdown errors",
-    ["consumer_group", "error_type"],  # error_type: timeout/force_close/unknown
-)
-
-
-def record_consumer_shutdown(
-    consumer_group: str, duration: float, status: str = "success"
-) -> None:
-    """
-    Record a consumer shutdown event.
-
-    Args:
-        consumer_group: Consumer group ID
-        duration: Shutdown duration in seconds
-        status: Shutdown status (success, timeout, error)
-    """
-    consumer_shutdown_duration_seconds.labels(
-        consumer_group=consumer_group, status=status
-    ).observe(duration)
-    if status == "timeout":
-        consumer_shutdown_timeout_total.labels(consumer_group=consumer_group).inc()
-
-
-def record_consumer_shutdown_error(consumer_group: str, error_type: str) -> None:
-    """
-    Record a consumer shutdown error.
-
-    Args:
-        consumer_group: Consumer group ID
-        error_type: Type of error (timeout, force_close, unknown)
-    """
-    consumer_shutdown_error_total.labels(
-        consumer_group=consumer_group, error_type=error_type
-    ).inc()

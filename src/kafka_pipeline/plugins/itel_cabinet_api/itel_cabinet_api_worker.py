@@ -100,6 +100,15 @@ class ItelCabinetApiWorker:
         """Start the worker (connect to Kafka)."""
         logger.info("Starting iTel Cabinet API Worker")
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name="itel-cabinet-api-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         self.consumer = AIOKafkaConsumer(
             self.kafka_config['input_topic'],
             bootstrap_servers=self.kafka_config['bootstrap_servers'],
@@ -233,21 +242,42 @@ class ItelCabinetApiWorker:
             }
         )
 
-        status, response = await self.connections.request_json(
-            connection_name=self.api_config['connection'],
-            method=self.api_config.get('method', 'POST'),
-            path=self.api_config['endpoint'],
-            json=api_payload,
-        )
+        # Send to API with OpenTelemetry span
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
 
-        if status < 200 or status >= 300:
-            raise Exception(f"iTel API returned error status {status}: {response}")
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("itel.api.submit", kind=SpanKind.CLIENT) as span:
+            # Set span attributes
+            span.set_attribute("http.method", self.api_config.get('method', 'POST'))
+            span.set_attribute("http.url", self.api_config['endpoint'])
+            assignment_id = api_payload.get('meta', {}).get('assignmentId') or api_payload.get('assignmentId')
+            if assignment_id:
+                span.set_attribute("assignment_id", assignment_id)
+
+            trace_id = api_payload.get('traceId')
+            if trace_id:
+                span.set_attribute("trace_id", trace_id)
+
+            status, response = await self.connections.request_json(
+                connection_name=self.api_config['connection'],
+                method=self.api_config.get('method', 'POST'),
+                path=self.api_config['endpoint'],
+                json=api_payload,
+            )
+
+            # Set response attributes
+            span.set_attribute("http.status_code", status)
+            span.set_attribute("success", 200 <= status < 300)
+
+            if status < 200 or status >= 300:
+                raise Exception(f"iTel API returned error status {status}: {response}")
 
         logger.info(
             "iTel API request successful",
             extra={
                 'status': status,
-                'assignment_id': api_payload.get('assignmentId'),
+                'assignment_id': assignment_id,
             }
         )
 

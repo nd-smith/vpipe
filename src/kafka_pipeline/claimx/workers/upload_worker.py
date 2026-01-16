@@ -192,6 +192,15 @@ class ClaimXUploadWorker:
             },
         )
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-upload-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -596,11 +605,19 @@ class ClaimXUploadWorker:
 
             # Upload to OneLake (using claimx domain-specific path)
             assert self.onelake_client is not None
-            blob_path = await self.onelake_client.upload_file(
-                relative_path=cached_message.destination_path,
-                local_path=cache_path,
-                overwrite=True,
-            )
+            from opentelemetry import trace
+            from opentelemetry.trace import SpanKind
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("onelake.upload", kind=SpanKind.CLIENT) as span:
+                span.set_attribute("media.id", media_id)
+                span.set_attribute("project.id", cached_message.project_id)
+                span.set_attribute("event.id", cached_message.source_event_id)
+                blob_path = await self.onelake_client.upload_file(
+                    relative_path=cached_message.destination_path,
+                    local_path=cache_path,
+                    overwrite=True,
+                )
 
             # Calculate processing time
             processing_time_ms = int((time.time() - start_time) * 1000)

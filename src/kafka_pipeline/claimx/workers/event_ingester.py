@@ -157,6 +157,15 @@ class ClaimXEventIngesterWorker:
         """
         logger.info("Starting ClaimXEventIngesterWorker")
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-event-ingester",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start cycle output background task
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 
@@ -388,9 +397,17 @@ class ClaimXEventIngesterWorker:
         start_time = time.perf_counter()
 
         # Decode and parse ClaimXEventMessage
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
+
+        tracer = trace.get_tracer(__name__)
         try:
-            message_data = json.loads(record.value.decode("utf-8"))
-            event = ClaimXEventMessage.from_eventhouse_row(message_data)
+            with tracer.start_as_current_span("event.parse", kind=SpanKind.INTERNAL) as span:
+                message_data = json.loads(record.value.decode("utf-8"))
+                event = ClaimXEventMessage.from_eventhouse_row(message_data)
+                span.set_attribute("event.type", event.event_type)
+                span.set_attribute("event.project_id", event.project_id)
+                span.set_attribute("trace_id", event.event_id)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse ClaimXEventMessage",
@@ -444,7 +461,11 @@ class ClaimXEventIngesterWorker:
 
         # Create enrichment task for this event
         # All events need enrichment (to fetch entity data from API)
-        await self._create_enrichment_task(event)
+        with tracer.start_as_current_span("event.process", kind=SpanKind.INTERNAL) as span:
+            span.set_attribute("event.id", event.event_id)
+            span.set_attribute("event.type", event.event_type)
+            span.set_attribute("project.id", event.project_id)
+            await self._create_enrichment_task(event)
 
         # Mark event as processed in dedup cache
         self._mark_processed(event_id)

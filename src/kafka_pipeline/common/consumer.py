@@ -456,69 +456,105 @@ class BaseKafkaConsumer:
         Args:
             message: ConsumerRecord to process
         """
-        # Use KafkaLogContext to automatically include Kafka context in all logs
-        with KafkaLogContext(
-            topic=message.topic,
-            partition=message.partition,
-            offset=message.offset,
-            key=message.key.decode("utf-8") if message.key else None,
-            consumer_group=self.group_id,
-        ):
-            log_with_context(
-                logger,
-                logging.DEBUG,
-                "Processing message",
-                message_size=len(message.value) if message.value else 0,
-            )
+        # Extract OpenTelemetry trace context from Kafka headers
+        from opentelemetry.propagate import extract
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind, StatusCode
 
-            # Track processing time
-            start_time = time.perf_counter()
-            message_size = len(message.value) if message.value else 0
+        # Convert Kafka headers to dict for context extraction
+        carrier = {}
+        if message.headers:
+            for key, value in message.headers:
+                k = key.decode("utf-8") if isinstance(key, bytes) else key
+                v = value.decode("utf-8") if isinstance(value, bytes) else value
+                carrier[k] = v
 
-            try:
-                # Call user-provided message handler
-                await self.message_handler(message)
+        # Extract trace context and create processing span
+        ctx = extract(carrier)
+        tracer = trace.get_tracer(__name__)
 
-                # Record processing duration
-                duration = time.perf_counter() - start_time
-                message_processing_duration_seconds.labels(
-                    topic=message.topic, consumer_group=self.group_id
-                ).observe(duration)
-
-                # Commit offset after successful processing (at-least-once semantics)
-                # Skip if enable_message_commit=False (batch processing mode)
-                if self._enable_message_commit:
-                    await self._consumer.commit()
-
-                # Update offset and lag metrics
-                self._update_partition_metrics(message)
-
-                # Record successful message consumption
-                record_message_consumed(
-                    message.topic, self.group_id, message_size, success=True
-                )
-
+        with tracer.start_as_current_span(
+            "kafka.message.process",
+            context=ctx,
+            kind=SpanKind.CONSUMER,
+            attributes={
+                "messaging.system": "kafka",
+                "messaging.destination": message.topic,
+                "messaging.kafka.partition": message.partition,
+                "messaging.kafka.offset": message.offset,
+                "messaging.kafka.consumer_group": self.group_id,
+                "messaging.message.id": message.key.decode("utf-8") if message.key else None,
+            },
+        ) as span:
+            # Use KafkaLogContext to automatically include Kafka context in all logs
+            with KafkaLogContext(
+                topic=message.topic,
+                partition=message.partition,
+                offset=message.offset,
+                key=message.key.decode("utf-8") if message.key else None,
+                consumer_group=self.group_id,
+            ):
                 log_with_context(
                     logger,
                     logging.DEBUG,
-                    "Message processed successfully",
-                    duration_ms=round(duration * 1000, 2),
+                    "Processing message",
+                    message_size=len(message.value) if message.value else 0,
                 )
 
-            except Exception as e:
-                # Record processing duration even for failures
-                duration = time.perf_counter() - start_time
-                message_processing_duration_seconds.labels(
-                    topic=message.topic, consumer_group=self.group_id
-                ).observe(duration)
+                # Track processing time
+                start_time = time.perf_counter()
+                message_size = len(message.value) if message.value else 0
 
-                # Record failed message consumption
-                record_message_consumed(
-                    message.topic, self.group_id, message_size, success=False
-                )
+                try:
+                    # Call user-provided message handler
+                    await self.message_handler(message)
 
-                # Classify the error to determine routing
-                await self._handle_processing_error(message, e, duration)
+                    # Record processing duration
+                    duration = time.perf_counter() - start_time
+                    message_processing_duration_seconds.labels(
+                        topic=message.topic, consumer_group=self.group_id
+                    ).observe(duration)
+
+                    # Commit offset after successful processing (at-least-once semantics)
+                    # Skip if enable_message_commit=False (batch processing mode)
+                    if self._enable_message_commit:
+                        await self._consumer.commit()
+
+                    # Update offset and lag metrics
+                    self._update_partition_metrics(message)
+
+                    # Record successful message consumption
+                    record_message_consumed(
+                        message.topic, self.group_id, message_size, success=True
+                    )
+
+                    log_with_context(
+                        logger,
+                        logging.DEBUG,
+                        "Message processed successfully",
+                        duration_ms=round(duration * 1000, 2),
+                    )
+
+                    span.set_status(StatusCode.OK)
+
+                except Exception as e:
+                    # Record processing duration even for failures
+                    duration = time.perf_counter() - start_time
+                    message_processing_duration_seconds.labels(
+                        topic=message.topic, consumer_group=self.group_id
+                    ).observe(duration)
+
+                    # Record failed message consumption
+                    record_message_consumed(
+                        message.topic, self.group_id, message_size, success=False
+                    )
+
+                    # Record exception in span
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(e)
+
+                    # Classify the error to determine routing
+                    await self._handle_processing_error(message, e, duration)
 
     async def _handle_processing_error(
         self, message: ConsumerRecord, error: Exception, duration: float

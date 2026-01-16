@@ -18,6 +18,10 @@ from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from core.types import ErrorCategory
 from core.logging import get_logger, log_exception, log_with_context
 from kafka_pipeline.common.logging import extract_log_context
+from kafka_pipeline.common.metrics import (
+    claimx_handler_duration_seconds,
+    claimx_handler_events_total,
+)
 
 if TYPE_CHECKING:
     from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
@@ -587,6 +591,31 @@ class EventHandler(ABC):
                 entity_counts=non_zero_counts,
                 total_rows=sum(non_zero_counts.values()),
             )
+
+        # Record per-handler metrics
+        # Record duration for succeeded events
+        if succeeded > 0:
+            # Calculate average duration per successful event
+            avg_duration = duration_seconds / succeeded if succeeded else duration_seconds
+            claimx_handler_duration_seconds.labels(
+                handler_name=self.name, status="success"
+            ).observe(avg_duration)
+
+        # Record duration for failed events
+        if failed > 0:
+            # Calculate average duration per failed event
+            avg_duration = duration_seconds / failed if failed else duration_seconds
+            claimx_handler_duration_seconds.labels(
+                handler_name=self.name, status="failed"
+            ).observe(avg_duration)
+
+        # Record event counts
+        claimx_handler_events_total.labels(
+            handler_name=self.name, status="success"
+        ).inc(succeeded)
+        claimx_handler_events_total.labels(
+            handler_name=self.name, status="failed"
+        ).inc(failed)
 
         return HandlerResult(
             handler_name=self.name,

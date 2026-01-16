@@ -327,6 +327,16 @@ class BaseKafkaProducer:
         if headers:
             headers_list = [(k, v.encode("utf-8")) for k, v in headers.items()]
 
+        # Inject OpenTelemetry trace context into Kafka headers
+        from opentelemetry.propagate import inject
+
+        carrier = {}
+        inject(carrier)  # Injects traceparent, tracestate into carrier
+
+        if not headers_list:
+            headers_list = []
+        headers_list.extend([(k, v.encode("utf-8")) for k, v in carrier.items()])
+
         log_with_context(
             logger,
             logging.DEBUG,

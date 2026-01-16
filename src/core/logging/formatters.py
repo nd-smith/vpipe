@@ -48,6 +48,7 @@ class JSONFormatter(logging.Formatter):
         "download_url",
         "blob_path",
         "blob_size",
+        "destination_path",
         # Operation tracking
         "operation",
         "table",
@@ -139,6 +140,12 @@ class JSONFormatter(logging.Formatter):
         # Inject trace_id from context if available (can be overridden by extra)
         if ctx["trace_id"]:
             log_entry["trace_id"] = ctx["trace_id"]
+
+        # Inject OpenTelemetry trace context if available
+        if ctx.get("otel_trace_id"):
+            log_entry["otel_trace_id"] = ctx["otel_trace_id"]
+        if ctx.get("otel_span_id"):
+            log_entry["otel_span_id"] = ctx["otel_span_id"]
 
         # Add source location for DEBUG/ERROR
         if record.levelno in (logging.DEBUG, logging.ERROR, logging.CRITICAL):

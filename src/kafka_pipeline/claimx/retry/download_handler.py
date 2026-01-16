@@ -13,6 +13,11 @@ from typing import Optional
 from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.metrics import (
+    record_retry_attempt,
+    record_retry_exhausted,
+    record_dlq_message,
+)
 from kafka_pipeline.claimx.api_client import ClaimXApiClient
 from kafka_pipeline.claimx.schemas.results import FailedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
@@ -151,6 +156,11 @@ class DownloadRetryHandler:
                     "retry_count": retry_count,
                     "max_retries": self._max_retries,
                 },
+            )
+            # Record retry exhausted metric
+            record_retry_exhausted(
+                domain="claimx",
+                error_category=error_category.value,
             )
             await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
@@ -364,6 +374,13 @@ class DownloadRetryHandler:
             },
         )
 
+        # Record retry attempt metric
+        record_retry_attempt(
+            domain="claimx",
+            error_category=error_category.value,
+            delay_seconds=delay_seconds,
+        )
+
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self.producer.send(
             topic=retry_topic,
@@ -436,6 +453,14 @@ class DownloadRetryHandler:
                 "final_error": error_message[:200],
             },
         )
+
+        # Record DLQ routing metric
+        # Determine reason: permanent error or exhausted retries
+        if error_category == ErrorCategory.PERMANENT:
+            reason = "permanent"
+        else:
+            reason = "exhausted"
+        record_dlq_message(domain="claimx", reason=reason)
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self.producer.send(

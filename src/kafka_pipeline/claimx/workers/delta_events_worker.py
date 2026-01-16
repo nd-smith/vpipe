@@ -189,6 +189,15 @@ class ClaimXDeltaEventsWorker:
         logger.info("Starting ClaimXDeltaEventsWorker")
         self._running = True
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-delta-events-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -274,8 +283,15 @@ class ClaimXDeltaEventsWorker:
         self._batch.clear()
 
         # Use simple try/except for write
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
+
+        tracer = trace.get_tracer(__name__)
         try:
-            success = await self.delta_writer.write_events(batch_to_write)
+            with tracer.start_as_current_span("delta.write", kind=SpanKind.CLIENT) as span:
+                span.set_attribute("batch.size", len(batch_to_write))
+                span.set_attribute("table.name", "claimx_events")
+                success = await self.delta_writer.write_events(batch_to_write)
 
             record_delta_write(
                 table="claimx_events",

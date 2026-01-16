@@ -87,6 +87,15 @@ class ItelCabinetTrackingWorker:
         """Start the worker (connect to Kafka)."""
         logger.info("Starting iTel Cabinet Tracking Worker")
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name="itel-cabinet-tracking-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Create Kafka consumer
         self.consumer = AIOKafkaConsumer(
             self.kafka_config['input_topic'],

@@ -229,6 +229,15 @@ class DownloadWorker:
             },
         )
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-download-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -727,11 +736,46 @@ class DownloadWorker:
                     success=True,
                 )
 
+            logger.info(
+                "Processing Xact download task",
+                extra={
+                    "trace_id": task_message.trace_id,
+                    "media_id": task_message.media_id,
+                    "assignment_id": task_message.assignment_id,
+                    "attachment_url": task_message.attachment_url,
+                    "destination_path": task_message.blob_path,
+                    "retry_count": task_message.retry_count,
+                    "topic": message.topic,
+                },
+            )
+
             # Convert to download task
             download_task = self._convert_to_download_task(task_message)
 
-            # Perform download
-            outcome = await self.downloader.download(download_task)
+            # Perform download with OpenTelemetry span
+            from opentelemetry import trace
+            from opentelemetry.trace import SpanKind
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                "download.execute",
+                kind=SpanKind.CLIENT,
+                attributes={
+                    "http.url": task_message.attachment_url,
+                    "http.method": "GET",
+                    "trace_id": task_message.trace_id,
+                    "media_id": task_message.media_id,
+                    "file_type": task_message.file_type,
+                },
+            ) as span:
+                outcome = await self.downloader.download(download_task)
+
+                # Add outcome attributes to span
+                span.set_attribute("http.status_code", outcome.status_code or 0)
+                span.set_attribute("download.success", outcome.success)
+                span.set_attribute("download.bytes", outcome.bytes_downloaded or 0)
+                if not outcome.success:
+                    span.set_attribute("error.category", outcome.error_category.value if outcome.error_category else "unknown")
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 

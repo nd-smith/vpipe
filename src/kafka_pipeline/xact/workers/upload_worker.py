@@ -26,6 +26,7 @@ from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
+from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
@@ -195,6 +196,15 @@ class UploadWorker:
                 "upload_concurrency": self.concurrency,
                 "upload_batch_size": self.batch_size,
             },
+        )
+
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-upload-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
         )
 
         # Start health check server first
@@ -539,6 +549,9 @@ class UploadWorker:
             cached_message = CachedDownloadMessage.model_validate_json(message.value)
             trace_id = cached_message.trace_id
 
+            # Set logging context for correlation
+            set_log_context(trace_id=trace_id)
+
             # Track messages received for cycle output
             self._records_processed += 1
 
@@ -596,11 +609,28 @@ class UploadWorker:
                 )
 
             # Upload to OneLake (domain-specific path)
-            blob_path = await onelake_client.upload_file(
-                relative_path=cached_message.destination_path,
-                local_path=cache_path,
-                overwrite=True,
-            )
+            from opentelemetry import trace
+            from opentelemetry.trace import SpanKind
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                "onelake.upload",
+                kind=SpanKind.CLIENT,
+                attributes={
+                    "trace_id": trace_id,
+                    "media_id": cached_message.media_id,
+                    "domain": domain,
+                    "destination_path": cached_message.destination_path,
+                    "bytes": cached_message.bytes_downloaded,
+                },
+            ) as span:
+                blob_path = await onelake_client.upload_file(
+                    relative_path=cached_message.destination_path,
+                    local_path=cache_path,
+                    overwrite=True,
+                )
+                span.set_attribute("upload.success", True)
+                span.set_attribute("blob_path", blob_path)
 
             logger.info(
                 "Uploaded file to OneLake",

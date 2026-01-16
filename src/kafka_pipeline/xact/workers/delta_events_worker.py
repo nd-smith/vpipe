@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional
 
 from aiokafka.structs import ConsumerRecord
 
+from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
@@ -188,6 +189,15 @@ class DeltaEventsWorker:
         )
         self._running = True
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-delta-events-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -308,6 +318,11 @@ class DeltaEventsWorker:
             )
             raise
 
+        # Set logging context for correlation
+        trace_id = message_data.get("traceId")
+        if trace_id:
+            set_log_context(trace_id=trace_id)
+
         # Add to batch with lock (raw dict with data already as dict)
         async with self._batch_lock:
             self._batch.append(message_data)
@@ -423,52 +438,71 @@ class DeltaEventsWorker:
         """
         batch_size = len(batch)
 
-        try:
-            success = await self.delta_writer.write_raw_events(batch, batch_id=batch_id)
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
 
-            record_delta_write(
-                table="xact_events",
-                event_count=batch_size,
-                success=success,
-            )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(
+            "delta.write",
+            kind=SpanKind.CLIENT,
+            attributes={
+                "batch_id": batch_id,
+                "batch_size": batch_size,
+                "table": "xact_events",
+            },
+        ) as span:
+            try:
+                success = await self.delta_writer.write_raw_events(batch, batch_id=batch_id)
 
-            return success
+                span.set_attribute("write.success", success)
+                record_delta_write(
+                    table="xact_events",
+                    event_count=batch_size,
+                    success=success,
+                )
 
-        except Exception as e:
-            # Classify error using DeltaRetryHandler for proper DLQ routing
-            error_category = self.retry_handler.classify_delta_error(e)
+                return success
 
-            # Store error info for _flush_batch to use
-            self._last_write_error = e
-            self._last_error_category = error_category
+            except Exception as e:
+                # Classify error using DeltaRetryHandler for proper DLQ routing
+                error_category = self.retry_handler.classify_delta_error(e)
 
-            trace_ids = []
-            event_ids = []
-            for evt in batch[:10]:
-                if evt.get("traceId") or evt.get("trace_id"):
-                    trace_ids.append(evt.get("traceId") or evt.get("trace_id"))
-                if evt.get("eventId") or evt.get("event_id"):
-                    event_ids.append(evt.get("eventId") or evt.get("event_id"))
+                # Store error info for _flush_batch to use
+                self._last_write_error = e
+                self._last_error_category = error_category
 
-            logger.error(
-                "Delta write error - classified for routing",
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "error_category": error_category.value,
-                    "error_type": type(e).__name__,
-                    "error": str(e)[:200],
-                    "trace_ids": trace_ids,
-                    "event_ids": event_ids,
-                },
-                exc_info=True,
-            )
-            record_delta_write(
-                table="xact_events",
-                event_count=batch_size,
-                success=False,
-            )
-            return False
+                trace_ids = []
+                event_ids = []
+                for evt in batch[:10]:
+                    if evt.get("traceId") or evt.get("trace_id"):
+                        trace_ids.append(evt.get("traceId") or evt.get("trace_id"))
+                    if evt.get("eventId") or evt.get("event_id"):
+                        event_ids.append(evt.get("eventId") or evt.get("event_id"))
+
+                span.set_attribute("write.success", False)
+                span.set_attribute("error.category", error_category.value)
+                span.set_attribute("error.type", type(e).__name__)
+                span.set_attribute("error.message", str(e)[:200])
+
+                logger.error(
+                    "Delta write error - classified for routing",
+                    extra={
+                        "batch_id": batch_id,
+                        "batch_size": batch_size,
+                        "error_category": error_category.value,
+                        "error_type": type(e).__name__,
+                        "error": str(e)[:200],
+                        "trace_ids": trace_ids,
+                        "event_ids": event_ids,
+                    },
+                    exc_info=True,
+                )
+                record_delta_write(
+                    table="xact_events",
+                    event_count=batch_size,
+                    success=False,
+                )
+                return False
 
     async def _periodic_cycle_output(self) -> None:
         """

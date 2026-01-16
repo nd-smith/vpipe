@@ -165,6 +165,15 @@ class EventIngesterWorker:
         logger.info("Starting EventIngesterWorker")
         self._running = True
 
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-event-ingester",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -249,9 +258,17 @@ class EventIngesterWorker:
         self._records_processed += 1
 
         # Decode and parse EventMessage
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
+
+        tracer = trace.get_tracer(__name__)
         try:
-            message_data = json.loads(record.value.decode("utf-8"))
-            event = EventMessage.from_eventhouse_row(message_data)
+            with tracer.start_as_current_span("event.parse", kind=SpanKind.INTERNAL) as span:
+                message_data = json.loads(record.value.decode("utf-8"))
+                event = EventMessage.from_eventhouse_row(message_data)
+                span.set_attribute("event.type", event.type)
+                span.set_attribute("event.status_subtype", event.status_subtype)
+                span.set_attribute("event.attachment_count", len(event.attachments) if event.attachments else 0)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse EventMessage",
@@ -399,122 +416,143 @@ class EventIngesterWorker:
             attachment_url: URL of the attachment to download
             assignment_id: Assignment ID for path generation
         """
-        # Validate attachment URL
-        is_valid, error_message = validate_download_url(attachment_url)
-        if not is_valid:
-            logger.warning(
-                "Invalid attachment URL, skipping",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event.event_id,
-                    "type": event.type,
-                    "url": sanitize_url(attachment_url),
-                    "validation_error": error_message,
-                },
-            )
-            return
+        from opentelemetry import trace
+        from opentelemetry.trace import SpanKind
 
-        # Generate blob storage path (using status_subtype from event type)
-        try:
-            blob_path, file_type = generate_blob_path(
-                status_subtype=event.status_subtype,
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("event.process", kind=SpanKind.INTERNAL) as span:
+            span.set_attribute("trace_id", event.trace_id)
+            span.set_attribute("event_id", event.event_id or "")
+            span.set_attribute("attachment_url", sanitize_url(attachment_url))
+
+            # Validate attachment URL
+            is_valid, error_message = validate_download_url(attachment_url)
+            if not is_valid:
+                logger.warning(
+                    "Invalid attachment URL, skipping",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "event_id": event.event_id,
+                        "type": event.type,
+                        "url": sanitize_url(attachment_url),
+                        "validation_error": error_message,
+                    },
+                )
+                span.set_attribute("validation.success", False)
+                span.set_attribute("validation.error", error_message)
+                return
+
+            # Generate blob storage path (using status_subtype from event type)
+            try:
+                blob_path, file_type = generate_blob_path(
+                    status_subtype=event.status_subtype,
+                    trace_id=event.trace_id,
+                    assignment_id=assignment_id,
+                    download_url=attachment_url,
+                    estimate_version=event.estimate_version,
+                )
+                span.set_attribute("blob_path", blob_path)
+                span.set_attribute("file_type", file_type)
+            except Exception as e:
+                logger.error(
+                    "Failed to generate blob path",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "event_id": event.event_id,
+                        "status_subtype": event.status_subtype,
+                        "assignment_id": assignment_id,
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                raise
+
+            # Parse original timestamp from event
+            original_timestamp = datetime.fromisoformat(
+                event.utc_datetime.replace("Z", "+00:00")
+            )
+
+            # Generate deterministic media_id from trace_id and attachment_url
+            # This provides a unique ID for each attachment that is stable across retries/replays
+            media_id = str(uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{event.trace_id}:{attachment_url}"))
+            span.set_attribute("media_id", media_id)
+
+            # Create download task message matching verisk_pipeline Task schema
+            download_task = DownloadTaskMessage(
+                media_id=media_id,
                 trace_id=event.trace_id,
+                attachment_url=attachment_url,
+                blob_path=blob_path,
+                status_subtype=event.status_subtype,
+                file_type=file_type,
                 assignment_id=assignment_id,
-                download_url=attachment_url,
                 estimate_version=event.estimate_version,
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to generate blob path",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event.event_id,
-                    "status_subtype": event.status_subtype,
-                    "assignment_id": assignment_id,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            raise
-
-        # Parse original timestamp from event
-        original_timestamp = datetime.fromisoformat(
-            event.utc_datetime.replace("Z", "+00:00")
-        )
-
-        # Generate deterministic media_id from trace_id and attachment_url
-        # This provides a unique ID for each attachment that is stable across retries/replays
-        media_id = str(uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{event.trace_id}:{attachment_url}"))
-
-        # Create download task message matching verisk_pipeline Task schema
-        download_task = DownloadTaskMessage(
-            media_id=media_id,
-            trace_id=event.trace_id,
-            attachment_url=attachment_url,
-            blob_path=blob_path,
-            status_subtype=event.status_subtype,
-            file_type=file_type,
-            assignment_id=assignment_id,
-            estimate_version=event.estimate_version,
-            retry_count=0,
-            event_type=self.domain,  # Use configured domain for OneLake routing
-            event_subtype=event.status_subtype,
-            original_timestamp=original_timestamp,
-        )
-
-        # Produce download task to pending topic
-        # CRITICAL: Must await send confirmation before allowing offset commit
-        try:
-            metadata = await self.producer.send(
-                topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
-                key=event.trace_id,
-                value=download_task,
-                headers={"trace_id": event.trace_id},
+                retry_count=0,
+                event_type=self.domain,  # Use configured domain for OneLake routing
+                event_subtype=event.status_subtype,
+                original_timestamp=original_timestamp,
             )
 
-            # Track successful task creation for cycle output
-            self._records_succeeded += 1
+            # Produce download task to pending topic
+            # CRITICAL: Must await send confirmation before allowing offset commit
+            try:
+                metadata = await self.producer.send(
+                    topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
+                    key=event.trace_id,
+                    value=download_task,
+                    headers={"trace_id": event.trace_id},
+                )
 
-            # Record task produced metric
-            record_event_task_produced(domain=self.domain, task_type="download_task")
+                # Track successful task creation for cycle output
+                self._records_succeeded += 1
 
-            logger.info(
-                "Created download task",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event.event_id,
-                    "media_id": media_id,
-                    "blob_path": blob_path,
-                    "status_subtype": event.status_subtype,
-                    "file_type": file_type,
-                    "assignment_id": assignment_id,
-                    "partition": metadata.partition,
-                    "offset": metadata.offset,
-                },
-            )
-        except Exception as e:
-            # Record send failure metric
-            record_processing_error(
-                topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
-                consumer_group=f"{self.domain}-event-ingester",
-                error_type="SEND_FAILED"
-            )
+                # Record task produced metric
+                record_event_task_produced(domain=self.domain, task_type="download_task")
 
-            logger.error(
-                "Failed to produce download task - will retry on next poll",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event.event_id,
-                    "media_id": media_id,
-                    "blob_path": blob_path,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                },
-                exc_info=True,
-            )
-            # Re-raise to prevent offset commit - message will be retried
-            # This ensures at-least-once semantics: if send fails, we retry
-            raise
+                span.set_attribute("task.created", True)
+                span.set_attribute("task.partition", metadata.partition)
+                span.set_attribute("task.offset", metadata.offset)
+
+                logger.info(
+                    "Created download task",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "event_id": event.event_id,
+                        "media_id": media_id,
+                        "blob_path": blob_path,
+                        "status_subtype": event.status_subtype,
+                        "file_type": file_type,
+                        "assignment_id": assignment_id,
+                        "partition": metadata.partition,
+                        "offset": metadata.offset,
+                    },
+                )
+            except Exception as e:
+                # Record send failure metric
+                record_processing_error(
+                    topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
+                    consumer_group=f"{self.domain}-event-ingester",
+                    error_type="SEND_FAILED"
+                )
+
+                span.set_attribute("task.created", False)
+                span.set_attribute("error", str(e))
+
+                logger.error(
+                    "Failed to produce download task - will retry on next poll",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "event_id": event.event_id,
+                        "media_id": media_id,
+                        "blob_path": blob_path,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                # Re-raise to prevent offset commit - message will be retried
+                # This ensures at-least-once semantics: if send fails, we retry
+                raise
 
     async def _periodic_cycle_output(self) -> None:
         """

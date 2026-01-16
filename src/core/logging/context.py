@@ -45,15 +45,32 @@ def get_log_context() -> Dict[str, str]:
     Get current logging context.
 
     Returns:
-        Dictionary with cycle_id, stage, worker_id, domain, and trace_id
+        Dictionary with cycle_id, stage, worker_id, domain, trace_id,
+        and OpenTelemetry trace_id/span_id if available
     """
-    return {
+    context = {
         "cycle_id": _cycle_id.get(),
         "stage": _stage_name.get(),
         "worker_id": _worker_id.get(),
         "domain": _domain.get(),
         "trace_id": _trace_id.get(),
     }
+
+    # Add OpenTelemetry trace context if available
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        span_ctx = span.get_span_context()
+
+        if span_ctx.is_valid:
+            context["otel_trace_id"] = format(span_ctx.trace_id, '032x')
+            context["otel_span_id"] = format(span_ctx.span_id, '016x')
+    except Exception:
+        # OTel not initialized or not available, skip
+        pass
+
+    return context
 
 
 def clear_log_context() -> None:

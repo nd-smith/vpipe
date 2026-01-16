@@ -116,6 +116,15 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
 
     async def start(self) -> None:
         """Start the worker."""
+        # Initialize OpenTelemetry
+        from kafka_pipeline.common.telemetry import initialize_telemetry
+        import os
+
+        initialize_telemetry(
+            service_name=f"{self.domain}-entity-delta-worker",
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+
         # Start health check server first
         await self.health_server.start()
 
@@ -246,7 +255,15 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                 },
             )
 
-            counts = await self.entity_writer.write_all(merged_rows)
+            from opentelemetry import trace
+            from opentelemetry.trace import SpanKind
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("delta.write", kind=SpanKind.CLIENT) as span:
+                span.set_attribute("batch.size", batch_size)
+                span.set_attribute("entity.row_count", merged_rows.row_count())
+                span.set_attribute("table.name", "claimx_entities")
+                counts = await self.entity_writer.write_all(merged_rows)
 
             total_rows = sum(counts.values())
             self._batches_written += 1
