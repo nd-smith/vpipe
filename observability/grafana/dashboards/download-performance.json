@@ -82,7 +82,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_processing_errors_total{topic=\"downloads.pending\"}[5m])) / (sum(rate(kafka_messages_consumed_total{topic=\"downloads.pending\"}[5m])) + sum(rate(kafka_processing_errors_total{topic=\"downloads.pending\"}[5m])))",
+          "expr": "sum(rate(kafka.processing.errors{topic=\"downloads.pending\"}[5m])) / (sum(rate(kafka.messages.consumed{topic=\"downloads.pending\"}[5m])) + sum(rate(kafka.processing.errors{topic=\"downloads.pending\"}[5m])))",
           "refId": "A"
         }
       ],
@@ -150,7 +150,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_consumed_total{topic=\"downloads.pending\",status=\"success\"}[1m]))",
+          "expr": "sum(rate(kafka.messages.consumed{topic=\"downloads.pending\",status=\"success\"}[1m]))",
           "refId": "A"
         }
       ],
@@ -237,7 +237,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(kafka_message_processing_duration_seconds_bucket{topic=\"downloads.pending\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(kafka.message.processing.duration_bucket{topic=\"downloads.pending\"}[5m])) by (le))",
           "refId": "A",
           "legendFormat": "p50"
         },
@@ -246,7 +246,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(kafka_message_processing_duration_seconds_bucket{topic=\"downloads.pending\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(kafka.message.processing.duration_bucket{topic=\"downloads.pending\"}[5m])) by (le))",
           "refId": "B",
           "legendFormat": "p95"
         },
@@ -255,7 +255,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(kafka_message_processing_duration_seconds_bucket{topic=\"downloads.pending\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(kafka.message.processing.duration_bucket{topic=\"downloads.pending\"}[5m])) by (le))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -324,7 +324,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(delta_writes_total{status=\"error\"}[5m])) / (sum(rate(delta_writes_total[5m])))",
+          "expr": "sum(rate(delta.writes{status=\"error\"}[5m])) / (sum(rate(delta.writes[5m])))",
           "refId": "A"
         }
       ],
@@ -444,7 +444,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_consumed_total{topic=\"downloads.pending\",status=\"success\"}[5m]))",
+          "expr": "sum(rate(kafka.messages.consumed{topic=\"downloads.pending\",status=\"success\"}[5m]))",
           "refId": "A",
           "legendFormat": "success"
         },
@@ -453,7 +453,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_processing_errors_total{topic=\"downloads.pending\"}[5m]))",
+          "expr": "sum(rate(kafka.processing.errors{topic=\"downloads.pending\"}[5m]))",
           "refId": "B",
           "legendFormat": "error"
         }
@@ -543,7 +543,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_processing_errors_total{topic=\"downloads.pending\"}[5m])) by (error_category)",
+          "expr": "sum(rate(kafka.processing.errors{topic=\"downloads.pending\"}[5m])) by (error_category)",
           "refId": "A",
           "legendFormat": "{{error_category}}"
         }
@@ -635,7 +635,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(delta_write_duration_seconds_bucket{table=\"xact_attachments\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(delta.write.duration_bucket{table=\"xact_attachments\"}[5m])) by (le))",
           "refId": "A",
           "legendFormat": "p50"
         },
@@ -644,7 +644,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(delta_write_duration_seconds_bucket{table=\"xact_attachments\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(delta.write.duration_bucket{table=\"xact_attachments\"}[5m])) by (le))",
           "refId": "B",
           "legendFormat": "p95"
         },
@@ -653,7 +653,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(delta_write_duration_seconds_bucket{table=\"xact_attachments\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(delta.write.duration_bucket{table=\"xact_attachments\"}[5m])) by (le))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -745,7 +745,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_consumed_bytes_total{topic=\"downloads.pending\"}[5m]))",
+          "expr": "sum(rate(kafka.messages.consumed.bytes{topic=\"downloads.pending\"}[5m]))",
           "refId": "A",
           "legendFormat": "Message Throughput"
         }
@@ -814,7 +814,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(kafka_processing_errors_total{topic=\"downloads.pending\"}[1h])) by (error_category)",
+          "expr": "sum(increase(kafka.processing.errors{topic=\"downloads.pending\"}[1h])) by (error_category)",
           "refId": "A",
           "legendFormat": "{{error_category}}"
         }
@@ -904,7 +904,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(delta_writes_total{status=\"success\"}[5m])) by (table)",
+          "expr": "sum(rate(delta.writes{status=\"success\"}[5m])) by (table)",
           "refId": "A",
           "legendFormat": "{{table}}"
         }

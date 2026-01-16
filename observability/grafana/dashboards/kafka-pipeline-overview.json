@@ -78,7 +78,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_consumed_total{status=\"success\"}[5m]))",
+          "expr": "sum(rate(kafka.messages.consumed{status=\"success\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -146,7 +146,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_produced_total{topic=\"downloads.pending\",status=\"success\"}[5m]))",
+          "expr": "sum(rate(kafka.messages.produced{topic=\"downloads.pending\",status=\"success\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -233,7 +233,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(kafka_message_processing_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(kafka.message.processing.duration_bucket[5m])) by (le))",
           "refId": "A",
           "legendFormat": "p50"
         },
@@ -242,7 +242,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(kafka_message_processing_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(kafka.message.processing.duration_bucket[5m])) by (le))",
           "refId": "B",
           "legendFormat": "p95"
         },
@@ -251,7 +251,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(kafka_message_processing_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(kafka.message.processing.duration_bucket[5m])) by (le))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -316,7 +316,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka_consumer_lag) by (topic, consumer_group)",
+          "expr": "sum(kafka.consumer.lag) by (topic, consumer_group)",
           "refId": "A"
         }
       ],
@@ -403,7 +403,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_consumed_total{status=\"success\"}[5m])) by (topic)",
+          "expr": "sum(rate(kafka.messages.consumed{status=\"success\"}[5m])) by (topic)",
           "refId": "A",
           "legendFormat": "{{topic}}"
         }
@@ -491,7 +491,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_messages_produced_total{status=\"success\"}[5m])) by (topic)",
+          "expr": "sum(rate(kafka.messages.produced{status=\"success\"}[5m])) by (topic)",
           "refId": "A",
           "legendFormat": "{{topic}}"
         }
@@ -579,7 +579,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka_processing_errors_total[5m])) by (error_category)",
+          "expr": "sum(rate(kafka.processing.errors[5m])) by (error_category)",
           "refId": "A",
           "legendFormat": "{{error_category}}"
         }
@@ -658,7 +658,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka_circuit_breaker_state",
+          "expr": "kafka.circuit_breaker.state",
           "refId": "A",
           "legendFormat": "{{component}}"
         }
@@ -746,7 +746,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka_consumer_lag) by (topic)",
+          "expr": "sum(kafka.consumer.lag) by (topic)",
           "refId": "A",
           "legendFormat": "{{topic}}"
         }
@@ -795,7 +795,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(kafka_messages_consumed_total, topic)",
+        "definition": "label_values(kafka.messages.consumed, topic)",
         "hide": 0,
         "includeAll": true,
         "label": "Topic",
@@ -803,7 +803,7 @@
         "name": "topic",
         "options": [],
         "query": {
-          "query": "label_values(kafka_messages_consumed_total, topic)",
+          "query": "label_values(kafka.messages.consumed, topic)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -822,7 +822,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(kafka_messages_consumed_total, consumer_group)",
+        "definition": "label_values(kafka.messages.consumed, consumer_group)",
         "hide": 0,
         "includeAll": true,
         "label": "Consumer Group",
@@ -830,7 +830,7 @@
         "name": "consumer_group",
         "options": [],
         "query": {
-          "query": "label_values(kafka_messages_consumed_total, consumer_group)",
+          "query": "label_values(kafka.messages.consumed, consumer_group)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

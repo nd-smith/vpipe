@@ -2,11 +2,123 @@
 
 This directory contains production-ready Grafana dashboards for monitoring the Kafka-based data pipeline.
 
+## ✅ OpenTelemetry Migration - Complete
+
+**Status**: All dashboards have been updated to use OpenTelemetry SDK metric names.
+
+**Architecture**:
+```
+Workers (OTel SDK) → OTel Collector (OTLP) → Prometheus (scrapes :8889) → Grafana
+```
+
+**Metric Naming Convention**: All metrics now use dot notation (e.g., `kafka.messages.consumed` instead of `kafka_messages_consumed_total`).
+
+**Prometheus Configuration**: Updated to scrape OTel Collector at `host.docker.internal:8889`.
+
+---
+
+## Quick Start
+
+1. **Start observability stack:**
+   ```bash
+   # Start Jaeger + OTel Collector
+   docker-compose -f docker-compose.jaeger.yml up -d
+
+   # Start Prometheus + Grafana
+   cd scripts
+   docker-compose -f docker-compose.obs.yml up -d
+   ```
+
+2. **Access Grafana:** http://localhost:3000 (admin/admin)
+
+3. **Import dashboards:** Dashboards are auto-provisioned from this directory
+
+---
+
 ## Dashboard Overview
 
-### 1. Pipeline Overview (`kafka-pipeline-overview.json`)
+### New Comprehensive Dashboards
 
-**Purpose**: High-level system health and performance monitoring
+#### 1. System Overview (`system-overview.json`) ⭐ START HERE
+
+**Purpose**: High-level view of entire pipeline health across all domains
+
+**Key Metrics**:
+- **Throughput**: Total messages consumed/produced per second by domain
+- **Consumer Lag**: Total lag across all consumers with thresholds
+- **Circuit Breakers**: Health status across all components
+- **Latency**: Message processing time (p50, p95, p99) by domain
+- **Errors**: Error rate by category across all workers
+- **Delta Lake**: Write rates across all tables
+- **OneLake**: Operation rates (upload, download)
+- **Retries**: Retry attempt rates by domain and error category
+- **DLQ**: Dead letter queue rates by domain
+
+**Use Cases**:
+- First dashboard to check for overall system health
+- Executive reporting and high-level monitoring
+- Identifying which domain has issues
+- Cross-domain performance comparison
+
+**Links**: Direct links to ClaimX and XACT domain dashboards
+
+---
+
+#### 2. ClaimX Domain (`claimx-domain.json`)
+
+**Purpose**: ClaimX-specific worker metrics and performance
+
+**Key Metrics**:
+- **Stats**: Total lag, events ingested/sec, API calls/sec, delta writes/sec
+- **Throughput**: Message consumption by topic (7 ClaimX workers)
+- **Lag**: Consumer lag by topic with stacking for easy visualization
+- **ClaimX API**: Response time percentiles by endpoint
+- **Handler Performance**: Processing time by handler type
+- **Handler Events**: Event processing rate by handler
+- **Errors**: Error rate by category (ClaimX-specific)
+- **Delta Lake**: Events written by table (projects, contacts, media, tasks, etc.)
+- **Delta Latency**: Write duration percentiles by table
+
+**ClaimX Workers Covered**:
+- Event Ingester
+- Enrichment Worker
+- Download Worker
+- Upload Worker
+- Result Processor
+- Delta Events Worker
+- Entity Delta Worker
+
+---
+
+#### 3. XACT Domain (`xact-domain.json`)
+
+**Purpose**: XACT-specific worker metrics and performance
+
+**Key Metrics**:
+- **Stats**: Total lag, events ingested/sec, messages processed/sec, delta writes/sec
+- **Throughput**: Message consumption by topic (5 XACT workers)
+- **Lag**: Consumer lag by topic with stacking
+- **Latency**: Message processing time (p50, p95, p99) by topic
+- **Errors**: Error rate by category (XACT-specific)
+- **Data Throughput**: Bytes consumed per second by topic
+- **OneLake**: Transfer rate for uploads
+- **Delta Lake**: Events written by table (events, inventory)
+- **Delta Latency**: Write duration percentiles by table
+
+**XACT Workers Covered**:
+- Event Ingester
+- Download Worker
+- Upload Worker
+- Result Processor
+- Delta Events Worker
+
+---
+
+### Existing Dashboards (Updated for OTel)
+
+#### 4. Pipeline Overview (`kafka-pipeline-overview.json`)
+
+**Purpose**: Legacy high-level system health and performance monitoring (consider using System Overview instead)
 
 **Key Metrics**:
 - **Throughput**:
@@ -34,7 +146,7 @@ This directory contains production-ready Grafana dashboards for monitoring the K
 
 ---
 
-### 2. Consumer Health (`consumer-health.json`)
+#### 5. Consumer Health (`consumer-health.json`)
 
 **Purpose**: Deep dive into Kafka consumer behavior and partition management
 
@@ -64,7 +176,7 @@ This directory contains production-ready Grafana dashboards for monitoring the K
 
 ---
 
-### 3. Download Performance (`download-performance.json`)
+#### 6. Download Performance (`download-performance.json`)
 
 **Purpose**: Monitor download worker performance and OneLake upload operations
 
@@ -96,7 +208,7 @@ This directory contains production-ready Grafana dashboards for monitoring the K
 
 ---
 
-### 4. DLQ Monitoring (`dlq-monitoring.json`)
+#### 7. DLQ Monitoring (`dlq-monitoring.json`)
 
 **Purpose**: Track and manage failed messages requiring manual intervention
 
