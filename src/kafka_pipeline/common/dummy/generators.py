@@ -177,6 +177,9 @@ class GeneratorConfig:
     failure_rate: float = 0.05  # 5% failure rate when enabled
     events_per_second: float = 1.0  # Target event rate
     plugin_profile: Optional[str] = None  # Plugin profile to use (e.g., "itel_cabinet_api")
+    # Mixed mode settings - when plugin_profile is None or "mixed"
+    itel_trigger_percentage: float = 0.3  # 30% of ClaimX events trigger itel plugin
+    include_itel_triggers: bool = True  # Include itel-triggering events in mixed mode
 
 
 @dataclass
@@ -613,6 +616,47 @@ class RealisticDataGenerator:
 
         event["raw_data"] = raw_data
         return event
+
+    def generate_claimx_event_mixed(
+        self,
+        event_type: Optional[str] = None,
+        claim: Optional[GeneratedClaim] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a ClaimX event with configurable itel plugin trigger rate.
+
+        In mixed mode, a percentage of task events (CUSTOM_TASK_ASSIGNED,
+        CUSTOM_TASK_COMPLETED) will be itel Cabinet triggers (task_id=32513).
+
+        Args:
+            event_type: Optional specific event type
+            claim: Optional existing claim
+
+        Returns:
+            Dict compatible with ClaimXEventMessage schema
+        """
+        # If itel triggers are disabled, generate standard event
+        if not self.config.include_itel_triggers:
+            return self.generate_claimx_event(event_type=event_type, claim=claim)
+
+        # Select event type if not specified
+        if event_type is None:
+            types = list(EVENT_TYPE_WEIGHTS.keys())
+            weights = [w.value for w in EVENT_TYPE_WEIGHTS.values()]
+            event_type = self._rng.choices(types, weights=weights)[0]
+
+        # Check if this is a task event and should trigger itel
+        is_task_event = event_type in ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"]
+
+        if is_task_event and self._rng.random() < self.config.itel_trigger_percentage:
+            # Generate itel-triggering event
+            return self.generate_itel_cabinet_event(
+                claim=claim,
+                event_type=event_type,
+            )
+
+        # Generate standard ClaimX event
+        return self.generate_claimx_event(event_type=event_type, claim=claim)
 
     def get_or_create_claim(self, project_id: Optional[str] = None) -> GeneratedClaim:
         """Get existing claim by project_id or create a new one."""

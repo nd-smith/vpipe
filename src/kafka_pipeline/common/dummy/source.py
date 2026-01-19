@@ -277,6 +277,19 @@ class DummyDataSource:
                     f"project_id={event_data['project_id']} | "
                     f"task_id={event_data['raw_data'].get('taskId')}"
                 )
+            elif plugin_profile == "mixed" or (
+                plugin_profile is None and self.config.generator.include_itel_triggers
+            ):
+                # Mixed mode - generate events with configurable itel trigger rate
+                event_data = self._generator.generate_claimx_event_mixed()
+                # Log if this is an itel-triggering event
+                task_id = event_data.get("raw_data", {}).get("taskId")
+                if task_id == 32513:
+                    logger.debug(
+                        f"Generated itel Cabinet trigger event | "
+                        f"event_type={event_data['event_type']} | "
+                        f"project_id={event_data['project_id']}"
+                    )
             else:
                 # Generate standard ClaimX event
                 event_data = self._generator.generate_claimx_event()
@@ -365,6 +378,8 @@ def load_dummy_source_config(
         include_failures=gen_cfg.get("include_failures", False),
         failure_rate=gen_cfg.get("failure_rate", 0.05),
         plugin_profile=gen_cfg.get("plugin_profile"),  # Support plugin profiles
+        itel_trigger_percentage=gen_cfg.get("itel_trigger_percentage", 0.3),  # 30% default
+        include_itel_triggers=gen_cfg.get("include_itel_triggers", True),  # Enabled by default
     )
 
     # File server config
