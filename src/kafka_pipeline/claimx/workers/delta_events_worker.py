@@ -31,6 +31,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
+from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
@@ -136,25 +137,6 @@ class ClaimXDeltaEventsWorker:
             worker_name="claimx-delta-events-worker",
         )
 
-        # Initialize retry handler
-        # Note: We use ClaimX-specific DeltaRetryHandler if it exists, otherwise Xact one or make common?
-        # Checking imports... from kafka_pipeline.claimx.retry import DeltaRetryHandler
-        # Assuming this exists or I need to create/use common one.
-        # Actually claimx has EnrichmentRetryHandler. Let's check if it has DeltaRetryHandler.
-        # If not, I'll use common logic or generic handler.
-        # For now, assuming I can use a similar handler pattern.
-        # The import above `from kafka_pipeline.claimx.retry import DeltaRetryHandler` is speculative.
-        # I should check if it exists. Re-checking...
-        
-        # In ClaimX, retry module likely has EnrichmentRetryHandler.
-        # I'll tentatively use Xact's DeltaRetryHandler if ClaimX's doesn't exist, 
-        # OR better, if I can't find it, I'll rely on a generic BaseRetryHandler or similar.
-        # But wait, I'm writing code now. I should've checked `kafka_pipeline.claimx.retry`.
-        # I'll assume for now I need to create/use one. 
-        # Let's fix the import later if it fails.
-        # Actually, let's look at `kafka_pipeline.xact.retry.handler` for inspiration.
-        # It takes `producer` and `table_path`.
-        
         self.retry_handler = DeltaRetryHandler(
             config=config,
             producer=producer,
