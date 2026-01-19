@@ -1,0 +1,147 @@
+# =============================================================================
+# Dual Domain Test Configuration (XACT + ClaimX with itel Triggers)
+# =============================================================================
+# This configuration generates dummy data for both XACT and ClaimX domains,
+# with a configurable percentage of ClaimX events that trigger the itel
+# Cabinet API plugin (task_id 32513).
+#
+# Usage:
+#   python scripts/run_dual_domain_producer.py
+#   # or with config file:
+#   python -m kafka_pipeline --mode dummy --config config/dummy/dual_domain_test.yaml
+#
+# What this generates:
+#   1. XACT Events:
+#      - Property claim events with attachments (photos, documents, reports)
+#      - Event types: documentsReceived, estimateCreated, etc.
+#
+#   2. ClaimX Events:
+#      - Standard ClaimX events (PROJECT_CREATED, PROJECT_FILE_ADDED, etc.)
+#      - 30% of task events trigger itel Cabinet plugin (task_id=32513)
+#
+# Related Files:
+#   - config/plugins/itel_cabinet_api/config.yaml - Plugin configuration
+#   - config/dummy/itel_cabinet_test.yaml - itel-only testing
+# =============================================================================
+
+# Generator configuration
+generator:
+  # Mixed mode - standard ClaimX events with itel triggers
+  # Set to "itel_cabinet_api" for itel-only, null/omit for standard
+  plugin_profile: "mixed"
+
+  # Percentage of task events that trigger itel plugin (0.0 to 1.0)
+  # Only applies to CUSTOM_TASK_ASSIGNED and CUSTOM_TASK_COMPLETED events
+  itel_trigger_percentage: 0.3  # 30% of task events
+
+  # Whether to include itel triggers at all
+  include_itel_triggers: true
+
+  # Optional: Use seed for reproducible test data
+  # seed: 42
+
+  # Base URL for dummy file server
+  base_url: "http://localhost:8765"
+
+  # Include some failure scenarios for testing error handling
+  include_failures: false
+  failure_rate: 0.05
+
+# File server configuration
+file_server:
+  host: "0.0.0.0"
+  port: 8765
+  default_file_size: 100000
+  max_file_size: 10000000
+
+# Domains to generate events for
+# Both XACT and ClaimX will be generated
+domains:
+  - xact
+  - claimx
+
+# Event generation settings
+# Combined rate: 20 events/min total (10 per domain)
+events_per_minute: 10.0
+
+# Burst mode for load testing
+burst_mode: false
+burst_size: 50
+burst_interval_seconds: 60
+
+# Generate all ClaimX event types
+include_all_event_types: true
+
+# Max concurrent claims to track
+max_active_claims: 100
+
+# Runtime limits (optional)
+# Stop after N events (remove for unlimited)
+max_events: 100
+
+# Stop after N seconds (remove for unlimited)
+# max_runtime_seconds: 300
+
+# =============================================================================
+# Expected Output
+# =============================================================================
+#
+# XACT Domain (xact.events.raw topic):
+#   - Event types: verisk.claims.property.xn.documentsReceived
+#   - Each event includes:
+#     - Claim metadata (assignmentId, policyNumber, etc.)
+#     - Property damage details
+#     - 1-5 attachment URLs (photos, documents, reports)
+#
+# ClaimX Domain (claimx.events.raw topic):
+#   Standard Events (~70% of events):
+#     - PROJECT_CREATED
+#     - PROJECT_FILE_ADDED
+#     - PROJECT_MFN_ADDED
+#     - CUSTOM_TASK_ASSIGNED (standard tasks)
+#     - CUSTOM_TASK_COMPLETED (standard tasks)
+#     - POLICYHOLDER_INVITED
+#     - POLICYHOLDER_JOINED
+#     - VIDEO_COLLABORATION_INVITE_SENT
+#     - VIDEO_COLLABORATION_COMPLETED
+#
+#   itel Cabinet Events (~30% of task events):
+#     - CUSTOM_TASK_ASSIGNED with task_id=32513
+#     - CUSTOM_TASK_COMPLETED with task_id=32513
+#     - Includes full form data (customer info, cabinet details)
+#     - Will trigger the itel Cabinet API plugin
+#
+# =============================================================================
+# Testing Workflow
+# =============================================================================
+#
+# 1. Start Kafka (if not running):
+#    docker-compose up -d kafka
+#
+# 2. Start the pipeline workers:
+#    # XACT workers
+#    python -m kafka_pipeline.xact.workers.event_ingester
+#
+#    # ClaimX workers
+#    python -m kafka_pipeline.claimx.workers.event_ingester
+#    python -m kafka_pipeline.claimx.workers.enrichment_worker
+#
+#    # itel Cabinet worker (for processing itel triggers)
+#    python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
+#
+# 3. Run the dual-domain producer:
+#    python scripts/run_dual_domain_producer.py
+#
+# 4. Monitor events:
+#    # Watch XACT events
+#    kafka-console-consumer --topic xact.events.raw --from-beginning
+#
+#    # Watch ClaimX events
+#    kafka-console-consumer --topic claimx.events.raw --from-beginning
+#
+#    # Watch itel trigger events
+#    kafka-console-consumer --topic itel.cabinet.task.tracking --from-beginning
+#
+# 5. Check Delta tables for persisted data
+#
+# =============================================================================
