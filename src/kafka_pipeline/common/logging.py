@@ -11,6 +11,7 @@ For core logging functions, import directly from core.logging:
     from core.logging import get_logger, log_with_context, log_exception
 """
 
+import asyncio
 import functools
 import logging
 from typing import Any, Callable, Dict, Optional, TypeVar
@@ -25,39 +26,6 @@ __all__ = [
     "extract_log_context",
     "with_api_error_handling",
 ]
-
-
-def _is_coroutine_function(func: Callable) -> bool:
-    """Check if function is a coroutine function."""
-    import asyncio
-
-    return asyncio.iscoroutinefunction(func)
-
-
-def _extract_instance_context(obj: Any) -> Dict[str, Any]:
-    """
-    Extract loggable context from instance attributes.
-
-    Looks for common identifier fields.
-
-    Args:
-        obj: Object instance
-
-    Returns:
-        Dict with identifier fields
-    """
-    ctx: Dict[str, Any] = {}
-
-    # Common identifiers
-    for attr in ["table_path", "primary_keys", "circuit_name", "api_url"]:
-        if hasattr(obj, attr):
-            value = getattr(obj, attr)
-            if value is not None:
-                # Convert table_path -> table for cleaner logging
-                key = "table" if attr == "table_path" else attr
-                ctx[key] = value
-
-    return ctx
 
 
 def logged_operation(
@@ -85,7 +53,7 @@ def logged_operation(
     """
 
     def decorator(func: F) -> F:
-        if _is_coroutine_function(func):
+        if asyncio.iscoroutinefunction(func):
 
             @functools.wraps(func)
             async def async_wrapper(self, *args, **kwargs):
@@ -171,7 +139,13 @@ class LoggedClass:
             msg: Log message
             **extra: Additional context fields
         """
-        context = _extract_instance_context(self)
+        context: Dict[str, Any] = {}
+        for attr in ["table_path", "primary_keys", "circuit_name", "api_url"]:
+            if hasattr(self, attr):
+                value = getattr(self, attr)
+                if value is not None:
+                    key = "table" if attr == "table_path" else attr
+                    context[key] = value
         context.update(extra)
         log_with_context(self._logger, level, msg, **context)
 
@@ -191,7 +165,13 @@ class LoggedClass:
             level: Log level (default: ERROR)
             **extra: Additional context fields
         """
-        context = _extract_instance_context(self)
+        context: Dict[str, Any] = {}
+        for attr in ["table_path", "primary_keys", "circuit_name", "api_url"]:
+            if hasattr(self, attr):
+                value = getattr(self, attr)
+                if value is not None:
+                    key = "table" if attr == "table_path" else attr
+                    context[key] = value
         context.update(extra)
         log_exception(self._logger, exc, msg, level=level, **context)
 
@@ -268,7 +248,7 @@ def with_api_error_handling(func: F) -> F:
             ...
     """
 
-    if _is_coroutine_function(func):
+    if asyncio.iscoroutinefunction(func):
 
         @functools.wraps(func)
         async def async_wrapper(self, *args, **kwargs):

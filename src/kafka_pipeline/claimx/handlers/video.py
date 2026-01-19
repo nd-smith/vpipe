@@ -146,9 +146,9 @@ class VideoCollabHandler(EventHandler):
             if not response:
                 return None
 
-            for item in response:
-                if str(item.get("claimId")) == project_id:
-                    return item
+            for video_collaboration in response:
+                if str(video_collaboration.get("claimId")) == project_id:
+                    return video_collaboration
 
             return response[0]
 

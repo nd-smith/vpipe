@@ -1,11 +1,4 @@
-"""
-ClaimX REST API client.
-
-Async HTTP client for the ClaimXperience API with circuit breaker protection,
-rate limiting, and comprehensive error handling.
-
-Supports file-backed credentials for automatic token refresh (following xact pattern).
-"""
+"""ClaimX REST API client with circuit breaker protection and rate limiting."""
 
 import asyncio
 import base64
@@ -36,8 +29,6 @@ logger = get_logger(__name__)
 
 
 class ClaimXApiError(Exception):
-    """Base exception for ClaimX API errors."""
-
     def __init__(
         self,
         message: str,
@@ -46,16 +37,6 @@ class ClaimXApiError(Exception):
         is_retryable: bool = True,
         should_refresh_auth: bool = False,
     ):
-        """
-        Initialize ClaimX API error.
-
-        Args:
-            message: Error description
-            status_code: HTTP status code if applicable
-            category: Error category for classification
-            is_retryable: Whether this error can be retried
-            should_refresh_auth: Whether auth credentials should be refreshed
-        """
         super().__init__(message)
         self.status_code = status_code
         self.category = category
@@ -64,30 +45,13 @@ class ClaimXApiError(Exception):
 
 
 def classify_api_error(status: int, url: str) -> ClaimXApiError:
-    """
-    Create appropriate exception for HTTP status code.
-
-    Classifies HTTP status codes into appropriate error categories:
-    - 401: Authentication error (retryable with credential refresh)
-    - 403: Authorization error (not retryable)
-    - 404: Not found (permanent, not retryable)
-    - 429: Rate limit (transient, retryable)
-    - 5xx: Server error (transient, retryable)
-    - 4xx: Client error (permanent, not retryable)
-
-    Args:
-        status: HTTP status code
-        url: Request URL for context
-
-    Returns:
-        ClaimXApiError with proper classification
-    """
+    """Classify HTTP status codes into error categories with appropriate retry/category flags."""
     if status == 401:
         return ClaimXApiError(
             f"Unauthorized (401): {url}",
             status_code=status,
             category=ErrorCategory.AUTH,
-            is_retryable=False,  # Static credentials - not retryable without changes
+            is_retryable=False,
             should_refresh_auth=False,
         )
 
@@ -140,34 +104,7 @@ def classify_api_error(status: int, url: str) -> ClaimXApiError:
 
 
 class ClaimXApiClient(LoggedClass):
-    """
-    Async client for ClaimXperience REST API.
-
-    Provides methods for fetching projects, media, tasks, contacts, and other
-    entities from the ClaimX API with built-in:
-    - Circuit breaker pattern for resilience
-    - Rate limiting via semaphore
-    - Comprehensive error handling and classification
-    - Request/response logging
-    - Automatic credential refresh (via FileBackedClaimXCredential)
-
-    Usage:
-        # With file-backed credentials (recommended for long-running workers)
-        credential = FileBackedClaimXCredential(username="user", password="pass")
-        async with ClaimXApiClient(base_url, credential=credential) as client:
-            project = await client.get_project(123)
-
-        # With static credentials (legacy)
-        async with ClaimXApiClient(base_url, auth_token="token") as client:
-            project = await client.get_project(123)
-
-    Configuration:
-        base_url: ClaimX API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
-        credential: FileBackedClaimXCredential for auto-refreshing credentials
-        auth_token: Basic authentication token (static, legacy)
-        timeout_seconds: Request timeout (default: 30)
-        max_concurrent: Maximum concurrent requests (default: 20)
-    """
+    """Async client for ClaimX REST API with circuit breaker and rate limiting."""
 
     log_component = "claimx_api"
 
@@ -179,29 +116,12 @@ class ClaimXApiClient(LoggedClass):
         max_concurrent: int = 20,
         sender_username: str = "user@example.com",
     ):
-        """
-        Initialize ClaimX API client.
-
-        Args:
-            base_url: API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
-            token: Basic auth token (base64 or similar)
-            timeout_seconds: Request timeout in seconds
-            max_concurrent: Max concurrent requests
-            sender_username: Default sender username for video collaboration
-
-        Raises:
-            ValueError: If no valid credentials provided
-        """
         self.base_url = base_url.rstrip("/")
 
         if not token:
              raise ValueError("ClaimXApiClient requires 'token'")
 
-        # Assume token is already the value for Basic auth header (or user provides base64)
-        # User said "auth with a basic token stored in env var".
-        # If it's pure "Basic <token>", we construct header.
         self._auth_header = f"Basic {token}"
-
         self.timeout_seconds = timeout_seconds
         self.max_concurrent = max_concurrent
         self.sender_username = sender_username
@@ -214,22 +134,18 @@ class ClaimXApiClient(LoggedClass):
 
 
     async def __aenter__(self) -> "ClaimXApiClient":
-        """Create session on context enter."""
         await self._ensure_session()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Close session on context exit."""
         await self.close()
 
     async def _ensure_session(self) -> None:
-        """Create aiohttp session if not exists."""
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(
                 limit=self.max_concurrent,
                 limit_per_host=self.max_concurrent,
             )
-            # Don't bake auth header into session - we pass it per-request for refresh support
             self._session = aiohttp.ClientSession(
                 connector=connector,
                 headers={
@@ -240,7 +156,6 @@ class ClaimXApiClient(LoggedClass):
             self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
     async def close(self) -> None:
-        """Close the HTTP session."""
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
@@ -253,27 +168,10 @@ class ClaimXApiClient(LoggedClass):
         json_body: Optional[Dict[str, Any]] = None,
         _auth_retry: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Make an API request with circuit breaker protection and rate limiting.
-
-        Args:
-            method: HTTP method (GET, POST)
-            endpoint: API endpoint path (will be joined with base_url)
-            params: Query parameters
-            json_body: JSON body for POST requests
-            _auth_retry: Internal flag - True if this is a retry after auth refresh
-
-        Returns:
-            Parsed JSON response
-
-        Raises:
-            ClaimXApiError: On API errors, timeouts, or circuit breaker open
-        """
         await self._ensure_session()
 
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
 
-        # Log request details before making the call
         self._log(
             logging.DEBUG,
             "API request starting",
@@ -284,7 +182,6 @@ class ClaimXApiClient(LoggedClass):
             has_body=json_body is not None,
         )
 
-        # Check circuit breaker
         if self._circuit.is_open:
             retry_after = self._circuit._get_retry_after()
             error = ClaimXApiError(
@@ -303,13 +200,12 @@ class ClaimXApiClient(LoggedClass):
             )
             raise error
 
-        # Use pre-calculated auth header
         request_headers = {"Authorization": self._auth_header}
 
         async with self._semaphore:
             start_time = asyncio.get_event_loop().time()
             try:
-                assert self._session is not None  # for mypy
+                assert self._session is not None
                 async with self._session.request(
                     method,
                     url,
@@ -318,7 +214,6 @@ class ClaimXApiClient(LoggedClass):
                     headers=request_headers,
                     timeout=aiohttp.ClientTimeout(total=self.timeout_seconds),
                 ) as response:
-                    # Record duration
                     duration = asyncio.get_event_loop().time() - start_time
                     claimx_api_request_duration_seconds.labels(
                         method=method, endpoint=endpoint
@@ -330,10 +225,8 @@ class ClaimXApiClient(LoggedClass):
                     ).inc()
 
                     if response.status != 200:
-                        # Read response body for error details
                         try:
                             response_body = await response.text()
-                            # Truncate long responses for logging
                             response_body_log = (
                                 response_body[:500] + "..."
                                 if len(response_body) > 500
@@ -364,7 +257,6 @@ class ClaimXApiClient(LoggedClass):
 
                     data = await response.json()
 
-                    # Log successful response at DEBUG level
                     self._log(
                         logging.DEBUG,
                         "API request succeeded",
@@ -418,26 +310,9 @@ class ClaimXApiClient(LoggedClass):
                 )
                 raise error
 
-    # =========================================================================
-    # Project Endpoints
-    # =========================================================================
-
     @logged_operation(level=logging.DEBUG)
     async def get_project(self, project_id: int) -> Dict[str, Any]:
-        """
-        Get full project details.
-
-        Used for: PROJECT_CREATED, PROJECT_MFN_ADDED events
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            Project data dict with full project details
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
+        """Get full project details. Used for PROJECT_CREATED, PROJECT_MFN_ADDED events."""
         return await self._request("GET", f"/export/project/{project_id}")
 
     @logged_operation(level=logging.DEBUG)
@@ -446,21 +321,7 @@ class ClaimXApiClient(LoggedClass):
         project_id: int,
         media_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Get media metadata for a project.
-
-        Used for: PROJECT_FILE_ADDED events
-
-        Args:
-            project_id: Project ID
-            media_ids: Optional list of specific media IDs to fetch
-
-        Returns:
-            List of media metadata dicts (includes full_download_link for attachments)
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
+        """Get media metadata for a project. Used for PROJECT_FILE_ADDED events."""
         params = {}
         if media_ids:
             params["mediaIds"] = ",".join(str(m) for m in media_ids)
@@ -471,11 +332,9 @@ class ClaimXApiClient(LoggedClass):
             params=params if params else None,
         )
 
-        # API may return single object or list - normalize to list
         if isinstance(response, list):
             return response
         elif isinstance(response, dict):
-            # Might be wrapped in a data/media key
             if "data" in response:
                 return response["data"]
             if "media" in response:
@@ -483,30 +342,13 @@ class ClaimXApiClient(LoggedClass):
             return [response]
         return []
 
-    # =========================================================================
-    # Contact Endpoints
-    # =========================================================================
-
     @logged_operation(level=logging.DEBUG)
     async def get_project_contacts(self, project_id: int) -> List[Dict[str, Any]]:
-        """
-        Get all contacts (policyholders) for a project.
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            List of contact data dicts
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
         response = await self._request(
             "GET",
             f"/export/project/{project_id}/contacts",
         )
 
-        # Normalize response to list
         if isinstance(response, list):
             return response
         elif isinstance(response, dict):
@@ -517,26 +359,9 @@ class ClaimXApiClient(LoggedClass):
             return [response]
         return []
 
-    # =========================================================================
-    # Custom Task Endpoints
-    # =========================================================================
-
     @logged_operation(level=logging.DEBUG)
     async def get_custom_task(self, assignment_id: int) -> Dict[str, Any]:
-        """
-        Get custom task assignment details.
-
-        Used for: CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED events
-
-        Args:
-            assignment_id: Task assignment ID
-
-        Returns:
-            Task assignment data with nested customTask and externalLinkData
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
+        """Get custom task assignment. Used for CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED events."""
         return await self._request(
             "GET",
             f"/customTasks/assignment/{assignment_id}",
@@ -545,18 +370,6 @@ class ClaimXApiClient(LoggedClass):
 
     @logged_operation(level=logging.DEBUG)
     async def get_project_tasks(self, project_id: int) -> List[Dict[str, Any]]:
-        """
-        Get all custom tasks for a project.
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            List of task assignment data
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
         body = {
             "reportType": "CUSTOM_TASK_HIGH_LEVEL",
             "projectId": project_id,
@@ -565,14 +378,9 @@ class ClaimXApiClient(LoggedClass):
 
         response = await self._request("POST", "/data", json_body=body)
 
-        # Response contains success, data, etc. - extract the data list
         if isinstance(response, dict) and "data" in response:
             return response["data"]
         return []
-
-    # =========================================================================
-    # Video Collaboration Endpoints
-    # =========================================================================
 
     @logged_operation(level=logging.DEBUG)
     async def get_video_collaboration(
@@ -582,23 +390,7 @@ class ClaimXApiClient(LoggedClass):
         end_date: Optional[datetime] = None,
         sender_username: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Get video collaboration report for a project.
-
-        Used for: VIDEO_COLLABORATION_INVITE_SENT, VIDEO_COLLABORATION_COMPLETED events
-
-        Args:
-            project_id: Project ID
-            start_date: Optional filter start date
-            end_date: Optional filter end date
-            sender_username: Sender username (defaults to instance default)
-
-        Returns:
-            Video collaboration data
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
+        """Get video collaboration report. Used for VIDEO_COLLABORATION_INVITE_SENT, VIDEO_COLLABORATION_COMPLETED events."""
         body: Dict[str, Any] = {
             "reportType": "VIDEO_COLLABORATION",
             "projectId": int(project_id),
@@ -612,32 +404,15 @@ class ClaimXApiClient(LoggedClass):
 
         return await self._request("POST", "/data", json_body=body)
 
-    # =========================================================================
-    # Conversation Endpoints
-    # =========================================================================
-
     @logged_operation(level=logging.DEBUG)
     async def get_project_conversations(
         self, project_id: int
     ) -> List[Dict[str, Any]]:
-        """
-        Get all conversations for a project.
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            List of conversation data dicts
-
-        Raises:
-            ClaimXApiError: On API errors
-        """
         response = await self._request(
             "GET",
             f"/export/project/{project_id}/conversations",
         )
 
-        # Normalize response to list
         if isinstance(response, list):
             return response
         elif isinstance(response, dict):
@@ -648,25 +423,9 @@ class ClaimXApiClient(LoggedClass):
             return [response]
         return []
 
-    # =========================================================================
-    # Utility Methods
-    # =========================================================================
-
     def get_circuit_status(self) -> Dict[str, Any]:
-        """
-        Get circuit breaker diagnostics.
-
-        Returns:
-            Dict with circuit breaker state and metrics
-        """
         return self._circuit.get_diagnostics()
 
     @property
-    def is_circuit_open(self) -> bool:
-        """
-        Check if circuit breaker is open.
-
-        Returns:
-            True if circuit is open (requests will be rejected)
-        """
+    def is_circuit_open(self):
         return self._circuit.is_open

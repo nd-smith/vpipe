@@ -68,18 +68,12 @@ class DownloadRetryHandler:
         """
         Initialize download retry handler.
 
-        Args:
-            config: Kafka configuration with retry settings
-            producer: Kafka producer for sending retry/DLQ messages
-            api_client: ClaimX API client for refreshing URLs
         """
         self.config = config
         self.producer = producer
         self.api_client = api_client
         self.pending_topic = config.get_topic("claimx", "downloads_pending")
         self.dlq_topic = config.get_topic("claimx", "dlq")
-
-        # Retry configuration
         self._retry_delays = config.get_retry_delays("claimx")
         self._max_retries = config.get_max_retries("claimx")
 
@@ -112,13 +106,6 @@ class DownloadRetryHandler:
         For transient/unknown errors, detects expired URLs and refreshes
         them from ClaimX API before routing to retry topic.
 
-        Args:
-            task: Download task that failed
-            error: Exception that caused failure
-            error_category: Classification of the error
-
-        Raises:
-            RuntimeError: If producer is not started
             Exception: If send to retry topic or DLQ fails
         """
         retry_count = task.retry_count
@@ -210,12 +197,6 @@ class DownloadRetryHandler:
         - Transient or unknown errors with HTTP 403 (Forbidden)
         - Errors containing "expired", "forbidden", or "access denied"
 
-        Args:
-            error: Exception that caused failure
-            error_category: Classification of the error
-
-        Returns:
-            True if URL refresh should be attempted
         """
         # Only consider URL refresh for transient/unknown errors
         if error_category not in (ErrorCategory.TRANSIENT, ErrorCategory.UNKNOWN):
@@ -241,11 +222,6 @@ class DownloadRetryHandler:
         Calls get_project_media() to retrieve fresh presigned URL for the media.
         Creates updated task with new URL if successful.
 
-        Args:
-            task: Download task with potentially expired URL
-
-        Returns:
-            Updated task with fresh URL, or None if refresh failed
         """
         try:
             # Extract media_id (may be string or int)
@@ -335,13 +311,6 @@ class DownloadRetryHandler:
         Increments retry count and adds error context to metadata.
         Calculates retry_at timestamp based on configured delay.
 
-        Args:
-            task: Download task to retry
-            error: Exception that caused failure
-            error_category: Classification of the error
-
-        Raises:
-            RuntimeError: If producer is not started
             Exception: If send to retry topic fails
         """
         retry_count = task.retry_count
@@ -358,8 +327,6 @@ class DownloadRetryHandler:
             updated_task.metadata = {}
         updated_task.metadata["last_error"] = error_message
         updated_task.metadata["error_category"] = error_category.value
-
-        # Calculate retry timestamp
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
@@ -413,22 +380,12 @@ class DownloadRetryHandler:
         Creates FailedDownloadMessage with complete context for manual
         review and potential replay. Preserves original task for replay.
 
-        Args:
-            task: Download task that failed permanently
-            error: Final exception that caused failure
-            error_category: Classification of the error
-            url_refresh_attempted: Whether URL refresh was attempted
-
-        Raises:
-            RuntimeError: If producer is not started
             Exception: If send to DLQ fails
         """
         # Truncate error message to prevent huge DLQ messages
         error_message = str(error)
         if len(error_message) > 500:
             error_message = error_message[:497] + "..."
-
-        # Create DLQ message
         dlq_message = FailedDownloadMessage(
             media_id=task.media_id,
             project_id=task.project_id,
@@ -487,14 +444,6 @@ class DownloadRetryHandler:
         """
         Get retry topic name for a specific retry attempt.
 
-        Args:
-            retry_count: Current retry count (0-indexed)
-
-        Returns:
-            Retry topic name (e.g., "claimx.downloads.pending.retry.300s")
-
-        Raises:
-            ValueError: If retry_count exceeds configured retry delays
         """
         if retry_count >= len(self._retry_delays):
             raise ValueError(

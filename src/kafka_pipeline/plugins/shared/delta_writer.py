@@ -52,14 +52,7 @@ class DeltaTableWriter(EnrichmentHandler):
     def __init__(self, config: Optional[dict[str, Any]] = None):
         """Initialize Delta table writer.
 
-        Args:
-            config: Handler configuration including:
-                - table_name: Name of Delta table to write to
-                - mode: Write mode (append, overwrite, etc.) - default: append
-                - schema_evolution: Enable automatic schema evolution - default: true
-                - column_mapping: Dict mapping output columns to input fields
-                - partition_by: List of columns to partition by (optional)
-                - table_location: Optional explicit table location (default: catalog-managed)
+
         """
         super().__init__(config)
         self.spark: Optional[SparkSession] = None
@@ -94,25 +87,15 @@ class DeltaTableWriter(EnrichmentHandler):
 
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
         """Write enriched data to Delta table.
-
-        Args:
-            context: Enrichment context containing enriched data
-
-        Returns:
-            EnrichmentResult indicating success or failure
         """
         try:
             # Prepare data for writing
             record = self._prepare_record(context.data)
-
-            # Add automatic timestamps
             record["processed_timestamp"] = datetime.utcnow().isoformat()
 
             # Add partition columns if needed
             if "event_timestamp" in record and self.partition_by:
                 record = self._add_partition_columns(record)
-
-            # Convert to DataFrame
             df = self.spark.createDataFrame([record])
 
             # Write to Delta table
@@ -128,12 +111,6 @@ class DeltaTableWriter(EnrichmentHandler):
 
     def _prepare_record(self, data: dict[str, Any]) -> dict[str, Any]:
         """Prepare record for writing using column mapping.
-
-        Args:
-            data: Enriched data from context
-
-        Returns:
-            Dict with columns mapped according to configuration
         """
         if not self.column_mapping:
             # No mapping - use data as-is
@@ -154,12 +131,6 @@ class DeltaTableWriter(EnrichmentHandler):
 
     def _add_partition_columns(self, record: dict[str, Any]) -> dict[str, Any]:
         """Extract partition columns from event_timestamp.
-
-        Args:
-            record: Record with event_timestamp field
-
-        Returns:
-            Record with additional year/month/day columns
         """
         timestamp_field = record.get("event_timestamp")
         if not timestamp_field:
@@ -191,24 +162,13 @@ class DeltaTableWriter(EnrichmentHandler):
 
     def _write_to_delta(self, df: DataFrame) -> None:
         """Write DataFrame to Delta table.
-
-        Args:
-            df: DataFrame to write
-
-        Raises:
             Exception: If write fails
         """
         writer = df.write.format("delta").mode(self.mode)
-
-        # Configure schema evolution
         if self.schema_evolution:
             writer = writer.option("mergeSchema", "true")
-
-        # Configure partitioning
         if self.partition_by:
             writer = writer.partitionBy(*self.partition_by)
-
-        # Write to table
         if self.table_location:
             # Write to explicit location
             writer.option("path", self.table_location).saveAsTable(self.table_name)
@@ -223,9 +183,6 @@ class DeltaTableWriter(EnrichmentHandler):
 
     def _table_exists(self) -> bool:
         """Check if Delta table exists.
-
-        Returns:
-            True if table exists, False otherwise
         """
         try:
             self.spark.table(self.table_name)
@@ -267,8 +224,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
     def __init__(self, config: Optional[dict[str, Any]] = None):
         """Initialize batch Delta table writer.
 
-        Args:
-            config: Handler configuration including batch_size and batch_timeout_seconds
+
         """
         super().__init__(config)
         self.batch_size = self.config.get("batch_size", 100)
@@ -278,27 +234,16 @@ class DeltaTableBatchWriter(DeltaTableWriter):
 
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
         """Add record to batch and write when batch is full.
-
-        Args:
-            context: Enrichment context
-
-        Returns:
-            EnrichmentResult - skip if added to batch, ok if batch flushed
         """
         import time
 
         try:
-            # Prepare record
             record = self._prepare_record(context.data)
             record["processed_timestamp"] = datetime.utcnow().isoformat()
 
             if "event_timestamp" in record and self.partition_by:
                 record = self._add_partition_columns(record)
-
-            # Add to batch
             self._batch.append(record)
-
-            # Initialize flush time
             if self._last_flush is None:
                 self._last_flush = time.time()
 
@@ -311,7 +256,6 @@ class DeltaTableBatchWriter(DeltaTableWriter):
             )
 
             if should_flush:
-                # Flush batch
                 df = self.spark.createDataFrame(self._batch)
                 self._write_to_delta(df)
 
@@ -319,8 +263,6 @@ class DeltaTableBatchWriter(DeltaTableWriter):
                     f"Flushed batch of {len(self._batch)} records to {self.table_name} "
                     f"(timeout: {time_since_flush:.1f}s)"
                 )
-
-                # Reset batch
                 self._batch.clear()
                 self._last_flush = current_time
 

@@ -3,7 +3,6 @@
 from contextvars import ContextVar
 from typing import Dict, Optional
 
-# Context variables for structured logging
 _cycle_id: ContextVar[str] = ContextVar("cycle_id", default="")
 _stage_name: ContextVar[str] = ContextVar("stage_name", default="")
 _worker_id: ContextVar[str] = ContextVar("worker_id", default="")
@@ -18,16 +17,6 @@ def set_log_context(
     domain: Optional[str] = None,
     trace_id: Optional[str] = None,
 ) -> None:
-    """
-    Set context variables for structured logging.
-
-    Args:
-        cycle_id: Current cycle identifier
-        stage: Current stage name
-        worker_id: Worker identifier
-        domain: Pipeline domain (xact, claimx, kafka)
-        trace_id: Trace identifier for request/event tracking
-    """
     if cycle_id is not None:
         _cycle_id.set(cycle_id)
     if stage is not None:
@@ -41,13 +30,6 @@ def set_log_context(
 
 
 def get_log_context() -> Dict[str, str]:
-    """
-    Get current logging context.
-
-    Returns:
-        Dictionary with cycle_id, stage, worker_id, domain, trace_id,
-        and OpenTelemetry trace_id/span_id if available
-    """
     context = {
         "cycle_id": _cycle_id.get(),
         "stage": _stage_name.get(),
@@ -74,7 +56,6 @@ def get_log_context() -> Dict[str, str]:
 
 
 def clear_log_context() -> None:
-    """Clear all logging context variables."""
     _cycle_id.set("")
     _stage_name.set("")
     _worker_id.set("")

@@ -158,8 +158,8 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
 
             # Filter out events with null event_id or event_type before creating DataFrame
             valid_events = [
-                e for e in processed_events
-                if e.get("event_id") is not None and e.get("event_type") is not None
+                event for event in processed_events
+                if event.get("event_id") is not None and event.get("event_type") is not None
             ]
 
             if len(valid_events) < len(processed_events):

@@ -98,8 +98,7 @@ class EnrichmentHandler(LoggedClass, ABC):
     def __init__(self, config: Optional[dict[str, Any]] = None):
         """Initialize handler with configuration.
 
-        Args:
-            config: Handler-specific configuration from YAML
+
         """
         self.config = config or {}
         self.name = self.__class__.__name__
@@ -108,12 +107,6 @@ class EnrichmentHandler(LoggedClass, ABC):
     @abstractmethod
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
         """Enrich the message data.
-
-        Args:
-            context: Enrichment context with message and data
-
-        Returns:
-            EnrichmentResult indicating success/failure/skip
         """
         pass
 
@@ -158,8 +151,6 @@ class TransformHandler(EnrichmentHandler):
         defaults = self.config.get("defaults", {})
 
         output = {}
-
-        # Apply mappings
         for output_key, input_path in mappings.items():
             value = self._get_nested(context.message, input_path)
             if value is not None:
@@ -181,13 +172,6 @@ class TransformHandler(EnrichmentHandler):
 
     def _get_nested(self, obj: dict, path: str) -> Any:
         """Get nested field using dot notation.
-
-        Args:
-            obj: Source object
-            path: Dot-separated path (e.g., 'task.project.name')
-
-        Returns:
-            Field value or None if not found
         """
         parts = path.split(".")
         current = obj
@@ -243,8 +227,6 @@ class ValidationHandler(EnrichmentHandler):
                 return EnrichmentResult.skip_message(
                     f"Field '{field}' equals '{expected}'"
                 )
-
-        # Validate required fields
         required_fields = self.config.get("required_fields", [])
         for field in required_fields:
             value = self._get_value(context, field)
@@ -252,16 +234,12 @@ class ValidationHandler(EnrichmentHandler):
                 return EnrichmentResult.failed(
                     f"Required field '{field}' is missing"
                 )
-
-        # Validate field rules
         field_rules = self.config.get("field_rules", {})
         for field, rules in field_rules.items():
             value = self._get_value(context, field)
 
             if value is None:
                 continue  # Skip validation if field not present (use required_fields for that)
-
-            # Check allowed values
             if "allowed_values" in rules:
                 if value not in rules["allowed_values"]:
                     return EnrichmentResult.failed(
@@ -291,8 +269,6 @@ class ValidationHandler(EnrichmentHandler):
         # Fall back to original message
         if field in context.message:
             return context.message[field]
-
-        # Try nested access
         if "." in field:
             parts = field.split(".")
             obj = context.message
@@ -351,8 +327,6 @@ class LookupHandler(EnrichmentHandler):
                     f"Path parameter '{param_name}' field '{field_name}' not found"
                 )
             endpoint = endpoint.replace(f"{{{param_name}}}", str(value))
-
-        # Build query params
         query_params = {}
         config_params = self.config.get("query_params", {})
         for param_name, value_or_field in config_params.items():
@@ -363,8 +337,6 @@ class LookupHandler(EnrichmentHandler):
                 query_params[param_name] = context.data[value_or_field]
             else:
                 query_params[param_name] = value_or_field
-
-        # Check cache
         cache_key = f"{connection_name}:{endpoint}:{query_params}"
         cache_ttl = self.config.get("cache_ttl", 0)
 
@@ -378,8 +350,6 @@ class LookupHandler(EnrichmentHandler):
                 result_field = self.config.get("result_field", "lookup_result")
                 context.data[result_field] = cached_data
                 return EnrichmentResult.ok(context.data)
-
-        # Make API request
         try:
             status, response_data = await context.connection_manager.request_json(
                 connection_name=connection_name,
@@ -396,8 +366,6 @@ class LookupHandler(EnrichmentHandler):
             # Store result in context
             result_field = self.config.get("result_field", "lookup_result")
             context.data[result_field] = response_data
-
-            # Update cache
             if cache_ttl > 0:
                 import time
 
@@ -450,7 +418,6 @@ class BatchingHandler(EnrichmentHandler):
             )
 
             if should_flush:
-                # Create batch payload
                 batch_field = self.config.get("batch_field", "items")
                 batch_data = {batch_field: self._batch.copy(), "batch_size": len(self._batch)}
 
@@ -458,8 +425,6 @@ class BatchingHandler(EnrichmentHandler):
                     f"Flushing batch of {len(self._batch)} messages "
                     f"(timeout: {time_since_last_flush:.1f}s)"
                 )
-
-                # Reset batch
                 self._batch.clear()
                 self._last_flush = current_time
 
@@ -473,9 +438,6 @@ class BatchingHandler(EnrichmentHandler):
 
     async def flush(self) -> Optional[dict[str, Any]]:
         """Force flush current batch.
-
-        Returns:
-            Batch data if batch is non-empty, None otherwise
         """
         async with self._batch_lock:
             if not self._batch:
@@ -506,15 +468,6 @@ ENRICHMENT_HANDLERS = BUILTIN_HANDLERS
 
 def create_handler_from_config(config: dict[str, Any]) -> EnrichmentHandler:
     """Create enrichment handler from configuration.
-
-    Args:
-        config: Handler configuration with 'type' and optional 'config' keys
-
-    Returns:
-        EnrichmentHandler instance
-
-    Raises:
-        ValueError: If handler type not found
     """
     handler_type = config.get("type")
     if not handler_type:
@@ -551,8 +504,7 @@ class EnrichmentPipeline:
     def __init__(self, handlers: list[EnrichmentHandler]):
         """Initialize pipeline with handlers.
 
-        Args:
-            handlers: List of handlers to execute in order
+
         """
         self.handlers = handlers
 
@@ -560,13 +512,6 @@ class EnrichmentPipeline:
         self, message: dict[str, Any], connection_manager: Optional[ConnectionManager] = None
     ) -> EnrichmentResult:
         """Execute all handlers in sequence.
-
-        Args:
-            message: Message to enrich
-            connection_manager: Optional connection manager for lookups
-
-        Returns:
-            Final enrichment result
         """
         context = EnrichmentContext(
             message=message,
@@ -593,8 +538,6 @@ class EnrichmentPipeline:
             except Exception as e:
                 logger.exception(f"Handler {handler.name} raised exception: {e}")
                 return EnrichmentResult.failed(f"Exception in {handler.name}: {str(e)}")
-
-        # All handlers succeeded
         return EnrichmentResult.ok(context.data)
 
     async def initialize(self) -> None:

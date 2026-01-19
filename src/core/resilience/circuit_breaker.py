@@ -44,31 +44,20 @@ T = TypeVar("T")
 
 
 class CircuitState(Enum):
-    """Circuit breaker states."""
-
-    CLOSED = "closed"  # Normal operation
-    OPEN = "open"  # Rejecting requests
-    HALF_OPEN = "half_open"  # Testing recovery
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
 
 
 class MetricsCollector(Protocol):
     """Protocol for metrics collection (optional dependency)."""
 
-    def increment_counter(self, name: str, labels: Optional[dict] = None) -> None:
-        """Increment a counter metric."""
-        ...
-
-    def set_gauge(self, name: str, value: float, labels: Optional[dict] = None) -> None:
-        """Set a gauge metric value."""
-        ...
+    def increment_counter(self, name: str, labels: Optional[dict] = None) -> None: ...
+    def set_gauge(self, name: str, value: float, labels: Optional[dict] = None) -> None: ...
 
 
 class ErrorClassifier(Protocol):
-    """Protocol for error classification."""
-
-    def classify_error(self, error: Exception) -> ErrorCategory:
-        """Classify an exception into an error category."""
-        ...
+    def classify_error(self, error: Exception) -> ErrorCategory: ...
 
 
 @dataclass
@@ -161,15 +150,6 @@ class CircuitStats:
 
 
 def _default_classifier(exc: Exception) -> ErrorCategory:
-    """
-    Default error classification function.
-
-    Args:
-        exc: Exception to classify
-
-    Returns:
-        ErrorCategory for the exception
-    """
     # Check if exception has a category attribute (from PipelineError)
     if hasattr(exc, "category") and isinstance(exc.category, ErrorCategory):
         return exc.category
@@ -181,11 +161,7 @@ def _default_classifier(exc: Exception) -> ErrorCategory:
 
 
 class CircuitBreaker:
-    """
-    Circuit breaker implementation with exception-aware failure tracking.
-
-    Thread-safe for concurrent access.
-    """
+    """Circuit breaker implementation with exception-aware failure tracking. Thread-safe."""
 
     def __init__(
         self,
@@ -221,12 +197,12 @@ class CircuitBreaker:
             return self._state
 
     @property
-    def is_closed(self) -> bool:
+    def is_closed(self):
         """Check if circuit is closed (normal operation)."""
         return self.state == CircuitState.CLOSED
 
     @property
-    def is_open(self) -> bool:
+    def is_open(self):
         """Check if circuit is open (rejecting)."""
         return self.state == CircuitState.OPEN
 
@@ -248,7 +224,6 @@ class CircuitBreaker:
             )
 
     def _should_count_failure(self, exc: Exception) -> bool:
-        """Determine if exception should count toward failure threshold."""
         # Classify the error
         if self._classifier:
             category = self._classifier.classify_error(exc)
@@ -278,7 +253,6 @@ class CircuitBreaker:
         )
 
     def _check_state_transition(self) -> None:
-        """Check if state should transition (called under lock)."""
         if self._state == CircuitState.OPEN:
             if self._last_failure_time is not None:
                 elapsed = time.time() - self._last_failure_time
@@ -294,7 +268,6 @@ class CircuitBreaker:
                     self._transition_to(CircuitState.HALF_OPEN)
 
     def _transition_to(self, new_state: CircuitState) -> None:
-        """Transition to new state (called under lock)."""
         old_state = self._state
         if old_state == new_state:
             return
@@ -353,7 +326,6 @@ class CircuitBreaker:
         self._export_state_metric()
 
     def _record_success(self) -> None:
-        """Record successful call (called under lock)."""
         self._stats.successful_calls += 1
         self._stats.last_success_time = time.time()
 
@@ -376,7 +348,6 @@ class CircuitBreaker:
         self._export_state_metric()
 
     def _record_failure(self, exc: Exception) -> None:
-        """Record failed call (called under lock)."""
         self._stats.failed_calls += 1
         self._stats.last_failure_time = time.time()
 
@@ -430,7 +401,6 @@ class CircuitBreaker:
         self._export_state_metric()
 
     def _export_state_metric(self) -> None:
-        """Export current circuit state as metric."""
         if not self._metrics:
             return
 
@@ -460,7 +430,6 @@ class CircuitBreaker:
         )
 
     def _can_execute(self) -> bool:
-        """Check if call can proceed (called under lock)."""
         self._check_state_transition()
 
         if self._state == CircuitState.CLOSED:
@@ -477,26 +446,12 @@ class CircuitBreaker:
         return False
 
     def _get_retry_after(self) -> float:
-        """Get seconds until circuit might close."""
         if self._last_failure_time is None:
             return 0.0
         elapsed = time.time() - self._last_failure_time
         return max(0, self.config.timeout_seconds - elapsed)
 
     def call(self, func: Callable[[], T]) -> T:
-        """
-        Execute function through circuit breaker.
-
-        Args:
-            func: Function to execute
-
-        Returns:
-            Result of function
-
-        Raises:
-            CircuitOpenError: If circuit is open
-            Exception: Any exception from func (also recorded as failure)
-        """
         with self._lock:
             self._stats.total_calls += 1
 
@@ -517,19 +472,6 @@ class CircuitBreaker:
             raise
 
     async def call_async(self, func: Callable[[], T]) -> T:
-        """
-        Execute async function through circuit breaker.
-
-        Args:
-            func: Async function to execute
-
-        Returns:
-            Result of function
-
-        Raises:
-            CircuitOpenError: If circuit is open
-            Exception: Any exception from func (also recorded as failure)
-        """
         with self._lock:
             self._stats.total_calls += 1
 
@@ -550,19 +492,16 @@ class CircuitBreaker:
             raise
 
     def record_success(self) -> None:
-        """Manually record a success (for context manager pattern)."""
         with self._lock:
             self._stats.total_calls += 1
             self._record_success()
 
     def record_failure(self, exc: Exception) -> None:
-        """Manually record a failure (for context manager pattern)."""
         with self._lock:
             self._stats.total_calls += 1
             self._record_failure(exc)
 
     def reset(self) -> None:
-        """Manually reset circuit to closed state."""
         with self._lock:
             self._transition_to(CircuitState.CLOSED)
             self._failure_count = 0
@@ -573,7 +512,6 @@ class CircuitBreaker:
             )
 
     def get_diagnostics(self) -> dict:
-        """Get diagnostic info for health checks."""
         with self._lock:
             self._check_state_transition()
             return {
@@ -610,18 +548,6 @@ def get_circuit_breaker(
     metrics_collector: Optional[MetricsCollector] = None,
     error_classifier: Optional[ErrorClassifier] = None,
 ) -> CircuitBreaker:
-    """
-    Get or create a named circuit breaker.
-
-    Args:
-        name: Unique name for the circuit breaker
-        config: Configuration (only used on first creation)
-        metrics_collector: Optional metrics collector
-        error_classifier: Optional error classifier
-
-    Returns:
-        CircuitBreaker instance
-    """
     with _registry_lock:
         if name not in _breakers:
             _breakers[name] = CircuitBreaker(
@@ -638,29 +564,6 @@ def circuit_protected(
     name: str,
     config: Optional[CircuitBreakerConfig] = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator to protect a function with a circuit breaker.
-
-    Args:
-        name: Name of the circuit breaker to use
-        config: Configuration (only used on first creation)
-
-    Returns:
-        Decorated function that executes through circuit breaker
-
-    Raises:
-        CircuitOpenError: If circuit is open
-        Exception: Any exception from the wrapped function
-
-    Usage:
-        @circuit_protected("kusto")
-        def query_kusto():
-            ...
-
-        @circuit_protected("downloads", EXTERNAL_DOWNLOAD_CIRCUIT_CONFIG)
-        def download_file(url: str):
-            ...
-    """
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)

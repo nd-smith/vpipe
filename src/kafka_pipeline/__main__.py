@@ -101,7 +101,6 @@ _shutdown_event: Optional[asyncio.Event] = None
 
 
 def get_shutdown_event() -> asyncio.Event:
-    """Get or create the global shutdown event."""
     global _shutdown_event
     if _shutdown_event is None:
         _shutdown_event = asyncio.Event()
@@ -116,18 +115,7 @@ async def run_worker_pool(
     **kwargs: Any,
 ) -> None:
     """Run multiple instances of a worker concurrently.
-
-    Creates N asyncio tasks for the same worker function. Each instance
-    joins the same Kafka consumer group, so partitions are automatically
-    distributed across instances.
-
-    Args:
-        worker_fn: Async worker function to run (e.g., run_download_worker)
-        count: Number of worker instances to launch
-        worker_name: Base name for the worker (used in task naming)
-        *args: Positional arguments to pass to worker_fn
-        **kwargs: Keyword arguments to pass to worker_fn
-    """
+    Each instance joins the same consumer group for automatic partition distribution."""
     logger.info(f"Starting {count} instances of {worker_name}...")
 
     tasks = []
@@ -148,7 +136,6 @@ async def run_worker_pool(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Run Kafka pipeline workers",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -232,16 +219,8 @@ async def run_event_ingester(
     local_kafka_config,
     domain: str = "xact",
 ):
-    """Run the Event Ingester worker.
-
-    Reads events from Event Hub and produces download tasks to local Kafka.
-    Uses separate configs: eventhub_config for consumer, local_kafka_config for producer.
-
-    Note: Delta Lake writes are handled by a separate DeltaEventsWorker.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
+    """Reads events from Event Hub and produces download tasks to local Kafka.
+    Delta Lake writes are handled by a separate DeltaEventsWorker."""
     from kafka_pipeline.xact.workers.event_ingester import EventIngesterWorker
 
     set_log_context(stage="xact-event-ingester")
@@ -255,38 +234,26 @@ async def run_event_ingester(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping event ingester...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
 async def run_eventhouse_poller(pipeline_config):
-    """Run the Eventhouse Poller.
-
-    Polls Microsoft Fabric Eventhouse for events and produces to events.raw topic.
-
-    Supports graceful shutdown: when shutdown event is set, the poller
-    finishes its current poll cycle before exiting.
-
-    Note: Deduplication handled by daily Fabric maintenance job.
-    """
+    """Polls Microsoft Fabric Eventhouse for events and produces to events.raw topic.
+    Deduplication handled by daily Fabric maintenance job."""
     from kafka_pipeline.common.eventhouse.kql_client import EventhouseConfig
     from kafka_pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
 
@@ -297,14 +264,12 @@ async def run_eventhouse_poller(pipeline_config):
     if not eventhouse_source:
         raise ValueError("Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse")
 
-    # Build Eventhouse config
     eventhouse_config = EventhouseConfig(
         cluster_url=eventhouse_source.cluster_url,
         database=eventhouse_source.database,
         query_timeout_seconds=eventhouse_source.query_timeout_seconds,
     )
 
-    # Build poller config
     poller_config = PollerConfig(
         eventhouse=eventhouse_config,
         kafka=pipeline_config.local_kafka.to_kafka_config(),
@@ -342,22 +307,14 @@ async def run_eventhouse_poller(pipeline_config):
 
 
 async def run_delta_events_worker(kafka_config, events_table_path: str):
-    """Run the Delta Events Worker.
-
-    Consumes events from the events.raw topic and writes them to the
-    xact_events Delta table. Runs independently of EventIngesterWorker
-    with its own consumer group.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    waits for pending Delta writes before exiting.
-    """
+    """Consumes events from events.raw and writes to xact_events Delta table.
+    Runs independently of EventIngesterWorker with its own consumer group."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.xact.workers.delta_events_worker import DeltaEventsWorker
 
     set_log_context(stage="xact-delta-writer")
     logger.info("Starting xact Delta Events worker...")
 
-    # Create producer for retry topic routing
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="xact",
@@ -374,47 +331,33 @@ async def run_delta_events_worker(kafka_config, events_table_path: str):
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping delta events worker...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
         await producer.stop()
 
 
 async def run_delta_retry_scheduler(kafka_config, events_table_path: str):
-    """Run the Delta Batch Retry Scheduler.
-
-    Consumes failed batches from retry topics and attempts to write them to
-    the xact_events Delta table after the configured delay has elapsed.
-
-    Routes permanently failed batches (retries exhausted) to DLQ.
-
-    Supports graceful shutdown: when shutdown event is set, the scheduler
-    stops consuming from retry topics.
-    """
+    """Consumes failed batches from retry topics and attempts to write to Delta table after delay.
+    Routes permanently failed batches to DLQ."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.xact.retry.scheduler import DeltaBatchRetryScheduler
 
     set_log_context(stage="xact-delta-retry")
     logger.info("Starting xact Delta Retry Scheduler...")
 
-    # Create producer for DLQ routing
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="xact",
@@ -454,14 +397,6 @@ async def run_delta_retry_scheduler(kafka_config, events_table_path: str):
 
 
 async def run_download_worker(kafka_config):
-    """Run the Download Worker.
-
-    Reads download tasks from local Kafka, downloads files to local cache,
-    and produces CachedDownloadMessage for the upload worker.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
     from kafka_pipeline.xact.workers.download_worker import DownloadWorker
 
     set_log_context(stage="xact-download")
@@ -471,37 +406,24 @@ async def run_download_worker(kafka_config):
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping download worker after current batch...")
         await worker.request_shutdown()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
 async def run_upload_worker(kafka_config):
-    """Run the Upload Worker.
-
-    Reads cached downloads from local Kafka, uploads files to OneLake,
-    and produces DownloadResultMessage.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
     from kafka_pipeline.xact.workers.upload_worker import UploadWorker
 
     set_log_context(stage="xact-upload")
@@ -511,25 +433,20 @@ async def run_upload_worker(kafka_config):
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping upload worker after current batch...")
         await worker.request_shutdown()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
@@ -539,30 +456,14 @@ async def run_result_processor(
     inventory_table_path: str = "",
     failed_table_path: str = "",
 ):
-    """Run the Result Processor worker.
-
-    Reads download results from local Kafka and writes to Delta Lake tables:
-    - xact_attachments: successful downloads
-    - xact_attachments_failed: permanent failures (optional)
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    flushes pending batches before exiting.
-
-    On Delta write failure, batches are routed to retry topics for reprocessing.
-
-    Args:
-        kafka_config: Kafka configuration for local broker
-        enable_delta_writes: Whether to write to Delta tables
-        inventory_table_path: Full abfss:// path to xact_attachments Delta table
-        failed_table_path: Optional path to xact_attachments_failed Delta table
-    """
+    """Reads download results and writes to Delta Lake tables.
+    On Delta write failure, batches are routed to retry topics."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.xact.workers.result_processor import ResultProcessor
 
     set_log_context(stage="xact-result-processor")
     logger.info("Starting xact Result Processor worker...")
 
-    # Validate inventory table path when delta writes are enabled
     if enable_delta_writes and not inventory_table_path:
         logger.error(
             "inventory_table_path is required for xact-result-processor "
@@ -571,7 +472,6 @@ async def run_result_processor(
         )
         raise ValueError("inventory_table_path is required when delta writes are enabled")
 
-    # Create and start producer for retry topic routing
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="xact",
@@ -590,39 +490,27 @@ async def run_result_processor(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping result processor...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
         await producer.stop()
 
 
 async def run_claimx_eventhouse_poller(pipeline_config):
-    """Run the Eventhouse Poller for claimx domain.
-
-    Polls Microsoft Fabric Eventhouse for claimx events and produces to claimx.events.raw topic.
-
-    Supports graceful shutdown: when shutdown event is set, the poller
-    finishes its current poll cycle before exiting.
-
-    Note: Deduplication handled by daily Fabric maintenance job.
-    """
+    """Polls Eventhouse for claimx events and produces to claimx.events.raw topic.
+    Deduplication handled by daily Fabric maintenance job."""
     from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
     from kafka_pipeline.common.eventhouse.kql_client import EventhouseConfig
     from kafka_pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
@@ -637,25 +525,20 @@ async def run_claimx_eventhouse_poller(pipeline_config):
             "Set in config.yaml under 'claimx_eventhouse:' or via CLAIMX_EVENTHOUSE_* env vars."
         )
 
-    # Build Eventhouse config from pipeline config
     eventhouse_config = EventhouseConfig(
         cluster_url=claimx_eventhouse.cluster_url,
         database=claimx_eventhouse.database,
         query_timeout_seconds=claimx_eventhouse.query_timeout_seconds,
     )
 
-    # Create a modified kafka config with claimx events topic
     local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
     claimx_kafka_config = local_kafka_config
-    # Update the claimx domain's events topic from eventhouse config
     if "claimx" not in claimx_kafka_config.claimx or not claimx_kafka_config.claimx:
         claimx_kafka_config.claimx = {"topics": {}}
     if "topics" not in claimx_kafka_config.claimx:
         claimx_kafka_config.claimx["topics"] = {}
     claimx_kafka_config.claimx["topics"]["events"] = claimx_eventhouse.events_topic
 
-    # Build poller config with ClaimXEventMessage schema
-    # Column mapping overridden for claimx: uses event_id instead of trace_id
     poller_config = PollerConfig(
         eventhouse=eventhouse_config,
         kafka=claimx_kafka_config,
@@ -665,7 +548,6 @@ async def run_claimx_eventhouse_poller(pipeline_config):
         batch_size=claimx_eventhouse.batch_size,
         source_table=claimx_eventhouse.source_table,
         column_mapping={
-            # trace_id not mapped - table columns TBD, order by ingestion_time only for now
             "event_type": "event_type",
             "event_subtype": "event_subtype",
             "timestamp": "timestamp",
@@ -677,7 +559,6 @@ async def run_claimx_eventhouse_poller(pipeline_config):
         backfill_start_stamp=claimx_eventhouse.backfill_start_stamp,
         backfill_stop_stamp=claimx_eventhouse.backfill_stop_stamp,
         bulk_backfill=claimx_eventhouse.bulk_backfill,
-        # Uses ingestion_time() function like xact
     )
 
     shutdown_event = get_shutdown_event()
@@ -708,16 +589,8 @@ async def run_local_event_ingester(
     local_kafka_config,
     domain: str = "xact",
 ):
-    """Run EventIngester consuming from local Kafka events.raw topic.
-
-    Used in Eventhouse mode where the poller publishes to events.raw
-    and the ingester processes events to downloads.pending.
-
-    Note: Delta Lake writes are handled by a separate DeltaEventsWorker.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
+    """Consumes from local Kafka events.raw topic and processes events to downloads.pending.
+    Used in Eventhouse mode. Delta Lake writes handled by separate DeltaEventsWorker."""
     from kafka_pipeline.xact.workers.event_ingester import EventIngesterWorker
 
     set_log_context(stage="xact-event-ingester")
@@ -730,38 +603,26 @@ async def run_local_event_ingester(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping event ingester...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
 async def run_claimx_event_ingester(
     kafka_config,
 ):
-    """Run the ClaimX Event Ingester worker.
-
-    Reads ClaimX events from events topic and produces enrichment tasks to local Kafka.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
     from kafka_pipeline.claimx.workers.event_ingester import ClaimXEventIngesterWorker
 
     set_log_context(stage="claimx-ingester")
@@ -774,25 +635,20 @@ async def run_claimx_event_ingester(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping claimx event ingester...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
@@ -800,14 +656,6 @@ async def run_claimx_enrichment_worker(
     kafka_config,
     pipeline_config,
 ):
-    """Run the ClaimX Enrichment Worker.
-
-    Reads enrichment tasks from local Kafka, calls ClaimX API to fetch entity data,
-    writes to Delta Lake entity tables, and produces download tasks for media files.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
     from kafka_pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
 
     set_log_context(stage="claimx-enricher")
@@ -823,37 +671,24 @@ async def run_claimx_enrichment_worker(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping enrichment worker...")
         await worker.request_shutdown()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
 async def run_claimx_download_worker(kafka_config):
-    """Run the ClaimX Download Worker.
-
-    Reads download tasks from local Kafka, downloads files from presigned URLs
-    to local cache, and produces CachedDownloadMessage for the upload worker.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
     from kafka_pipeline.claimx.workers.download_worker import ClaimXDownloadWorker
 
     set_log_context(stage="claimx-downloader")
@@ -863,37 +698,24 @@ async def run_claimx_download_worker(kafka_config):
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping claimx download worker...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
 async def run_claimx_upload_worker(kafka_config):
-    """Run the ClaimX Upload Worker.
-
-    Reads cached downloads from local Kafka, uploads files to OneLake,
-    and produces UploadResultMessage.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    finishes its current batch before exiting.
-    """
     from kafka_pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
 
     set_log_context(stage="claimx-uploader")
@@ -903,25 +725,20 @@ async def run_claimx_upload_worker(kafka_config):
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping claimx upload worker...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
 
 
@@ -929,13 +746,6 @@ async def run_claimx_result_processor(
     kafka_config,
     pipeline_config,
 ):
-    """Run ClaimX result processor.
-
-    Consumes upload result messages from local Kafka broker,
-    logs outcomes, emits metrics, and tracks success/failure rates.
-
-    The worker handles Kafka consumer lifecycle and graceful shutdown.
-    """
     from kafka_pipeline.claimx.workers.result_processor import ClaimXResultProcessor
 
     set_log_context(stage="claimx-result-processor")
@@ -975,22 +785,16 @@ async def run_all_workers(
     enable_delta_writes: bool = True,
 ):
     """Run all pipeline workers concurrently.
-
-    Uses the configured event source (Event Hub or Eventhouse) for ingestion.
-    Both modes use the same flow:
-        events.raw → EventIngester → downloads.pending → DownloadWorker → ...
-        events.raw → DeltaEventsWorker → Delta table (parallel)
-    """
+    Architecture: events.raw → EventIngester → downloads.pending → DownloadWorker → ...
+                  events.raw → DeltaEventsWorker → Delta table (parallel)"""
     from config.pipeline_config import EventSourceType
 
     logger.info("Starting all pipeline workers...")
 
     local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
 
-    # Create tasks list
     tasks = []
 
-    # Get events table path for delta writer
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
         events_table_path = (
             pipeline_config.xact_eventhouse.xact_events_table_path
@@ -999,9 +803,7 @@ async def run_all_workers(
     else:
         events_table_path = pipeline_config.events_table_path
 
-    # Create event source task based on configuration
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-        # Eventhouse mode: Poller → events.raw → EventIngester → downloads.pending
         tasks.append(
             asyncio.create_task(
                 run_eventhouse_poller(pipeline_config),
@@ -1019,7 +821,6 @@ async def run_all_workers(
         )
         logger.info("Using Eventhouse as event source")
     else:
-        # EventHub mode: EventHub → events.raw → EventIngester → downloads.pending
         eventhub_config = pipeline_config.eventhub.to_kafka_config()
         tasks.append(
             asyncio.create_task(
@@ -1033,7 +834,6 @@ async def run_all_workers(
         )
         logger.info("Using Event Hub as event source")
 
-    # Add Delta events writer if enabled and path is configured
     if enable_delta_writes and events_table_path:
         tasks.append(
             asyncio.create_task(
@@ -1043,7 +843,6 @@ async def run_all_workers(
         )
         logger.info("Delta events writer enabled")
 
-        # Add Delta retry scheduler if Delta writes are enabled
         tasks.append(
             asyncio.create_task(
                 run_delta_retry_scheduler(local_kafka_config, events_table_path),
@@ -1052,7 +851,6 @@ async def run_all_workers(
         )
         logger.info("Delta retry scheduler enabled")
 
-    # Add common workers
     tasks.extend([
         asyncio.create_task(
             run_download_worker(local_kafka_config),
@@ -1073,7 +871,6 @@ async def run_all_workers(
         ),
     ])
 
-    # Wait for all tasks (they run indefinitely until stopped)
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
@@ -1085,36 +882,21 @@ async def run_all_workers(
 
 def start_metrics_server(preferred_port: int) -> int:
     """Start Prometheus metrics server with automatic port fallback.
-
-    Tries the preferred port first. If it's already in use, automatically
-    finds an available port by letting the OS assign one.
-
-    Args:
-        preferred_port: Desired port number (e.g., 8000)
-
-    Returns:
-        Actual port number that the server is listening on
-
-    Raises:
-        OSError: If unable to start server on any port
-    """
+    Returns actual port number that the server is listening on."""
     import socket
 
     try:
-        # Try preferred port first
         start_http_server(preferred_port)
         return preferred_port
     except OSError as e:
-        if e.errno == 98:  # Address already in use
+        if e.errno == 98:
             logger.info(f"Port {preferred_port} already in use, finding available port...")
 
-            # Find an available port by creating a temporary socket
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('', 0))  # Bind to any available port
+                s.bind(('', 0))
                 s.listen(1)
                 available_port = s.getsockname()[1]
 
-            # Now start the metrics server on the available port
             start_http_server(available_port)
             return available_port
         else:
@@ -1124,33 +906,20 @@ def start_metrics_server(preferred_port: int) -> int:
 def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     """Set up signal handlers for graceful shutdown.
 
-    Shutdown Behavior:
-    - First CTRL+C (SIGINT/SIGTERM): Sets the global shutdown event.
-      All workers receive this signal and initiate graceful shutdown:
-      - Finish processing current batch/message
-      - Flush pending data to Delta Lake
-      - Commit Kafka offsets
-      - Close connections gracefully
-    - Second CTRL+C: Forces immediate shutdown by cancelling all tasks.
-      Use only if graceful shutdown is stuck.
-
-    Note: Signal handlers are not supported on Windows. On Windows,
-    KeyboardInterrupt is used instead, which triggers asyncio.CancelledError.
-    """
+    First CTRL+C: Sets shutdown event - workers finish current batch, flush data, commit offsets.
+    Second CTRL+C: Forces immediate shutdown by cancelling all tasks.
+    Note: Signal handlers not supported on Windows - KeyboardInterrupt used instead."""
 
     def handle_signal(sig):
         logger.info(f"Received signal {sig.name}, initiating graceful shutdown...")
-        # Set shutdown event to signal workers to finish current batch and exit
         shutdown_event = get_shutdown_event()
         if not shutdown_event.is_set():
             shutdown_event.set()
         else:
-            # Second signal - force immediate shutdown
             logger.warning("Received second signal, forcing immediate shutdown...")
             for task in asyncio.all_tasks(loop):
                 task.cancel()
 
-    # Signal handlers are not supported on Windows
     if sys.platform == "win32":
         logger.debug("Signal handlers not supported on Windows, using KeyboardInterrupt")
         return
@@ -1160,23 +929,17 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 
 
 def main():
-    """Main entry point."""
-    # Load environment variables from .env file before any config access
-    # Explicitly specify path to ensure .env is found regardless of working directory
     load_dotenv(PROJECT_ROOT / ".env")
 
-    # Debug: Log auth-related env vars to help diagnose token file issues
     _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
     _debug_token_exists = Path(_debug_token_file).exists() if _debug_token_file else False
     print(f"DEBUG [auth]: PROJECT_ROOT={PROJECT_ROOT}")
     print(f"DEBUG [auth]: AZURE_TOKEN_FILE={_debug_token_file}")
     print(f"DEBUG [auth]: Token file exists={_debug_token_exists}")
     if _debug_token_file and not _debug_token_exists:
-        # Try resolving relative to PROJECT_ROOT
         _resolved = PROJECT_ROOT / _debug_token_file
         print(f"DEBUG [auth]: Resolved path={_resolved}, exists={_resolved.exists()}")
 
-    # Debug: Log SPN credentials
     _debug_client_id = os.getenv("AZURE_CLIENT_ID")
     _debug_tenant_id = os.getenv("AZURE_TENANT_ID")
     _debug_client_secret = os.getenv("AZURE_CLIENT_SECRET")
@@ -1187,33 +950,22 @@ def main():
     global logger
     args = parse_args()
 
-    # Determine log configuration
     log_level = getattr(logging, args.log_level)
 
-    # JSON logs: controlled via JSON_LOGS env var (default: true)
-    # Set JSON_LOGS=false for human-readable logs during local development
     json_logs = os.getenv("JSON_LOGS", "true").lower() in ("true", "1", "yes")
 
-    # Log directory: CLI arg > env var > default ./logs
     log_dir_str = args.log_dir or os.getenv("LOG_DIR", "logs")
     log_dir = Path(log_dir_str)
 
-    # Worker ID for log context
     worker_id = os.getenv("WORKER_ID", f"kafka-{args.worker}")
 
-    # Determine domain from worker name for separate log directories
-    # Extract domain prefix: xact-download -> xact, claimx-enricher -> claimx
-    domain = "kafka"  # Default fallback
+    domain = "kafka"
     if args.worker != "all" and "-" in args.worker:
         domain_prefix = args.worker.split("-")[0]
         if domain_prefix in ("xact", "claimx"):
             domain = domain_prefix
 
-    # Initialize structured logging infrastructure
     if args.worker == "all":
-        # Multi-worker mode: create per-worker log files
-        # Note: For "all" mode, we use "kafka" as the combined domain
-        # Individual workers will still log with domain context from set_log_context()
         setup_multi_worker_logging(
             workers=WORKER_STAGES,
             domain="kafka",
@@ -1222,7 +974,6 @@ def main():
             console_level=log_level,
         )
     else:
-        # Single worker mode: single log file with domain-specific directory
         setup_logging(
             name="kafka_pipeline",
             stage=args.worker,
@@ -1233,10 +984,8 @@ def main():
             worker_id=worker_id,
         )
 
-    # Re-get logger after setup to use new handlers
     logger = get_logger(__name__)
 
-    # Log auth-related env vars to help diagnose token file issues (metadata only)
     _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
     if _debug_token_file:
         _debug_token_exists = Path(_debug_token_file).exists()
@@ -1249,7 +998,6 @@ def main():
             }
         )
         if not _debug_token_exists:
-            # Try resolving relative to PROJECT_ROOT
             _resolved = PROJECT_ROOT / _debug_token_file
             logger.debug(
                 "Attempting to resolve token file path relative to project root",
@@ -1259,17 +1007,12 @@ def main():
                 }
             )
 
-    # Start Prometheus metrics server with automatic port fallback
     actual_port = start_metrics_server(args.metrics_port)
     if actual_port != args.metrics_port:
         logger.info(f"Metrics server started on port {actual_port} (fallback from {args.metrics_port})")
     else:
         logger.info(f"Metrics server started on port {actual_port}")
 
-    # Load configuration
-    # Dev mode bypasses Event Hub/Eventhouse requirements for local testing.
-    # Production mode requires either Event Hub or Eventhouse credentials.
-    # NOTE: Inline imports below are intentional - lazy loading for conditional code paths
     if args.dev:
         logger.info("Running in DEVELOPMENT mode (local Kafka only)")
         from config.pipeline_config import (
@@ -1281,17 +1024,14 @@ def main():
         local_config = LocalKafkaConfig.load_config()
         kafka_config = local_config.to_kafka_config()
 
-        # In dev mode, create a minimal PipelineConfig
         pipeline_config = PipelineConfig(
             event_source=EventSourceType.EVENTHUB,
             local_kafka=local_config,
         )
 
-        # For backwards compatibility with single-worker modes
         eventhub_config = kafka_config
         local_kafka_config = kafka_config
     else:
-        # Production mode: Event Hub or Eventhouse + local Kafka
         from config.pipeline_config import EventSourceType, get_pipeline_config
 
         try:
@@ -1300,7 +1040,7 @@ def main():
 
             if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
                 logger.info("Running in PRODUCTION mode (Eventhouse + local Kafka)")
-                eventhub_config = None  # Not used for Eventhouse mode
+                eventhub_config = None
             else:
                 logger.info("Running in PRODUCTION mode (Event Hub + local Kafka)")
                 eventhub_config = pipeline_config.eventhub.to_kafka_config()
@@ -1311,16 +1051,13 @@ def main():
 
     enable_delta_writes = not args.no_delta
 
-    # Get or create event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Set up signal handlers
     setup_signal_handlers(loop)
 
     try:
         if args.worker == "xact-poller":
-            # Eventhouse poller - polls Eventhouse and produces to events.raw topic
             if pipeline_config.event_source != EventSourceType.EVENTHOUSE:
                 logger.error("xact-poller requires EVENT_SOURCE=eventhouse")
                 sys.exit(1)
@@ -1334,9 +1071,7 @@ def main():
             else:
                 loop.run_until_complete(run_eventhouse_poller(pipeline_config))
         elif args.worker == "xact-event-ingester":
-            # Event ingester - consumes events and produces download tasks
             if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-                # Eventhouse mode: consume from local events.raw topic
                 if args.count > 1:
                     loop.run_until_complete(
                         run_worker_pool(
@@ -1353,7 +1088,6 @@ def main():
                         )
                     )
             else:
-                # EventHub mode: consume from Event Hub
                 if args.count > 1:
                     loop.run_until_complete(
                         run_worker_pool(
@@ -1372,8 +1106,6 @@ def main():
                         )
                     )
         elif args.worker == "xact-local-ingester":
-            # Local event ingester - consumes events.raw and produces downloads.pending
-            # Used after backfill to process events without running the full pipeline
             if args.count > 1:
                 loop.run_until_complete(
                     run_worker_pool(
@@ -1390,7 +1122,6 @@ def main():
                     )
                 )
         elif args.worker == "xact-delta-writer":
-            # Delta events writer - writes events to Delta table
             events_table_path = pipeline_config.events_table_path
             if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
                 events_table_path = (
@@ -1412,7 +1143,6 @@ def main():
                     run_delta_events_worker(local_kafka_config, events_table_path)
                 )
         elif args.worker == "xact-delta-retry":
-            # Delta retry scheduler - retries failed Delta batch writes
             events_table_path = pipeline_config.events_table_path
             if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
                 events_table_path = (
@@ -1473,7 +1203,6 @@ def main():
                     )
                 )
         elif args.worker == "claimx-poller":
-            # ClaimX Eventhouse poller
             if args.count > 1:
                 loop.run_until_complete(
                     run_worker_pool(
@@ -1484,7 +1213,6 @@ def main():
             else:
                 loop.run_until_complete(run_claimx_eventhouse_poller(pipeline_config))
         elif args.worker == "claimx-delta-writer":
-            # ClaimX delta events writer
             claimx_events_table_path = os.getenv("CLAIMX_EVENTS_TABLE_PATH", "")
             if not claimx_events_table_path and pipeline_config.claimx_eventhouse:
                 claimx_events_table_path = pipeline_config.claimx_eventhouse.claimx_events_table_path
@@ -1505,7 +1233,6 @@ def main():
                     run_claimx_delta_events_worker(local_kafka_config, claimx_events_table_path)
                 )
         elif args.worker == "claimx-delta-retry":
-            # ClaimX delta retry scheduler - retries failed Delta batch writes
             claimx_events_table_path = os.getenv("CLAIMX_EVENTS_TABLE_PATH", "")
             if not claimx_events_table_path and pipeline_config.claimx_eventhouse:
                 claimx_events_table_path = pipeline_config.claimx_eventhouse.claimx_events_table_path
@@ -1526,7 +1253,6 @@ def main():
                     run_claimx_delta_retry_scheduler(local_kafka_config, claimx_events_table_path)
                 )
         elif args.worker == "claimx-ingester":
-            # ClaimX event ingester
             if args.count > 1:
                 loop.run_until_complete(
                     run_worker_pool(
@@ -1581,7 +1307,6 @@ def main():
             else:
                 loop.run_until_complete(run_claimx_result_processor(local_kafka_config, pipeline_config))
         elif args.worker == "claimx-entity-writer":
-            # ClaimX entity delta writer
             if args.count > 1:
                 loop.run_until_complete(
                     run_worker_pool(
@@ -1594,8 +1319,6 @@ def main():
                     run_claimx_entity_delta_worker(local_kafka_config, pipeline_config)
                 )
         elif args.worker == "dummy-source":
-            # Dummy data source - generates synthetic test data
-            # Load dummy config from config.yaml using consistent path resolution
             import yaml
             from config.pipeline_config import DEFAULT_CONFIG_PATH
 
@@ -1614,8 +1337,7 @@ def main():
                 )
             else:
                 logger.warning(
-                    f"Config file not found at {DEFAULT_CONFIG_PATH}, using defaults "
-                    "(10 events/min). Create config.yaml or check your path."
+                    f"Config file not found at {DEFAULT_CONFIG_PATH}, using defaults (10 events/min)"
                 )
             if args.count > 1:
                 loop.run_until_complete(
@@ -1626,17 +1348,14 @@ def main():
                 )
             else:
                 loop.run_until_complete(run_dummy_source(local_kafka_config, dummy_config))
-        else:  # all
-            loop.run_until_complete(
-                run_all_workers(pipeline_config, enable_delta_writes)
-            )
+        else:
+            loop.run_until_complete(run_all_workers(pipeline_config, enable_delta_writes))
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
     finally:
-        # Clean up
         loop.close()
         logger.info("Pipeline shutdown complete")
 
@@ -1646,22 +1365,14 @@ async def run_claimx_delta_events_worker(
     kafka_config,
     events_table_path: str,
 ):
-    """Run the ClaimX Delta Events Worker.
-
-    Consumes events from the claimx events topic and writes them to the
-    claimx_events Delta table. Runs independently of ClaimXEventIngesterWorker
-    with its own consumer group.
-
-    Supports graceful shutdown: when shutdown event is set, the worker
-    waits for pending Delta writes before exiting.
-    """
+    """Consumes events from claimx events topic and writes to claimx_events Delta table.
+    Runs independently of ClaimXEventIngesterWorker with its own consumer group."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.claimx.workers.delta_events_worker import ClaimXDeltaEventsWorker
 
     set_log_context(stage="claimx-delta-writer")
     logger.info("Starting ClaimX Delta Events worker...")
 
-    # Create producer for retry topic routing
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="claimx",
@@ -1678,47 +1389,33 @@ async def run_claimx_delta_events_worker(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping claimx delta events worker...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await worker.start()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
             pass
-        # Clean up resources after worker exits
         await worker.stop()
         await producer.stop()
 
 
 async def run_claimx_delta_retry_scheduler(kafka_config, events_table_path: str):
-    """Run the ClaimX Delta Batch Retry Scheduler.
-
-    Consumes failed batches from retry topics and attempts to write them to
-    the claimx_events Delta table after the configured delay has elapsed.
-
-    Routes permanently failed batches (retries exhausted) to DLQ.
-
-    Supports graceful shutdown: when shutdown event is set, the scheduler
-    stops consuming from retry topics.
-    """
+    """Consumes failed batches from retry topics and attempts to write to claimx_events Delta table.
+    Routes permanently failed batches to DLQ."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.claimx.retry.scheduler import DeltaBatchRetryScheduler
 
     set_log_context(stage="claimx-delta-retry")
     logger.info("Starting ClaimX Delta Retry Scheduler...")
 
-    # Create producer for DLQ routing
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="claimx",
@@ -1760,13 +1457,7 @@ async def run_claimx_entity_delta_worker(
     kafka_config,
     pipeline_config,
 ):
-    """Run the ClaimX Entity Delta worker.
-
-    Consumes EntityRowsMessage from claimx.entities.rows topic and writes
-    batch updates to Delta tables (projects, contacts, media, etc.).
-
-    Supports graceful shutdown.
-    """
+    """Consumes EntityRowsMessage from claimx.entities.rows and writes to Delta tables."""
     from kafka_pipeline.claimx.workers.entity_delta_worker import ClaimXEntityDeltaWorker
 
     set_log_context(stage="claimx-entity-writer")
@@ -1786,12 +1477,10 @@ async def run_claimx_entity_delta_worker(
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop worker gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping claimx entity delta worker...")
         await worker.stop()
 
-    # Start shutdown watcher alongside worker
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
@@ -1807,50 +1496,34 @@ async def run_claimx_entity_delta_worker(
 
 
 async def run_dummy_source(kafka_config, dummy_config: dict):
-    """Run the Dummy Data Source.
-
-    Generates realistic synthetic insurance claim data and produces events
-    to Kafka topics, allowing pipeline testing without external dependencies.
-
-    The dummy source includes:
-    - A file server for serving test attachments
-    - Realistic data generators for XACT and ClaimX domains
-    - Configurable event rates and burst modes
-
-    Supports graceful shutdown: when shutdown event is set, the source
-    stops generating events after completing any in-flight operations.
-    """
+    """Generates synthetic insurance claim data for testing.
+    Includes file server, realistic data generators for XACT/ClaimX, and configurable event rates."""
     from kafka_pipeline.common.dummy.source import DummyDataSource, load_dummy_source_config
 
     set_log_context(stage="dummy-source")
     logger.info("Starting Dummy Data Source...")
 
-    # Load dummy source configuration
     source_config = load_dummy_source_config(kafka_config, dummy_config)
 
     source = DummyDataSource(source_config)
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
-        """Wait for shutdown signal and stop source gracefully."""
         await shutdown_event.wait()
         logger.info("Shutdown signal received, stopping dummy data source...")
         await source.stop()
 
-    # Start source and shutdown watcher
     await source.start()
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
         await source.run()
     finally:
-        # Guard against event loop being closed during shutdown
         try:
             watcher_task.cancel()
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
             pass
-        # Clean up resources after source exits
         await source.stop()
         logger.info(f"Dummy source stopped. Stats: {source.stats}")
 

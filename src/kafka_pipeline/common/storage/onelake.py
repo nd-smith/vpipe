@@ -46,35 +46,22 @@ NOT_FOUND_ERROR_MARKERS = ("404", "not found", "notfound", "does not exist")
 
 
 def _is_auth_error(error: Exception) -> bool:
-    """Check if exception is auth-related."""
     error_str = str(error).lower()
     return any(marker in error_str for marker in AUTH_ERROR_MARKERS)
 
 
 def _classify_error(error: Exception) -> str:
-    """
-    Classify an exception into an error category for metrics.
-
-    Args:
-        error: The exception to classify
-
-    Returns:
-        Error category: timeout, auth, not_found, or unknown
-    """
     error_str = str(error).lower()
     error_type = type(error).__name__.lower()
 
-    # Check for timeout errors
     if any(marker in error_str for marker in TIMEOUT_ERROR_MARKERS):
         return "timeout"
     if "timeout" in error_type:
         return "timeout"
 
-    # Check for auth errors
     if any(marker in error_str for marker in AUTH_ERROR_MARKERS):
         return "auth"
 
-    # Check for not found errors
     if any(marker in error_str for marker in NOT_FOUND_ERROR_MARKERS):
         return "not_found"
 
@@ -110,28 +97,19 @@ class TCPKeepAliveAdapter(HTTPAdapter):
     """
 
     def init_poolmanager(self, *args, **kwargs):
-        """Initialize pool manager with TCP keepalive socket options."""
         if "socket_options" not in kwargs:
             kwargs["socket_options"] = []
 
-        # Enable TCP keepalive
         kwargs["socket_options"].append((socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1))
-        # Start keepalive after 120s idle (before Azure 4-min timeout)
         kwargs["socket_options"].append((socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 120))
-        # Send keepalive probe every 30s
         kwargs["socket_options"].append((socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30))
-        # Close connection after 8 failed probes (4 minutes total)
         kwargs["socket_options"].append((socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 8))
 
         return super().init_poolmanager(*args, **kwargs)
 
 
 class TokenCredential:
-    """
-    Simple credential wrapper for raw access token.
-
-    Implements the protocol expected by Azure SDK clients.
-    """
+    """Simple credential wrapper for raw access token. Implements Azure SDK protocol."""
 
     def __init__(self, token: str, expires_in_hours: int = 1):
         self._token = token
@@ -140,7 +118,6 @@ class TokenCredential:
         )
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
-        """Return token in Azure SDK expected format."""
         return AccessToken(self._token, self._expires_on)
 
 
@@ -149,71 +126,53 @@ _file_credential_registry: list = []
 
 
 def _register_file_credential(credential: "FileBackedTokenCredential") -> None:
-    """Register a FileBackedTokenCredential for coordinated refresh."""
     _file_credential_registry.append(credential)
 
 
 def _clear_all_file_credentials() -> None:
-    """Force refresh all registered FileBackedTokenCredentials."""
     for cred in _file_credential_registry:
         try:
             cred._cached_token = None
             cred._token_acquired_at = None
         except Exception:
-            pass  # Best effort
+            pass
 
 
 def _refresh_all_credentials() -> None:
-    """
-    Clear all credential caches on auth error.
+    """Clear all credential caches on auth error.
 
-    This is the callback used by @with_retry(on_auth_error=...) decorators.
-    It clears both:
-    1. AzureAuth's in-memory token cache (for CLI auth)
-    2. All FileBackedTokenCredential instances (for file-based auth)
+    Callback used by @with_retry(on_auth_error=...) decorators.
+    Clears both AzureAuth's in-memory token cache (CLI auth) and
+    all FileBackedTokenCredential instances (file-based auth).
     """
     clear_token_cache()
     _clear_all_file_credentials()
 
 
 class FileBackedTokenCredential:
-    """
-    Credential that re-reads from token file when token is near expiry.
+    """Credential that re-reads from token file when token is near expiry.
 
-    This solves the problem where a long-running stage creates a TokenCredential
-    once at startup, but the token expires after 60 minutes. With this class,
-    the credential will automatically re-read the token from the file (which
-    token_refresher.py keeps updated) before the current token expires.
+    Solves the problem where a long-running stage creates a TokenCredential
+    once at startup, but the token expires after 60 minutes. This class
+    automatically re-reads the token from the file (which token_refresher.py
+    keeps updated) before the current token expires.
 
     Token refresh timeline:
     - Token refresher writes new token every 45 minutes
     - Azure tokens expire at 60 minutes
     - This class re-reads token every 5 minutes to stay fresh
-
-    We use a short refresh interval (5 min) because:
-    1. The token file read is very fast (just reading a small JSON file)
-    2. This ensures we always have a fresh token even if timing is off
-    3. It handles cases where token_refresher restarts or tokens are manually updated
     """
 
-    # Re-read token every 5 minutes to stay fresh
-    # This is conservative but safe - file reads are fast
     TOKEN_REFRESH_MINUTES = 5
 
     def __init__(self, resource: str = "https://storage.azure.com/"):
-        """
-        Args:
-            resource: Azure resource URL for token lookup in JSON file
-        """
         self._resource = resource
         self._cached_token: Optional[str] = None
         self._token_acquired_at: Optional[datetime] = None
         self._logger = logging.getLogger(__name__)
-        # Register for coordinated refresh
         _register_file_credential(self)
 
     def _should_refresh(self) -> bool:
-        """Check if token should be re-read from file."""
         if self._cached_token is None or self._token_acquired_at is None:
             return True
 
@@ -221,10 +180,7 @@ class FileBackedTokenCredential:
         return age > timedelta(minutes=self.TOKEN_REFRESH_MINUTES)
 
     def _fetch_token(self) -> str:
-        """Fetch fresh token from auth system (re-reads from file)."""
         auth = get_auth()
-
-        # Clear cache to force re-read from file
         clear_token_cache()
 
         token = auth.get_storage_token(force_refresh=True)
@@ -240,15 +196,9 @@ class FileBackedTokenCredential:
         return token
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
-        """
-        Return token in Azure SDK expected format.
-
-        Automatically refreshes from file if token is near expiry.
-        """
         if self._should_refresh():
             self._fetch_token()
 
-        # Calculate expires_on (assume 60 min from acquisition)
         if self._token_acquired_at:
             expires_on = int(
                 (self._token_acquired_at + timedelta(hours=1)).timestamp()
@@ -261,25 +211,13 @@ class FileBackedTokenCredential:
         return AccessToken(self._cached_token, expires_on)
 
     def force_refresh(self) -> None:
-        """Force an immediate token refresh (called on auth errors)."""
         self._cached_token = None
         self._token_acquired_at = None
         self._fetch_token()
 
 
 def parse_abfss_path(path: str) -> Tuple[str, str, str]:
-    """
-    Parse an abfss:// path into components.
-
-    Args:
-        path: abfss://container@account.dfs.fabric.microsoft.com/path/to/files
-
-    Returns:
-        Tuple of (account_host, container, directory_path)
-
-    Raises:
-        ValueError: If path format is invalid
-    """
+    """Parse abfss://container@account.dfs.fabric.microsoft.com/path/to/files into components."""
     parsed = urlparse(path)
 
     if parsed.scheme != "abfss":
@@ -295,18 +233,10 @@ def parse_abfss_path(path: str) -> Tuple[str, str, str]:
 
 
 class OneLakeClient(LoggedClass):
-    """
-    Client for OneLake file operations with automatic operation logging.
+    """Client for OneLake file operations with automatic operation logging.
 
     Uses Azure Data Lake Storage Gen2 API (DFS endpoint).
     Supports both Azure CLI and Service Principal authentication.
-
-    Usage:
-        client = OneLakeClient("abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Files")
-
-        with client:
-            client.upload_bytes("folder/file.pdf", content)
-            exists = client.exists("folder/file.pdf")
     """
 
     log_component = "onelake"
@@ -318,17 +248,8 @@ class OneLakeClient(LoggedClass):
         connection_timeout: int = CONNECTION_TIMEOUT,
         request_timeout: int = 300,
     ):
-        """
-        Args:
-            base_path: abfss:// path to files directory
-            max_pool_size: HTTP connection pool size (defaults to config.lakehouse.upload_max_concurrency)
-            connection_timeout: Connection timeout in seconds (default: 300s/5min)
-            request_timeout: Request timeout in seconds for upload/download operations (default: 300s/5min)
-        """
         self.base_path = base_path.rstrip("/")
 
-        # Get upload configuration from config (Task E.5)
-        # Default values for upload configuration
         default_upload_max_concurrency = 16
         default_upload_block_size_mb = 4
         default_upload_max_single_put_mb = 64
@@ -342,20 +263,16 @@ class OneLakeClient(LoggedClass):
         self._connection_timeout = connection_timeout
         self._request_timeout = request_timeout
 
-        # Parse path components
         self.account_host, self.container, self.base_directory = parse_abfss_path(
             base_path
         )
 
-        # Lazy-initialized clients
         self._service_client: Optional[DataLakeServiceClient] = None
         self._file_system_client = None
         self._session: Optional[requests.Session] = None
 
-        # Idempotency tracking (Task G.3b)
         self._write_tokens: Dict[str, WriteOperation] = {}
 
-        # Connection pool statistics (P2.5)
         from datetime import datetime, timezone
         import threading
 
@@ -371,13 +288,10 @@ class OneLakeClient(LoggedClass):
 
     def _create_clients(self, max_pool_size: int = 25) -> None:
         """Create or recreate clients with dynamic connection pool sizing (P2.4)."""
-
-        # Dynamic connection pool sizing (P2.4)
         cpu_cores = os.cpu_count() or 4
-        max_concurrency = 16  # Default upload max concurrency
+        max_concurrency = 16
 
         # Azure Storage limits: 500 concurrent connections per storage account
-        # Formula: min(cpu_cores * 10, max_concurrency, 250)
         calculated_size = min(cpu_cores * 10, max_concurrency, 250)
         actual_pool_size = max_pool_size if max_pool_size != 25 else calculated_size
 
@@ -392,15 +306,11 @@ class OneLakeClient(LoggedClass):
 
         auth = get_auth()
 
-        # Get credential based on auth mode (priority: token_file > cli > spn)
         if auth.token_file:
-            # Token file mode - use FileBackedTokenCredential for auto-refresh
-            # This credential will re-read from the token file when tokens near expiry
             try:
                 credential = FileBackedTokenCredential(
                     resource=auth.STORAGE_RESOURCE
                 )
-                # Store reference so we can call force_refresh on auth errors
                 self._file_credential = credential
                 auth_mode = "file"
                 self._log(
@@ -414,7 +324,6 @@ class OneLakeClient(LoggedClass):
                     "Token file auth failed, trying other methods",
                     error=str(e)[:200],
                 )
-                # Fall through to try other auth methods
                 credential = None
                 auth_mode = None
                 self._file_credential = None
@@ -423,21 +332,16 @@ class OneLakeClient(LoggedClass):
             auth_mode = None
             self._file_credential = None
 
-        # Try CLI auth if token file didn't work
         if credential is None and auth.use_cli:
-            # For CLI, also use FileBackedTokenCredential if there's a fallback token file
-            # Otherwise use regular TokenCredential (CLI can refresh itself)
             token = auth.get_storage_token()
             if not token:
                 raise RuntimeError("Failed to get CLI storage token")
             credential = TokenCredential(token)
             auth_mode = "cli"
 
-        # Try SPN auth if CLI didn't work
         if credential is None and auth.has_spn_credentials:
             from azure.identity import ClientSecretCredential
 
-            # Assert credentials are not None (has_spn_credentials guarantees this)
             assert auth.tenant_id is not None
             assert auth.client_id is not None
             assert auth.client_secret is not None
@@ -459,37 +363,32 @@ class OneLakeClient(LoggedClass):
 
         account_url = f"https://{self.account_host}"
 
-        # Create TCP keepalive adapter to prevent Azure 4-minute idle timeout
         adapter = TCPKeepAliveAdapter(
-            pool_connections=actual_pool_size,  # Number of pools
-            pool_maxsize=actual_pool_size,  # Connections per pool
+            pool_connections=actual_pool_size,
+            pool_maxsize=actual_pool_size,
         )
 
-        # Create a session and mount the keepalive adapter
         session = requests.Session()
         session.mount("https://", adapter)
         session.mount("http://", adapter)
 
-        # Configure transport with the session (session_owner=False since we manage the session)
         transport = RequestsTransport(
             session=session,
-            session_owner=False,  # Don't close session when transport is closed
+            session_owner=False,
         )
 
         self._service_client = DataLakeServiceClient(
             account_url=account_url,
             credential=credential,
             transport=transport,
-            connection_timeout=self._connection_timeout,  # Connection establishment timeout
+            connection_timeout=self._connection_timeout,
         )
-        self._file_system_client = self._service_client.get_file_system_client(  # type: ignore
+        self._file_system_client = self._service_client.get_file_system_client(
             self.container
         )
 
-        # Store session reference for cleanup
         self._session = session
 
-        # Track connection creation (P2.5)
         with self._pool_stats_lock:
             self._pool_stats["connections_created"] += 1
 
@@ -511,7 +410,6 @@ class OneLakeClient(LoggedClass):
         return False
 
     def close(self) -> None:
-        """Close client and release resources."""
         if self._service_client is not None:
             try:
                 self._service_client.close()
@@ -522,29 +420,25 @@ class OneLakeClient(LoggedClass):
                     "Error closing OneLake client",
                     level=logging.WARNING,
                 )
-        # Close the session we created (since session_owner=False)
         if self._session is not None:
             try:
                 self._session.close()
             except Exception:
-                pass  # Best effort cleanup
+                pass
             self._session = None
         self._service_client = None
         self._file_system_client = None
 
     def _ensure_client(self) -> None:
-        """Ensure client is initialized."""
         if self._file_system_client is None:
             self._create_clients(max_pool_size=self._max_pool_size)
 
     def _refresh_credential(self) -> None:
-        """
-        Force refresh the credential (called on auth errors).
+        """Force refresh the credential (called on auth errors).
 
         For FileBackedTokenCredential: forces immediate re-read from token file.
         For other auth modes: clears token cache.
         """
-        # If using FileBackedTokenCredential, force it to re-read from file
         if hasattr(self, '_file_credential') and self._file_credential is not None:
             try:
                 self._file_credential.force_refresh()
@@ -559,12 +453,9 @@ class OneLakeClient(LoggedClass):
                     error=str(e)[:200],
                 )
         else:
-            # For CLI/SPN auth, just clear the cache
             clear_token_cache()
 
     def _refresh_client(self) -> None:
-        """Refresh client with new credentials."""
-        # First refresh the credential
         self._refresh_credential()
 
         if self._service_client is not None:
@@ -577,12 +468,11 @@ class OneLakeClient(LoggedClass):
                     "Error closing OneLake client during refresh",
                     level=logging.WARNING,
                 )
-        # Close the session we created (since session_owner=False)
         if self._session is not None:
             try:
                 self._session.close()
             except Exception:
-                pass  # Best effort cleanup
+                pass
             self._session = None
         self._service_client = None
         self._file_system_client = None
@@ -590,7 +480,6 @@ class OneLakeClient(LoggedClass):
         self._log(logging.INFO, "OneLake client refreshed with new credentials")
 
     def _handle_auth_error(self, e: Exception) -> None:
-        """Handle potential auth error by refreshing client."""
         if _is_auth_error(e):
             self._log(
                 logging.WARNING,
@@ -600,11 +489,9 @@ class OneLakeClient(LoggedClass):
             self._refresh_client()
 
     def _full_path(self, relative_path: str) -> str:
-        """Build full directory path from relative path."""
         return f"{self.base_directory}/{relative_path}"
 
     def _split_path(self, full_path: str) -> Tuple[str, str]:
-        """Split full path into directory and filename."""
         if "/" in full_path:
             directory = "/".join(full_path.split("/")[:-1])
             filename = full_path.split("/")[-1]
@@ -614,24 +501,11 @@ class OneLakeClient(LoggedClass):
         return directory, filename
 
     def _is_duplicate(self, operation_token: str) -> bool:
-        """
-        Check if write operation with this token was already completed (Task G.3b).
-
-        Args:
-            operation_token: Idempotency token for the write operation
-
-        Returns:
-            True if operation was already completed
-        """
+        """Check if write operation with this token was already completed (Task G.3b)."""
         return operation_token in self._write_tokens
 
     def _record_token(self, write_op: WriteOperation) -> None:
-        """
-        Record write operation token for idempotency tracking (Task G.3b).
-
-        Args:
-            write_op: Write operation to record
-        """
+        """Record write operation token for idempotency tracking (Task G.3b)."""
         self._write_tokens[write_op.token] = write_op
         self._log(
             logging.DEBUG,
@@ -648,17 +522,6 @@ class OneLakeClient(LoggedClass):
         data: bytes,
         overwrite: bool = True,
     ) -> str:
-        """
-        Upload bytes to OneLake.
-
-        Args:
-            relative_path: Path relative to base_path
-            data: File content as bytes
-            overwrite: Whether to overwrite existing file
-
-        Returns:
-            Full abfss:// path to uploaded file
-        """
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
@@ -710,25 +573,10 @@ class OneLakeClient(LoggedClass):
         operation_token: Optional[str] = None,
         overwrite: bool = True,
     ) -> WriteOperation:
-        """
-        Upload bytes with idempotency token to prevent duplicate uploads (Task G.3b).
-
-        If operation_token is provided and already recorded, skips upload.
-        Otherwise uploads and records token for future deduplication.
-
-        Args:
-            relative_path: Path relative to base_path
-            data: File content as bytes
-            operation_token: Optional idempotency token (generates UUID if None)
-            overwrite: Whether to overwrite existing file
-
-        Returns:
-            WriteOperation with token and upload details
-        """
+        """Upload bytes with idempotency token to prevent duplicate uploads (Task G.3b)."""
         if operation_token is None:
             operation_token = str(uuid.uuid4())
 
-        # Check for duplicate operation
         if self._is_duplicate(operation_token):
             self._log(
                 logging.INFO,
@@ -736,19 +584,16 @@ class OneLakeClient(LoggedClass):
                 token=operation_token[:8],
                 path=relative_path,
             )
-            # Return existing operation record
             existing_op = self._write_tokens[operation_token]
             return WriteOperation(
                 token=operation_token,
                 relative_path=relative_path,
                 timestamp=existing_op.timestamp,
-                bytes_written=0,  # Not written this time
+                bytes_written=0,
             )
 
-        # Perform upload
         self.upload_bytes(relative_path, data, overwrite=overwrite)
 
-        # Record operation
         write_op = WriteOperation(
             token=operation_token,
             relative_path=relative_path,
@@ -762,15 +607,6 @@ class OneLakeClient(LoggedClass):
     @logged_operation(level=logging.DEBUG)
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def download_bytes(self, relative_path: str) -> bytes:
-        """
-        Download file content from OneLake.
-
-        Args:
-            relative_path: Path relative to base_path
-
-        Returns:
-            File content as bytes
-        """
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
@@ -822,23 +658,11 @@ class OneLakeClient(LoggedClass):
         local_path: str,
         overwrite: bool = True,
     ) -> str:
-        """
-        Upload file from local path to OneLake (streaming, memory-efficient).
-
-        Args:
-            relative_path: Path relative to base_path
-            local_path: Local file path to upload
-            overwrite: Whether to overwrite existing file
-
-        Returns:
-            Full abfss:// path to uploaded file
-        """
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
         directory, filename = self._split_path(full_path)
 
-        # Get file size before upload for metrics
         file_size = os.path.getsize(local_path)
         start_time = time.perf_counter()
 
@@ -881,15 +705,6 @@ class OneLakeClient(LoggedClass):
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def exists(self, relative_path: str) -> bool:
-        """
-        Check if file exists.
-
-        Args:
-            relative_path: Path relative to base_path
-
-        Returns:
-            True if file exists
-        """
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
@@ -910,10 +725,8 @@ class OneLakeClient(LoggedClass):
             return True
         except Exception as e:
             duration = time.perf_counter() - start_time
-            # 404 is expected for non-existent files, not an error
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
-                # File not existing is a successful check, not an error
                 record_onelake_operation(
                     operation="exists",
                     status="success",
@@ -921,7 +734,7 @@ class OneLakeClient(LoggedClass):
                 )
                 self._log(logging.DEBUG, "File does not exist", blob_path=relative_path)
                 return False
-            # Actual errors
+
             error_type = _classify_error(e)
             record_onelake_operation(
                 operation="exists",
@@ -929,21 +742,11 @@ class OneLakeClient(LoggedClass):
                 duration=duration,
             )
             record_onelake_error(operation="exists", error_type=error_type)
-            # Auth errors should trigger refresh and retry
             self._handle_auth_error(e)
             raise
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def delete(self, relative_path: str) -> bool:
-        """
-        Delete a file.
-
-        Args:
-            relative_path: Path relative to base_path
-
-        Returns:
-            True if deleted, False if didn't exist
-        """
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
@@ -967,14 +770,13 @@ class OneLakeClient(LoggedClass):
             duration = time.perf_counter() - start_time
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
-                # File not existing is a successful delete (idempotent)
                 record_onelake_operation(
                     operation="delete",
                     status="success",
                     duration=duration,
                 )
                 return False
-            # Actual errors
+
             error_type = _classify_error(e)
             record_onelake_operation(
                 operation="delete",
@@ -987,15 +789,6 @@ class OneLakeClient(LoggedClass):
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def get_file_properties(self, relative_path: str) -> Optional[dict]:
-        """
-        Get file properties/metadata.
-
-        Args:
-            relative_path: Path relative to base_path
-
-        Returns:
-            Dict of properties or None if file doesn't exist
-        """
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
@@ -1028,14 +821,12 @@ class OneLakeClient(LoggedClass):
             raise
 
     def track_request(self, success: bool = True) -> None:
-        """Track request statistics (P2.5)."""
         with self._pool_stats_lock:
             self._pool_stats["requests_processed"] += 1
             if not success:
                 self._pool_stats["errors_encountered"] += 1
 
     def get_pool_stats(self) -> Dict[str, Any]:
-        """Get current connection pool statistics (P2.5)."""
         from datetime import datetime, timezone
 
         with self._pool_stats_lock:
@@ -1046,7 +837,6 @@ class OneLakeClient(LoggedClass):
             return stats
 
     def reset_pool_stats(self) -> None:
-        """Reset connection pool statistics (P2.5)."""
         from datetime import datetime, timezone
 
         with self._pool_stats_lock:
@@ -1058,7 +848,6 @@ class OneLakeClient(LoggedClass):
             }
 
     def log_pool_health(self) -> None:
-        """Log current connection pool health metrics (P2.5)."""
         stats = self.get_pool_stats()
         error_rate = (
             stats["errors_encountered"] / stats["requests_processed"] * 100

@@ -128,24 +128,24 @@ class JSONFormatter(logging.Formatter):
         }
 
         # Inject context variables
-        ctx = get_log_context()
-        if ctx["domain"]:
-            log_entry["domain"] = ctx["domain"]
-        if ctx["stage"]:
-            log_entry["stage"] = ctx["stage"]
-        if ctx["cycle_id"]:
-            log_entry["cycle_id"] = ctx["cycle_id"]
-        if ctx["worker_id"]:
-            log_entry["worker_id"] = ctx["worker_id"]
+        log_context = get_log_context()
+        if log_context["domain"]:
+            log_entry["domain"] = log_context["domain"]
+        if log_context["stage"]:
+            log_entry["stage"] = log_context["stage"]
+        if log_context["cycle_id"]:
+            log_entry["cycle_id"] = log_context["cycle_id"]
+        if log_context["worker_id"]:
+            log_entry["worker_id"] = log_context["worker_id"]
         # Inject trace_id from context if available (can be overridden by extra)
-        if ctx["trace_id"]:
-            log_entry["trace_id"] = ctx["trace_id"]
+        if log_context["trace_id"]:
+            log_entry["trace_id"] = log_context["trace_id"]
 
         # Inject OpenTelemetry trace context if available
-        if ctx.get("otel_trace_id"):
-            log_entry["otel_trace_id"] = ctx["otel_trace_id"]
-        if ctx.get("otel_span_id"):
-            log_entry["otel_span_id"] = ctx["otel_span_id"]
+        if log_context.get("otel_trace_id"):
+            log_entry["otel_trace_id"] = log_context["otel_trace_id"]
+        if log_context.get("otel_span_id"):
+            log_entry["otel_span_id"] = log_context["otel_span_id"]
 
         # Add source location for DEBUG/ERROR
         if record.levelno in (logging.DEBUG, logging.ERROR, logging.CRITICAL):
@@ -173,7 +173,7 @@ class ConsoleFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record for console output."""
-        ctx = get_log_context()
+        log_context = get_log_context()
 
         # Build prefix
         parts = [
@@ -181,16 +181,16 @@ class ConsoleFormatter(logging.Formatter):
             record.levelname,
         ]
 
-        if ctx["domain"]:
-            parts.append(f"[{ctx['domain']}]")
-        if ctx["stage"]:
-            parts.append(f"[{ctx['stage']}]")
+        if log_context["domain"]:
+            parts.append(f"[{log_context['domain']}]")
+        if log_context["stage"]:
+            parts.append(f"[{log_context['stage']}]")
 
         prefix = " - ".join(parts)
 
         # Add batch_id and/or trace_id if present
         batch_id = getattr(record, "batch_id", None)
-        trace_id = getattr(record, "trace_id", None) or ctx.get("trace_id")
+        trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
 
         if batch_id and trace_id:
             return f"{prefix} - [batch:{batch_id}] [{trace_id[:8]}] {record.getMessage()}"

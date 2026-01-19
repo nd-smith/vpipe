@@ -146,7 +146,7 @@ class FailedDeltaBatch(BaseModel):
         """
         # Include first 3 events as samples (full batch may be huge)
         sample_events = self.events[:3] if len(self.events) > 3 else self.events
-        sample_trace_ids = [e.get("traceId", "unknown") for e in sample_events]
+        sample_trace_ids = [event.get("traceId", "unknown") for event in sample_events]
 
         return {
             "batch_id": self.batch_id,

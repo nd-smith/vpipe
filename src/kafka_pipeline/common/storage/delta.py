@@ -74,17 +74,10 @@ class WriteOperation:
 
 
 def _on_auth_error() -> None:
-    """Callback for auth errors - clears all credential caches."""
     _refresh_all_credentials()
 
 
 def get_open_file_descriptors() -> int:
-    """
-    Get count of open file descriptors for the current process.
-
-    Returns:
-        Number of open file descriptors, or -1 if unable to determine.
-    """
     try:
         pid = os.getpid()
         # On Linux/Unix systems, /proc/pid/fd contains one entry per open FD
@@ -115,11 +108,6 @@ class DeltaTableReader(LoggedClass):
     def __init__(
         self, table_path: str, storage_options: Optional[Dict[str, str]] = None
     ):
-        """
-        Args:
-            table_path: Full abfss:// path to Delta table
-            storage_options: Optional storage options (default: from get_storage_options())
-        """
         self.table_path = table_path
         self.storage_options = storage_options
         self._delta_table: Optional[DeltaTable] = None
@@ -128,7 +116,6 @@ class DeltaTableReader(LoggedClass):
         super().__init__()
 
     async def __aenter__(self) -> "DeltaTableReader":
-        """Async context manager entry."""
         return self
 
     async def __aexit__(
@@ -137,15 +124,9 @@ class DeltaTableReader(LoggedClass):
         exc_val: Optional[BaseException],
         exc_tb: Optional[Any],
     ) -> None:
-        """Async context manager exit - ensures cleanup."""
         await self.close()
 
     async def close(self) -> None:
-        """
-        Close Delta table and release file handles.
-
-        This method is idempotent - calling it multiple times is safe.
-        """
         if self._closed:
             return
 
@@ -165,7 +146,6 @@ class DeltaTableReader(LoggedClass):
             self._closed = True
 
     def __del__(self) -> None:
-        """Destructor - warns if table was not properly closed."""
         if hasattr(self, "_closed") and not self._closed:
             warnings.warn(
                 f"DeltaTableReader for {self.table_path} was not properly closed. "
@@ -181,15 +161,6 @@ class DeltaTableReader(LoggedClass):
         self,
         columns: Optional[List[str]] = None,
     ) -> pl.DataFrame:
-        """
-        Read entire Delta table.
-
-        Args:
-            columns: Optional list of columns to read (None = all)
-
-        Returns:
-            Polars DataFrame
-        """
         opts = self.storage_options or get_storage_options()
 
         df = pl.read_delta(
@@ -218,15 +189,6 @@ class DeltaTableReader(LoggedClass):
         self,
         columns: Optional[List[str]] = None,
     ) -> pl.LazyFrame:
-        """
-        Create lazy scan of Delta table.
-
-        Args:
-            columns: Optional list of columns to select
-
-        Returns:
-            Polars LazyFrame for query building
-        """
         opts = self.storage_options or get_storage_options()
 
         lf = pl.scan_delta(self.table_path, storage_options=opts)
@@ -246,19 +208,6 @@ class DeltaTableReader(LoggedClass):
         order_by: Optional[str] = None,
         descending: bool = False,
     ) -> pl.DataFrame:
-        """
-        Read Delta table with filter pushdown.
-
-        Args:
-            filter_expr: Polars filter expression
-            columns: Optional list of columns
-            limit: Optional row limit
-            order_by: Optional column to sort by (applied before limit)
-            descending: Sort descending if True
-
-        Returns:
-            Filtered Polars DataFrame
-        """
         opts = self.storage_options or get_storage_options()
 
         lf = pl.scan_delta(self.table_path, storage_options=opts)
@@ -402,15 +351,9 @@ class DeltaTableWriter(LoggedClass):
         exc_val: Optional[BaseException],
         exc_tb: Optional[Any],
     ) -> None:
-        """Async context manager exit - ensures cleanup."""
         await self.close()
 
     async def close(self) -> None:
-        """
-        Close Delta table and release file handles.
-
-        This method is idempotent - calling it multiple times is safe.
-        """
         if self._closed:
             return
 
@@ -433,7 +376,6 @@ class DeltaTableWriter(LoggedClass):
             self._closed = True
 
     def __del__(self) -> None:
-        """Destructor - warns if table was not properly closed."""
         if hasattr(self, "_closed") and not self._closed:
             warnings.warn(
                 f"DeltaTableWriter for {self.table_path} was not properly closed. "
@@ -444,7 +386,6 @@ class DeltaTableWriter(LoggedClass):
             )
 
     def _table_exists(self, opts: Dict[str, str]) -> bool:
-        """Check if Delta table exists."""
         try:
             DeltaTable(self.table_path, storage_options=opts)
             return True
@@ -454,23 +395,7 @@ class DeltaTableWriter(LoggedClass):
     def _align_schema_with_target(
         self, df: pl.DataFrame, opts: Dict[str, str]
     ) -> pl.DataFrame:
-        """
-        Align source DataFrame schema with target table schema.
-
-        This prevents type coercion errors during Delta merge operations.
-        When Delta builds CASE WHEN expressions for merge, it needs compatible
-        types between source and target columns. This method:
-        1. Reorders columns to match target table column order
-        2. Casts source columns to match target types
-        3. Adds extra source columns at the end (schema evolution handles adds)
-
-        Args:
-            df: Source DataFrame to align
-            opts: Storage options for Delta table access
-
-        Returns:
-            DataFrame with schema aligned to target table
-        """
+        """Aligns DataFrame schema with target table to prevent type coercion errors during merge."""
         try:
             dt = DeltaTable(self.table_path, storage_options=opts)
             target_schema = dt.schema()

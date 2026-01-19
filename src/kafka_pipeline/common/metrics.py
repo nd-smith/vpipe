@@ -13,10 +13,7 @@ from typing import Dict, Tuple
 from opentelemetry import metrics
 from opentelemetry.metrics import Observation
 
-# Get meter instance
 meter = metrics.get_meter(__name__)
-
-# State storage for observable gauges (since OTel uses callbacks instead of .set())
 _gauge_state: Dict[Tuple[str, ...], float] = {}
 
 
@@ -59,7 +56,6 @@ messages_consumed_bytes_counter = meter.create_counter(
 # =============================================================================
 
 def _observe_consumer_lag(options):
-    """Callback for consumer lag observable gauge."""
     for (topic, partition, consumer_group), lag in _gauge_state.items():
         if isinstance(lag, (int, float)) and "lag" in str(topic):
             yield Observation(
@@ -73,7 +69,6 @@ def _observe_consumer_lag(options):
 
 
 def _observe_consumer_offset(options):
-    """Callback for consumer offset observable gauge."""
     for (topic, partition, consumer_group), offset in _gauge_state.items():
         if isinstance(offset, (int, float)) and "offset" in str(topic):
             yield Observation(
@@ -140,7 +135,6 @@ batch_processing_duration_histogram = meter.create_histogram(
 # =============================================================================
 
 def _observe_circuit_breaker_state(options):
-    """Callback for circuit breaker state observable gauge."""
     for (component,), state in _gauge_state.items():
         if "circuit_breaker" in str(component):
             yield Observation(

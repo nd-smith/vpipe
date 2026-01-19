@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuthType(Enum):
-    """Supported authentication types for HTTP connections."""
+    """Authentication types for HTTP connections."""
 
     NONE = "none"
     BEARER = "bearer"

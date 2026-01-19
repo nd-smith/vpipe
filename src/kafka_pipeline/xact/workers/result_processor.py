@@ -198,8 +198,7 @@ class ResultProcessor:
         Starts consuming from results topic and begins background flush timer.
         This method runs until stop() is called.
 
-        Raises:
-            Exception: If consumer fails to start
+        Raises Exception if consumer fails to start.
         """
         if self._running:
             logger.warning("Result processor already running, ignoring duplicate start")
@@ -314,11 +313,7 @@ class ResultProcessor:
 
         Triggers flush if size or timeout threshold reached.
 
-        Args:
-            message: ConsumerRecord from Kafka
-
-        Raises:
-            Exception: If message parsing or batch flush fails
+        Raises Exception if message parsing or batch flush fails.
         """
         # Track messages received
         self._records_processed += 1

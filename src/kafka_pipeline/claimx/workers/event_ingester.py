@@ -1,20 +1,10 @@
 """
 ClaimX Event Ingester Worker - Consumes events and produces enrichment tasks.
 
-This worker is the entry point to the ClaimX pipeline:
-1. Consumes ClaimXEventMessage from claimx events topic
-2. Produces ClaimXEnrichmentTask to enrichment pending topic
-3. Writes events to Delta Lake (claimx_events table)
-
 Different from xact pipeline:
 - Produces enrichment tasks (not download tasks)
 - No URL validation at this stage (URLs come from API enrichment)
 - All events trigger enrichment (not just ones with attachments)
-
-Consumer group: {prefix}-claimx-event-ingester
-Input topic: claimx.events.raw
-Output topic: claimx.enrichment.pending
-Delta table: claimx_events
 """
 
 import asyncio
@@ -46,28 +36,10 @@ logger = get_logger(__name__)
 
 class ClaimXEventIngesterWorker:
     """
-    Worker to consume ClaimX events and produce enrichment tasks.
-
-    Processes ClaimXEventMessage records from the claimx events topic
-    and produces ClaimXEnrichmentTask records to the enrichment pending
-    topic for processing by enrichment workers.
-
     Unlike xact pipeline (which directly downloads attachments), claimx
     requires API enrichment first to get entity data and download URLs.
-
-    Also writes events to Delta Lake claimx_events table for analytics.
-
-    Features:
-    - Deterministic SHA256 event_id generation from stable Eventhouse fields
-    - All events trigger enrichment (not just file events)
-    - Graceful shutdown with background task tracking
-
-    Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> worker = ClaimXEventIngesterWorker(config)
-        >>> await worker.start()
-        >>> # Worker runs until stopped
-        >>> await worker.stop()
+    All events trigger enrichment (not just file events).
+    Deterministic SHA256 event_id generation from stable Eventhouse fields.
     """
 
     def __init__(
@@ -77,19 +49,6 @@ class ClaimXEventIngesterWorker:
         enrichment_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
     ):
-        """
-        Initialize ClaimX event ingester worker.
-
-        Args:
-            config: Kafka configuration for consumer (topic names, connection settings)
-            domain: Domain identifier (default: "claimx")
-            enable_delta_writes: Whether to enable Delta Lake writes (default: True)
-            events_table_path: Full abfss:// path to claimx_events Delta table
-            enrichment_topic: Topic name for enrichment tasks (e.g., "claimx.enrichment.pending")
-            producer_config: Optional separate Kafka config for producer. If not provided,
-                uses the consumer config. This is needed when reading from Event Hub
-                but writing to local Kafka.
-        """
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
@@ -99,9 +58,7 @@ class ClaimXEventIngesterWorker:
 
         # Background task tracking for graceful shutdown
         self._pending_tasks: Set[asyncio.Task] = set()
-        self._task_counter = 0  # For unique task naming
-
-        # Cycle output tracking
+        self._task_counter = 0
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_deduplicated = 0
@@ -109,16 +66,11 @@ class ClaimXEventIngesterWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
-        # In-memory dedup cache: event_id -> timestamp
-        # Prevents duplicate event processing when Eventhouse sends duplicates
-        # or when Kafka retries cause the same message to be delivered twice
+        # In-memory dedup cache prevents duplicate event processing when
+        # Eventhouse sends duplicates or Kafka retries deliver same message twice
         self._dedup_cache: dict[str, float] = {}
-        self._dedup_cache_ttl_seconds = 86400  # 24 hours
-        self._dedup_cache_max_size = 100_000  # ~3MB memory for 100k entries
-
-        # Health check server - use worker-specific port from config
-        # Use port=0 by default for dynamic port assignment (avoids conflicts with multiple workers)
-        # Set health_enabled=False to disable health checks entirely
+        self._dedup_cache_ttl_seconds = 86400
+        self._dedup_cache_max_size = 100_000
         processing_config = config.get_worker_config(domain, "event_ingester", "processing")
         health_port = processing_config.get("health_port", 0)
         health_enabled = processing_config.get("health_enabled", True)
@@ -142,22 +94,10 @@ class ClaimXEventIngesterWorker:
 
     @property
     def config(self) -> KafkaConfig:
-        """Backward-compatible property returning consumer_config."""
         return self.consumer_config
 
     async def start(self) -> None:
-        """
-        Start the ClaimX event ingester worker.
-
-        Initializes producer and consumer, then begins consuming events
-        from the claimx events topic. This method runs until stop() is called.
-
-        Raises:
-            Exception: If producer or consumer fails to start
-        """
         logger.info("Starting ClaimXEventIngesterWorker")
-
-        # Initialize OpenTelemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 
@@ -166,21 +106,14 @@ class ClaimXEventIngesterWorker:
             environment=os.getenv("ENVIRONMENT", "development"),
         )
 
-        # Start cycle output background task
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
-
-        # Start health check server first
         await self.health_server.start()
-
-        # Start producer first (uses producer_config for local Kafka)
         self.producer = BaseKafkaProducer(
             config=self.producer_config,
             domain=self.domain,
             worker_name="event_ingester",
         )
         await self.producer.start()
-
-        # Create and start consumer with message handler (uses consumer_config)
         self.consumer = BaseKafkaConsumer(
             config=self.consumer_config,
             domain=self.domain,
@@ -189,23 +122,11 @@ class ClaimXEventIngesterWorker:
             message_handler=self._handle_event_message,
         )
 
-        # Update health check readiness (event ingester doesn't use API)
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)
-
-        # Start consumer (this blocks until stopped)
         await self.consumer.start()
 
     async def stop(self) -> None:
-        """
-        Stop the ClaimX event ingester worker.
-
-        Waits for pending background tasks (with timeout), then gracefully
-        shuts down consumer and producer, committing any pending offsets
-        and flushing pending messages.
-        """
         logger.info("Stopping ClaimXEventIngesterWorker")
-
-        # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
             try:
@@ -213,18 +134,11 @@ class ClaimXEventIngesterWorker:
             except asyncio.CancelledError:
                 pass
 
-        # Wait for pending background tasks with timeout
         await self._wait_for_pending_tasks(timeout_seconds=30)
-
-        # Stop consumer first (stops receiving new messages)
         if self.consumer:
             await self.consumer.stop()
-
-        # Then stop producer (flushes pending messages)
         if self.producer:
             await self.producer.stop()
-
-        # Stop health check server
         await self.health_server.stop()
 
         logger.info("ClaimXEventIngesterWorker stopped successfully")
@@ -235,20 +149,6 @@ class ClaimXEventIngesterWorker:
         task_name: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> asyncio.Task:
-        """
-        Create a background task with tracking and lifecycle logging.
-
-        The task is added to _pending_tasks and automatically removed on completion.
-        Task lifecycle events (creation, completion, error) are logged.
-
-        Args:
-            coro: Coroutine to run as a task
-            task_name: Descriptive name for the task (e.g., "delta_write")
-            context: Optional dict of context info for logging
-
-        Returns:
-            The created asyncio.Task
-        """
         self._task_counter += 1
         full_name = f"{task_name}-{self._task_counter}"
         context = context or {}
@@ -266,7 +166,6 @@ class ClaimXEventIngesterWorker:
         )
 
         def _on_task_done(t: asyncio.Task) -> None:
-            """Callback when task completes (success, error, or cancelled)."""
             self._pending_tasks.discard(t)
 
             if t.cancelled():
@@ -301,15 +200,6 @@ class ClaimXEventIngesterWorker:
         return task
 
     async def _wait_for_pending_tasks(self, timeout_seconds: float = 30) -> None:
-        """
-        Wait for pending background tasks to complete with timeout.
-
-        Logs task information and handles cancellation of tasks that
-        don't complete within the timeout.
-
-        Args:
-            timeout_seconds: Maximum time to wait for tasks (default: 30s)
-        """
         if not self._pending_tasks:
             logger.debug("No pending background tasks to wait for")
             return
@@ -325,12 +215,9 @@ class ClaimXEventIngesterWorker:
                 "timeout_seconds": timeout_seconds,
             },
         )
-
-        # Copy the set since it may be modified by callbacks during gather
         tasks_to_wait = list(self._pending_tasks)
 
         try:
-            # Wait with timeout
             done, pending = await asyncio.wait(
                 tasks_to_wait,
                 timeout=timeout_seconds,
@@ -338,7 +225,6 @@ class ClaimXEventIngesterWorker:
             )
 
             if pending:
-                # Log and cancel tasks that didn't complete
                 pending_names = [t.get_name() for t in pending]
                 logger.warning(
                     "Cancelling background tasks that did not complete in time",
@@ -356,10 +242,7 @@ class ClaimXEventIngesterWorker:
                         extra={"task_name": task.get_name()},
                     )
 
-                # Wait briefly for cancellations to propagate
                 await asyncio.gather(*pending, return_exceptions=True)
-
-            # Log summary of completed tasks
             completed_count = len(done)
             failed_count = sum(1 for t in done if t.exception() is not None)
 
@@ -380,23 +263,7 @@ class ClaimXEventIngesterWorker:
             )
 
     async def _handle_event_message(self, record: ConsumerRecord) -> None:
-        """
-        Process a single ClaimX event message from Kafka.
-
-        Parses the ClaimXEventMessage, generates deterministic UUID5 event_id,
-        creates an enrichment task, and produces it to the enrichment pending
-        topic. Also writes event to Delta Lake for analytics.
-
-        Args:
-            record: ConsumerRecord containing ClaimXEventMessage JSON
-
-        Raises:
-            Exception: If message processing fails (will be handled by consumer error routing)
-        """
-        # Start timing for metrics
         start_time = time.perf_counter()
-
-        # Decode and parse ClaimXEventMessage
         from opentelemetry import trace
         from opentelemetry.trace import SpanKind
 
@@ -419,19 +286,13 @@ class ClaimXEventIngesterWorker:
                 },
                 exc_info=True,
             )
-            # Record parse error in metrics
             record_event_ingested(domain=self.domain, status="parse_error")
             raise
 
-        # event_id is now generated deterministically in the schema from stable Eventhouse fields
-        # Do NOT regenerate it here to ensure consistency across duplicate polls
-        # The schema uses: project_id | event_type | ingestion_time (from Eventhouse) | optional IDs
+        # event_id generated deterministically in schema from stable Eventhouse fields
+        # Do NOT regenerate to ensure consistency across duplicate polls
         event_id = event.event_id
-
-        # Set logging context for this request (enables trace correlation)
         set_log_context(trace_id=event.event_id)
-
-        # Check for duplicates (same event_id processed recently)
         if self._is_duplicate(event_id):
             self._records_deduplicated += 1
             logger.debug(
@@ -445,9 +306,7 @@ class ClaimXEventIngesterWorker:
             record_event_ingested(domain=self.domain, status="deduplicated")
             return
 
-        # Track records processed
         self._records_processed += 1
-
         logger.info(
             "Processing ClaimX event",
             extra={
@@ -458,38 +317,19 @@ class ClaimXEventIngesterWorker:
                 "task_assignment_id": event.task_assignment_id,
             },
         )
-
-        # Create enrichment task for this event
-        # All events need enrichment (to fetch entity data from API)
         with tracer.start_as_current_span("event.process", kind=SpanKind.INTERNAL) as span:
             span.set_attribute("event.id", event.event_id)
             span.set_attribute("event.type", event.event_type)
             span.set_attribute("project.id", event.project_id)
             await self._create_enrichment_task(event)
 
-        # Mark event as processed in dedup cache
         self._mark_processed(event_id)
-
-        # Periodic cleanup of expired cache entries
         self._cleanup_dedup_cache()
-
-        # Record successful ingestion and duration
         duration = time.perf_counter() - start_time
         event_ingestion_duration_seconds.labels(domain=self.domain).observe(duration)
         record_event_ingested(domain=self.domain, status="success")
 
     async def _create_enrichment_task(self, event: ClaimXEventMessage) -> None:
-        """
-        Create and produce an enrichment task for a ClaimX event.
-
-        Enrichment tasks trigger the enrichment worker to call the ClaimX API
-        to fetch entity data (projects, contacts, media, tasks, etc.) and
-        generate download tasks for any attachments.
-
-        Args:
-            event: Source ClaimXEventMessage to create enrichment task from
-        """
-        # Create enrichment task
         enrichment_task = ClaimXEnrichmentTask(
             event_id=event.event_id,
             event_type=event.event_type,
@@ -501,8 +341,6 @@ class ClaimXEventIngesterWorker:
             video_collaboration_id=event.video_collaboration_id,
             master_file_name=event.master_file_name,
         )
-
-        # Produce enrichment task to pending topic
         try:
             metadata = await self.producer.send(
                 topic=self.enrichment_topic,
@@ -522,7 +360,6 @@ class ClaimXEventIngesterWorker:
                 },
             )
             self._records_succeeded += 1
-            # Record task produced metric
             record_event_task_produced(domain=self.domain, task_type="enrichment_task")
         except Exception as e:
             logger.error(
@@ -537,38 +374,18 @@ class ClaimXEventIngesterWorker:
             raise
 
     def _is_duplicate(self, event_id: str) -> bool:
-        """
-        Check if event_id is in dedup cache (already processed recently).
-
-        Returns:
-            True if event_id was processed within TTL window, False otherwise
-        """
         now = time.time()
-
-        # Check if in cache and not expired
         if event_id in self._dedup_cache:
             cached_time = self._dedup_cache[event_id]
             if now - cached_time < self._dedup_cache_ttl_seconds:
                 return True
-            # Expired - remove from cache
             del self._dedup_cache[event_id]
 
         return False
 
     def _mark_processed(self, event_id: str) -> None:
-        """
-        Mark an event_id as processed in the dedup cache.
-
-        If the cache is at max capacity, evicts the oldest 10% of entries.
-
-        Args:
-            event_id: The event_id to mark as processed
-        """
         now = time.time()
-
-        # If cache is full, evict oldest entries (simple LRU)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
-            # Sort by timestamp and remove oldest 10%
             sorted_items = sorted(self._dedup_cache.items(), key=lambda x: x[1])
             evict_count = self._dedup_cache_max_size // 10
             for event_id_to_evict, _ in sorted_items[:evict_count]:
@@ -582,11 +399,9 @@ class ClaimXEventIngesterWorker:
                 },
             )
 
-        # Add to cache
         self._dedup_cache[event_id] = now
 
     def _cleanup_dedup_cache(self) -> None:
-        """Remove expired entries from dedup cache (TTL-based cleanup)."""
         now = time.time()
         expired_keys = [
             event_id
@@ -607,24 +422,18 @@ class ClaimXEventIngesterWorker:
             )
 
     async def _periodic_cycle_output(self) -> None:
-        """
-        Background task for periodic cycle logging.
-        """
-        # Initial cycle output (with deduplicated tracking)
         logger.info(format_cycle_output(0, 0, 0, 0, deduplicated=0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
         try:
-            while True:  # Runs until cancelled
+            while True:
                 await asyncio.sleep(1)
 
                 cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:  # 30 matches standard interval
+                if cycle_elapsed >= 30:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
-
-                    # Use standardized cycle output format with dedup tracking
                     cycle_msg = format_cycle_output(
                         cycle_count=self._cycle_count,
                         succeeded=self._records_succeeded,

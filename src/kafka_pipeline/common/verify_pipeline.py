@@ -263,29 +263,29 @@ def print_report(results: dict) -> None:
 
     if "duplicate_analysis" in results:
         print("\n--- Duplicate Analysis ---")
-        da = results["duplicate_analysis"]
-        print(f"Trace IDs with duplicates:     {da['trace_ids_with_duplicates']:,}")
-        print(f"Max duplicates per trace_id:   {da['max_duplicates_per_trace_id']}")
+        duplicate_analysis = results["duplicate_analysis"]
+        print(f"Trace IDs with duplicates:     {duplicate_analysis['trace_ids_with_duplicates']:,}")
+        print(f"Max duplicates per trace_id:   {duplicate_analysis['max_duplicates_per_trace_id']}")
         print("\nSample duplicate trace_ids:")
-        for item in da["sample_duplicates"][:5]:
-            print(f"  {item['trace_id']}: {item['count']} occurrences")
+        for duplicate_sample in duplicate_analysis["sample_duplicates"][:5]:
+            print(f"  {duplicate_sample['trace_id']}: {duplicate_sample['count']} occurrences")
 
     if "temporal_analysis" in results:
         print("\n--- Temporal Pattern ---")
-        ta = results["temporal_analysis"]
-        print(f"Avg time between duplicates:   {ta['avg_time_span_between_duplicates_seconds']}s")
-        print(f"Max time between duplicates:   {ta['max_time_span_between_duplicates_seconds']}s")
+        temporal_analysis = results["temporal_analysis"]
+        print(f"Avg time between duplicates:   {temporal_analysis['avg_time_span_between_duplicates_seconds']}s")
+        print(f"Max time between duplicates:   {temporal_analysis['max_time_span_between_duplicates_seconds']}s")
 
     if "attachment_analysis" in results:
         print("\n--- Attachment Analysis ---")
-        aa = results["attachment_analysis"]
-        print(f"Events WITH attachments:       {aa['events_with_attachments']:,}")
-        print(f"Events WITHOUT attachments:    {aa['events_without_attachments']:,}")
+        attachment_analysis = results["attachment_analysis"]
+        print(f"Events WITH attachments:       {attachment_analysis['events_with_attachments']:,}")
+        print(f"Events WITHOUT attachments:    {attachment_analysis['events_without_attachments']:,}")
 
     if "event_type_distribution" in results:
         print("\n--- Event Type Distribution (top 10) ---")
-        for item in results["event_type_distribution"]:
-            print(f"  {item.get('status_subtype', 'unknown')}: {item['count']:,}")
+        for event_type_stat in results["event_type_distribution"]:
+            print(f"  {event_type_stat.get('status_subtype', 'unknown')}: {event_type_stat['count']:,}")
 
     print("\n" + "=" * 80)
 
@@ -371,10 +371,10 @@ def main():
     if args.hourly:
         print("\n--- Hourly Event Distribution ---")
         hourly = verifier.get_hourly_distribution(since=since, until=until)
-        for item in hourly:
-            hour_str = item["hour"].strftime("%Y-%m-%d %H:00") if item.get("hour") else "unknown"
-            total = item.get("total_rows", 0)
-            unique = item.get("unique_events", 0)
+        for hourly_stat in hourly:
+            hour_str = hourly_stat["hour"].strftime("%Y-%m-%d %H:00") if hourly_stat.get("hour") else "unknown"
+            total = hourly_stat.get("total_rows", 0)
+            unique = hourly_stat.get("unique_events", 0)
             dup = total - unique
             print(f"  {hour_str}: {total:,} rows ({unique:,} unique, {dup:,} duplicates)")
 

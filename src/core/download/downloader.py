@@ -33,9 +33,6 @@ def _classify_timeout_type(error_message: str) -> str:
     """
     Classify timeout error type from error message.
 
-    Args:
-        error_message: Error message from timeout exception
-
     Returns:
         Timeout type: 'connection', 'socket_read', or 'total'
     """
@@ -258,13 +255,7 @@ class AttachmentDownloader:
         """
         Get Content-Length from HEAD request.
 
-        Args:
-            url: URL to check
-            session: aiohttp session
-            timeout: Request timeout
-
-        Returns:
-            Content-Length in bytes, or None if unavailable
+        Returns Content-Length in bytes, or None if unavailable.
         """
         try:
             # Use shorter timeout for HEAD since it should be fast
@@ -282,16 +273,7 @@ class AttachmentDownloader:
     async def _download_in_memory(
         self, task: DownloadTask, session: aiohttp.ClientSession
     ) -> DownloadOutcome:
-        """
-        Download file in-memory (for files < 50MB).
-
-        Args:
-            task: Download task
-            session: aiohttp session
-
-        Returns:
-            DownloadOutcome
-        """
+        """Download file in-memory (for files < 50MB)."""
         response, error = await download_url(
             url=task.url,
             session=session,
@@ -352,16 +334,7 @@ class AttachmentDownloader:
     async def _download_streaming(
         self, task: DownloadTask, session: aiohttp.ClientSession
     ) -> DownloadOutcome:
-        """
-        Download file using streaming (for files > 50MB).
-
-        Args:
-            task: Download task
-            session: aiohttp session
-
-        Returns:
-            DownloadOutcome
-        """
+        """Download file using streaming (for files > 50MB)."""
         # Ensure parent directory exists
         # Use asyncio.to_thread for mkdir to ensure proper synchronization
         # on Windows, where synchronous mkdir may not be immediately visible
@@ -409,13 +382,7 @@ class AttachmentDownloader:
         """
         Get Content-Type from HEAD request.
 
-        Args:
-            url: URL to check
-            session: aiohttp session
-            timeout: Request timeout
-
-        Returns:
-            Content-Type header value, or None if unavailable
+        Returns Content-Type header value, or None if unavailable.
         """
         try:
             # Use shorter timeout for HEAD since it should be fast

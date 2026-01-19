@@ -386,15 +386,15 @@ class ClaimXResultProcessor:
             now = datetime.now(timezone.utc)
             rows = []
 
-            for result in batch:
+            for upload_result in batch:
                 rows.append({
-                    "media_id": result.media_id,
-                    "project_id": result.project_id,
-                    "file_name": result.file_name,
-                    "file_type": result.file_type,
-                    "blob_path": result.blob_path,
-                    "bytes": result.bytes_uploaded,
-                    "source_event_id": result.source_event_id,
+                    "media_id": upload_result.media_id,
+                    "project_id": upload_result.project_id,
+                    "file_name": upload_result.file_name,
+                    "file_type": upload_result.file_type,
+                    "blob_path": upload_result.blob_path,
+                    "bytes": upload_result.bytes_uploaded,
+                    "source_event_id": upload_result.source_event_id,
                     "created_at": now,
                     "updated_at": now,
                 })

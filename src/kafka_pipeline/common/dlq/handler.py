@@ -214,14 +214,7 @@ class DLQHandler:
         """
         Parse DLQ message from ConsumerRecord.
 
-        Args:
-            record: ConsumerRecord containing FailedDownloadMessage JSON
-
-        Returns:
-            Parsed FailedDownloadMessage
-
-        Raises:
-            ValueError: If message cannot be parsed
+        Raises ValueError if message cannot be parsed.
         """
         if not record.value:
             raise ValueError("DLQ message value is empty")
@@ -245,12 +238,7 @@ class DLQHandler:
         Extracts the original task from the DLQ message and sends it
         back to the pending topic for reprocessing. Resets retry count to 0.
 
-        Args:
-            record: ConsumerRecord from DLQ topic to replay
-
-        Raises:
-            RuntimeError: If producer not started
-            ValueError: If message cannot be parsed
+        Raises RuntimeError if producer not started, ValueError if message cannot be parsed.
         """
         if not self._producer or not self._producer.is_started:
             raise RuntimeError("Producer not started. Call start() first.")
@@ -340,11 +328,7 @@ class DLQHandler:
 
         Should be called after successful replay or manual resolution.
 
-        Args:
-            record: ConsumerRecord from DLQ topic to acknowledge
-
-        Raises:
-            RuntimeError: If consumer not started
+        Raises RuntimeError if consumer not started.
         """
         if not self._consumer or not self._consumer._consumer:
             raise RuntimeError("Consumer not started. Call start() first.")
@@ -388,7 +372,7 @@ class DLQHandler:
         )
 
     @property
-    def is_running(self) -> bool:
+    def is_running(self):
         """Check if DLQ handler is running and ready to process messages."""
         return (
             self._consumer is not None

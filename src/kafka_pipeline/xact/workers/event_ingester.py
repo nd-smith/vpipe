@@ -1,18 +1,13 @@
 """
 Event Ingester Worker - Consumes events and produces download tasks.
 
-This worker is the entry point to the download pipeline:
+Entry point to the download pipeline:
 1. Consumes EventMessage from events.raw topic
 2. Validates attachment URLs against domain allowlist
 3. Generates blob storage paths for each attachment
 4. Produces DownloadTaskMessage to downloads.pending topic
 
-Note: Delta Lake writes are handled separately by DeltaEventsWorker,
-which consumes from the same topic with a different consumer group.
-
-Schema compatibility:
-- EventMessage matches verisk_pipeline EventRecord
-- DownloadTaskMessage matches verisk_pipeline Task
+Note: Delta Lake writes are handled separately by DeltaEventsWorker.
 
 Consumer group: {prefix}-event-ingester
 Input topic: events.raw
@@ -50,30 +45,7 @@ logger = get_logger(__name__)
 
 
 class EventIngesterWorker:
-    """
-    Worker to consume events and produce download tasks.
-
-    Processes EventMessage records from the events.raw topic, validates
-    attachment URLs, generates storage paths, and produces DownloadTaskMessage
-    records to the downloads.pending topic for processing by download workers.
-
-    Note: Delta Lake writes are handled by a separate DeltaEventsWorker that
-    consumes from the same topic with a different consumer group.
-
-    Features:
-    - URL validation with domain allowlist
-    - Automatic blob path generation
-    - Trace ID preservation for downstream tracking
-    - Graceful handling of events without attachments
-    - Sanitized logging of validation failures
-
-    Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> worker = EventIngesterWorker(config)
-        >>> await worker.start()
-        >>> # Worker runs until stopped
-        >>> await worker.stop()
-    """
+    """Worker to consume events and produce download tasks."""
 
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
@@ -93,16 +65,6 @@ class EventIngesterWorker:
         domain: str = "xact",
         producer_config: Optional[KafkaConfig] = None,
     ):
-        """
-        Initialize event ingester worker.
-
-        Args:
-            config: Kafka configuration for consumer (topic names, connection settings)
-            domain: Domain identifier for OneLake routing (e.g., "xact", "claimx")
-            producer_config: Optional separate Kafka config for producer. If not provided,
-                uses the consumer config. This is needed when reading from Event Hub
-                but writing to local Kafka.
-        """
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
@@ -153,15 +115,6 @@ class EventIngesterWorker:
         return self.consumer_config
 
     async def start(self) -> None:
-        """
-        Start the event ingester worker.
-
-        Initializes producer and consumer, then begins consuming events
-        from the events.raw topic. This method runs until stop() is called.
-
-        Raises:
-            Exception: If producer or consumer fails to start
-        """
         logger.info("Starting EventIngesterWorker")
         self._running = True
 
@@ -207,12 +160,6 @@ class EventIngesterWorker:
             self._running = False
 
     async def stop(self) -> None:
-        """
-        Stop the event ingester worker.
-
-        Gracefully shuts down consumer and producer, committing any pending
-        offsets and flushing pending messages.
-        """
         logger.info("Stopping EventIngesterWorker")
         self._running = False
 
@@ -238,19 +185,6 @@ class EventIngesterWorker:
         logger.info("EventIngesterWorker stopped successfully")
 
     async def _handle_event_message(self, record: ConsumerRecord) -> None:
-        """
-        Process a single event message from Kafka.
-
-        Parses the EventMessage (matching verisk_pipeline EventRecord schema),
-        validates attachments, generates download tasks, and produces them to
-        the pending topic.
-
-        Args:
-            record: ConsumerRecord containing EventMessage JSON
-
-        Raises:
-            Exception: If message processing fails (will be handled by consumer error routing)
-        """
         # Start timing for metrics
         start_time = time.perf_counter()
 
@@ -405,17 +339,6 @@ class EventIngesterWorker:
         attachment_url: str,
         assignment_id: str,
     ) -> None:
-        """
-        Process a single attachment from an event.
-
-        Validates the URL, generates a blob path, creates a download task
-        matching verisk_pipeline Task schema, and produces it to pending topic.
-
-        Args:
-            event: Source EventMessage (matches verisk_pipeline EventRecord)
-            attachment_url: URL of the attachment to download
-            assignment_id: Assignment ID for path generation
-        """
         from opentelemetry import trace
         from opentelemetry.trace import SpanKind
 
@@ -555,11 +478,6 @@ class EventIngesterWorker:
                 raise
 
     async def _periodic_cycle_output(self) -> None:
-        """
-        Background task for periodic cycle logging.
-
-        Logs processing statistics at regular intervals for operational visibility.
-        """
         logger.info(
             "Cycle 0: events=0 (tasks=0, skipped=0, deduped=0) [cycle output every %ds]",
             self.CYCLE_LOG_INTERVAL_SECONDS,
@@ -595,15 +513,6 @@ class EventIngesterWorker:
             raise
 
     def _is_duplicate(self, trace_id: str) -> tuple[bool, Optional[str]]:
-        """
-        Check if trace_id is in dedup cache (already processed recently).
-
-        Args:
-            trace_id: Trace ID to check
-
-        Returns:
-            Tuple of (is_duplicate, cached_event_id or None)
-        """
         now = time.time()
 
         # Check if in cache and not expired
@@ -618,15 +527,7 @@ class EventIngesterWorker:
         return False, None
 
     def _mark_processed(self, trace_id: str, event_id: str) -> None:
-        """
-        Add trace_id -> event_id mapping to dedup cache.
-
-        Implements simple LRU eviction if cache is full.
-
-        Args:
-            trace_id: Trace ID to mark as processed
-            event_id: Event ID generated for this trace
-        """
+        """Add trace_id -> event_id mapping to dedup cache (LRU eviction)."""
         now = time.time()
 
         # If cache is full, evict oldest entries (simple LRU)
@@ -653,7 +554,6 @@ class EventIngesterWorker:
         self._dedup_cache_timestamps[trace_id] = now
 
     def _cleanup_dedup_cache(self) -> None:
-        """Remove expired entries from dedup cache (TTL-based cleanup)."""
         now = time.time()
         expired_keys = [
             trace_id

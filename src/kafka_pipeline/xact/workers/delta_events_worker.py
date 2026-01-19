@@ -177,8 +177,7 @@ class DeltaEventsWorker:
         Initializes consumer and begins consuming events from the events.raw topic.
         Runs until stop() is called or max_batches is reached (if configured).
 
-        Raises:
-            Exception: If consumer fails to start
+        Raises Exception if consumer fails to start.
         """
         logger.info(
             "Starting DeltaEventsWorker",
@@ -282,9 +281,6 @@ class DeltaEventsWorker:
         Process a single event message from Kafka.
 
         Adds the event to the batch and flushes when batch is full.
-
-        Args:
-            record: ConsumerRecord containing EventMessage JSON
         """
         # Track events received for cycle output
         self._records_processed += 1
@@ -403,11 +399,11 @@ class DeltaEventsWorker:
             # Route to Kafka retry topic
             trace_ids = []
             event_ids = []
-            for e in batch_to_write[:10]:
-                if e.get("traceId") or e.get("trace_id"):
-                    trace_ids.append(e.get("traceId") or e.get("trace_id"))
-                if e.get("eventId") or e.get("event_id"):
-                    event_ids.append(e.get("eventId") or e.get("event_id"))
+            for event_dict in batch_to_write[:10]:
+                if event_dict.get("traceId") or event_dict.get("trace_id"):
+                    trace_ids.append(event_dict.get("traceId") or event_dict.get("trace_id"))
+                if event_dict.get("eventId") or event_dict.get("event_id"):
+                    event_ids.append(event_dict.get("eventId") or event_dict.get("event_id"))
             logger.warning(
                 "Batch write failed, routing to retry topic",
                 extra={
@@ -429,12 +425,7 @@ class DeltaEventsWorker:
         """
         Attempt to write a batch to Delta Lake.
 
-        Args:
-            batch: List of event dictionaries to write
-            batch_id: Short identifier for log correlation
-
-        Returns:
-            True if write succeeded, False otherwise
+        Returns True if write succeeded, False otherwise.
         """
         batch_size = len(batch)
 

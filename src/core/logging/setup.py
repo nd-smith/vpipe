@@ -56,7 +56,6 @@ class ArchivingRotatingFileHandler(RotatingFileHandler):
 
     def __init__(self, filename, mode="a", maxBytes=0, backupCount=0, encoding=None, delay=False, archive_dir=None):
         super().__init__(filename, mode, maxBytes, backupCount, encoding, delay)
-        # Create archive directory
         if archive_dir:
             self.archive_dir = Path(archive_dir)
         else:
@@ -67,10 +66,6 @@ class ArchivingRotatingFileHandler(RotatingFileHandler):
         self.archive_dir.mkdir(parents=True, exist_ok=True)
 
     def doRollover(self):
-        """
-        Override doRollover to move rotated files to archive directory.
-        """
-        # Perform standard rotation first
         super().doRollover()
 
         # Move rotated files (*.log.1, *.log.2, etc.) to archive

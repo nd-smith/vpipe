@@ -37,7 +37,7 @@ class PipelineError(Exception):
         super().__init__(message)
 
     @property
-    def is_retryable(self) -> bool:
+    def is_retryable(self):
         """Whether this error should trigger a retry."""
         return self.category in (
             ErrorCategory.TRANSIENT,
@@ -46,7 +46,7 @@ class PipelineError(Exception):
         )
 
     @property
-    def should_refresh_auth(self) -> bool:
+    def should_refresh_auth(self):
         """Whether this error should trigger auth refresh."""
         return self.category == ErrorCategory.AUTH
 
@@ -297,11 +297,7 @@ def is_auth_error(exc: Exception) -> bool:
     """
     Check if exception is authentication-related.
 
-    Args:
-        exc: Exception to check
-
-    Returns:
-        True if this is an auth error that should trigger token refresh
+    Returns True if this is an auth error that should trigger token refresh.
     """
     # Check typed exceptions first
     if isinstance(exc, PipelineError):
@@ -316,11 +312,7 @@ def is_transient_error(exc: Exception) -> bool:
     """
     Check if exception is transient (retriable).
 
-    Args:
-        exc: Exception to check
-
-    Returns:
-        True if this is a transient error that may succeed on retry
+    Returns True if this is a transient error that may succeed on retry.
     """
     # Check typed exceptions first
     if isinstance(exc, PipelineError):
@@ -343,12 +335,6 @@ def is_retryable_error(exc: Exception) -> bool:
     Non-retryable:
     - Permanent errors (404, 403, validation)
     - Circuit open errors (should wait)
-
-    Args:
-        exc: Exception to check
-
-    Returns:
-        True if error should trigger retry
     """
     if isinstance(exc, PipelineError):
         return exc.is_retryable
@@ -362,15 +348,7 @@ def is_retryable_error(exc: Exception) -> bool:
 
 
 def classify_http_status(status_code: int) -> ErrorCategory:
-    """
-    Classify HTTP status code into error category.
-
-    Args:
-        status_code: HTTP response status
-
-    Returns:
-        Appropriate ErrorCategory
-    """
+    """Classify HTTP status code into error category."""
     if 200 <= status_code < 300:
         return ErrorCategory.UNKNOWN  # Not an error
 
@@ -400,15 +378,7 @@ def classify_http_status(status_code: int) -> ErrorCategory:
 
 
 def classify_exception(exc: Exception) -> ErrorCategory:
-    """
-    Classify an exception into error category.
-
-    Args:
-        exc: Exception to classify
-
-    Returns:
-        Appropriate ErrorCategory
-    """
+    """Classify an exception into error category."""
     # Already classified
     if isinstance(exc, PipelineError):
         return exc.category
@@ -485,17 +455,7 @@ def wrap_exception(
     default_class: type = PipelineError,
     context: Optional[dict] = None,
 ) -> PipelineError:
-    """
-    Wrap a generic exception in appropriate PipelineError subclass.
-
-    Args:
-        exc: Exception to wrap
-        default_class: Class to use if can't classify
-        context: Additional context to include
-
-    Returns:
-        Appropriate PipelineError subclass instance
-    """
+    """Wrap a generic exception in appropriate PipelineError subclass."""
     if isinstance(exc, PipelineError):
         if context:
             exc.context.update(context)

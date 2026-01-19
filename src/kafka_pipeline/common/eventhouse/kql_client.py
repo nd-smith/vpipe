@@ -59,10 +59,6 @@ class FileBackedKustoCredential:
         """
         Initialize file-backed credential.
 
-        Args:
-            token_file: Path to JSON token file
-            resource: Azure resource to get token for
-            refresh_threshold_minutes: Re-read file if token older than this
         """
         self._token_file = Path(token_file)
         self._resource = resource
@@ -91,7 +87,6 @@ class FileBackedKustoCredential:
         try:
             tokens = json.loads(content)
             if isinstance(tokens, dict):
-                # Try exact match
                 if self._resource in tokens:
                     return tokens[self._resource]
                 # Try normalized match (with/without trailing slash)
@@ -111,7 +106,6 @@ class FileBackedKustoCredential:
                     f"Token file does not contain token for resource: {self._resource}"
                 )
             else:
-                # Plain text token
                 return content
         except json.JSONDecodeError:
             # Not JSON, treat as plain text
@@ -153,14 +147,10 @@ class EventhouseConfig:
     # Connection
     cluster_url: str  # e.g., "https://your-cluster.kusto.fabric.microsoft.com"
     database: str  # e.g., "your-database"
-
-    # Query defaults
     query_timeout_seconds: int = 120  # Default query timeout
     max_retries: int = 3  # Max retry attempts for transient failures
     retry_base_delay_seconds: float = 1.0  # Base delay between retries
     retry_max_delay_seconds: float = 30.0  # Max delay between retries
-
-    # Connection pooling
     max_connections: int = 10  # Connection pool size
 
     @classmethod
@@ -175,23 +165,12 @@ class EventhouseConfig:
         2. config.yaml file (under 'eventhouse:' key)
         3. Dataclass defaults
 
-        Args:
-            config_path: Path to YAML config file. Defaults to src/config.yaml.
-
-        Returns:
-            EventhouseConfig instance
-
-        Raises:
-            ValueError: If required fields are missing
         """
         config_path = config_path or DEFAULT_CONFIG_PATH
-
-        # Load YAML
         data: Dict[str, Any] = {}
         if config_path.exists():
             with open(config_path, "r") as f:
                 yaml_data = yaml.safe_load(f) or {}
-            # Extract eventhouse section
             data = yaml_data.get("eventhouse", {})
 
         # Apply environment variable overrides
@@ -207,8 +186,6 @@ class EventhouseConfig:
         for key, value in env_overrides.items():
             if value is not None:
                 data[key] = value
-
-        # Validate required fields
         cluster_url = data.get("cluster_url", "")
         database = data.get("database", "")
 
@@ -250,9 +227,6 @@ class EventhouseConfig:
             EVENTHOUSE_RETRY_BASE_DELAY: Base retry delay in seconds (default: 1.0)
             EVENTHOUSE_RETRY_MAX_DELAY: Max retry delay in seconds (default: 30.0)
             EVENTHOUSE_MAX_CONNECTIONS: Connection pool size (default: 10)
-
-        Raises:
-            ValueError: If required environment variables are missing
         """
         cluster_url = os.getenv("EVENTHOUSE_CLUSTER_URL")
         if not cluster_url:
@@ -285,8 +259,6 @@ class KQLQueryResult:
 
     # Result data as list of dicts (each dict is a row)
     rows: list[dict[str, Any]] = field(default_factory=list)
-
-    # Query metadata
     query_duration_ms: float = 0.0
     row_count: int = 0
     is_partial: bool = False
@@ -295,7 +267,7 @@ class KQLQueryResult:
     query_text: str = ""
 
     @property
-    def is_empty(self) -> bool:
+    def is_empty(self):
         """Check if query returned no results."""
         return self.row_count == 0
 
@@ -324,8 +296,7 @@ class KQLClient:
     def __init__(self, config: EventhouseConfig):
         """Initialize KQL client with configuration.
 
-        Args:
-            config: Eventhouse configuration
+
         """
         self.config = config
         self._client: Optional[KustoClient] = None
@@ -470,26 +441,12 @@ class KQLClient:
         timeout_seconds: Optional[int] = None,
     ) -> KQLQueryResult:
         """Execute a KQL query with retry logic.
-
-        Args:
-            query: KQL query string
-            database: Database to query (defaults to config.database)
-            timeout_seconds: Query timeout (defaults to config.query_timeout_seconds)
-
-        Returns:
-            KQLQueryResult with rows and metadata
-
-        Raises:
-            KustoQueryError: For query syntax/semantic errors
-            KustoError: For other Kusto errors
         """
         if self._client is None:
             await self.connect()
 
         db = database or self.config.database
         timeout = timeout_seconds or self.config.query_timeout_seconds
-
-        # Execute with retry
         last_error: Optional[Exception] = None
 
         for attempt in range(self.config.max_retries):
@@ -579,14 +536,6 @@ class KQLClient:
         timeout_seconds: int,
     ) -> KQLQueryResult:
         """Execute query implementation (runs in thread pool).
-
-        Args:
-            query: KQL query string
-            database: Database name
-            timeout_seconds: Query timeout
-
-        Returns:
-            KQLQueryResult
         """
         start_time = time.perf_counter()
 
@@ -619,7 +568,6 @@ class KQLClient:
                 row_dict = {}
                 for i, col_name in enumerate(column_names):
                     value = row[i]
-                    # Handle datetime serialization
                     if isinstance(value, datetime):
                         row_dict[col_name] = value.isoformat()
                     else:
@@ -705,9 +653,6 @@ class KQLClient:
 
     async def health_check(self) -> bool:
         """Check if connection is healthy.
-
-        Returns:
-            True if connection is healthy, False otherwise
         """
         try:
             # Simple query to verify connection
@@ -725,6 +670,6 @@ class KQLClient:
             return False
 
     @property
-    def is_connected(self) -> bool:
+    def is_connected(self):
         """Check if client is connected."""
         return self._client is not None

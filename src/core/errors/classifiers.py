@@ -80,11 +80,7 @@ def classify_azure_error_code(error_code: str) -> Optional[str]:
     """
     Classify Azure error code into error category (P2.11).
 
-    Args:
-        error_code: Azure error code (AADSTS*, HTTP status, or service-specific)
-
-    Returns:
-        Error category: "auth", "throttling", "transient", "timeout", "connection", "permanent", or None
+    Returns error category: "auth", "throttling", "transient", "timeout", "connection", "permanent", or None.
     """
     error_code = str(error_code).strip()
 
@@ -128,20 +124,11 @@ class StorageErrorClassifier:
     def classify_kusto_error(
         error: Exception, context: Optional[dict] = None
     ) -> PipelineError:
-        """
-        Classify a Kusto error into appropriate exception type.
-
-        Args:
-            error: Original exception
-            context: Additional context (merged with default {"service": "kusto"})
-
-        Returns:
-            Classified PipelineError subclass
-        """
+        """Classify a Kusto error into appropriate exception type."""
         error_str = str(error).lower()
-        ctx = {"service": "kusto"}
+        error_context = {"service": "kusto"}
         if context:
-            ctx.update(context)
+            error_context.update(context)
 
         # Auth errors
         if (
@@ -152,7 +139,7 @@ class StorageErrorClassifier:
             return AuthError(
                 f"Kusto authentication failed: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Throttling with Retry-After header extraction (Task F.2)
@@ -186,13 +173,13 @@ class StorageErrorClassifier:
             # Add retry_after to context if found (P2.6 Critical Fix)
             retry_after_seconds = None
             if retry_after_ms is not None:
-                ctx["retry_after_ms"] = retry_after_ms
+                error_context["retry_after_ms"] = retry_after_ms
                 retry_after_seconds = retry_after_ms / 1000.0
 
             return ThrottlingError(
                 f"Kusto throttled: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
                 retry_after=retry_after_seconds,
             )
 
@@ -201,7 +188,7 @@ class StorageErrorClassifier:
             return TimeoutError(
                 f"Kusto query timeout: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Service errors (transient)
@@ -212,7 +199,7 @@ class StorageErrorClassifier:
             return TransientError(
                 f"Kusto service error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Query errors (likely permanent - bad query)
@@ -223,41 +210,32 @@ class StorageErrorClassifier:
                 return KustoQueryError(
                     f"Kusto query error: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
 
         # Default to generic Kusto error
         return KustoError(
             f"Kusto error: {error}",
             cause=error,
-            context=ctx,
+            context=error_context,
         )
 
     @staticmethod
     def classify_delta_error(
         error: Exception, context: Optional[dict] = None
     ) -> PipelineError:
-        """
-        Classify a Delta table error into appropriate exception type.
-
-        Args:
-            error: Original exception
-            context: Additional context (merged with default {"service": "delta"})
-
-        Returns:
-            Classified PipelineError subclass
-        """
+        """Classify a Delta table error into appropriate exception type."""
         error_str = str(error).lower()
-        ctx = {"service": "delta"}
+        error_context = {"service": "delta"}
         if context:
-            ctx.update(context)
+            error_context.update(context)
 
         # Check for auth errors (token expiry, etc.)
         if any(marker in error_str for marker in ("401", "unauthorized", "token")):
             return AuthError(
                 f"Delta authentication failed: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Throttling
@@ -265,7 +243,7 @@ class StorageErrorClassifier:
             return ThrottlingError(
                 f"Delta throttled: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Connection/network errors
@@ -277,12 +255,12 @@ class StorageErrorClassifier:
                 return TimeoutError(
                     f"Delta operation timeout: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             return ConnectionError(
                 f"Delta connection error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Service errors (transient)
@@ -290,34 +268,25 @@ class StorageErrorClassifier:
             return TransientError(
                 f"Delta service error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Default to generic Delta error
         return DeltaTableError(
             f"Delta table error: {error}",
             cause=error,
-            context=ctx,
+            context=error_context,
         )
 
     @staticmethod
     def classify_onelake_error(
         error: Exception, context: Optional[dict] = None
     ) -> PipelineError:
-        """
-        Classify an OneLake error into appropriate exception type.
-
-        Args:
-            error: Original exception
-            context: Additional context (merged with default {"service": "onelake"})
-
-        Returns:
-            Classified PipelineError subclass
-        """
+        """Classify an OneLake error into appropriate exception type."""
         error_str = str(error).lower()
-        ctx = {"service": "onelake"}
+        error_context = {"service": "onelake"}
         if context:
-            ctx.update(context)
+            error_context.update(context)
 
         # Auth errors
         if any(
@@ -327,7 +296,7 @@ class StorageErrorClassifier:
             return AuthError(
                 f"OneLake authentication failed: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Throttling
@@ -335,7 +304,7 @@ class StorageErrorClassifier:
             return ThrottlingError(
                 f"OneLake throttled: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Timeout
@@ -343,7 +312,7 @@ class StorageErrorClassifier:
             return TimeoutError(
                 f"OneLake operation timeout: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Connection errors
@@ -353,7 +322,7 @@ class StorageErrorClassifier:
             return ConnectionError(
                 f"OneLake connection error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Service errors (transient)
@@ -364,7 +333,7 @@ class StorageErrorClassifier:
             return TransientError(
                 f"OneLake service error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Not found errors (permanent)
@@ -372,7 +341,7 @@ class StorageErrorClassifier:
             return PermanentError(
                 f"OneLake resource not found: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Forbidden (permanent)
@@ -380,14 +349,14 @@ class StorageErrorClassifier:
             return PermanentError(
                 f"OneLake access denied: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Default to generic OneLake error
         return OneLakeError(
             f"OneLake error: {error}",
             cause=error,
-            context=ctx,
+            context=error_context,
         )
 
     @staticmethod
@@ -400,14 +369,6 @@ class StorageErrorClassifier:
         Generic storage error classifier with service routing.
 
         Routes to service-specific classifier based on service name.
-
-        Args:
-            error: Original exception
-            service: Service name ("kusto", "delta", "onelake")
-            context: Additional context
-
-        Returns:
-            Classified PipelineError subclass
         """
         service = service.lower()
 

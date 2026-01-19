@@ -309,7 +309,7 @@ class Plugin(LoggedClass, ABC):
         self._enabled = True
 
     @property
-    def enabled(self) -> bool:
+    def enabled(self):
         return self._enabled
 
     def enable(self) -> None:

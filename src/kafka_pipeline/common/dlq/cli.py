@@ -1,11 +1,6 @@
 """
 Command-line interface for DLQ message management.
-
-Provides CLI commands for manual review and replay of dead-letter queue messages:
-- list: Display all DLQ messages
-- view: Show detailed information for a specific message
-- replay: Send a message back to pending topic for reprocessing
-- resolve: Mark a message as handled (commit offset)
+Provides: list, view, replay, and resolve commands.
 """
 
 import argparse
@@ -21,15 +16,11 @@ from typing import List, Optional, Set
 from aiokafka.structs import ConsumerRecord
 from dotenv import load_dotenv
 
-# Project root directory (where .env file is located)
-# cli.py is at src/kafka_pipeline/common/dlq/cli.py, so root is 5 levels up
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 from config.config import KafkaConfig
 from kafka_pipeline.common.dlq.handler import DLQHandler
 from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
-
-# Configure logging for CLI
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -38,10 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class CLITaskManager:
-    """Manage async tasks with proper cancellation and cleanup."""
 
     def __init__(self):
-        """Initialize task manager with signal handlers."""
         self.tasks: Set[asyncio.Task] = set()
         self._shutdown = False
         self._shutdown_event = asyncio.Event()
@@ -49,9 +38,7 @@ class CLITaskManager:
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
-        """Setup signal handlers for graceful shutdown."""
         def signal_handler(signum, frame):
-            """Handle shutdown signals."""
             if not self._shutdown:
                 logger.info(f"Received signal {signum}, initiating shutdown...")
                 self._shutdown = True
@@ -60,62 +47,36 @@ class CLITaskManager:
                     loop = asyncio.get_running_loop()
                     loop.call_soon_threadsafe(self._shutdown_event.set)
                 except RuntimeError:
-                    # No running loop, set directly
                     pass
-
-        # Save original handlers
         for sig in (signal.SIGTERM, signal.SIGINT):
             self._original_handlers[sig] = signal.signal(sig, signal_handler)
 
     def _restore_signal_handlers(self):
-        """Restore original signal handlers."""
         for sig, handler in self._original_handlers.items():
             signal.signal(sig, handler)
 
     async def __aenter__(self):
-        """Enter async context manager."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Exit async context manager and cleanup tasks."""
         await self.shutdown()
         self._restore_signal_handlers()
         return False
 
     def create_task(self, coro, name: str = None) -> asyncio.Task:
-        """
-        Create and track a task.
-
-        Args:
-            coro: Coroutine to create task from
-            name: Optional task name for debugging
-
-        Returns:
-            Created asyncio.Task
-        """
         task = asyncio.create_task(coro, name=name)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
 
     async def shutdown(self, timeout: float = 5.0):
-        """
-        Shutdown all tasks gracefully.
-
-        Args:
-            timeout: Maximum time to wait for tasks to cancel (seconds)
-        """
         if not self.tasks:
             return
 
         logger.info(f"Shutting down {len(self.tasks)} tasks...")
-
-        # Cancel all tasks
         for task in self.tasks:
             if not task.done():
                 task.cancel()
-
-        # Wait for all tasks to complete with timeout
         try:
             await asyncio.wait_for(
                 asyncio.gather(*self.tasks, return_exceptions=True),
@@ -129,15 +90,6 @@ class CLITaskManager:
         logger.info("Task shutdown complete")
 
     async def wait_all(self, timeout: float = None):
-        """
-        Wait for all tasks to complete.
-
-        Args:
-            timeout: Optional timeout in seconds
-
-        Returns:
-            List of task results
-        """
         if not self.tasks:
             return []
 
@@ -153,57 +105,34 @@ class CLITaskManager:
             logger.warning(f"Wait timed out after {timeout}s")
             raise
 
-    def is_shutdown_requested(self) -> bool:
-        """Check if shutdown has been requested."""
+    def is_shutdown_requested(self):
         return self._shutdown
 
     async def wait_for_shutdown(self):
-        """Wait for shutdown signal."""
         await self._shutdown_event.wait()
 
 
 class DLQCLIManager:
-    """Manager for DLQ CLI operations."""
 
     def __init__(self, config: KafkaConfig):
-        """
-        Initialize DLQ CLI manager.
-
-        Args:
-            config: Kafka configuration
-        """
         self.config = config
         self.handler = DLQHandler(config)
         self._messages: List[ConsumerRecord] = []
 
     async def start(self) -> None:
-        """Start DLQ handler and fetch messages."""
         logger.info("Starting DLQ CLI manager")
         await self.handler.start()
 
     async def stop(self) -> None:
-        """Stop DLQ handler and cleanup."""
         logger.info("Stopping DLQ CLI manager")
         await self.handler.stop()
 
     async def fetch_messages(self, limit: int = 100, timeout_ms: int = 5000) -> List[ConsumerRecord]:
-        """
-        Fetch messages from DLQ topic for review.
-
-        Args:
-            limit: Maximum number of messages to fetch
-            timeout_ms: Timeout for fetching messages
-
-        Returns:
-            List of ConsumerRecord from DLQ topic
-        """
         if not self.handler._consumer or not self.handler._consumer._consumer:
             raise RuntimeError("DLQ handler not started. Call start() first.")
 
         logger.info(f"Fetching up to {limit} messages from DLQ topic (timeout: {timeout_ms}ms)")
         messages = []
-
-        # Fetch messages without committing
         consumer = self.handler._consumer._consumer
         data = await consumer.getmany(timeout_ms=timeout_ms, max_records=limit)
 
@@ -217,9 +146,6 @@ class DLQCLIManager:
         return messages
 
     def list_messages(self) -> None:
-        """
-        List all fetched DLQ messages in table format.
-        """
         if not self._messages:
             print("No DLQ messages found.")
             return
@@ -244,13 +170,6 @@ class DLQCLIManager:
         print(f"{'-'*100}\n")
 
     def view_message(self, trace_id: str) -> None:
-        """
-        Display detailed information for a specific message.
-
-        Args:
-            trace_id: Trace ID of message to view
-        """
-        # Find message by trace_id
         record = self._find_message_by_trace_id(trace_id)
         if not record:
             print(f"Error: No message found with trace_id '{trace_id}'")
@@ -302,12 +221,6 @@ class DLQCLIManager:
             logger.error(f"Failed to view message {trace_id}", exc_info=True)
 
     async def replay_message(self, trace_id: str) -> None:
-        """
-        Replay a message back to pending topic.
-
-        Args:
-            trace_id: Trace ID of message to replay
-        """
         record = self._find_message_by_trace_id(trace_id)
         if not record:
             print(f"Error: No message found with trace_id '{trace_id}'")
@@ -317,8 +230,6 @@ class DLQCLIManager:
             print(f"Replaying message {trace_id} to pending topic...")
             await self.handler.replay_message(record)
             print(f"✓ Message {trace_id} replayed successfully")
-
-            # Audit log
             logger.info(
                 "DLQ message replayed via CLI",
                 extra={
@@ -335,12 +246,6 @@ class DLQCLIManager:
             logger.error(f"Failed to replay message {trace_id}", exc_info=True)
 
     async def resolve_message(self, trace_id: str) -> None:
-        """
-        Mark a message as resolved (commit offset).
-
-        Args:
-            trace_id: Trace ID of message to resolve
-        """
         record = self._find_message_by_trace_id(trace_id)
         if not record:
             print(f"Error: No message found with trace_id '{trace_id}'")
@@ -350,8 +255,6 @@ class DLQCLIManager:
             print(f"Marking message {trace_id} as resolved...")
             await self.handler.acknowledge_message(record)
             print(f"✓ Message {trace_id} resolved successfully")
-
-            # Audit log
             logger.info(
                 "DLQ message resolved via CLI",
                 extra={
@@ -368,61 +271,39 @@ class DLQCLIManager:
             logger.error(f"Failed to resolve message {trace_id}", exc_info=True)
 
     def _find_message_by_trace_id(self, trace_id: str) -> Optional[ConsumerRecord]:
-        """
-        Find a message by trace_id.
-
-        Args:
-            trace_id: Trace ID to search for
-
-        Returns:
-            ConsumerRecord if found, None otherwise
-        """
         for record in self._messages:
             try:
                 dlq_msg = self.handler.parse_dlq_message(record)
                 if dlq_msg.trace_id == trace_id:
                     return record
             except Exception:
-                # Skip messages we can't parse
                 continue
         return None
 
 
 async def main_list(args):
-    """Execute list command."""
     from config.config import load_config
     config = load_config()
     domain = "xact"
     manager = DLQCLIManager(config)
-
-    # Override default message handler to prevent auto-processing
-    # We'll manually fetch without committing
     manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
 
     async with CLITaskManager() as task_manager:
         try:
-            # Start producer (needed for replay/resolve later)
             await manager.handler._producer.start() if not manager.handler._producer else None
-
-            # Create consumer manually without starting message loop
-            # Inline import: lazy loading for CLI commands (only import what's needed)
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",
                 topics=[config.get_topic(domain, "dlq")],
-                message_handler=lambda r: asyncio.sleep(0),  # No-op handler
+                message_handler=lambda r: asyncio.sleep(0),
             )
-
-            # Start consumer (connects but we'll fetch manually)
             consumer_task = task_manager.create_task(
                 manager.handler._consumer.start(),
                 name="dlq_consumer"
             )
-            await asyncio.sleep(0.5)  # Give consumer time to connect
-
-            # Fetch messages
+            await asyncio.sleep(0.5)
             await manager.fetch_messages(limit=args.limit, timeout_ms=args.timeout)
             manager.list_messages()
 
@@ -433,14 +314,12 @@ async def main_list(args):
             logger.error("List command failed", exc_info=True)
             sys.exit(1)
         finally:
-            # Stop consumer
             if manager.handler._consumer:
                 await manager.handler._consumer.stop()
             await manager.stop()
 
 
 async def main_view(args):
-    """Execute view command."""
     from config.config import load_config
     config = load_config()
     domain = "xact"
@@ -448,7 +327,6 @@ async def main_view(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            # Start and fetch messages
             manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
             await manager.handler._producer.start() if not manager.handler._producer else None
 
@@ -483,7 +361,6 @@ async def main_view(args):
 
 
 async def main_replay(args):
-    """Execute replay command."""
     from config.config import load_config
     config = load_config()
     domain = "xact"
@@ -491,10 +368,7 @@ async def main_replay(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            # Start handler components
             manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
-
-            # Start producer for replay
             from kafka_pipeline.common.producer import BaseKafkaProducer
             manager.handler._producer = BaseKafkaProducer(
                 config=config,
@@ -502,8 +376,6 @@ async def main_replay(args):
                 worker_name="dlq_cli",
             )
             await manager.handler._producer.start()
-
-            # Start consumer to fetch messages
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
@@ -536,7 +408,6 @@ async def main_replay(args):
 
 
 async def main_resolve(args):
-    """Execute resolve command."""
     from config.config import load_config
     config = load_config()
     domain = "xact"
@@ -544,10 +415,7 @@ async def main_resolve(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            # Start handler components
             manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
-
-            # Start producer (needed by handler)
             from kafka_pipeline.common.producer import BaseKafkaProducer
             manager.handler._producer = BaseKafkaProducer(
                 config=config,
@@ -555,8 +423,6 @@ async def main_resolve(args):
                 worker_name="dlq_cli",
             )
             await manager.handler._producer.start()
-
-            # Start consumer
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
@@ -589,8 +455,6 @@ async def main_resolve(args):
 
 
 def main():
-    """Main CLI entry point."""
-    # Load environment variables from .env file before any config access
     load_dotenv(PROJECT_ROOT / ".env")
 
     parser = argparse.ArgumentParser(

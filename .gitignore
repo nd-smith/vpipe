@@ -40,7 +40,7 @@ ENV/
 .serena
 claudedocs
 claude
-.claude
+*.claude
 
 
 # Logs

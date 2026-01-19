@@ -110,9 +110,9 @@ class KafkaErrorClassifier:
 
         error_str = str(error).lower()
         error_type = type(error).__name__
-        ctx = {"service": "kafka_consumer"}
+        error_context = {"service": "kafka_consumer"}
         if context:
-            ctx.update(context)
+            error_context.update(context)
 
         # Classify by exception type first
         category = classify_kafka_error_type(error_type)
@@ -121,14 +121,14 @@ class KafkaErrorClassifier:
             return AuthError(
                 f"Kafka consumer authentication failed: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if category == "throttling":
             return ThrottlingError(
                 f"Kafka consumer throttled: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if category == "permanent":
@@ -137,24 +137,24 @@ class KafkaErrorClassifier:
                 return PermanentError(
                     f"Kafka topic does not exist: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             if "offset" in error_str and "out of range" in error_str:
                 return PermanentError(
                     f"Kafka offset out of range: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             if "message" in error_str and "size" in error_str:
                 return PermanentError(
                     f"Kafka message too large: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             return PermanentError(
                 f"Kafka consumer permanent error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if category == "transient":
@@ -163,18 +163,18 @@ class KafkaErrorClassifier:
                 return TimeoutError(
                     f"Kafka consumer timeout: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             if "connection" in error_str or "KafkaConnectionError" in error_type:
                 return ConnectionError(
                     f"Kafka consumer connection error: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             return TransientError(
                 f"Kafka consumer transient error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # String-based fallback classification
@@ -185,14 +185,14 @@ class KafkaErrorClassifier:
             return AuthError(
                 f"Kafka consumer auth error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if "timeout" in error_str:
             return TimeoutError(
                 f"Kafka consumer timeout: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if any(
@@ -202,14 +202,14 @@ class KafkaErrorClassifier:
             return ConnectionError(
                 f"Kafka consumer connection error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Default to generic Kafka error
         return KafkaError(
             f"Kafka consumer error: {error}",
             cause=error,
-            context=ctx,
+            context=error_context,
         )
 
     @staticmethod
@@ -232,9 +232,9 @@ class KafkaErrorClassifier:
 
         error_str = str(error).lower()
         error_type = type(error).__name__
-        ctx = {"service": "kafka_producer"}
+        error_context = {"service": "kafka_producer"}
         if context:
-            ctx.update(context)
+            error_context.update(context)
 
         # Classify by exception type first
         category = classify_kafka_error_type(error_type)
@@ -243,14 +243,14 @@ class KafkaErrorClassifier:
             return AuthError(
                 f"Kafka producer authentication failed: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if category == "throttling":
             return ThrottlingError(
                 f"Kafka producer throttled: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if category == "permanent":
@@ -259,24 +259,24 @@ class KafkaErrorClassifier:
                 return PermanentError(
                     f"Kafka topic does not exist: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             if "message" in error_str and ("size" in error_str or "large" in error_str):
                 return PermanentError(
                     f"Kafka message too large: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             if "invalid" in error_str:
                 return ValidationError(
                     f"Kafka producer validation error: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             return PermanentError(
                 f"Kafka producer permanent error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if category == "transient":
@@ -285,18 +285,18 @@ class KafkaErrorClassifier:
                 return TimeoutError(
                     f"Kafka producer timeout: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             if "connection" in error_str or "KafkaConnectionError" in error_type:
                 return ConnectionError(
                     f"Kafka producer connection error: {error}",
                     cause=error,
-                    context=ctx,
+                    context=error_context,
                 )
             return TransientError(
                 f"Kafka producer transient error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # String-based fallback classification
@@ -307,14 +307,14 @@ class KafkaErrorClassifier:
             return AuthError(
                 f"Kafka producer auth error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if "timeout" in error_str:
             return TimeoutError(
                 f"Kafka producer timeout: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         if any(
@@ -324,14 +324,14 @@ class KafkaErrorClassifier:
             return ConnectionError(
                 f"Kafka producer connection error: {error}",
                 cause=error,
-                context=ctx,
+                context=error_context,
             )
 
         # Default to generic Kafka error
         return KafkaError(
             f"Kafka producer error: {error}",
             cause=error,
-            context=ctx,
+            context=error_context,
         )
 
     @staticmethod

@@ -218,28 +218,15 @@ class LocalKafkaConfig:
             ONELAKE_CLAIMX_PATH: OneLake path for claimx domain
             DELTA_EVENTS_BATCH_SIZE: Events per batch for Delta writes (default: 1000)
         """
-        # Use default config directory if not specified
         resolved_path = config_path or DEFAULT_CONFIG_DIR
-
-        # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
         kafka_data = yaml_data.get("kafka", {})
-
-        # Get connection settings (support both flat and nested structure)
         connection_data = kafka_data.get("connection", kafka_data)
-
-        # Get xact domain config for topics (nested structure: kafka.xact.topics)
         xact_config = kafka_data.get("xact", {})
         topics_data = xact_config.get("topics", {})
-
-        # Get claimx domain config (nested structure: kafka.claimx)
         claimx_config = kafka_data.get("claimx", {})
-
-        # Get ClaimX API settings (from root-level claimx.api section, not kafka.claimx)
         claimx_root = yaml_data.get("claimx", {})
         claimx_api_data = claimx_root.get("api", {})
-
-        # Parse retry delays (check xact config first, then flat)
         retry_delays_default = xact_config.get("retry_delays", kafka_data.get("retry_delays", [300, 600, 1200, 2400]))
         retry_delays_str = os.getenv(
             "RETRY_DELAYS",
@@ -843,12 +830,12 @@ class PipelineConfig:
         )
 
     @property
-    def is_eventhub_source(self) -> bool:
+    def is_eventhub_source(self):
         """Check if using Event Hub as source."""
         return self.event_source == EventSourceType.EVENTHUB
 
     @property
-    def is_eventhouse_source(self) -> bool:
+    def is_eventhouse_source(self):
         """Check if using Eventhouse as source."""
         return self.event_source == EventSourceType.EVENTHOUSE
 

@@ -26,14 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_default_cache_dir() -> str:
-    """Get cross-platform default cache directory.
-
-    Uses the system temp directory to ensure the path is valid on both
-    Windows and Unix systems.
-
-    Returns:
-        Absolute path to the default cache directory.
-    """
+    """Get cross-platform default cache directory."""
     return str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache")
 
 
@@ -46,28 +39,16 @@ def load_yaml(path: Path) -> Dict[str, Any]:
 
 
 def _expand_env_vars(data: Any) -> Any:
-    """Recursively expand environment variables in configuration data.
-
-    Supports ${VAR_NAME} syntax. If VAR_NAME is not set, keeps the original value.
-
-    Args:
-        data: Configuration data (dict, list, string, or other)
-
-    Returns:
-        Data with environment variables expanded
-    """
+    """Recursively expand ${VAR_NAME} environment variables in config data."""
     if isinstance(data, dict):
         return {key: _expand_env_vars(value) for key, value in data.items()}
     elif isinstance(data, list):
         return [_expand_env_vars(item) for item in data]
     elif isinstance(data, str):
-        # Replace ${VAR_NAME} with environment variable value
         pattern = r'\$\{([^}]+)\}'
-
         def replacer(match):
             var_name = match.group(1)
-            return os.getenv(var_name, match.group(0))  # Keep original if not found
-
+            return os.getenv(var_name, match.group(0))
         return re.sub(pattern, replacer, data)
     else:
         return data
@@ -151,33 +132,14 @@ class KafkaConfig:
     ) -> Dict[str, Any]:
         """Get merged configuration for a specific worker's component.
 
-        Merges defaults with worker-specific overrides.
-
         Merge priority (highest to lowest):
         1. Worker-specific config (e.g., xact.download_worker.consumer)
         2. Default config (consumer_defaults or producer_defaults)
-
-        Args:
-            domain: "xact" or "claimx"
-            worker_name: Worker name (e.g., "download_worker", "event_ingester")
-            component: Component type ("consumer", "producer", or "processing")
-
-        Returns:
-            Merged configuration dict with all settings resolved
-
-        Examples:
-            >>> config.get_worker_config("xact", "download_worker", "consumer")
-            {'max_poll_records': 50, 'session_timeout_ms': 60000, ...}
-
-            >>> config.get_worker_config("xact", "download_worker", "processing")
-            {'concurrency': 10, 'batch_size': 20, 'timeout_seconds': 60}
         """
-        # Get domain config
         domain_config = self.xact if domain == "xact" else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
-        # Start with defaults for consumer/producer (no defaults for processing)
         if component == "consumer":
             result = self.consumer_defaults.copy()
         elif component == "producer":
@@ -189,35 +151,13 @@ class KafkaConfig:
                 f"Invalid component: {component}. Must be 'consumer', 'producer', or 'processing'"
             )
 
-        # Get worker-specific overrides
         worker_config = domain_config.get(worker_name, {})
         component_config = worker_config.get(component, {})
-
-        # Merge worker-specific settings over defaults
         result.update(component_config)
 
         return result
 
     def get_topic(self, domain: str, topic_key: str) -> str:
-        """Get topic name for a specific domain and topic key.
-
-        Args:
-            domain: "xact" or "claimx"
-            topic_key: Topic key (e.g., "events", "downloads_pending", "downloads_cached")
-
-        Returns:
-            Full topic name
-
-        Examples:
-            >>> config.get_topic("xact", "events")
-            "xact.events.raw"
-
-            >>> config.get_topic("claimx", "enrichment_pending")
-            "claimx.enrichment.pending"
-
-        Raises:
-            ValueError: If domain or topic_key not found
-        """
         domain_config = self.xact if domain == "xact" else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
@@ -234,43 +174,18 @@ class KafkaConfig:
     def get_consumer_group(self, domain: str, worker_name: str) -> str:
         """Get consumer group name for a worker.
 
-        First checks if worker has a custom group_id in its consumer config.
-        Otherwise, constructs from consumer_group_prefix pattern.
-
-        Args:
-            domain: "xact" or "claimx"
-            worker_name: Worker name (e.g., "download_worker")
-
-        Returns:
-            Consumer group name
-
-        Examples:
-            >>> config.get_consumer_group("xact", "download_worker")
-            "xact-download-worker"
+        First checks for custom group_id in worker config, otherwise constructs from prefix.
         """
-        # Check if worker has custom group_id
         worker_config = self.get_worker_config(domain, worker_name, "consumer")
         if "group_id" in worker_config:
             return worker_config["group_id"]
 
-        # Otherwise construct from prefix
         domain_config = self.xact if domain == "xact" else self.claimx
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
 
     def get_retry_topic(self, domain: str, attempt: int) -> str:
-        """Get retry topic name for a specific retry attempt.
-
-        Args:
-            domain: "xact" or "claimx"
-            attempt: Retry attempt number (0-indexed)
-
-        Returns:
-            Topic name for this retry level (e.g., "xact.downloads.retry.5m")
-
-        Raises:
-            ValueError: If attempt exceeds configured max retries
-        """
+        """Get retry topic name for a specific retry attempt (e.g., 'xact.downloads.retry.5m')."""
         domain_config = self.xact if domain == "xact" else self.claimx
         retry_delays = domain_config.get("retry_delays", [])
 
@@ -286,77 +201,44 @@ class KafkaConfig:
         return f"{pending_topic}.retry.{delay_minutes}m"
 
     def get_retry_delays(self, domain: str) -> List[int]:
-        """Get retry delays for a domain.
-
-        Args:
-            domain: "xact" or "claimx"
-
-        Returns:
-            List of retry delays in seconds
-        """
         domain_config = self.xact if domain == "xact" else self.claimx
         return domain_config.get("retry_delays", [300, 600, 1200, 2400])
 
     def get_max_retries(self, domain: str) -> int:
-        """Get max retries for a domain.
-
-        Args:
-            domain: "xact" or "claimx"
-
-        Returns:
-            Maximum number of retries (derived from retry_delays length)
-        """
         return len(self.get_retry_delays(domain))
 
     def validate(self) -> None:
         """Validate configuration for correctness and constraints.
 
-        Raises:
-            ValueError: If configuration is invalid
-
-        Validations:
-        - Required fields present
-        - Consumer timeout constraints (Kafka requirements)
-        - Producer settings valid
-        - Numeric ranges
-        - Enum values
+        Checks required fields, Kafka timeout constraints, and numeric ranges.
         """
-        # Required connection settings
         if not self.bootstrap_servers:
             raise ValueError("bootstrap_servers is required in kafka.connection section")
 
-        # Validate consumer defaults
         self._validate_consumer_settings(self.consumer_defaults, "consumer_defaults")
-
-        # Validate producer defaults
         self._validate_producer_settings(self.producer_defaults, "producer_defaults")
 
-        # Validate each domain
         for domain_name in ["xact", "claimx"]:
             domain_config = getattr(self, domain_name)
             if not domain_config:
-                continue  # Domain not configured, skip
+                continue
 
-            # Validate each worker in domain
             for worker_name, worker_config in domain_config.items():
                 if worker_name in ["topics", "consumer_group_prefix", "retry_delays", "max_retries"]:
-                    continue  # Skip non-worker keys
+                    continue
 
-                # Validate worker consumer settings
                 if "consumer" in worker_config:
                     self._validate_consumer_settings(
                         worker_config["consumer"],
                         f"{domain_name}.{worker_name}.consumer"
                     )
 
-                # Validate worker producer settings
                 if "producer" in worker_config:
                     self._validate_producer_settings(
                         worker_config["producer"],
                         f"{domain_name}.{worker_name}.producer"
                     )
 
-                # Validate worker processing settings
                 if "processing" in worker_config:
                     self._validate_processing_settings(
                         worker_config["processing"],
@@ -364,16 +246,7 @@ class KafkaConfig:
                     )
 
     def _validate_consumer_settings(self, settings: Dict[str, Any], context: str) -> None:
-        """Validate consumer settings.
-
-        Args:
-            settings: Consumer settings dict
-            context: Context string for error messages
-
-        Raises:
-            ValueError: If settings are invalid
-        """
-        # Kafka requirement: heartbeat_interval_ms < session_timeout_ms / 3
+        """Validate consumer settings against Kafka requirements and logical constraints."""
         if "heartbeat_interval_ms" in settings and "session_timeout_ms" in settings:
             heartbeat = settings["heartbeat_interval_ms"]
             session_timeout = settings["session_timeout_ms"]
@@ -384,7 +257,6 @@ class KafkaConfig:
                     f"Recommended: heartbeat_interval_ms <= {session_timeout // 3}"
                 )
 
-        # Logical requirement: session_timeout_ms < max_poll_interval_ms
         if "session_timeout_ms" in settings and "max_poll_interval_ms" in settings:
             session_timeout = settings["session_timeout_ms"]
             max_poll_interval = settings["max_poll_interval_ms"]
@@ -394,14 +266,12 @@ class KafkaConfig:
                     f"max_poll_interval_ms ({max_poll_interval})"
                 )
 
-        # Validate numeric ranges
         if "max_poll_records" in settings:
             if settings["max_poll_records"] < 1:
                 raise ValueError(
                     f"{context}: max_poll_records must be >= 1, got {settings['max_poll_records']}"
                 )
 
-        # Validate auto_offset_reset
         if "auto_offset_reset" in settings:
             valid_values = ["earliest", "latest", "none"]
             if settings["auto_offset_reset"] not in valid_values:
@@ -410,7 +280,6 @@ class KafkaConfig:
                     f"got '{settings['auto_offset_reset']}'"
                 )
 
-        # Validate partition assignment strategy
         if "partition_assignment_strategy" in settings:
             valid_strategies = ["RoundRobin", "Range", "Sticky"]
             if settings["partition_assignment_strategy"] not in valid_strategies:
@@ -420,16 +289,6 @@ class KafkaConfig:
                 )
 
     def _validate_producer_settings(self, settings: Dict[str, Any], context: str) -> None:
-        """Validate producer settings.
-
-        Args:
-            settings: Producer settings dict
-            context: Context string for error messages
-
-        Raises:
-            ValueError: If settings are invalid
-        """
-        # Validate acks
         if "acks" in settings:
             valid_acks = ["0", "1", "all", 0, 1]
             if settings["acks"] not in valid_acks:
@@ -437,7 +296,6 @@ class KafkaConfig:
                     f"{context}: acks must be one of [0, 1, 'all'], got '{settings['acks']}'"
                 )
 
-        # Validate compression_type
         if "compression_type" in settings:
             valid_compression = ["none", "gzip", "snappy", "lz4", "zstd"]
             if settings["compression_type"] not in valid_compression:
@@ -446,7 +304,6 @@ class KafkaConfig:
                     f"got '{settings['compression_type']}'"
                 )
 
-        # Validate numeric ranges
         if "retries" in settings and settings["retries"] < 0:
             raise ValueError(
                 f"{context}: retries must be >= 0, got {settings['retries']}"
@@ -463,16 +320,6 @@ class KafkaConfig:
             )
 
     def _validate_processing_settings(self, settings: Dict[str, Any], context: str) -> None:
-        """Validate processing settings.
-
-        Args:
-            settings: Processing settings dict
-            context: Context string for error messages
-
-        Raises:
-            ValueError: If settings are invalid
-        """
-        # Validate concurrency range (1-50)
         if "concurrency" in settings:
             concurrency = settings["concurrency"]
             if not (1 <= concurrency <= 50):
@@ -480,21 +327,18 @@ class KafkaConfig:
                     f"{context}: concurrency must be between 1 and 50, got {concurrency}"
                 )
 
-        # Validate batch_size
         if "batch_size" in settings:
             if settings["batch_size"] < 1:
                 raise ValueError(
                     f"{context}: batch_size must be >= 1, got {settings['batch_size']}"
                 )
 
-        # Validate timeout_seconds
         if "timeout_seconds" in settings:
             if settings["timeout_seconds"] <= 0:
                 raise ValueError(
                     f"{context}: timeout_seconds must be > 0, got {settings['timeout_seconds']}"
                 )
 
-        # Validate flush_timeout_seconds (for delta writers)
         if "flush_timeout_seconds" in settings:
             if settings["flush_timeout_seconds"] <= 0:
                 raise ValueError(
@@ -503,15 +347,7 @@ class KafkaConfig:
 
 
 def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep merge overlay into base dict.
-
-    Args:
-        base: Base dictionary
-        overlay: Dictionary to merge on top
-
-    Returns:
-        Merged dictionary
-    """
+    """Deep merge overlay into base dict."""
     result = base.copy()
     for key, value in overlay.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -533,33 +369,11 @@ def load_config(
     - claimx_config.yaml: ClaimX domain configuration
     - plugins/*.yaml: Plugin configurations
 
-    Configuration loads ONLY from YAML files.
-    Environment variables are NOT supported (except ClaimX API credentials).
-
-    Args:
-        config_path: Path to config directory. Defaults to DEFAULT_CONFIG_DIR
-        overrides: Optional dict of overrides to apply (for testing)
-
-    Returns:
-        KafkaConfig instance with validated configuration
-
-    Raises:
-        ValueError: If configuration is invalid
-        FileNotFoundError: If config directory doesn't exist
-
-    Example config structure:
-        config/
-          shared.yaml          # Connection + defaults
-          xact_config.yaml     # XACT domain
-          claimx_config.yaml   # ClaimX domain
-          plugins/             # Plugin configs
-            monitoring.yaml
+    Environment variables ARE supported using ${VAR_NAME} syntax in YAML files.
     """
-    # Use default config directory if not specified
     if config_path is None:
         config_path = DEFAULT_CONFIG_DIR
 
-    # Verify config directory exists
     if not config_path.exists():
         raise FileNotFoundError(
             f"Configuration directory not found: {config_path}\n"
@@ -576,11 +390,9 @@ def load_config(
             f"Single-file config.yaml is no longer supported."
         )
 
-    # Load from multi-file config directory
     logger.info(f"Loading configuration from directory: {config_path}")
     yaml_data = _load_multi_file_config(config_path)
 
-    # Extract kafka section
     if "kafka" not in yaml_data:
         raise ValueError(
             "Invalid config file: missing 'kafka:' section\n"
@@ -589,60 +401,45 @@ def load_config(
 
     kafka_config = yaml_data["kafka"]
 
-    # Apply overrides (for testing)
     if overrides:
         logger.debug(f"Applying overrides: {list(overrides.keys())}")
         kafka_config = _deep_merge(kafka_config, overrides)
 
-    # Extract connection settings (support both flat and nested structure)
     connection = kafka_config.get("connection", {})
     if not connection:
-        # Fallback: connection settings directly under kafka (flat structure)
         connection = kafka_config
 
-    # Extract defaults
     consumer_defaults = kafka_config.get("consumer_defaults", {})
     producer_defaults = kafka_config.get("producer_defaults", {})
 
-    # Extract domain configs
     xact_config = kafka_config.get("xact", {})
     claimx_config = kafka_config.get("claimx", {})
 
-    # Extract storage settings (support multiple locations for flexibility)
-    # Merge sources with priority: kafka.storage > root storage > flat kafka structure
-    # This allows users to split config across locations (e.g., onelake paths at root,
-    # cache_dir under kafka.storage) and have them properly merged.
+    # Merge storage settings from multiple sources
+    # Priority: kafka.storage > root storage > flat kafka structure
     storage = {}
 
-    # Start with flat kafka structure as base (lowest priority)
     for key in ["onelake_base_path", "onelake_domain_paths", "cache_dir"]:
         if key in kafka_config:
             storage[key] = kafka_config[key]
 
-    # Merge root-level storage section (medium priority)
     root_storage = yaml_data.get("storage", {})
     if root_storage:
         storage = _deep_merge(storage, root_storage)
 
-    # Merge kafka.storage section (highest priority)
     kafka_storage = kafka_config.get("storage", {})
     if kafka_storage:
         storage = _deep_merge(storage, kafka_storage)
 
-    # Extract ClaimX API settings (from root-level claimx section, not kafka.claimx)
     claimx_root = yaml_data.get("claimx", {})
     claimx_api = claimx_root.get("api", {})
 
-    # Load ClaimX API token from environment variables or YAML
     claimx_api_token = os.getenv("CLAIMX_API_TOKEN") or claimx_api.get("token", "")
     if not claimx_api_token:
         print("WARNING: CLAIMX_API_TOKEN not found in environment variables or config.yaml")
     else:
         print("INFO: CLAIMX_API_TOKEN loaded successfully")
-
-    # Build KafkaConfig instance
     config = KafkaConfig(
-        # Connection settings
         bootstrap_servers=connection.get("bootstrap_servers", ""),
         security_protocol=connection.get("security_protocol", "PLAINTEXT"),
         sasl_mechanism=connection.get("sasl_mechanism", "OAUTHBEARER"),
@@ -651,24 +448,19 @@ def load_config(
         request_timeout_ms=connection.get("request_timeout_ms", 120000),
         metadata_max_age_ms=connection.get("metadata_max_age_ms", 300000),
         connections_max_idle_ms=connection.get("connections_max_idle_ms", 540000),
-        # Defaults
         consumer_defaults=consumer_defaults,
         producer_defaults=producer_defaults,
-        # Domain configs
         xact=xact_config,
         claimx=claimx_config,
-        # Storage
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
         cache_dir=storage.get("cache_dir") or _get_default_cache_dir(),
-        # ClaimX API
         claimx_api_url=claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=claimx_api.get("timeout_seconds", 30),
         claimx_api_concurrency=claimx_api.get("max_concurrent", 20),
     )
 
-    # Log final merged configuration summary
     logger.debug(f"Configuration merge complete:")
     logger.debug(f"  - Bootstrap servers: {config.bootstrap_servers}")
     logger.debug(f"  - XACT domain configured: {bool(config.xact)}")
@@ -681,7 +473,6 @@ def load_config(
     top_level_keys.append('storage')
     logger.debug(f"  - Top-level keys: {', '.join(top_level_keys)}")
 
-    # Validate configuration
     logger.debug("Validating configuration...")
     config.validate()
     logger.debug("Configuration validation passed")
@@ -697,22 +488,11 @@ def _load_multi_file_config(config_dir: Path) -> Dict[str, Any]:
     2. xact_config.yaml (XACT domain configuration)
     3. claimx_config.yaml (ClaimX domain configuration)
     4. plugins/*.yaml (plugin configurations)
-
-    Args:
-        config_dir: Path to config directory
-
-    Returns:
-        Merged configuration dictionary
     """
     merged = {}
     loaded_files = []
 
-    # Load core config files in order
-    core_files = [
-        "shared.yaml",
-        "xact_config.yaml",
-        "claimx_config.yaml"
-    ]
+    core_files = ["shared.yaml", "xact_config.yaml", "claimx_config.yaml"]
 
     for filename in core_files:
         file_path = config_dir / filename
@@ -724,7 +504,6 @@ def _load_multi_file_config(config_dir: Path) -> Dict[str, Any]:
         else:
             logger.debug(f"Skipping {filename} (not found)")
 
-    # Load plugin configs
     plugins_dir = config_dir / "plugins"
     if plugins_dir.exists() and plugins_dir.is_dir():
         plugin_files = sorted(plugins_dir.glob("*.yaml"))
@@ -736,25 +515,17 @@ def _load_multi_file_config(config_dir: Path) -> Dict[str, Any]:
 
     logger.info(f"Loaded {len(loaded_files)} configuration file(s): {', '.join(loaded_files)}")
 
-    # Expand environment variables in the merged configuration
     logger.debug("Expanding environment variables in configuration")
     merged = _expand_env_vars(merged)
 
     return merged
 
 
-# Singleton instance
 _kafka_config: Optional[KafkaConfig] = None
 
 
 def get_config() -> KafkaConfig:
-    """Get or load the singleton Kafka config instance.
-
-    Uses load_config() on first call, then returns cached instance.
-
-    Returns:
-        Singleton KafkaConfig instance
-    """
+    """Get or load the singleton Kafka config instance."""
     global _kafka_config
     if _kafka_config is None:
         _kafka_config = load_config()
@@ -762,32 +533,19 @@ def get_config() -> KafkaConfig:
 
 
 def set_config(config: KafkaConfig) -> None:
-    """Set the singleton Kafka config instance.
-
-    Useful for testing or programmatic configuration.
-
-    Args:
-        config: KafkaConfig instance to use as singleton
-    """
+    """Set the singleton Kafka config instance (useful for testing)."""
     global _kafka_config
     _kafka_config = config
 
 
 def reset_config() -> None:
-    """Reset the singleton config instance.
-
-    Forces reload on next get_config() call.
-    """
+    """Reset the singleton config instance (forces reload on next get_config() call)."""
     global _kafka_config
     _kafka_config = None
 
 
 def _cli_main() -> int:
-    """CLI entry point for config validation and debugging.
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
+    """CLI entry point for config validation and debugging."""
     import argparse
 
     from config.config_validator import (
@@ -849,30 +607,25 @@ Examples:
 
     args = parser.parse_args()
 
-    # Configure logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(levelname)s: %(message)s",
     )
 
-    # If no action specified, show help
     if not args.validate and not args.show_merged:
         parser.print_help()
         return 0
 
     try:
-        # Load configuration
         config = load_config(config_path=args.config)
 
-        # Load merged config dict for validation
         config_path = args.config or DEFAULT_CONFIG_DIR
         config_dict = _load_multi_file_config(config_path)
 
         success = True
         output = {}
 
-        # Validate if requested
         if args.validate:
             errors = validate_merged_config(config_dict)
 
@@ -896,7 +649,6 @@ Examples:
                         print("  - ClaimX domain: OK")
                     print("  - Merge integrity: OK")
 
-        # Show merged config if requested
         if args.show_merged:
             if args.json:
                 output["merged_config"] = config_dict
@@ -908,7 +660,6 @@ Examples:
                 print("\nConfiguration summary:")
                 print(get_config_summary(config_dict))
 
-        # Output JSON if requested
         if args.json:
             print(json.dumps(output, indent=2))
 

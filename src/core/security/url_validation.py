@@ -58,9 +58,6 @@ def get_allowed_domains() -> Set[str]:
 
     Reads from ALLOWED_ATTACHMENT_DOMAINS env var (comma-separated)
     or falls back to DEFAULT_ALLOWED_DOMAINS.
-
-    Returns:
-        Set of allowed domain names (lowercase)
     """
     env_domains = os.getenv("ALLOWED_ATTACHMENT_DOMAINS", "")
     if env_domains:
@@ -83,12 +80,7 @@ def validate_download_url(
     - Hostname must be present and valid
     - Handles URL parsing errors safely
 
-    Args:
-        url: URL to validate
-        allowed_domains: Optional set of allowed domains (defaults to get_allowed_domains())
-
-    Returns:
-        (is_valid, error_message)
+    Returns (is_valid, error_message):
         - (True, "") if valid
         - (False, "error description") if invalid
 
@@ -144,15 +136,10 @@ def is_private_ip(hostname: str) -> bool:
     """
     Check if hostname resolves to a private/internal IP address.
 
-    Args:
-        hostname: Hostname or IP address to check
+    Returns True if hostname is a private IP or in BLOCKED_HOSTS.
 
-    Returns:
-        True if hostname is a private IP or in BLOCKED_HOSTS
-
-    Note:
-        This function does NOT perform DNS resolution for security reasons.
-        It only checks if the hostname string itself is a private IP.
+    Note: This function does NOT perform DNS resolution for security reasons.
+    It only checks if the hostname string itself is a private IP.
     """
     # Check blocked hosts
     if hostname.lower() in BLOCKED_HOSTS:
@@ -182,11 +169,7 @@ def extract_filename_from_url(url: str) -> Tuple[str, str]:
     """
     Extract filename and file extension from URL.
 
-    Args:
-        url: URL containing filename in path
-
-    Returns:
-        Tuple of (filename, file_type)
+    Returns tuple of (filename, file_type):
         - filename: Extracted filename without extension
         - file_type: File extension in uppercase (e.g., "PDF")
 
@@ -251,11 +234,7 @@ def sanitize_url(url: str) -> str:
     Preserves the path and structure for debugging while removing
     tokens that could grant access if exposed in logs.
 
-    Args:
-        url: URL that may contain sensitive parameters
-
-    Returns:
-        URL with sensitive parameters replaced with [REDACTED]
+    Returns URL with sensitive parameters replaced with [REDACTED].
     """
     if not url:
         return url
@@ -317,13 +296,6 @@ def sanitize_error_message(msg: str, max_length: int = 500) -> str:
     Remove potentially sensitive data from error messages.
 
     Applies pattern-based redaction and truncates to max_length.
-
-    Args:
-        msg: Error message that may contain sensitive data
-        max_length: Maximum length of returned message
-
-    Returns:
-        Sanitized and truncated error message
     """
     if not msg:
         return msg

@@ -69,29 +69,12 @@ class ClaimXEnrichmentWorker:
     """
     Worker to consume ClaimX enrichment tasks and enrich them with API data.
 
-    Processes ClaimXEnrichmentTask records from the enrichment pending topic,
-    routes them to appropriate handlers, fetches entity data from ClaimX API,
-    writes entity rows to Delta tables, and produces download tasks for media files.
-
-    Features:
+    Architecture:
     - Event routing via handler registry
-    - Concurrent API calls with rate limiting (via ClaimXApiClient)
-    - Manual consumer control for graceful shutdown
     - Single-task processing (no batching - delta writer handles batching)
     - Entity data writes to 7 Delta tables
     - Download task generation for media files
-    - Graceful shutdown with background task tracking
-
-    Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> writer = ClaimXEntityWriter(...)
-        >>> worker = ClaimXEnrichmentWorker(
-        ...     config=config,
-        ...     # entity_writer removed
-        ... )
-        >>> await worker.start()
-        >>> # Worker runs until stopped
-        >>> await worker.stop()
+    - Background task tracking for graceful shutdown
     """
 
     def __init__(
@@ -105,19 +88,6 @@ class ClaimXEnrichmentWorker:
         producer_config: Optional[KafkaConfig] = None,
         projects_table_path: str = "",
     ):
-        """
-        Initialize ClaimX enrichment worker.
-
-        Args:
-            config: Kafka configuration for consumer (topic names, connection settings)
-            entity_writer: Deprecated/ignored
-            domain: Domain identifier (default: "claimx")
-            enable_delta_writes: Whether to enable Delta Lake writes (default: True)
-            enrichment_topic: Topic name for enrichment tasks (e.g., "claimx.enrichment.pending")
-            download_topic: Topic name for download tasks (e.g., "claimx.downloads.pending")
-            producer_config: Optional separate Kafka config for producer
-            projects_table_path: Path to projects Delta table (for cache preloading)
-        """
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
@@ -126,48 +96,36 @@ class ClaimXEnrichmentWorker:
         self.entity_rows_topic = config.get_topic(domain, "entities_rows")
         self.enable_delta_writes = enable_delta_writes
         
-        # Consumer group
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
-
-        # Get worker-specific processing config
         self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
-        # max_records for getmany polling (not for batching - delta writer handles batching)
         self.max_poll_records = self.processing_config.get("max_poll_records", 100)
 
-        # Retry configuration
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
 
-        # Build list of topics to consume from (pending + retry topics)
         retry_topics = [
             self._get_retry_topic(i) for i in range(len(self._retry_delays))
         ]
         self.topics = [self.enrichment_topic] + retry_topics
 
-        # Kafka components (initialized in start())
         self.producer: Optional[BaseKafkaProducer] = None
         self.consumer: Optional[AIOKafkaConsumer] = None
         self.api_client: Optional[ClaimXApiClient] = None
         self.retry_handler: Optional[EnrichmentRetryHandler] = None
 
-        # Handler registry for routing events
         self.handler_registry: HandlerRegistry = get_handler_registry()
 
-        # Project cache for in-flight verification (prevents redundant API calls)
-        # Read config with defaults
+        # Project cache prevents redundant API calls for in-flight verification
         cache_config = self.processing_config.get("project_cache", {})
-        cache_ttl = cache_config.get("ttl_seconds", 1800)  # Default 30 minutes
+        cache_ttl = cache_config.get("ttl_seconds", 1800)
         self._preload_cache_from_delta = cache_config.get("preload_from_delta", False)
         self.project_cache = ProjectCache(ttl_seconds=cache_ttl)
 
-        # Plugin system
         self.plugin_registry = get_plugin_registry()
         self.plugin_orchestrator: Optional[PluginOrchestrator] = None
         self.action_executor: Optional[ActionExecutor] = None
 
-        # Health check server
-        # Use port=0 by default for dynamic port assignment (avoids conflicts with multiple workers)
-        # Set health_enabled=False to disable health checks entirely
+        # port=0 for dynamic port assignment (avoids conflicts with multiple workers)
         health_port = self.processing_config.get("health_port", 0)
         health_enabled = self.processing_config.get("health_enabled", True)
         self.health_server = HealthCheckServer(
@@ -176,15 +134,11 @@ class ClaimXEnrichmentWorker:
             enabled=health_enabled,
         )
 
-        # Background task tracking for graceful shutdown
         self._pending_tasks: Set[asyncio.Task] = set()
         self._task_counter = 0
-
-        # Helper method for creating tasks
         self._consume_task: Optional[asyncio.Task] = None
         self._running = False
 
-        # Cycle output tracking
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_failed = 0
@@ -193,7 +147,6 @@ class ClaimXEnrichmentWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
-        # Store projects table path for cache preloading
         self._projects_table_path = projects_table_path
 
         logger.info(
@@ -215,12 +168,7 @@ class ClaimXEnrichmentWorker:
         )
 
     async def _preload_project_cache(self) -> None:
-        """
-        Preload project cache with existing project IDs from Delta table.
-
-        This reduces API calls for projects that already exist in the warehouse.
-        Runs at startup before consuming events.
-        """
+        """Preload project cache with existing project IDs from Delta table to reduce API calls."""
         if not self._projects_table_path:
             logger.warning(
                 "Cannot preload project cache - projects_table_path not configured"
@@ -238,13 +186,11 @@ class ClaimXEnrichmentWorker:
                 logger.info("Projects table does not exist yet, skipping preload")
                 return
 
-            # Read only project_id column for efficiency
             df = reader.read(columns=["project_id"])
             if df.is_empty():
                 logger.info("Projects table is empty, skipping preload")
                 return
 
-            # Extract unique project IDs and load into cache
             project_ids = df["project_id"].drop_nulls().unique().to_list()
             loaded_count = self.project_cache.load_from_ids(project_ids)
 
@@ -259,7 +205,6 @@ class ClaimXEnrichmentWorker:
             )
 
         except Exception as e:
-            # Don't fail startup if preload fails - cache will warm up naturally
             logger.warning(
                 "Failed to preload project cache from Delta, continuing without preload",
                 extra={
@@ -270,15 +215,6 @@ class ClaimXEnrichmentWorker:
             )
 
     async def start(self) -> None:
-        """
-        Start the ClaimX enrichment worker.
-
-        Initializes producer, consumer, and API client, then begins consuming
-        enrichment tasks. This method runs until stop() is called.
-
-        Raises:
-            Exception: If producer, consumer, or API client fails to start
-        """
         if self._running:
             logger.warning("Worker already running")
             return
@@ -286,7 +222,6 @@ class ClaimXEnrichmentWorker:
         logger.info("Starting ClaimXEnrichmentWorker")
         self._running = True
 
-        # Initialize OpenTelemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 
@@ -295,14 +230,10 @@ class ClaimXEnrichmentWorker:
             environment=os.getenv("ENVIRONMENT", "development"),
         )
 
-        # Start cycle output background task
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 
-        # Start health check server first
         await self.health_server.start()
 
-        # Initialize API client
-        # Initialize API client
         self.api_client = ClaimXApiClient(
             base_url=self.consumer_config.claimx_api_url,
             token=self.consumer_config.claimx_api_token,
@@ -311,14 +242,12 @@ class ClaimXEnrichmentWorker:
         )
         await self.api_client._ensure_session()
 
-        # Check API reachability
         api_reachable = not self.api_client.is_circuit_open
         self.health_server.set_ready(
-            kafka_connected=False,  # Not connected yet
+            kafka_connected=False,
             api_reachable=api_reachable,
         )
 
-        # Start producer first (uses producer_config for local Kafka)
         self.producer = BaseKafkaProducer(
             config=self.producer_config,
             domain=self.domain,
@@ -326,8 +255,6 @@ class ClaimXEnrichmentWorker:
         )
         await self.producer.start()
 
-        # Load plugins from directory structure
-        # Check for plugin config dir in processing config first, then fall back to default
         plugins_dir = self.processing_config.get(
             "plugins_dir",
             "config/plugins"
@@ -359,10 +286,9 @@ class ClaimXEnrichmentWorker:
                 exc_info=True,
             )
 
-        # Initialize plugin system (requires producer for action execution)
         self.action_executor = ActionExecutor(
             producer=self.producer,
-            http_client=None,  # Could pass aiohttp client if needed
+            http_client=None,
         )
         self.plugin_orchestrator = PluginOrchestrator(
             registry=self.plugin_registry,
@@ -375,7 +301,6 @@ class ClaimXEnrichmentWorker:
             },
         )
 
-        # Call on_load for all registered plugins
         for plugin in self.plugin_registry.list_plugins():
             try:
                 await plugin.on_load()
@@ -390,7 +315,6 @@ class ClaimXEnrichmentWorker:
                     exc_info=True,
                 )
 
-        # Initialize retry handler (requires producer to be started)
         self.retry_handler = EnrichmentRetryHandler(
             config=self.consumer_config,
             producer=self.producer,
@@ -403,24 +327,20 @@ class ClaimXEnrichmentWorker:
             },
         )
 
-        # Preload project cache from Delta if enabled
         if self._preload_cache_from_delta:
             await self._preload_project_cache()
 
-        # Create and start consumer manually
         try:
             self.consumer = self._create_consumer()
             await self.consumer.start()
             update_connection_status(True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
-            
-             # Update readiness
+
             self.health_server.set_ready(
                 kafka_connected=True,
                 api_reachable=api_reachable,
                 circuit_open=self.api_client.is_circuit_open,
             )
-            
-            # Start consumption loop (await blocks until stopped for compatibility with BaseKafkaConsumer)
+
             self._consume_task = asyncio.create_task(self._consume_loop())
             await self._consume_task
             
@@ -432,20 +352,9 @@ class ClaimXEnrichmentWorker:
             raise
 
     async def stop(self) -> None:
-        """
-        Stop the ClaimX enrichment worker.
-
-        Waits for pending background tasks (with timeout), then gracefully
-        shuts down consumer, producer, and API client.
-        """
         logger.info("Stopping ClaimXEnrichmentWorker")
         self._running = False
 
-        # Wait for consume loop to finish (loop checks _running flag)
-        if self._consume_task and not self._consume_task.done():
-            pass
-
-        # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
             try:
@@ -453,10 +362,8 @@ class ClaimXEnrichmentWorker:
             except asyncio.CancelledError:
                 pass
 
-        # Wait for pending background tasks with timeout
         await self._wait_for_pending_tasks(timeout_seconds=30)
 
-        # Call on_unload for all registered plugins
         for plugin in self.plugin_registry.list_plugins():
             try:
                 await plugin.on_unload()
@@ -471,39 +378,27 @@ class ClaimXEnrichmentWorker:
                     exc_info=True,
                 )
 
-        # Stop consumer first
         if self.consumer:
             await self.consumer.stop()
             update_connection_status(False, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
 
-        # Then stop producer
         if self.producer:
             await self.producer.stop()
 
-        # Close API client
         if self.api_client:
             await self.api_client.close()
 
-        # Stop health check server
         await self.health_server.stop()
 
         logger.info("ClaimXEnrichmentWorker stopped successfully")
 
     async def request_shutdown(self) -> None:
-        """
-        Request graceful shutdown.
-
-        Signals the worker to stop accepting new messages but allows
-        in-progress tasks to complete.
-        """
         logger.info("Graceful shutdown requested")
         self._running = False
 
     def _create_consumer(self) -> AIOKafkaConsumer:
-        """Create configured AIOKafkaConsumer instance."""
         group_id = self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
 
-        # Get worker-specific consumer config (merged with defaults)
         consumer_config_dict = self.consumer_config.get_worker_config(
             self.domain, "enrichment_worker", "consumer"
         )
@@ -511,27 +406,22 @@ class ClaimXEnrichmentWorker:
         common_args = {
             "bootstrap_servers": self.consumer_config.bootstrap_servers,
             "group_id": group_id,
-            "enable_auto_commit": False,  # Manual commit
+            "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "metadata_max_age_ms": 30000,
-            # Consumer group membership timeout settings - critical for long-running processing
             "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 45000),
             "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 600000),
-            # Connection timeout settings
             "request_timeout_ms": self.consumer_config.request_timeout_ms,
             "connections_max_idle_ms": self.consumer_config.connections_max_idle_ms,
         }
 
-        # Add optional consumer settings if present in worker config
         if "heartbeat_interval_ms" in consumer_config_dict:
             common_args["heartbeat_interval_ms"] = consumer_config_dict["heartbeat_interval_ms"]
 
-        # Configure security based on protocol (only add SASL settings for non-PLAINTEXT)
         if self.consumer_config.security_protocol != "PLAINTEXT":
             common_args["security_protocol"] = self.consumer_config.security_protocol
             common_args["sasl_mechanism"] = self.consumer_config.sasl_mechanism
 
-            # Add authentication based on mechanism
             if self.consumer_config.sasl_mechanism == "OAUTHBEARER":
                 common_args["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
 
@@ -544,8 +434,6 @@ class ClaimXEnrichmentWorker:
         """
         Main consumption loop.
 
-        Fetches messages in batches and processes them.
-
         CRITICAL (Issue #38): Commits offsets only after verifying all background tasks
         (entity row production) complete successfully. This prevents data loss from
         race conditions where offsets are committed before writes finish.
@@ -554,8 +442,6 @@ class ClaimXEnrichmentWorker:
 
         try:
             while self._running:
-                # Poll for messages
-                # timeout ensures we check _running periodically
                 msg_dict = await self.consumer.getmany(
                     timeout_ms=1000,
                     max_records=self.max_poll_records
@@ -564,33 +450,16 @@ class ClaimXEnrichmentWorker:
                 if not msg_dict:
                     continue
 
-                count = sum(len(msgs) for msgs in msg_dict.values())
-                start_time = time.monotonic()
-
                 for partition, messages in msg_dict.items():
                     for msg in messages:
                         await self._handle_enrichment_task(msg)
 
-                # CRITICAL (Issue #38): Wait for all background tasks created during processing
-                # to complete before committing offsets. This ensures entity rows are produced
-                # to Kafka before we advance the consumer offset.
+                # CRITICAL (Issue #38): Wait for all background tasks to complete before committing offsets.
+                # This ensures entity rows are produced to Kafka before we advance the consumer offset.
                 if self._pending_tasks:
-                    pending_count = len(self._pending_tasks)
-                    logger.debug(
-                        "Waiting for background tasks before offset commit",
-                        extra={
-                            "pending_count": pending_count,
-                            "batch_size": count,
-                        },
-                    )
-                    # Wait for all pending tasks with timeout
                     await self._wait_for_pending_tasks(timeout_seconds=30)
 
-                # Commit offsets after all background tasks complete
-                # If background tasks failed, they were routed to retry/DLQ
                 await self.consumer.commit()
-
-                # Update metrics
                 update_assigned_partitions(self.consumer_group, len(self.consumer.assignment()))
 
         except asyncio.CancelledError:
@@ -613,17 +482,6 @@ class ClaimXEnrichmentWorker:
         task_name: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> asyncio.Task:
-        """
-        Create a background task with tracking and lifecycle logging.
-
-        Args:
-            coro: Coroutine to run as a task
-            task_name: Descriptive name for the task
-            context: Optional dict of context info for logging
-
-        Returns:
-            The created asyncio.Task
-        """
         self._task_counter += 1
         full_name = f"{task_name}-{self._task_counter}"
         context = context or {}
@@ -641,7 +499,6 @@ class ClaimXEnrichmentWorker:
         )
 
         def _on_task_done(t: asyncio.Task) -> None:
-            """Callback when task completes."""
             self._pending_tasks.discard(t)
 
             if t.cancelled():
@@ -676,14 +533,7 @@ class ClaimXEnrichmentWorker:
         return task
 
     async def _wait_for_pending_tasks(self, timeout_seconds: float = 30) -> None:
-        """
-        Wait for pending background tasks to complete with timeout.
-
-        Args:
-            timeout_seconds: Maximum time to wait for tasks
-        """
         if not self._pending_tasks:
-            logger.debug("No pending background tasks to wait for")
             return
 
         pending_count = len(self._pending_tasks)
@@ -743,16 +593,7 @@ class ClaimXEnrichmentWorker:
             )
 
     async def _handle_enrichment_task(self, record: ConsumerRecord) -> None:
-        """
-        Process a single enrichment task message from Kafka.
-
-        Each task is processed immediately (no batching at enricher level).
-        The delta writer handles batching for efficient writes.
-
-        Args:
-            record: ConsumerRecord containing ClaimXEnrichmentTask JSON
-        """
-        # Decode and parse ClaimXEnrichmentTask
+        """Process enrichment task. No batching at enricher level - delta writer handles batching."""
         try:
             message_data = json.loads(record.value.decode("utf-8"))
             task = ClaimXEnrichmentTask.model_validate(message_data)
@@ -769,7 +610,6 @@ class ClaimXEnrichmentWorker:
             )
             raise
 
-        # Track records processed
         self._records_processed += 1
 
         logger.debug(
@@ -782,26 +622,14 @@ class ClaimXEnrichmentWorker:
             },
         )
 
-        # Process the task immediately
         await self._process_single_task(task)
 
     async def _process_single_task(self, task: ClaimXEnrichmentTask) -> None:
-        """
-        Process a single enrichment task.
-
-        Calls the appropriate handler, produces entity rows to Kafka,
-        and creates download tasks for media files.
-
-        Args:
-            task: The enrichment task to process
-        """
         start_time = datetime.now(timezone.utc)
 
-        # Pre-flight check: Ensure the project exists in Delta table
         if task.project_id:
             await self._ensure_projects_exist([task.project_id])
 
-        # Convert task to event for handler processing
         event = ClaimXEventMessage(
             event_id=task.event_id,
             event_type=task.event_type,
@@ -813,7 +641,6 @@ class ClaimXEnrichmentWorker:
             ingested_at=task.created_at,
         )
 
-        # Find handler for this event
         handler_class = self.handler_registry.get_handler_class(event.event_type)
         if not handler_class:
             logger.warning(
@@ -826,11 +653,9 @@ class ClaimXEnrichmentWorker:
             self._records_skipped += 1
             return
 
-        # Create handler instance with project cache
         handler = handler_class(self.api_client, project_cache=self.project_cache)
 
         try:
-            # Process event with handler
             from opentelemetry import trace
             from opentelemetry.trace import SpanKind
 
@@ -844,7 +669,6 @@ class ClaimXEnrichmentWorker:
             entity_rows = handler_result.rows
             self._records_succeeded += 1
 
-            # Execute plugins at ENRICHMENT_COMPLETE stage
             if self.plugin_orchestrator:
                 plugin_context = PluginContext(
                     domain=Domain.CLAIMX,
@@ -874,7 +698,6 @@ class ClaimXEnrichmentWorker:
                                 "plugin_results": orchestrator_result.success_count,
                             },
                         )
-                        # Skip entity write and download task generation
                         return
 
                     if orchestrator_result.actions_executed > 0:
@@ -888,7 +711,6 @@ class ClaimXEnrichmentWorker:
                         )
 
                 except Exception as e:
-                    # Plugin errors should not crash the pipeline
                     logger.error(
                         "Plugin execution failed",
                         extra={
@@ -897,9 +719,7 @@ class ClaimXEnrichmentWorker:
                         },
                         exc_info=True,
                     )
-                    # Continue with normal processing
 
-            # Produce entity rows to Kafka (delta writer will batch)
             if self.enable_delta_writes and not entity_rows.is_empty():
                 self._create_tracked_task(
                     self._produce_entity_rows(entity_rows, [task]),
@@ -910,13 +730,11 @@ class ClaimXEnrichmentWorker:
                     },
                 )
 
-            # Generate and produce download tasks from media rows
             if entity_rows.media:
                 download_tasks = self._create_download_tasks_from_media(entity_rows.media)
                 if download_tasks:
                     await self._produce_download_tasks(download_tasks)
 
-            # Log completion at debug level (individual tasks)
             elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             logger.debug(
                 "Enrichment task complete",
@@ -931,7 +749,6 @@ class ClaimXEnrichmentWorker:
             )
 
         except ClaimXApiError as e:
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Handler failed with API error",
@@ -940,7 +757,6 @@ class ClaimXEnrichmentWorker:
                 exc=e,
                 handler=handler_class.__name__,
             )
-            # Record error metric with category
             record_processing_error(
                 topic=self.enrichment_topic,
                 consumer_group=self.consumer_group,
@@ -950,7 +766,6 @@ class ClaimXEnrichmentWorker:
 
         except Exception as e:
             error_category = ErrorCategory.UNKNOWN
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Handler failed with unexpected error",
@@ -960,7 +775,6 @@ class ClaimXEnrichmentWorker:
                 handler=handler_class.__name__,
                 error_type=type(e).__name__,
             )
-            # Record error metric with category
             record_processing_error(
                 topic=self.enrichment_topic,
                 consumer_group=self.consumer_group,
@@ -969,24 +783,19 @@ class ClaimXEnrichmentWorker:
             await self._handle_enrichment_failure(task, e, error_category)
 
     async def _periodic_cycle_output(self) -> None:
-        """
-        Background task for periodic cycle logging.
-        """
-        # Initial cycle output
         logger.info(format_cycle_output(0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
         try:
-            while True:  # Runs until cancelled
+            while True:
                 await asyncio.sleep(1)
 
                 cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:  # 30 matches standard interval
+                if cycle_elapsed >= 30:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
-                    # Use standardized cycle output format
                     cycle_msg = format_cycle_output(
                         cycle_count=self._cycle_count,
                         succeeded=self._records_succeeded,
@@ -1015,20 +824,8 @@ class ClaimXEnrichmentWorker:
         project_ids: List[str],
     ) -> None:
         """
-        Pre-flight check: Ensure all projects exist in Delta table.
-
-        For projects not in the Delta table, fetches them from the API
-        and writes them to claimx_projects before processing the batch.
-
-        This prevents referential integrity issues when writing child entities
-        (contacts, media, tasks) that reference project_id.
-
-        Args:
-            project_ids: List of project IDs that need to exist
-
-        Note:
-            Failures are non-fatal - missing projects will be handled during
-            event processing via ProjectHandler.
+        Pre-flight check: Ensure projects exist to prevent referential integrity issues
+        when writing child entities. Failures are non-fatal.
         """
         if not project_ids or not self.enable_delta_writes:
             return
@@ -1039,24 +836,18 @@ class ClaimXEnrichmentWorker:
             "Pre-flight: Checking project existence",
             extra={
                 "project_count": len(unique_project_ids),
-                "project_ids": unique_project_ids[:10],  # Sample
+                "project_ids": unique_project_ids[:10],
             },
         )
 
         try:
-            # Import here to avoid circular dependencies and ensure optional dependency
             import polars as pl
             from deltalake import DeltaTable
 
-            # Query existing projects from Delta table
-            # NOTE: In decoupled mode, we might not have direct access to the writer/table path easily
-            # We can skip this check or need to pass table path explicitly to worker config
-            # Pre-flight check disabled in decoupled writer mode (entity_writer no longer exists)
-            # Legacy pre-flight logic removed - project existence is now handled by downstream delta writer
+            # Pre-flight check disabled in decoupled writer mode - project existence handled by downstream delta writer
             return
 
         except Exception as e:
-            # Pre-flight errors are non-fatal
             logger.error(
                 "Pre-flight check failed",
                 extra={
@@ -1070,15 +861,6 @@ class ClaimXEnrichmentWorker:
         self,
         media_rows: List[Dict[str, Any]],
     ) -> List[ClaimXDownloadTask]:
-        """
-        Create download tasks from media entity rows.
-
-        Args:
-            media_rows: List of media entity row dicts
-
-        Returns:
-            List of ClaimXDownloadTask instances
-        """
         download_tasks = []
 
         for media_row in media_rows:
@@ -1093,7 +875,6 @@ class ClaimXEnrichmentWorker:
                 )
                 continue
 
-            # Create download task
             task = ClaimXDownloadTask(
                 media_id=str(media_row.get("media_id", "")),
                 project_id=str(media_row.get("project_id", "")),
@@ -1121,23 +902,11 @@ class ClaimXEnrichmentWorker:
     def _generate_blob_path(self, media_row: Dict[str, Any]) -> str:
         """
         Generate blob storage path for media file.
-
-        The path is relative to the domain-specific OneLake base path,
-        which already includes the 'claimx' prefix.
-
-        Args:
-            media_row: Media entity row dict
-
-        Returns:
-            Blob path string (relative to OneLake domain base path)
+        Path is relative to OneLake domain base path (which includes 'claimx' prefix).
         """
         project_id = media_row.get("project_id", "unknown")
         media_id = media_row.get("media_id", "unknown")
         file_name = media_row.get("file_name", f"media_{media_id}")
-
-        # Format: {project_id}/media/{file_name}
-        # Note: 'claimx/' prefix is NOT included here because the OneLake
-        # domain-specific base path already contains it
         return f"{project_id}/media/{file_name}"
 
     async def _produce_entity_rows(
@@ -1145,26 +914,12 @@ class ClaimXEnrichmentWorker:
         entity_rows: EntityRowsMessage,
         tasks: List[ClaimXEnrichmentTask],
     ) -> None:
-        """
-        Write entity rows to Delta Lake tables (background task).
-
-        On failure, routes all tasks in the batch to retry/DLQ since entity rows
-        are aggregated from multiple tasks.
-
-        Args:
-            entity_rows: EntityRowsMessage with rows for all tables
-            tasks: Original enrichment tasks that produced these entity rows
-        """
-        # Generate batch ID for correlation tracking (following xact pattern)
+        """Write entity rows to Kafka. On failure, routes all tasks to retry/DLQ."""
         batch_id = uuid.uuid4().hex[:8]
-
-        # Collect event IDs from tasks for correlation
-        event_ids = [task.event_id for task in tasks[:5]]  # Sample for correlation
+        event_ids = [task.event_id for task in tasks[:5]]
 
 
         try:
-            # Produce EntityRowsMessage to Kafka
-            # Use event_id as key for consistent partitioning across all ClaimX topics
             event_id = tasks[0].event_id if tasks else batch_id
             await self.producer.send(
                 topic=self.entity_rows_topic,
@@ -1195,15 +950,12 @@ class ClaimXEnrichmentWorker:
                 exc_info=True,
             )
 
-            # Record failure metrics
             record_delta_write(
                 table="claimx_entities_produce",
                 event_count=entity_rows.row_count(),
                 success=False,
             )
 
-            # Delta write failures are typically transient (connection issues)
-            # Route all tasks in batch to retry
             error_category = ErrorCategory.TRANSIENT
             for task in tasks:
                 await self._handle_enrichment_failure(task, e, error_category)
@@ -1212,12 +964,6 @@ class ClaimXEnrichmentWorker:
         self,
         download_tasks: List[ClaimXDownloadTask],
     ) -> None:
-        """
-        Produce download tasks to Kafka topic.
-
-        Args:
-            download_tasks: List of ClaimXDownloadTask to produce
-        """
         logger.info(
             "Producing download tasks",
             extra={"task_count": len(download_tasks)},
@@ -1225,7 +971,6 @@ class ClaimXEnrichmentWorker:
 
         for task in download_tasks:
             try:
-                # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 metadata = await self.producer.send(
                     topic=self.download_topic,
                     key=task.source_event_id,
@@ -1253,21 +998,8 @@ class ClaimXEnrichmentWorker:
                     },
                     exc_info=True,
                 )
-                # Continue processing other tasks
 
     def _get_retry_topic(self, retry_level: int) -> str:
-        """
-        Get retry topic name for a specific retry level.
-
-        Args:
-            retry_level: Retry attempt number (0-indexed)
-
-        Returns:
-            Retry topic name (e.g., "claimx.enrichment.pending.retry.5m")
-
-        Raises:
-            ValueError: If retry_level exceeds configured retry delays
-        """
         if retry_level >= len(self._retry_delays):
             raise ValueError(
                 f"Retry level {retry_level} exceeds max retries "
@@ -1285,21 +1017,11 @@ class ClaimXEnrichmentWorker:
         error_category: "ErrorCategory",
     ) -> None:
         """
-        Handle failed enrichment task: route to retry topic or DLQ.
-
-        Routes failures through retry handler which sends to:
-        - Retry topic with exponential backoff (TRANSIENT, AUTH, CIRCUIT_OPEN, UNKNOWN)
-        - DLQ immediately (PERMANENT errors)
-        - DLQ after exhausting retries (max_retries reached)
-
-        Args:
-            task: Enrichment task that failed
-            error: Exception that caused failure
-            error_category: Classification of the error (TRANSIENT, PERMANENT, etc.)
+        Route failed task to retry topic or DLQ based on error category and retry count.
+        TRANSIENT/AUTH/CIRCUIT_OPEN/UNKNOWN -> retry with backoff, PERMANENT -> DLQ immediately.
         """
         assert self.retry_handler is not None, "Retry handler not initialized"
 
-        # Use standardized error logging
         log_worker_error(
             logger,
             "Enrichment task failed",
@@ -1313,7 +1035,6 @@ class ClaimXEnrichmentWorker:
 
         self._records_failed += 1
 
-        # Route through retry handler
         await self.retry_handler.handle_failure(
             task=task,
             error=error,

@@ -37,5 +37,5 @@ class StageContextFilter(logging.Filter):
         Returns:
             True if record's context stage matches this filter's stage
         """
-        ctx = get_log_context()
-        return ctx.get("stage") == self.stage
+        log_context = get_log_context()
+        return log_context.get("stage") == self.stage

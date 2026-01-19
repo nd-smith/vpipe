@@ -117,7 +117,7 @@ class MediaHandler(EventHandler):
             return []
 
         project_id = events[0].project_id
-        media_ids = [e.media_id for e in events if e.media_id]
+        media_ids = [event.media_id for event in events if event.media_id]
 
         start_time = datetime.now(timezone.utc)
 

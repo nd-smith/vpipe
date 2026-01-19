@@ -45,16 +45,9 @@ class PrometheusClient:
 
     async def query(self, query: str) -> Dict[str, Any]:
         """
-        Execute a PromQL query.
+        Execute a PromQL query and return result as dict.
 
-        Args:
-            query: PromQL query string
-
-        Returns:
-            Query result as dict
-
-        Raises:
-            aiohttp.ClientError: If request fails
+        Raises aiohttp.ClientError if request fails.
         """
         async with aiohttp.ClientSession() as session:
             async with session.get(self.query_url, params={"query": query}) as resp:
@@ -68,8 +61,7 @@ class PrometheusClient:
         """
         Get health status of all workers from Prometheus.
 
-        Returns:
-            List of worker status dicts with keys: job, instance, status, domain, worker_type
+        Returns list of worker status dicts with keys: job, instance, status, domain, worker_type.
         """
         # Query the 'up' metric which indicates if Prometheus can scrape the target
         result = await self.query('up{job=~".*(worker|ingester).*"}')
@@ -95,8 +87,7 @@ class PrometheusClient:
         """
         Get consumer lag for all workers from Prometheus.
 
-        Returns:
-            List of consumer lag dicts with keys: consumer_group, topic, partition, lag
+        Returns list of consumer lag dicts with keys: consumer_group, topic, partition, lag.
         """
         # Query the kafka_consumer_lag metric
         result = await self.query("kafka_consumer_lag")
@@ -118,12 +109,7 @@ class PrometheusClient:
         return lags
 
     async def check_prometheus_health(self) -> bool:
-        """
-        Check if Prometheus is reachable and healthy.
-
-        Returns:
-            True if healthy, False otherwise
-        """
+        """Check if Prometheus is reachable and healthy."""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{self.prometheus_url}/-/healthy") as resp:

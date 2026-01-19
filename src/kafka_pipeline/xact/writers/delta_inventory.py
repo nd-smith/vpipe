@@ -159,28 +159,22 @@ class DeltaInventoryWriter(BaseDeltaWriter):
         - downloaded_at: datetime
         - created_at: datetime
         - event_date: date (partition column)
-
-        Args:
-            results: List of DownloadResultMessage objects
-
-        Returns:
-            Polars DataFrame with xact_attachments schema
         """
         now = datetime.now(timezone.utc)
         today = now.date()
 
         rows = []
-        for result in results:
+        for download_result in results:
             rows.append({
-                "media_id": result.media_id,
-                "trace_id": result.trace_id,
-                "attachment_url": result.attachment_url,
-                "blob_path": result.blob_path,
-                "file_type": result.file_type,
-                "status_subtype": result.status_subtype,
-                "assignment_id": result.assignment_id,
-                "bytes_downloaded": result.bytes_downloaded,
-                "downloaded_at": result.created_at,
+                "media_id": download_result.media_id,
+                "trace_id": download_result.trace_id,
+                "attachment_url": download_result.attachment_url,
+                "blob_path": download_result.blob_path,
+                "file_type": download_result.file_type,
+                "status_subtype": download_result.status_subtype,
+                "assignment_id": download_result.assignment_id,
+                "bytes_downloaded": download_result.bytes_downloaded,
+                "downloaded_at": download_result.created_at,
                 "created_at": now,
                 "event_date": today,
             })
@@ -314,28 +308,22 @@ class DeltaFailedAttachmentsWriter(BaseDeltaWriter):
         - retry_count: int
         - http_status: int (optional)
         - created_at: datetime (current UTC time)
-
-        Args:
-            results: List of DownloadResultMessage objects
-
-        Returns:
-            Polars DataFrame with xact_attachments_failed schema
         """
         # Current time for failed tracking
         now = datetime.now(timezone.utc)
 
         # Convert to list of dicts matching table schema
         rows = []
-        for result in results:
+        for failed_result in results:
             row = {
-                "media_id": result.media_id,
-                "trace_id": result.trace_id,
-                "attachment_url": result.attachment_url,
-                "error_message": result.error_message or "Unknown error",
-                "status": result.status,
-                "failed_at": result.created_at,
-                "retry_count": result.retry_count,
-                "http_status": result.http_status,
+                "media_id": failed_result.media_id,
+                "trace_id": failed_result.trace_id,
+                "attachment_url": failed_result.attachment_url,
+                "error_message": failed_result.error_message or "Unknown error",
+                "status": failed_result.status,
+                "failed_at": failed_result.created_at,
+                "retry_count": failed_result.retry_count,
+                "http_status": failed_result.http_status,
                 "created_at": now,
             }
             rows.append(row)

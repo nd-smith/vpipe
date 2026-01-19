@@ -49,7 +49,6 @@ logger = get_logger(__name__)
 
 @dataclass
 class UploadResult:
-    """Result of processing a single upload task."""
     message: ConsumerRecord
     cached_message: ClaimXCachedDownloadMessage
     processing_time_ms: int
@@ -89,16 +88,6 @@ class ClaimXUploadWorker:
     WORKER_NAME = "upload_worker"
 
     def __init__(self, config: KafkaConfig, domain: str = "claimx"):
-        """
-        Initialize ClaimX upload worker.
-
-        Args:
-            config: Kafka configuration
-            domain: Domain identifier (default: "claimx")
-
-        Raises:
-            ValueError: If no OneLake path is configured for claimx domain
-        """
         self.config = config
         self.domain = domain
 
@@ -170,16 +159,6 @@ class ClaimXUploadWorker:
         )
 
     async def start(self) -> None:
-        """
-        Start the upload worker with concurrent processing.
-
-        Begins consuming messages from cached topic.
-        Processes messages in concurrent batches.
-        Runs until stop() is called or error occurs.
-
-        Raises:
-            Exception: If consumer or producer fails to start
-        """
         if self._running:
             logger.warning("Worker already running, ignoring duplicate start call")
             return
@@ -381,7 +360,6 @@ class ClaimXUploadWorker:
         logger.info("ClaimX upload worker stopped")
 
     async def _create_consumer(self) -> None:
-        """Create and start Kafka consumer."""
         # Get worker-specific consumer config (merged with defaults)
         consumer_config_dict = self.config.get_worker_config(self.domain, self.WORKER_NAME, "consumer")
         
@@ -430,7 +408,6 @@ class ClaimXUploadWorker:
         )
 
     async def _consume_batch_loop(self) -> None:
-        """Main consumption loop with batch processing."""
         assert self._consumer is not None
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
@@ -456,7 +433,6 @@ class ClaimXUploadWorker:
                             },
                         )
                         _logged_waiting_for_assignment = True
-                    # Sleep briefly and retry - don't call getmany() during rebalance
                     await asyncio.sleep(0.5)
                     continue
 
@@ -499,7 +475,7 @@ class ClaimXUploadWorker:
             except Exception as e:
                 logger.error(f"Error in consume loop: {e}", exc_info=True)
                 record_processing_error(self.topic, consumer_group, "consume_error")
-                await asyncio.sleep(1)  # Brief pause before retry  # Brief pause before retry
+                await asyncio.sleep(1)
 
     async def _process_batch(self, messages: List[ConsumerRecord]) -> None:
         """
@@ -528,18 +504,18 @@ class ClaimXUploadWorker:
         success_count = 0
         exception_count = 0
 
-        for result in results:
-            if isinstance(result, Exception):
-                logger.error(f"Unexpected error in upload: {result}", exc_info=True)
+        for upload_result in results:
+            if isinstance(upload_result, Exception):
+                logger.error(f"Unexpected error in upload: {upload_result}", exc_info=True)
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
                 exception_count += 1
-            elif isinstance(result, UploadResult):
-                if result.success:
+            elif isinstance(upload_result, UploadResult):
+                if upload_result.success:
                     success_count += 1
                 else:
                     failed_count += 1
             else:
-                logger.warning(f"Unexpected result type: {type(result)}")
+                logger.warning(f"Unexpected result type: {type(upload_result)}")
                 exception_count += 1
 
         # Only commit offsets if ALL uploads in batch succeeded
@@ -568,16 +544,12 @@ class ClaimXUploadWorker:
             )
 
     async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
-        """Process single message with semaphore for concurrency control."""
         assert self._semaphore is not None
 
         async with self._semaphore:
             return await self._process_single_upload(message)
 
     async def _process_single_upload(self, message: ConsumerRecord) -> UploadResult:
-        """
-        Process a single cached download message.
-        """
         start_time = time.time()
         media_id = "unknown"
 
@@ -740,9 +712,6 @@ class ClaimXUploadWorker:
                 self._in_flight_tasks.discard(media_id)
 
     async def _periodic_cycle_output(self) -> None:
-        """
-        Background task for periodic cycle logging.
-        """
         # Initial cycle output
         logger.info(format_cycle_output(0, 0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
@@ -786,19 +755,16 @@ class ClaimXUploadWorker:
             raise
 
     async def _cleanup_cache_file(self, cache_path: Path) -> None:
-        """Clean up cached file and its parent directory if empty."""
         try:
-            # Delete the file
             if cache_path.exists():
                 await asyncio.to_thread(os.remove, str(cache_path))
 
-            # Try to remove parent directory if empty
             parent = cache_path.parent
             if parent.exists():
                 try:
                     await asyncio.to_thread(parent.rmdir)
                 except OSError:
-                    pass  # Directory not empty
+                    pass
 
             logger.debug(f"Cleaned up cache file: {cache_path}")
 
