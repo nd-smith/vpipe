@@ -265,14 +265,15 @@ class ClaimXDeltaEventsWorker:
         self._batch.clear()
 
         # Use simple try/except for write
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         try:
-            with tracer.start_as_current_span("delta.write", kind=SpanKind.CLIENT) as span:
-                span.set_attribute("batch.size", len(batch_to_write))
-                span.set_attribute("table.name", "claimx_events")
+            with tracer.start_active_span("delta.write") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("batch.size", len(batch_to_write))
+                span.set_tag("table.name", "claimx_events")
                 success = await self.delta_writer.write_events(batch_to_write)
 
             record_delta_write(

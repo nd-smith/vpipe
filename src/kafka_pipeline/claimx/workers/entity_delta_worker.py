@@ -255,14 +255,15 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
                 },
             )
 
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("delta.write", kind=SpanKind.CLIENT) as span:
-                span.set_attribute("batch.size", batch_size)
-                span.set_attribute("entity.row_count", merged_rows.row_count())
-                span.set_attribute("table.name", "claimx_entities")
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("delta.write") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("batch.size", batch_size)
+                span.set_tag("entity.row_count", merged_rows.row_count())
+                span.set_tag("table.name", "claimx_entities")
                 counts = await self.entity_writer.write_all(merged_rows)
 
             total_rows = sum(counts.values())

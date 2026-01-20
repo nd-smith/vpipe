@@ -267,18 +267,19 @@ class ClaimXResultProcessor:
             record: ConsumerRecord containing ClaimXUploadResultMessage JSON
         """
         # Decode and parse ClaimXUploadResultMessage
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         try:
-            with tracer.start_as_current_span("result.process", kind=SpanKind.INTERNAL) as span:
+            with tracer.start_active_span("result.process") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "internal")
                 message_data = json.loads(record.value.decode("utf-8"))
                 result = ClaimXUploadResultMessage.model_validate(message_data)
-                span.set_attribute("media.id", result.media_id)
-                span.set_attribute("project.id", result.project_id)
-                span.set_attribute("event.id", result.source_event_id)
-                span.set_attribute("result.status", result.status)
+                span.set_tag("media.id", result.media_id)
+                span.set_tag("project.id", result.project_id)
+                span.set_tag("event.id", result.source_event_id)
+                span.set_tag("result.status", result.status)
         except (json.JSONDecodeError, ValidationError) as e:
             # Use standardized error logging
             log_worker_error(

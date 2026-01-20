@@ -429,23 +429,19 @@ class DeltaEventsWorker:
         """
         batch_size = len(batch)
 
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(
-            "delta.write",
-            kind=SpanKind.CLIENT,
-            attributes={
-                "batch_id": batch_id,
-                "batch_size": batch_size,
-                "table": "xact_events",
-            },
-        ) as span:
+        tracer = get_tracer(__name__)
+        with tracer.start_active_span("delta.write") as scope:
+            span = scope.span if hasattr(scope, 'span') else scope
+            span.set_tag("span.kind", "client")
+            span.set_tag("batch_id", batch_id)
+            span.set_tag("batch_size", batch_size)
+            span.set_tag("table", "xact_events")
             try:
                 success = await self.delta_writer.write_raw_events(batch, batch_id=batch_id)
 
-                span.set_attribute("write.success", success)
+                span.set_tag("write.success", success)
                 record_delta_write(
                     table="xact_events",
                     event_count=batch_size,
@@ -470,10 +466,10 @@ class DeltaEventsWorker:
                     if evt.get("eventId") or evt.get("event_id"):
                         event_ids.append(evt.get("eventId") or evt.get("event_id"))
 
-                span.set_attribute("write.success", False)
-                span.set_attribute("error.category", error_category.value)
-                span.set_attribute("error.type", type(e).__name__)
-                span.set_attribute("error.message", str(e)[:200])
+                span.set_tag("write.success", False)
+                span.set_tag("error.category", error_category.value)
+                span.set_tag("error.type", type(e).__name__)
+                span.set_tag("error.message", str(e)[:200])
 
                 logger.error(
                     "Delta write error - classified for routing",

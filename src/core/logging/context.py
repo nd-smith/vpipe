@@ -38,18 +38,19 @@ def get_log_context() -> Dict[str, str]:
         "trace_id": _trace_id.get(),
     }
 
-    # Add OpenTelemetry trace context if available
+    # Add OpenTracing trace context if available
     try:
-        from opentelemetry import trace
+        import opentracing
 
-        span = trace.get_current_span()
-        span_ctx = span.get_span_context()
-
-        if span_ctx.is_valid:
-            context["otel_trace_id"] = format(span_ctx.trace_id, '032x')
-            context["otel_span_id"] = format(span_ctx.span_id, '016x')
+        span = opentracing.tracer.active_span
+        if span is not None and hasattr(span, 'context'):
+            span_ctx = span.context
+            if hasattr(span_ctx, 'trace_id') and span_ctx.trace_id:
+                context["trace_id"] = format(span_ctx.trace_id, 'x')
+            if hasattr(span_ctx, 'span_id') and span_ctx.span_id:
+                context["span_id"] = format(span_ctx.span_id, 'x')
     except Exception:
-        # OTel not initialized or not available, skip
+        # OpenTracing not initialized or not available, skip
         pass
 
     return context

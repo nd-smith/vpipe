@@ -583,28 +583,25 @@ class UploadWorker:
                 )
 
             # Upload to OneLake (domain-specific path)
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span(
-                "onelake.upload",
-                kind=SpanKind.CLIENT,
-                attributes={
-                    "trace_id": trace_id,
-                    "media_id": cached_message.media_id,
-                    "domain": domain,
-                    "destination_path": cached_message.destination_path,
-                    "bytes": cached_message.bytes_downloaded,
-                },
-            ) as span:
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("onelake.upload") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("trace_id", trace_id)
+                span.set_tag("media_id", cached_message.media_id)
+                span.set_tag("domain", domain)
+                span.set_tag("destination_path", cached_message.destination_path)
+                span.set_tag("bytes", cached_message.bytes_downloaded)
+
                 blob_path = await onelake_client.upload_file(
                     relative_path=cached_message.destination_path,
                     local_path=cache_path,
                     overwrite=True,
                 )
-                span.set_attribute("upload.success", True)
-                span.set_attribute("blob_path", blob_path)
+                span.set_tag("upload.success", True)
+                span.set_tag("blob_path", blob_path)
 
             logger.info(
                 "Uploaded file to OneLake",

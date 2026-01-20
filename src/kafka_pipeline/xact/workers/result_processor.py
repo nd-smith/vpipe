@@ -337,28 +337,24 @@ class ResultProcessor:
         # Set logging context
         set_log_context(trace_id=result.trace_id)
 
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(
-            "result.process",
-            kind=SpanKind.INTERNAL,
-            attributes={
-                "trace_id": result.trace_id,
-                "media_id": result.media_id,
-                "status": result.status,
-                "bytes_downloaded": result.bytes_downloaded,
-            },
-        ) as span:
+        tracer = get_tracer(__name__)
+        with tracer.start_active_span("result.process") as scope:
+            span = scope.span if hasattr(scope, 'span') else scope
+            span.set_tag("span.kind", "internal")
+            span.set_tag("trace_id", result.trace_id)
+            span.set_tag("media_id", result.media_id)
+            span.set_tag("status", result.status)
+            span.set_tag("bytes_downloaded", result.bytes_downloaded)
             # Route by status
             if result.status == "completed":
                 # Add to success batch
                 self._records_succeeded += 1
-                span.set_attribute("routing", "success_batch")
+                span.set_tag("routing", "success_batch")
                 async with self._batch_lock:
                     self._batch.append(result)
-                    span.set_attribute("batch_size", len(self._batch))
+                    span.set_tag("batch_size", len(self._batch))
 
                     # Check if flush needed (size-based)
                     if len(self._batch) >= self.batch_size:
@@ -366,16 +362,16 @@ class ResultProcessor:
                             "Success batch size threshold reached, flushing",
                             extra={"batch_size": len(self._batch)},
                         )
-                        span.set_attribute("flush_triggered", True)
+                        span.set_tag("flush_triggered", True)
                         await self._flush_batch()
 
             elif result.status == "failed_permanent" and self._failed_writer:
                 # Add to failed batch (only if tracking enabled)
                 self._records_failed += 1
-                span.set_attribute("routing", "failed_batch")
+                span.set_tag("routing", "failed_batch")
                 async with self._batch_lock:
                     self._failed_batch.append(result)
-                    span.set_attribute("failed_batch_size", len(self._failed_batch))
+                    span.set_tag("failed_batch_size", len(self._failed_batch))
 
                     # Check if flush needed (size-based)
                     if len(self._failed_batch) >= self.batch_size:
@@ -383,14 +379,14 @@ class ResultProcessor:
                             "Failed batch size threshold reached, flushing",
                             extra={"batch_size": len(self._failed_batch)},
                         )
-                        span.set_attribute("flush_triggered", True)
+                        span.set_tag("flush_triggered", True)
                         await self._flush_failed_batch()
 
             else:
                 # Skip transient failures (still retrying) or permanent without writer
                 self._records_skipped += 1
-                span.set_attribute("routing", "skipped")
-                span.set_attribute("skip_reason", "transient" if result.status == "failed_transient" else "no_failed_writer")
+                span.set_tag("routing", "skipped")
+                span.set_tag("skip_reason", "transient" if result.status == "failed_transient" else "no_failed_writer")
                 logger.debug(
                     "Skipping result",
                     extra={
