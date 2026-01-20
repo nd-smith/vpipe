@@ -1,33 +1,72 @@
 """
-OpenTelemetry initialization and configuration.
+Telemetry initialization and configuration using Prometheus + Jaeger/OpenTracing.
 
 Provides centralized telemetry setup for distributed tracing and metrics:
-- Tracer provider with Jaeger exporter (OTLP/gRPC)
-- Meter provider with OTLP exporter → Prometheus via OTel Collector
+- Tracer using Jaeger client (OpenTracing API)
+- Metrics using Prometheus client → Prometheus
 - W3C Trace Context propagation for Kafka headers
 - 100% sampling (ALWAYS_ON)
 - Resource attributes (service.name, deployment.environment)
+
+Telemetry is fully optional:
+- Set ENABLE_TELEMETRY=false to disable
+- If prometheus-client or jaeger-client not available, gracefully degrades to no-op
 """
 
 import logging
 import os
-from typing import Optional
-
-from opentelemetry import trace, metrics
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.sampling import ALWAYS_ON
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME, DEPLOYMENT_ENVIRONMENT
-from opentelemetry.propagate import set_global_textmap
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
 _initialized = False
+_telemetry_available = False
+_tracer: Optional[Any] = None
+_prometheus_registry: Optional[Any] = None
+
+
+class NoOpTracer:
+    """No-op tracer when telemetry is disabled or unavailable."""
+
+    def start_span(self, operation_name: str, **kwargs):
+        """Return a no-op span."""
+        return NoOpSpan()
+
+    def start_active_span(self, operation_name: str, **kwargs):
+        """Return a no-op context manager."""
+        return NoOpSpanContext()
+
+
+class NoOpSpan:
+    """No-op span when telemetry is disabled or unavailable."""
+
+    def set_tag(self, key: str, value: Any):
+        """No-op set_tag."""
+        pass
+
+    def log_kv(self, kv: dict):
+        """No-op log_kv."""
+        pass
+
+    def finish(self):
+        """No-op finish."""
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+class NoOpSpanContext:
+    """No-op span context manager when telemetry is disabled or unavailable."""
+
+    def __enter__(self):
+        return NoOpSpan()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 
 def initialize_telemetry(
@@ -38,47 +77,47 @@ def initialize_telemetry(
     enable_metrics: bool = True,
 ) -> None:
     """
-    Initialize OpenTelemetry with 100% sampling.
+    Initialize Prometheus and Jaeger telemetry with 100% sampling.
 
-    Sets up distributed tracing and metrics export to Jaeger and OTel Collector.
+    Sets up distributed tracing and metrics export to Jaeger and Prometheus.
     This should be called once at application startup.
 
     Args:
         service_name: Name of the service (e.g., "xact-event-ingester")
         environment: Deployment environment (development, staging, production)
-        jaeger_endpoint: Jaeger OTLP endpoint (default: http://localhost:4317)
+        jaeger_endpoint: Jaeger agent endpoint (default: localhost:6831)
         enable_traces: Enable trace export to Jaeger
-        enable_metrics: Enable metric export to OTel Collector
+        enable_metrics: Enable metric export to Prometheus
 
     Example:
         >>> initialize_telemetry(
         ...     service_name="xact-download-worker",
         ...     environment="production",
-        ...     jaeger_endpoint="http://jaeger:4317"
+        ...     jaeger_endpoint="localhost:6831"
         ... )
 
     Environment Variables:
         ENABLE_TELEMETRY: Set to "false" or "0" to disable telemetry completely
     """
-    global _initialized
+    global _initialized, _telemetry_available, _tracer, _prometheus_registry
 
     if _initialized:
-        logger.warning("OpenTelemetry already initialized, skipping")
+        logger.warning("Telemetry already initialized, skipping")
         return
 
     # Check if telemetry is disabled via environment variable
     telemetry_enabled = os.getenv("ENABLE_TELEMETRY", "true").lower() not in ("false", "0", "no")
     if not telemetry_enabled:
-        logger.info("OpenTelemetry disabled via ENABLE_TELEMETRY environment variable")
+        logger.info("Telemetry disabled via ENABLE_TELEMETRY environment variable")
         _initialized = True
         return
 
     # Get endpoint from environment if not provided
     if jaeger_endpoint is None:
-        jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "http://localhost:4317")
+        jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "localhost:6831")
 
     logger.info(
-        "Initializing OpenTelemetry",
+        "Initializing telemetry",
         extra={
             "service_name": service_name,
             "environment": environment,
@@ -88,111 +127,62 @@ def initialize_telemetry(
         },
     )
 
-    # Resource attributes for all telemetry signals
-    resource = Resource.create(
-        {
-            SERVICE_NAME: service_name,
-            DEPLOYMENT_ENVIRONMENT: environment,
-            "service.version": "0.1.0",
-            "telemetry.sdk.name": "opentelemetry",
-            "telemetry.sdk.language": "python",
-        }
-    )
-
-    # Initialize tracing
-    if enable_traces:
-        _initialize_tracing(jaeger_endpoint, resource)
-
-    # Initialize metrics
-    if enable_metrics:
-        _initialize_metrics(jaeger_endpoint, resource)
-
-    # Set W3C Trace Context as global propagator
-    set_global_textmap(TraceContextTextMapPropagator())
-
-    _initialized = True
-    logger.info("OpenTelemetry initialization complete")
-
-
-def _initialize_tracing(endpoint: str, resource: Resource) -> None:
-    """Initialize tracing with Jaeger exporter."""
+    # Try to import telemetry libraries
     try:
-        # Create tracer provider with ALWAYS_ON (100% sampling)
-        tracer_provider = TracerProvider(
-            resource=resource,
-            sampler=ALWAYS_ON,
-        )
+        if enable_metrics:
+            import prometheus_client
+            _prometheus_registry = prometheus_client.CollectorRegistry()
+            _telemetry_available = True
+            logger.info("Prometheus client loaded successfully")
+    except ImportError as e:
+        logger.warning(f"prometheus-client not available: {e}. Metrics will be disabled.")
+        enable_metrics = False
 
-        # Configure OTLP span exporter to Jaeger
-        span_exporter = OTLPSpanExporter(
-            endpoint=endpoint,
-            insecure=True,  # For local development; use TLS in production
-        )
+    try:
+        if enable_traces:
+            from jaeger_client import Config
+            _telemetry_available = True
 
-        # BatchSpanProcessor for efficient batching
-        # Exports in batches of 512 spans or every 5 seconds
-        span_processor = BatchSpanProcessor(
-            span_exporter,
-            max_queue_size=2048,
-            max_export_batch_size=512,
-            schedule_delay_millis=5000,
-        )
-
-        tracer_provider.add_span_processor(span_processor)
-
-        # Set as global tracer provider
-        trace.set_tracer_provider(tracer_provider)
-
-        logger.info(
-            "Tracing initialized",
-            extra={
-                "endpoint": endpoint,
-                "sampler": "ALWAYS_ON",
-                "batch_size": 512,
-            },
-        )
+            # Initialize Jaeger tracer with 100% sampling
+            config = Config(
+                config={
+                    'sampler': {
+                        'type': 'const',
+                        'param': 1,  # 100% sampling (ALWAYS_ON)
+                    },
+                    'local_agent': {
+                        'reporting_host': jaeger_endpoint.split(':')[0],
+                        'reporting_port': int(jaeger_endpoint.split(':')[1]) if ':' in jaeger_endpoint else 6831,
+                    },
+                    'logging': True,
+                },
+                service_name=service_name,
+                validate=True,
+            )
+            _tracer = config.initialize_tracer()
+            logger.info(
+                "Tracing initialized",
+                extra={
+                    "endpoint": jaeger_endpoint,
+                    "sampler": "const=1 (ALWAYS_ON)",
+                },
+            )
+    except ImportError as e:
+        logger.warning(f"jaeger-client not available: {e}. Tracing will be disabled.")
+        enable_traces = False
     except Exception as e:
         logger.error("Failed to initialize tracing", exc_info=True)
-        raise
+        enable_traces = False
+
+    _initialized = True
+
+    if not enable_traces and not enable_metrics:
+        logger.warning("Telemetry initialized but both traces and metrics are disabled")
+    else:
+        logger.info("Telemetry initialization complete")
 
 
-def _initialize_metrics(endpoint: str, resource: Resource) -> None:
-    """Initialize metrics with OTel Collector exporter."""
-    try:
-        # Configure OTLP metric exporter
-        metric_exporter = OTLPMetricExporter(
-            endpoint=endpoint,
-            insecure=True,  # For local development; use TLS in production
-        )
-
-        # Periodic exporter - exports metrics every 60 seconds
-        metric_reader = PeriodicExportingMetricReader(
-            exporter=metric_exporter,
-            export_interval_millis=60000,  # 60 seconds
-        )
-
-        # Create meter provider
-        meter_provider = MeterProvider(
-            resource=resource,
-            metric_readers=[metric_reader],
-        )
-
-        # Set as global meter provider
-        metrics.set_meter_provider(meter_provider)
-
-        logger.info(
-            "Metrics initialized",
-            extra={
-                "endpoint": endpoint,
-                "export_interval_seconds": 60,
-            },
-        )
-    except Exception as e:
-        logger.error("Failed to initialize metrics", exc_info=True)
-        raise
-
-
-def get_tracer(name: str) -> trace.Tracer:
+def get_tracer(name: str) -> Any:
     """
     Get a tracer instance for creating spans.
 
@@ -200,38 +190,42 @@ def get_tracer(name: str) -> trace.Tracer:
         name: Name of the tracer (typically __name__ of the module)
 
     Returns:
-        Tracer instance for creating spans
+        Tracer instance for creating spans (or no-op tracer if unavailable)
 
     Example:
         >>> tracer = get_tracer(__name__)
-        >>> with tracer.start_as_current_span("operation"):
+        >>> with tracer.start_active_span("operation"):
         ...     # Do work
         ...     pass
     """
-    return trace.get_tracer(name)
+    if _tracer is not None:
+        return _tracer
+    return NoOpTracer()
 
 
-def get_meter(name: str) -> metrics.Meter:
+def get_prometheus_registry() -> Optional[Any]:
     """
-    Get a meter instance for creating metrics.
-
-    Args:
-        name: Name of the meter (typically __name__ of the module)
+    Get the Prometheus registry for creating metrics.
 
     Returns:
-        Meter instance for creating counters, gauges, histograms
+        Prometheus CollectorRegistry instance (or None if unavailable)
 
     Example:
-        >>> meter = get_meter(__name__)
-        >>> counter = meter.create_counter("requests.count")
-        >>> counter.add(1, attributes={"status": "success"})
+        >>> registry = get_prometheus_registry()
+        >>> if registry:
+        ...     counter = Counter('requests_total', 'Total requests', registry=registry)
     """
-    return metrics.get_meter(name)
+    return _prometheus_registry
 
 
 def is_initialized() -> bool:
-    """Check if OpenTelemetry has been initialized."""
+    """Check if telemetry has been initialized."""
     return _initialized
+
+
+def is_available() -> bool:
+    """Check if telemetry libraries are available and loaded."""
+    return _telemetry_available
 
 
 def shutdown_telemetry() -> None:
@@ -240,21 +234,20 @@ def shutdown_telemetry() -> None:
 
     This should be called on application shutdown to flush any pending spans/metrics.
     """
-    global _initialized
+    global _initialized, _tracer
 
     if not _initialized:
         return
 
-    logger.info("Shutting down OpenTelemetry")
+    logger.info("Shutting down telemetry")
 
-    # Get providers and shut them down
-    tracer_provider = trace.get_tracer_provider()
-    if hasattr(tracer_provider, "shutdown"):
-        tracer_provider.shutdown()
-
-    meter_provider = metrics.get_meter_provider()
-    if hasattr(meter_provider, "shutdown"):
-        meter_provider.shutdown()
+    # Close Jaeger tracer
+    if _tracer is not None:
+        try:
+            _tracer.close()
+            logger.info("Jaeger tracer closed")
+        except Exception as e:
+            logger.error(f"Error closing Jaeger tracer: {e}")
 
     _initialized = False
-    logger.info("OpenTelemetry shutdown complete")
+    logger.info("Telemetry shutdown complete")

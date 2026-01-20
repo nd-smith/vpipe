@@ -23,11 +23,11 @@ aiohttp>=3.9.0
 # Kafka
 aiokafka[lz4]>=0.11.0
 
-# OpenTelemetry (Metrics & Tracing)
-opentelemetry-api>=1.22.0
-opentelemetry-sdk>=1.22.0
-opentelemetry-exporter-otlp-proto-grpc>=1.22.0
-opentelemetry-instrumentation-aiohttp-client>=0.43b0
+# Telemetry (Metrics & Tracing) - Optional
+# If these are not available in your Artifactory, the app will run without telemetry
+prometheus-client>=0.19.0  # Metrics
+jaeger-client>=4.8.0  # Distributed tracing
+opentracing>=2.4.0  # OpenTracing API (required by jaeger-client)
 
 # Validation
 pydantic>=2.0.0
