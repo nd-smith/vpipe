@@ -19,8 +19,8 @@ services:
 
   monitoring-service:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: Dockerfile.monitoring
     container_name: kafka-pipeline-monitoring
     ports:
       - "9091:9091"
