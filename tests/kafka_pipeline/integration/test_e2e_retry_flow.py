@@ -5,7 +5,7 @@ Tests the complete retry flow from transient failure through retry topics
 to eventual success or DLQ routing:
     1. DownloadWorker encounters transient failure
     2. RetryHandler routes to appropriate retry topic with exponential backoff
-    3. DelayedRedeliveryScheduler redelivers after delay
+    3. UnifiedRetryScheduler redelivers after delay
     4. Successful download on retry OR retry exhaustion → DLQ
 
 Validates:
@@ -33,7 +33,7 @@ from aiokafka import AIOKafkaProducer
 from core.download.models import DownloadOutcome
 from core.types import ErrorCategory
 from kafka_pipeline.config import KafkaConfig
-from kafka_pipeline.common.retry.scheduler import DelayedRedeliveryScheduler
+from kafka_pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage, FailedDownloadMessage
 from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
 
@@ -172,7 +172,7 @@ async def test_scheduler_redelivers_after_delay(
     tmp_path: Path,
 ):
     """
-    Test DelayedRedeliveryScheduler redelivers message after delay elapsed.
+    Test UnifiedRetryScheduler redelivers message after delay elapsed.
 
     Validates:
     - Scheduler consumes from retry topics
@@ -224,11 +224,10 @@ async def test_scheduler_redelivers_after_delay(
         producer = BaseKafkaProducer(test_kafka_config)
         await producer.start()
 
-        scheduler = DelayedRedeliveryScheduler(
+        scheduler = UnifiedRetryScheduler(
             config=test_kafka_config,
             producer=producer,
-            lag_threshold=1000,
-            check_interval_seconds=1,
+            domain="xact",
         )
 
         scheduler_task = await start_worker_background(scheduler)
