@@ -505,17 +505,28 @@ def record_onelake_error(operation: str, error_type: str) -> None:
     )
 
 
-def record_retry_attempt(domain: str, error_category: str, delay_seconds: int = 0) -> None:
+def record_retry_attempt(
+    domain: str,
+    worker_type: str,
+    error_category: str,
+    delay_seconds: int = 0
+) -> None:
     """
     Record a retry attempt.
 
     Args:
         domain: Domain identifier (e.g., "claimx", "xact")
+        worker_type: Type of worker for observability (e.g., "download_worker", "delta_worker")
         error_category: Error category (transient, auth, circuit_open, unknown)
         delay_seconds: Delay before retry in seconds
     """
     retry_attempts_counter.add(
-        1, attributes={"domain": domain, "error_category": error_category}
+        1,
+        attributes={
+            "domain": domain,
+            "worker_type": worker_type,
+            "error_category": error_category,
+        }
     )
     if delay_seconds > 0:
         retry_delay_histogram.record(delay_seconds, attributes={"domain": domain})

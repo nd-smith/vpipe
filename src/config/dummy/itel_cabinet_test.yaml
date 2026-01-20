@@ -17,8 +17,8 @@
 #   5. Data written to Delta tables or sent to itel API
 #
 # Related Files:
-#   - config/plugins/itel_cabinet_api/config.yaml - Plugin configuration
-#   - config/plugins/itel_cabinet_api/workers.yaml - Worker configuration
+#   - config/plugins/claimx/itel_cabinet_api/config.yaml - Plugin configuration
+#   - config/plugins/claimx/itel_cabinet_api/workers.yaml - Worker configuration
 # =============================================================================
 
 # Generator configuration
@@ -118,7 +118,7 @@ max_events: 100
 # Troubleshooting:
 #   - No events generated: Check domains includes "claimx"
 #   - Wrong event type: Verify plugin_profile is "itel_cabinet_api"
-#   - Plugin not triggered: Ensure plugin is enabled in config/plugins/itel_cabinet_api/config.yaml
+#   - Plugin not triggered: Ensure plugin is enabled in config/plugins/claimx/itel_cabinet_api/config.yaml
 #   - Worker not consuming: Check worker is running and topic exists
 #
 # Advanced Testing:

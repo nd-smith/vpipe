@@ -8,7 +8,7 @@ Usage:
     python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
 
 Configuration:
-    config/plugins/itel_cabinet_api/workers.yaml
+    config/plugins/claimx/itel_cabinet_api/workers.yaml
 
 Environment Variables:
     CLAIMX_API_BASE_URL: ClaimX API base URL

@@ -439,10 +439,15 @@ class DeltaRetryHandler:
             Exception: If send to retry topic fails
         """
         delay_seconds = self._retry_delays[retry_count]
-        retry_topic = f"{self._retry_topic_prefix}.{delay_seconds}s"
+
+        # NEW: Single unified retry topic per domain
+        retry_topic = self.config.get_retry_topic(self.domain)
 
         # Calculate retry timestamp
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+
+        # NEW: Get target topic for routing (delta writes go to results topic)
+        target_topic = self.config.get_topic(self.domain, "downloads_results")
 
         # Create FailedDeltaBatch message
         failed_batch = FailedDeltaBatch(
@@ -460,6 +465,7 @@ class DeltaRetryHandler:
         # Record retry attempt metric
         record_retry_attempt(
             domain=self.domain,
+            worker_type="delta_worker",
             error_category=error_category.value,
             delay_seconds=delay_seconds,
         )
@@ -480,6 +486,7 @@ class DeltaRetryHandler:
                 "retry_count": retry_count + 1,
                 "delay_seconds": delay_seconds,
                 "retry_at": retry_at.isoformat(),
+                "target_topic": target_topic,
                 "sample_trace_ids": sample_trace_ids,
             },
         )
@@ -490,7 +497,13 @@ class DeltaRetryHandler:
             value=failed_batch,
             headers={
                 "retry_count": str(retry_count + 1),
+                "scheduled_retry_time": retry_at.isoformat(),
+                "retry_delay_seconds": str(delay_seconds),
+                "target_topic": target_topic,
+                "worker_type": "delta_worker",
+                "original_key": batch_id or "batch",
                 "error_category": error_category.value,
+                "domain": self.domain,
             },
         )
 
@@ -499,6 +512,7 @@ class DeltaRetryHandler:
             extra={
                 "batch_id": batch_id,
                 "retry_topic": retry_topic,
+                "target_topic": target_topic,
             },
         )
 
@@ -585,16 +599,6 @@ class DeltaRetryHandler:
             },
         )
 
-    def get_all_retry_topics(self) -> List[str]:
-        """
-        Get list of all retry topic names for this handler.
-
-        Useful for configuring consumers that need to subscribe to all retry topics.
-
-        Returns:
-            List of retry topic names (e.g., ["delta-events.retry.300s", ...])
-        """
-        return [f"{self._retry_topic_prefix}.{delay}s" for delay in self._retry_delays]
 
 
 __all__ = ["DeltaRetryHandler"]

@@ -9,8 +9,9 @@ Usage:
     python -m kafka_pipeline --worker xact-poller
     python -m kafka_pipeline --worker xact-event-ingester
     python -m kafka_pipeline --worker xact-local-ingester
+    python -m kafka_pipeline --worker xact-enricher
     python -m kafka_pipeline --worker xact-delta-writer
-    python -m kafka_pipeline --worker xact-delta-retry
+    python -m kafka_pipeline --worker xact-retry-scheduler
     python -m kafka_pipeline --worker xact-download
     python -m kafka_pipeline --worker xact-upload
     python -m kafka_pipeline --worker xact-result-processor
@@ -24,7 +25,7 @@ Usage:
     python -m kafka_pipeline --worker claimx-uploader
     python -m kafka_pipeline --worker claimx-result-processor
     python -m kafka_pipeline --worker claimx-delta-writer
-    python -m kafka_pipeline --worker claimx-delta-retry
+    python -m kafka_pipeline --worker claimx-retry-scheduler
     python -m kafka_pipeline --worker claimx-entity-writer
 
     # Run dummy data source for testing (generates synthetic events)
@@ -49,11 +50,12 @@ Event Source Configuration:
 Architecture:
     xact Domain:
         Event Source → events.raw topic
-            → xact-event-ingester → downloads.pending → download worker →
-              downloads.cached → upload worker → downloads.results → result processor
+            → xact-event-ingester → enrichment.pending → xact-enricher (plugins) →
+              downloads.pending → download worker → downloads.cached → upload worker →
+              downloads.results → result processor
             → xact-delta-writer → xact_events Delta table (parallel)
               ↓ (on failure)
-            → delta-events.retry.* topics → xact-delta-retry → retry write or DLQ
+            → xact.retry topic → xact-retry-scheduler → retry write or DLQ (header-based routing)
 
     claimx Domain:
         Eventhouse → claimx-poller → claimx.events.raw → claimx-ingester →
@@ -61,7 +63,7 @@ Architecture:
         download worker → downloads.cached → upload worker → downloads.results
             → claimx-delta-writer → claimx_events Delta table (parallel)
               ↓ (on failure)
-            → claimx-delta-events.retry.* topics → claimx-delta-retry → retry write or DLQ
+            → claimx.retry topic → claimx-retry-scheduler → retry write or DLQ (header-based routing)
 """
 
 import argparse
@@ -85,9 +87,9 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 # Worker stages for multi-worker logging
 WORKER_STAGES = [
-    "xact-poller", "xact-event-ingester", "xact-local-ingester", "xact-delta-writer", "xact-delta-retry", "xact-download", "xact-upload", "xact-result-processor",
+    "xact-poller", "xact-event-ingester", "xact-local-ingester", "xact-enricher", "xact-delta-writer", "xact-retry-scheduler", "xact-download", "xact-upload", "xact-result-processor",
     "claimx-poller", "claimx-ingester", "claimx-enricher", "claimx-downloader", "claimx-uploader", "claimx-result-processor",
-    "claimx-delta-writer", "claimx-delta-retry", "claimx-entity-writer",
+    "claimx-delta-writer", "claimx-retry-scheduler", "claimx-entity-writer",
     "dummy-source",
 ]
 
@@ -116,7 +118,7 @@ async def run_worker_pool(
 ) -> None:
     """Run multiple instances of a worker concurrently.
     Each instance joins the same consumer group for automatic partition distribution."""
-    logger.info(f"Starting {count} instances of {worker_name}...")
+    logger.info("Starting worker instances", extra={"count": count, "worker_name": worker_name})
 
     tasks = []
     for i in range(count):
@@ -129,7 +131,7 @@ async def run_worker_pool(
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
-        logger.info(f"Worker pool {worker_name} cancelled, shutting down...")
+        logger.info("Worker pool cancelled, shutting down", extra={"worker_name": worker_name})
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -161,8 +163,8 @@ Examples:
     parser.add_argument(
         "--worker",
         choices=[
-            "xact-poller", "xact-event-ingester", "xact-local-ingester", "xact-delta-writer", "xact-delta-retry", "xact-download", "xact-upload", "xact-result-processor",
-            "claimx-poller", "claimx-ingester", "claimx-delta-writer", "claimx-delta-retry", "claimx-entity-writer", "claimx-enricher", "claimx-downloader", "claimx-uploader", "claimx-result-processor",
+            "xact-poller", "xact-event-ingester", "xact-local-ingester", "xact-enricher", "xact-delta-writer", "xact-retry-scheduler", "xact-download", "xact-upload", "xact-result-processor",
+            "claimx-poller", "claimx-ingester", "claimx-delta-writer", "claimx-retry-scheduler", "claimx-entity-writer", "claimx-enricher", "claimx-downloader", "claimx-uploader", "claimx-result-processor",
             "dummy-source",
             "all"
         ],
@@ -349,33 +351,33 @@ async def run_delta_events_worker(kafka_config, events_table_path: str):
         await producer.stop()
 
 
-async def run_delta_retry_scheduler(kafka_config, events_table_path: str):
-    """Consumes failed batches from retry topics and attempts to write to Delta table after delay.
-    Routes permanently failed batches to DLQ."""
+async def run_xact_retry_scheduler(kafka_config):
+    """Unified retry scheduler for all XACT retry types.
+    Routes messages from xact.retry topic to target topics based on headers."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
-    from kafka_pipeline.xact.retry.scheduler import DeltaBatchRetryScheduler
+    from kafka_pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 
-    set_log_context(stage="xact-delta-retry")
-    logger.info("Starting xact Delta Retry Scheduler...")
+    set_log_context(stage="xact-retry-scheduler")
+    logger.info("Starting XACT Unified Retry Scheduler...")
 
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="xact",
-        worker_name="delta_retry_scheduler",
+        worker_name="unified_retry_scheduler",
     )
     await producer.start()
 
-    scheduler = DeltaBatchRetryScheduler(
+    scheduler = UnifiedRetryScheduler(
         config=kafka_config,
         producer=producer,
-        table_path=events_table_path,
+        domain="xact",
     )
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
         """Wait for shutdown signal and stop scheduler gracefully."""
         await shutdown_event.wait()
-        logger.info("Shutdown signal received, stopping delta retry scheduler...")
+        logger.info("Shutdown signal received, stopping xact retry scheduler...")
         await scheduler.stop()
 
     # Start shutdown watcher alongside scheduler
@@ -394,6 +396,36 @@ async def run_delta_retry_scheduler(kafka_config, events_table_path: str):
         # Clean up resources after scheduler exits
         await scheduler.stop()
         await producer.stop()
+
+
+async def run_xact_enrichment_worker(kafka_config):
+    from kafka_pipeline.xact.workers.enrichment_worker import XACTEnrichmentWorker
+
+    set_log_context(stage="xact-enricher")
+    logger.info("Starting XACT Enrichment worker...")
+
+    worker = XACTEnrichmentWorker(
+        config=kafka_config,
+        domain="xact",
+    )
+    shutdown_event = get_shutdown_event()
+
+    async def shutdown_watcher():
+        await shutdown_event.wait()
+        logger.info("Shutdown signal received, stopping enrichment worker...")
+        await worker.request_shutdown()
+
+    watcher_task = asyncio.create_task(shutdown_watcher())
+
+    try:
+        await worker.start()
+    finally:
+        try:
+            watcher_task.cancel()
+            await watcher_task
+        except (asyncio.CancelledError, RuntimeError):
+            pass
+        await worker.stop()
 
 
 async def run_download_worker(kafka_config):
@@ -845,11 +877,11 @@ async def run_all_workers(
 
         tasks.append(
             asyncio.create_task(
-                run_delta_retry_scheduler(local_kafka_config, events_table_path),
-                name="xact-delta-retry",
+                run_xact_retry_scheduler(local_kafka_config),
+                name="xact-retry-scheduler",
             )
         )
-        logger.info("Delta retry scheduler enabled")
+        logger.info("XACT unified retry scheduler enabled")
 
     tasks.extend([
         asyncio.create_task(
@@ -890,7 +922,7 @@ def start_metrics_server(preferred_port: int) -> int:
         return preferred_port
     except OSError as e:
         if e.errno == 98:
-            logger.info(f"Port {preferred_port} already in use, finding available port...")
+            logger.info("Port already in use, finding available port", extra={"preferred_port": preferred_port})
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(('', 0))
@@ -911,7 +943,7 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     Note: Signal handlers not supported on Windows - KeyboardInterrupt used instead."""
 
     def handle_signal(sig):
-        logger.info(f"Received signal {sig.name}, initiating graceful shutdown...")
+        logger.info("Received signal, initiating graceful shutdown", extra={"signal": sig.name})
         shutdown_event = get_shutdown_event()
         if not shutdown_event.is_set():
             shutdown_event.set()
@@ -993,9 +1025,9 @@ def main():
 
     actual_port = start_metrics_server(args.metrics_port)
     if actual_port != args.metrics_port:
-        logger.info(f"Metrics server started on port {actual_port} (fallback from {args.metrics_port})")
+        logger.info("Metrics server started on fallback port", extra={"actual_port": actual_port, "preferred_port": args.metrics_port})
     else:
-        logger.info(f"Metrics server started on port {actual_port}")
+        logger.info("Metrics server started", extra={"port": actual_port})
 
     if args.dev:
         logger.info("Running in DEVELOPMENT mode (local Kafka only)")
@@ -1029,7 +1061,7 @@ def main():
                 logger.info("Running in PRODUCTION mode (Event Hub + local Kafka)")
                 eventhub_config = pipeline_config.eventhub.to_kafka_config()
         except ValueError as e:
-            logger.error(f"Configuration error: {e}")
+            logger.error("Configuration error", extra={"error": str(e)})
             logger.error("Use --dev flag for local development without Event Hub/Eventhouse")
             sys.exit(1)
 
@@ -1126,27 +1158,28 @@ def main():
                 loop.run_until_complete(
                     run_delta_events_worker(local_kafka_config, events_table_path)
                 )
-        elif args.worker == "xact-delta-retry":
-            events_table_path = pipeline_config.events_table_path
-            if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-                events_table_path = (
-                    pipeline_config.xact_eventhouse.xact_events_table_path
-                    or events_table_path
-                )
-            if not events_table_path:
-                logger.error("DELTA_EVENTS_TABLE_PATH is required for xact-delta-retry")
-                sys.exit(1)
+        elif args.worker == "xact-retry-scheduler":
             if args.count > 1:
                 loop.run_until_complete(
                     run_worker_pool(
-                        run_delta_retry_scheduler, args.count, "xact-delta-retry",
-                        local_kafka_config, events_table_path,
+                        run_xact_retry_scheduler, args.count, "xact-retry-scheduler",
+                        local_kafka_config,
                     )
                 )
             else:
                 loop.run_until_complete(
-                    run_delta_retry_scheduler(local_kafka_config, events_table_path)
+                    run_xact_retry_scheduler(local_kafka_config)
                 )
+        elif args.worker == "xact-enricher":
+            if args.count > 1:
+                loop.run_until_complete(
+                    run_worker_pool(
+                        run_xact_enrichment_worker, args.count, "xact-enricher",
+                        local_kafka_config,
+                    )
+                )
+            else:
+                loop.run_until_complete(run_xact_enrichment_worker(local_kafka_config))
         elif args.worker == "xact-download":
             if args.count > 1:
                 loop.run_until_complete(
@@ -1216,25 +1249,17 @@ def main():
                 loop.run_until_complete(
                     run_claimx_delta_events_worker(local_kafka_config, claimx_events_table_path)
                 )
-        elif args.worker == "claimx-delta-retry":
-            claimx_events_table_path = os.getenv("CLAIMX_EVENTS_TABLE_PATH", "")
-            if not claimx_events_table_path and pipeline_config.claimx_eventhouse:
-                claimx_events_table_path = pipeline_config.claimx_eventhouse.claimx_events_table_path
-
-            if not claimx_events_table_path:
-                logger.error("CLAIMX_EVENTS_TABLE_PATH is required for claimx-delta-retry")
-                sys.exit(1)
-
+        elif args.worker == "claimx-retry-scheduler":
             if args.count > 1:
                 loop.run_until_complete(
                     run_worker_pool(
-                        run_claimx_delta_retry_scheduler, args.count, "claimx-delta-retry",
-                        local_kafka_config, claimx_events_table_path,
+                        run_claimx_retry_scheduler, args.count, "claimx-retry-scheduler",
+                        local_kafka_config,
                     )
                 )
             else:
                 loop.run_until_complete(
-                    run_claimx_delta_retry_scheduler(local_kafka_config, claimx_events_table_path)
+                    run_claimx_retry_scheduler(local_kafka_config)
                 )
         elif args.worker == "claimx-ingester":
             if args.count > 1:
@@ -1313,8 +1338,9 @@ def main():
                     full_config = yaml.safe_load(f)
                     dummy_config = full_config.get("dummy", {})
                 logger.info(
-                    f"Loaded dummy source config from {config_file}",
+                    "Loaded dummy source config",
                     extra={
+                        "config_file": str(config_file),
                         "domains": dummy_config.get("domains", ["xact", "claimx"]),
                         "events_per_minute": dummy_config.get("events_per_minute", 10.0),
                         "burst_mode": dummy_config.get("burst_mode", False),
@@ -1322,7 +1348,8 @@ def main():
                 )
             else:
                 logger.warning(
-                    f"Config file not found at {config_file}, using defaults (10 events/min)"
+                    "Config file not found, using defaults (10 events/min)",
+                    extra={"config_file": str(config_file)}
                 )
             if args.count > 1:
                 loop.run_until_complete(
@@ -1338,7 +1365,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.error("Fatal error", extra={"error": str(e)}, exc_info=True)
         sys.exit(1)
     finally:
         loop.close()
@@ -1392,33 +1419,33 @@ async def run_claimx_delta_events_worker(
         await producer.stop()
 
 
-async def run_claimx_delta_retry_scheduler(kafka_config, events_table_path: str):
-    """Consumes failed batches from retry topics and attempts to write to claimx_events Delta table.
-    Routes permanently failed batches to DLQ."""
+async def run_claimx_retry_scheduler(kafka_config):
+    """Unified retry scheduler for all ClaimX retry types.
+    Routes messages from claimx.retry topic to target topics based on headers."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
-    from kafka_pipeline.claimx.retry.scheduler import DeltaBatchRetryScheduler
+    from kafka_pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 
-    set_log_context(stage="claimx-delta-retry")
-    logger.info("Starting ClaimX Delta Retry Scheduler...")
+    set_log_context(stage="claimx-retry-scheduler")
+    logger.info("Starting ClaimX Unified Retry Scheduler...")
 
     producer = BaseKafkaProducer(
         config=kafka_config,
         domain="claimx",
-        worker_name="delta_retry_scheduler",
+        worker_name="unified_retry_scheduler",
     )
     await producer.start()
 
-    scheduler = DeltaBatchRetryScheduler(
+    scheduler = UnifiedRetryScheduler(
         config=kafka_config,
         producer=producer,
-        table_path=events_table_path,
+        domain="claimx",
     )
     shutdown_event = get_shutdown_event()
 
     async def shutdown_watcher():
         """Wait for shutdown signal and stop scheduler gracefully."""
         await shutdown_event.wait()
-        logger.info("Shutdown signal received, stopping claimx delta retry scheduler...")
+        logger.info("Shutdown signal received, stopping claimx retry scheduler...")
         await scheduler.stop()
 
     # Start shutdown watcher alongside scheduler
@@ -1510,7 +1537,7 @@ async def run_dummy_source(kafka_config, dummy_config: dict):
         except (asyncio.CancelledError, RuntimeError):
             pass
         await source.stop()
-        logger.info(f"Dummy source stopped. Stats: {source.stats}")
+        logger.info("Dummy source stopped", extra={"stats": source.stats})
 
 
 if __name__ == "__main__":

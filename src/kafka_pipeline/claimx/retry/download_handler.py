@@ -314,7 +314,9 @@ class DownloadRetryHandler:
             Exception: If send to retry topic fails
         """
         retry_count = task.retry_count
-        retry_topic = self._get_retry_topic(retry_count)
+
+        # NEW: Single unified retry topic per domain
+        retry_topic = self.config.get_retry_topic("claimx")
         delay_seconds = self._retry_delays[retry_count]
 
         # Create updated task with incremented retry count
@@ -330,6 +332,9 @@ class DownloadRetryHandler:
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
+        # NEW: Get target topic for routing
+        target_topic = self.pending_topic
+
         logger.info(
             "Sending task to retry topic",
             extra={
@@ -338,12 +343,14 @@ class DownloadRetryHandler:
                 "retry_count": updated_task.retry_count,
                 "delay_seconds": delay_seconds,
                 "retry_at": retry_at.isoformat(),
+                "target_topic": target_topic,
             },
         )
 
         # Record retry attempt metric
         record_retry_attempt(
             domain="claimx",
+            worker_type="download_worker",
             error_category=error_category.value,
             delay_seconds=delay_seconds,
         )
@@ -355,7 +362,13 @@ class DownloadRetryHandler:
             value=updated_task,
             headers={
                 "retry_count": str(updated_task.retry_count),
+                "scheduled_retry_time": retry_at.isoformat(),
+                "retry_delay_seconds": str(delay_seconds),
+                "target_topic": target_topic,
+                "worker_type": "download_worker",
+                "original_key": task.source_event_id,
                 "error_category": error_category.value,
+                "domain": "claimx",
             },
         )
 
@@ -364,6 +377,7 @@ class DownloadRetryHandler:
             extra={
                 "media_id": task.media_id,
                 "retry_topic": retry_topic,
+                "target_topic": target_topic,
             },
         )
 
@@ -440,16 +454,3 @@ class DownloadRetryHandler:
             },
         )
 
-    def _get_retry_topic(self, retry_count: int) -> str:
-        """
-        Get retry topic name for a specific retry attempt.
-
-        """
-        if retry_count >= len(self._retry_delays):
-            raise ValueError(
-                f"Retry count {retry_count} exceeds max retries "
-                f"({len(self._retry_delays)})"
-            )
-
-        delay_seconds = self._retry_delays[retry_count]
-        return f"{self.pending_topic}.retry.{delay_seconds}s"

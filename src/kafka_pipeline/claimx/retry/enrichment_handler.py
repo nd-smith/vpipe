@@ -165,7 +165,9 @@ class EnrichmentRetryHandler:
             Exception: If send to retry topic fails
         """
         retry_count = task.retry_count
-        retry_topic = self._get_retry_topic(retry_count)
+
+        # NEW: Single unified retry topic per domain
+        retry_topic = self.config.get_retry_topic("claimx")
         delay_seconds = self._retry_delays[retry_count]
 
         # Create updated task with incremented retry count
@@ -183,6 +185,9 @@ class EnrichmentRetryHandler:
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
+        # NEW: Get target topic for routing
+        target_topic = self.pending_topic
+
         logger.info(
             "Sending task to retry topic",
             extra={
@@ -191,6 +196,7 @@ class EnrichmentRetryHandler:
                 "retry_count": updated_task.retry_count,
                 "delay_seconds": delay_seconds,
                 "retry_at": retry_at.isoformat(),
+                "target_topic": target_topic,
             },
         )
 
@@ -200,7 +206,13 @@ class EnrichmentRetryHandler:
             value=updated_task,
             headers={
                 "retry_count": str(updated_task.retry_count),
+                "scheduled_retry_time": retry_at.isoformat(),
+                "retry_delay_seconds": str(delay_seconds),
+                "target_topic": target_topic,
+                "worker_type": "enrichment_worker",
+                "original_key": task.event_id,
                 "error_category": error_category.value,
+                "domain": "claimx",
             },
         )
 
@@ -209,6 +221,7 @@ class EnrichmentRetryHandler:
             extra={
                 "event_id": task.event_id,
                 "retry_topic": retry_topic,
+                "target_topic": target_topic,
             },
         )
 
@@ -281,25 +294,3 @@ class EnrichmentRetryHandler:
             },
         )
 
-    def _get_retry_topic(self, retry_count: int) -> str:
-        """
-        Get retry topic name for a specific retry attempt.
-
-        Args:
-            retry_count: Current retry count (0-indexed)
-
-        Returns:
-            Retry topic name (e.g., "claimx.enrichment.pending.retry.5m")
-
-        Raises:
-            ValueError: If retry_count exceeds configured retry delays
-        """
-        if retry_count >= len(self._retry_delays):
-            raise ValueError(
-                f"Retry count {retry_count} exceeds max retries "
-                f"({len(self._retry_delays)})"
-            )
-
-        delay_seconds = self._retry_delays[retry_count]
-        delay_minutes = delay_seconds // 60
-        return f"{self.pending_topic}.retry.{delay_minutes}m"

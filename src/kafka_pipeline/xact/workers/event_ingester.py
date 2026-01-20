@@ -1,24 +1,24 @@
 """
-Event Ingester Worker - Consumes events and produces download tasks.
+Event Ingester Worker - Consumes events and produces enrichment tasks.
 
-Entry point to the download pipeline:
+Entry point to the enrichment and download pipeline:
 1. Consumes EventMessage from events.raw topic
-2. Validates attachment URLs against domain allowlist
-3. Generates blob storage paths for each attachment
-4. Produces DownloadTaskMessage to downloads.pending topic
+2. Creates XACTEnrichmentTask for each event
+3. Produces to enrichment.pending topic for plugin execution
 
-Note: Delta Lake writes are handled separately by DeltaEventsWorker.
+Note: The enrichment worker will then create download tasks and execute plugins.
+Delta Lake writes are handled separately by DeltaEventsWorker.
 
 Consumer group: {prefix}-event-ingester
 Input topic: events.raw
-Output topic: downloads.pending
+Output topic: enrichment.pending
 """
 
 import asyncio
 import json
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from aiokafka.structs import ConsumerRecord
@@ -33,7 +33,7 @@ from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.xact.schemas.events import EventMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.xact.schemas.tasks import XACTEnrichmentTask
 from kafka_pipeline.common.metrics import (
     event_ingestion_duration_seconds,
     record_event_ingested,
@@ -103,7 +103,7 @@ class EventIngesterWorker:
                 "worker_name": "event_ingester",
                 "events_topic": config.get_topic(domain, "events"),
                 "ingested_topic": self.producer_config.get_topic(domain, "events_ingested"),
-                "pending_topic": self.producer_config.get_topic(domain, "downloads_pending"),
+                "enrichment_topic": self.producer_config.get_topic(domain, "enrichment_pending"),
                 "pipeline_domain": self.domain,
                 "separate_producer_config": producer_config is not None,
             },
@@ -291,21 +291,12 @@ class EventIngesterWorker:
             },
         )
 
-        # Skip events without attachments (many events are just status updates)
-        if not event.attachments:
-            self._records_skipped += 1
-            logger.debug(
-                "Event has no attachments, skipping download task creation",
-                extra={"trace_id": event.trace_id, "event_id": event.event_id},
-            )
-            return
-
-        # Extract assignment_id from data (required for path generation)
+        # Extract assignment_id from data (required for enrichment)
         assignment_id = event.assignment_id
         if not assignment_id:
             self._records_skipped += 1
             logger.warning(
-                "Event missing assignmentId in data, cannot generate paths",
+                "Event missing assignmentId in data, skipping enrichment",
                 extra={
                     "trace_id": event.trace_id,
                     "event_id": event.event_id,
@@ -314,13 +305,9 @@ class EventIngesterWorker:
             )
             return
 
-        # Process each attachment
-        for attachment_url in event.attachments:
-            await self._process_attachment(
-                event=event,
-                attachment_url=attachment_url,
-                assignment_id=assignment_id,
-            )
+        # Create enrichment task for this event
+        # Note: Even events without attachments are sent to enrichment for plugin execution
+        await self._create_enrichment_task(event, event_id, assignment_id)
 
         # Mark event as processed in dedup cache
         self._mark_processed(event.trace_id, event_id)
@@ -333,119 +320,69 @@ class EventIngesterWorker:
         event_ingestion_duration_seconds.labels(domain=self.domain).observe(duration)
         record_event_ingested(domain=self.domain, status="success")
 
-    async def _process_attachment(
+    async def _create_enrichment_task(
         self,
         event: EventMessage,
-        attachment_url: str,
+        event_id: str,
         assignment_id: str,
     ) -> None:
+        """Create and produce enrichment task for this event."""
         from opentelemetry import trace
         from opentelemetry.trace import SpanKind
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span("event.process", kind=SpanKind.INTERNAL) as span:
+        with tracer.start_as_current_span("event.create_enrichment", kind=SpanKind.INTERNAL) as span:
             span.set_attribute("trace_id", event.trace_id)
-            span.set_attribute("event_id", event.event_id or "")
-            span.set_attribute("attachment_url", sanitize_url(attachment_url))
-
-            # Validate attachment URL
-            is_valid, error_message = validate_download_url(attachment_url)
-            if not is_valid:
-                logger.warning(
-                    "Invalid attachment URL, skipping",
-                    extra={
-                        "trace_id": event.trace_id,
-                        "event_id": event.event_id,
-                        "type": event.type,
-                        "url": sanitize_url(attachment_url),
-                        "validation_error": error_message,
-                    },
-                )
-                span.set_attribute("validation.success", False)
-                span.set_attribute("validation.error", error_message)
-                return
-
-            # Generate blob storage path (using status_subtype from event type)
-            try:
-                blob_path, file_type = generate_blob_path(
-                    status_subtype=event.status_subtype,
-                    trace_id=event.trace_id,
-                    assignment_id=assignment_id,
-                    download_url=attachment_url,
-                    estimate_version=event.estimate_version,
-                )
-                span.set_attribute("blob_path", blob_path)
-                span.set_attribute("file_type", file_type)
-            except Exception as e:
-                logger.error(
-                    "Failed to generate blob path",
-                    extra={
-                        "trace_id": event.trace_id,
-                        "event_id": event.event_id,
-                        "status_subtype": event.status_subtype,
-                        "assignment_id": assignment_id,
-                        "error": str(e),
-                    },
-                    exc_info=True,
-                )
-                raise
+            span.set_attribute("event_id", event_id)
+            span.set_attribute("attachment_count", len(event.attachments) if event.attachments else 0)
 
             # Parse original timestamp from event
             original_timestamp = datetime.fromisoformat(
                 event.utc_datetime.replace("Z", "+00:00")
             )
 
-            # Generate deterministic media_id from trace_id and attachment_url
-            # This provides a unique ID for each attachment that is stable across retries/replays
-            media_id = str(uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{event.trace_id}:{attachment_url}"))
-            span.set_attribute("media_id", media_id)
-
-            # Create download task message matching verisk_pipeline Task schema
-            download_task = DownloadTaskMessage(
-                media_id=media_id,
+            # Create enrichment task with all event data
+            enrichment_task = XACTEnrichmentTask(
+                event_id=event_id,
                 trace_id=event.trace_id,
-                attachment_url=attachment_url,
-                blob_path=blob_path,
+                event_type=self.domain,
                 status_subtype=event.status_subtype,
-                file_type=file_type,
                 assignment_id=assignment_id,
                 estimate_version=event.estimate_version,
+                attachments=event.attachments or [],
                 retry_count=0,
-                event_type=self.domain,  # Use configured domain for OneLake routing
-                event_subtype=event.status_subtype,
+                created_at=datetime.now(timezone.utc),
                 original_timestamp=original_timestamp,
             )
 
-            # Produce download task to pending topic
+            # Produce enrichment task to pending topic
             # CRITICAL: Must await send confirmation before allowing offset commit
             try:
                 metadata = await self.producer.send(
-                    topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
+                    topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
                     key=event.trace_id,
-                    value=download_task,
-                    headers={"trace_id": event.trace_id},
+                    value=enrichment_task,
+                    headers={"trace_id": event.trace_id, "event_id": event_id},
                 )
 
                 # Track successful task creation for cycle output
                 self._records_succeeded += 1
 
                 # Record task produced metric
-                record_event_task_produced(domain=self.domain, task_type="download_task")
+                record_event_task_produced(domain=self.domain, task_type="enrichment_task")
 
                 span.set_attribute("task.created", True)
                 span.set_attribute("task.partition", metadata.partition)
                 span.set_attribute("task.offset", metadata.offset)
 
                 logger.info(
-                    "Created download task",
+                    "Created enrichment task",
                     extra={
                         "trace_id": event.trace_id,
-                        "event_id": event.event_id,
-                        "media_id": media_id,
-                        "blob_path": blob_path,
+                        "event_id": event_id,
                         "status_subtype": event.status_subtype,
-                        "file_type": file_type,
                         "assignment_id": assignment_id,
+                        "attachment_count": len(event.attachments) if event.attachments else 0,
                         "partition": metadata.partition,
                         "offset": metadata.offset,
                     },
@@ -453,7 +390,7 @@ class EventIngesterWorker:
             except Exception as e:
                 # Record send failure metric
                 record_processing_error(
-                    topic=self.producer_config.get_topic(self.domain, "downloads_pending"),
+                    topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
                     consumer_group=f"{self.domain}-event-ingester",
                     error_type="SEND_FAILED"
                 )
@@ -462,12 +399,10 @@ class EventIngesterWorker:
                 span.set_attribute("error", str(e))
 
                 logger.error(
-                    "Failed to produce download task - will retry on next poll",
+                    "Failed to produce enrichment task - will retry on next poll",
                     extra={
                         "trace_id": event.trace_id,
-                        "event_id": event.event_id,
-                        "media_id": media_id,
-                        "blob_path": blob_path,
+                        "event_id": event_id,
                         "error": str(e),
                         "error_type": type(e).__name__,
                     },

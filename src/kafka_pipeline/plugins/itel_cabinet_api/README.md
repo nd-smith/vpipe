@@ -70,7 +70,7 @@ Tracking Worker
 
 ### Configuration
 
-- **`config/plugins/itel_cabinet_api/workers.yaml`** - Worker configuration (topics, tables, settings)
+- **`config/plugins/claimx/itel_cabinet_api/workers.yaml`** - Worker configuration (topics, tables, settings)
 - **`config/plugins/shared/connections/claimx.yaml`** - ClaimX API connection
 - **`config/plugins/shared/connections/app.itel.yaml`** - iTel API connection
 
@@ -124,7 +124,7 @@ Run API worker in dev mode to see generated payloads:
 
 ```bash
 python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
-# Payloads written to: config/plugins/itel_cabinet_api/test/
+# Payloads written to: config/plugins/claimx/itel_cabinet_api/test/
 ```
 
 ## Common Tasks
@@ -231,7 +231,7 @@ Make sure you're running from the `src/` directory.
 
 ### "Configuration file not found"
 
-Check that `config/plugins/itel_cabinet_api/workers.yaml` exists.
+Check that `config/plugins/claimx/itel_cabinet_api/workers.yaml` exists.
 
 ### "Connection 'claimx_api' not found"
 

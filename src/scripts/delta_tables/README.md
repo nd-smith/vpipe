@@ -115,6 +115,6 @@ The table is configured to support schema evolution. New columns can be added au
 
 ## Related Documentation
 
-- [iTel Cabinet Plugin](../../config/plugins/itel_cabinet_api/README.md)
-- [Plugin Specification](../../config/plugins/itel_cabinet_api/SPEC.md)
-- [Worker Configuration](../../config/plugins/itel_cabinet_api/workers.yaml)
+- [iTel Cabinet Plugin](../../config/plugins/claimx/itel_cabinet_api/README.md)
+- [Plugin Specification](../../config/plugins/claimx/itel_cabinet_api/SPEC.md)
+- [Worker Configuration](../../config/plugins/claimx/itel_cabinet_api/workers.yaml)

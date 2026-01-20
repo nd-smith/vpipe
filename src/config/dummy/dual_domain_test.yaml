@@ -20,7 +20,7 @@
 #      - 30% of task events trigger itel Cabinet plugin (task_id=32513)
 #
 # Related Files:
-#   - config/plugins/itel_cabinet_api/config.yaml - Plugin configuration
+#   - config/plugins/claimx/itel_cabinet_api/config.yaml - Plugin configuration
 #   - config/dummy/itel_cabinet_test.yaml - itel-only testing
 # =============================================================================
 

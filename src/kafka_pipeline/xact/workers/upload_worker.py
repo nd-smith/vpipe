@@ -238,7 +238,7 @@ class UploadWorker:
         except asyncio.CancelledError:
             logger.info("Upload worker cancelled")
         except Exception as e:
-            logger.error(f"Upload worker error: {e}", exc_info=True)
+            logger.error("Upload worker error", extra={"error": str(e)}, exc_info=True)
             raise
         finally:
             self._running = False
@@ -286,7 +286,8 @@ class UploadWorker:
         # Wait for in-flight uploads (with timeout)
         if self._in_flight_tasks:
             logger.info(
-                f"Waiting for {len(self._in_flight_tasks)} in-flight uploads to complete..."
+                "Waiting for in-flight uploads to complete",
+                extra={"in_flight_count": len(self._in_flight_tasks)}
             )
             wait_start = time.time()
             while self._in_flight_tasks and (time.time() - wait_start) < 30:
@@ -294,7 +295,8 @@ class UploadWorker:
 
             if self._in_flight_tasks:
                 logger.warning(
-                    f"Forcing shutdown with {len(self._in_flight_tasks)} uploads still in progress"
+                    "Forcing shutdown with uploads still in progress",
+                    extra={"in_flight_count": len(self._in_flight_tasks)}
                 )
 
         # Stop consumer
@@ -309,9 +311,9 @@ class UploadWorker:
         for domain, client in self.onelake_clients.items():
             try:
                 await client.close()
-                logger.debug(f"Closed OneLake client for domain '{domain}'")
+                logger.debug("Closed OneLake client", extra={"domain": domain})
             except Exception as e:
-                logger.warning(f"Error closing OneLake client for '{domain}': {e}")
+                logger.warning("Error closing OneLake client", extra={"domain": domain, "error": str(e)})
         self.onelake_clients.clear()
 
         # Stop health check server
@@ -440,9 +442,7 @@ class UploadWorker:
                     self._last_cycle_log = time.monotonic()
                     in_flight = len(self._in_flight_tasks)
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}), "
-                        f"bytes={self._bytes_uploaded}, in_flight={in_flight}",
+                        "Upload cycle progress",
                         extra={
                             "cycle": self._cycle_count,
                             "records_processed": self._records_processed,
@@ -468,7 +468,7 @@ class UploadWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in consume loop: {e}", exc_info=True)
+                logger.error("Error in consume loop", extra={"error": str(e)}, exc_info=True)
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
@@ -478,7 +478,7 @@ class UploadWorker:
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
-        logger.debug(f"Processing batch of {len(messages)} messages")
+        logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Update concurrent uploads metric
         update_uploads_concurrent(self.WORKER_NAME, len(messages))
@@ -497,14 +497,14 @@ class UploadWorker:
         # Handle any exceptions
         for upload_result in results:
             if isinstance(upload_result, Exception):
-                logger.error(f"Unexpected error in upload: {upload_result}", exc_info=True)
+                logger.error("Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True)
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
 
         # Commit offsets after batch
         try:
             await self._consumer.commit()
         except Exception as e:
-            logger.error(f"Failed to commit offsets: {e}", exc_info=True)
+            logger.error("Failed to commit offsets", extra={"error": str(e)}, exc_info=True)
 
     async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
         assert self._semaphore is not None
@@ -670,8 +670,9 @@ class UploadWorker:
             self._records_failed += 1
 
             logger.error(
-                f"Upload failed: {e}",
+                "Upload failed",
                 extra={
+                    "error": str(e),
                     "trace_id": trace_id,
                     "media_id": cached_message.media_id if cached_message else None,
                 },
@@ -707,8 +708,9 @@ class UploadWorker:
                 )
             except Exception as produce_error:
                 logger.error(
-                    f"Failed to produce failure result: {produce_error}",
+                    "Failed to produce failure result",
                     extra={
+                        "error": str(produce_error),
                         "trace_id": trace_id,
                         "media_id": cached_message.media_id if cached_message else None,
                     },
@@ -739,7 +741,7 @@ class UploadWorker:
                 except OSError:
                     pass
 
-            logger.debug(f"Cleaned up cache file: {cache_path}")
+            logger.debug("Cleaned up cache file", extra={"cache_path": str(cache_path)})
 
         except Exception as e:
-            logger.warning(f"Failed to clean up cache file {cache_path}: {e}")
+            logger.warning("Failed to clean up cache file", extra={"cache_path": str(cache_path), "error": str(e)})

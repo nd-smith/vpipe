@@ -240,8 +240,8 @@ kafka-console-consumer \
 When `test_mode: true` in worker config, payloads are written to files:
 
 ```bash
-ls -lah config/plugins/itel_cabinet_api/test/
-cat config/plugins/itel_cabinet_api/test/payload_CLM-12345_20260111_103000.json
+ls -lah config/plugins/claimx/itel_cabinet_api/test/
+cat config/plugins/claimx/itel_cabinet_api/test/payload_CLM-12345_20260111_103000.json
 ```
 
 ## Advanced Usage

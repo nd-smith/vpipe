@@ -55,7 +55,7 @@ def main():
             print(f"  - {plugin.name} ({plugin.__class__.__name__})")
         print()
         print("Troubleshooting:")
-        print("  1. Check config/plugins/itel_cabinet_api/config.yaml exists")
+        print("  1. Check config/plugins/claimx/itel_cabinet_api/config.yaml exists")
         print("  2. Verify 'enabled: true' in config")
         print("  3. Check task_id 32513 is in triggers")
         return 1

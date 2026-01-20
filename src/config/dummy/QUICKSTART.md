@@ -191,7 +191,7 @@ Check that:
 
 ### Events not triggering plugin
 Verify:
-1. Plugin is enabled: `config/plugins/itel_cabinet_api/config.yaml`
+1. Plugin is enabled: `config/plugins/claimx/itel_cabinet_api/config.yaml`
 2. Worker is running: `python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker`
 3. Topic exists and has messages
 

@@ -17,10 +17,13 @@ kafka:
     # -------------------------------------------------------------------------
     topics:
       events: "xact.events.raw"                  # Raw events from Event Hub/Eventhouse
+      enrichment_pending: "xact.enrichment.pending"  # Enrichment tasks awaiting plugin execution
+      enrichment_complete: "xact.enrichment.complete"  # Events after enrichment/plugin execution
       downloads_pending: "xact.downloads.pending"  # Download tasks awaiting processing
       downloads_cached: "xact.downloads.cached"    # Downloads cached locally, awaiting upload
       downloads_results: "xact.downloads.results"  # Upload results for Delta processing
       events_ingested: "xact.events.ingested"        # Events after ingestion processing
+      retry: "xact.retry"                        # Unified retry topic for all retry types (header-based routing)
       dlq: "xact.downloads.dlq"                    # Dead letter queue for failed messages
 
     # Prefix for consumer group names in this domain
@@ -83,6 +86,45 @@ kafka:
 
         # Health check port
         health_port: 8080
+
+    # -------------------------------------------------------------------------
+    # Enrichment Worker
+    # Consumes: xact.enrichment.pending + xact.enrichment.retry.*
+    # Produces to: xact.enrichment.complete (then downloads.pending)
+    # Purpose: Execute plugins and custom logic before download task creation
+    # -------------------------------------------------------------------------
+    enrichment_worker:
+      consumer:
+        group_id: "xact-enrichment-worker"
+
+        # Moderate batches for enrichment processing
+        max_poll_records: 100
+
+        # Long processing window for plugin execution
+        max_poll_interval_ms: 600000  # 10 minutes
+
+        # Standard timeout
+        session_timeout_ms: 45000  # 45 seconds
+
+      producer:
+        # Ensure enriched events are durable
+        acks: "all"
+
+        # Good compression for event data
+        compression_type: "snappy"
+
+      processing:
+        # Application batch size (single-task processing, no batching)
+        max_poll_records: 100
+
+        # Plugin configuration directory
+        plugins_dir: "config/plugins"
+
+        # Enable plugin execution
+        plugins_enabled: true
+
+        # Health check port
+        health_port: 8081
 
     # -------------------------------------------------------------------------
     # Download Worker

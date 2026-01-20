@@ -1,24 +1,23 @@
 """
-ClaimX Enrichment Worker - Enriches events with API data and produces download tasks.
+XACT Enrichment Worker - Executes plugins and produces download tasks.
 
-This worker is the core of the ClaimX enrichment pipeline:
-1. Consumes ClaimXEnrichmentTask from enrichment pending topic
-2. Routes events to appropriate handlers based on event_type
-3. Handlers call ClaimX API to fetch entity data
-4. Writes entity rows to Delta Lake tables
-5. Produces ClaimXDownloadTask for media files with download URLs
+This worker provides a dedicated enrichment stage for the XACT pipeline:
+1. Consumes XACTEnrichmentTask from enrichment pending topic
+2. Executes plugins for custom logic (filtering, routing, notifications)
+3. Produces DownloadTaskMessage for each attachment (if not filtered)
 
-Consumer group: {prefix}-claimx-enrichment-worker
-Input topic: claimx.enrichment.pending
-Output topic: claimx.entities.rows (entity data), claimx.downloads.pending (downloads)
-Delta tables: claimx_projects, claimx_contacts, claimx_attachment_metadata, claimx_tasks,
-              claimx_task_templates, claimx_external_links, claimx_video_collab
+Unlike ClaimX enrichment (which calls APIs), XACT enrichment is primarily
+for plugin execution and event routing before download task creation.
+
+Consumer group: {prefix}-xact-enrichment-worker
+Input topic: xact.enrichment.pending
+Output topic: xact.downloads.pending
 """
 
 import asyncio
 import json
-import uuid
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -30,25 +29,20 @@ from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
+from core.paths.resolver import generate_blob_path
+from core.security.url_validation import validate_download_url, sanitize_url
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
-    record_delta_write,
     record_message_consumed,
     update_connection_status,
     update_assigned_partitions,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
-from kafka_pipeline.claimx.handlers import get_handler_registry, HandlerRegistry
-from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
-from kafka_pipeline.common.storage.delta import DeltaTableReader
-from kafka_pipeline.claimx.monitoring import HealthCheckServer
-from kafka_pipeline.claimx.retry import EnrichmentRetryHandler
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.tasks import (
-    ClaimXEnrichmentTask,
-    ClaimXDownloadTask,
+from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.xact.retry import DownloadRetryHandler
+from kafka_pipeline.xact.schemas.tasks import (
+    XACTEnrichmentTask,
+    DownloadTaskMessage,
 )
 from kafka_pipeline.plugins.shared.base import (
     Domain,
@@ -65,37 +59,31 @@ from kafka_pipeline.plugins.shared.registry import (
 logger = get_logger(__name__)
 
 
-class ClaimXEnrichmentWorker:
+class XACTEnrichmentWorker:
     """
-    Worker to consume ClaimX enrichment tasks and enrich them with API data.
+    Worker to consume XACT enrichment tasks, execute plugins, and produce download tasks.
 
     Architecture:
-    - Event routing via handler registry
-    - Single-task processing (no batching - delta writer handles batching)
-    - Entity data writes to 7 Delta tables
-    - Download task generation for media files
+    - Single-task processing (no batching needed - simple flow)
+    - Plugin execution at ENRICHMENT_COMPLETE stage
+    - Download task generation for each attachment
     - Background task tracking for graceful shutdown
     """
 
     def __init__(
         self,
         config: KafkaConfig,
-        entity_writer: Any = None,
-        domain: str = "claimx",
-        enable_delta_writes: bool = True,
+        domain: str = "xact",
         enrichment_topic: str = "",
         download_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
-        projects_table_path: str = "",
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
         self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
-        self.entity_rows_topic = config.get_topic(domain, "entities_rows")
-        self.enable_delta_writes = enable_delta_writes
-        
+
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
         self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
         self.max_poll_records = self.processing_config.get("max_poll_records", 100)
@@ -109,27 +97,18 @@ class ClaimXEnrichmentWorker:
 
         self.producer: Optional[BaseKafkaProducer] = None
         self.consumer: Optional[AIOKafkaConsumer] = None
-        self.api_client: Optional[ClaimXApiClient] = None
-        self.retry_handler: Optional[EnrichmentRetryHandler] = None
-
-        self.handler_registry: HandlerRegistry = get_handler_registry()
-
-        # Project cache prevents redundant API calls for in-flight verification
-        cache_config = self.processing_config.get("project_cache", {})
-        cache_ttl = cache_config.get("ttl_seconds", 1800)
-        self._preload_cache_from_delta = cache_config.get("preload_from_delta", False)
-        self.project_cache = ProjectCache(ttl_seconds=cache_ttl)
+        self.retry_handler: Optional[DownloadRetryHandler] = None
 
         self.plugin_registry = get_plugin_registry()
         self.plugin_orchestrator: Optional[PluginOrchestrator] = None
         self.action_executor: Optional[ActionExecutor] = None
 
-        # port=0 for dynamic port assignment (avoids conflicts with multiple workers)
-        health_port = self.processing_config.get("health_port", 0)
+        # Health check server
+        health_port = self.processing_config.get("health_port", 8081)
         health_enabled = self.processing_config.get("health_enabled", True)
         self.health_server = HealthCheckServer(
             port=health_port,
-            worker_name="claimx-enricher",
+            worker_name="xact-enrichment-worker",
             enabled=health_enabled,
         )
 
@@ -146,10 +125,11 @@ class ClaimXEnrichmentWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
-        self._projects_table_path = projects_table_path
+        # UUID namespace for deterministic media_id generation
+        self.MEDIA_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "http://xactPipeline/media_id")
 
         logger.info(
-            "Initialized ClaimXEnrichmentWorker",
+            "Initialized XACTEnrichmentWorker",
             extra={
                 "domain": domain,
                 "worker_name": "enrichment_worker",
@@ -157,68 +137,18 @@ class ClaimXEnrichmentWorker:
                 "topics": self.topics,
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
-                "delta_writes_enabled": self.enable_delta_writes,
                 "max_poll_records": self.max_poll_records,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
-                "project_cache_ttl": cache_ttl,
-                "project_cache_preload": self._preload_cache_from_delta,
             },
         )
-
-    async def _preload_project_cache(self) -> None:
-        """Preload project cache with existing project IDs from Delta table to reduce API calls."""
-        if not self._projects_table_path:
-            logger.warning(
-                "Cannot preload project cache - projects_table_path not configured"
-            )
-            return
-
-        try:
-            logger.info(
-                "Preloading project cache from Delta",
-                extra={"table_path": self._projects_table_path},
-            )
-
-            reader = DeltaTableReader(self._projects_table_path)
-            if not reader.exists():
-                logger.info("Projects table does not exist yet, skipping preload")
-                return
-
-            df = reader.read(columns=["project_id"])
-            if df.is_empty():
-                logger.info("Projects table is empty, skipping preload")
-                return
-
-            project_ids = df["project_id"].drop_nulls().unique().to_list()
-            loaded_count = self.project_cache.load_from_ids(project_ids)
-
-            logger.info(
-                "Project cache preloaded from Delta",
-                extra={
-                    "table_path": self._projects_table_path,
-                    "unique_project_ids": len(project_ids),
-                    "loaded_to_cache": loaded_count,
-                    "cache_size": self.project_cache.size(),
-                },
-            )
-
-        except Exception as e:
-            logger.warning(
-                "Failed to preload project cache from Delta, continuing without preload",
-                extra={
-                    "table_path": self._projects_table_path,
-                    "error": str(e)[:200],
-                },
-                exc_info=True,
-            )
 
     async def start(self) -> None:
         if self._running:
             logger.warning("Worker already running")
             return
 
-        logger.info("Starting ClaimXEnrichmentWorker")
+        logger.info("Starting XACTEnrichmentWorker")
         self._running = True
 
         from kafka_pipeline.common.telemetry import initialize_telemetry
@@ -232,20 +162,6 @@ class ClaimXEnrichmentWorker:
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 
         await self.health_server.start()
-
-        self.api_client = ClaimXApiClient(
-            base_url=self.consumer_config.claimx_api_url,
-            token=self.consumer_config.claimx_api_token,
-            timeout_seconds=self.consumer_config.claimx_api_timeout_seconds,
-            max_concurrent=self.consumer_config.claimx_api_concurrency,
-        )
-        await self.api_client._ensure_session()
-
-        api_reachable = not self.api_client.is_circuit_open
-        self.health_server.set_ready(
-            kafka_connected=False,
-            api_reachable=api_reachable,
-        )
 
         self.producer = BaseKafkaProducer(
             config=self.producer_config,
@@ -314,7 +230,7 @@ class ClaimXEnrichmentWorker:
                     exc_info=True,
                 )
 
-        self.retry_handler = EnrichmentRetryHandler(
+        self.retry_handler = DownloadRetryHandler(
             config=self.consumer_config,
             producer=self.producer,
         )
@@ -326,23 +242,16 @@ class ClaimXEnrichmentWorker:
             },
         )
 
-        if self._preload_cache_from_delta:
-            await self._preload_project_cache()
-
         try:
             self.consumer = self._create_consumer()
             await self.consumer.start()
             update_connection_status(True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
 
-            self.health_server.set_ready(
-                kafka_connected=True,
-                api_reachable=api_reachable,
-                circuit_open=self.api_client.is_circuit_open,
-            )
+            self.health_server.set_ready(kafka_connected=True)
 
             self._consume_task = asyncio.create_task(self._consume_loop())
             await self._consume_task
-            
+
         except asyncio.CancelledError:
             logger.info("Worker cancelled during startup/run")
             raise
@@ -351,7 +260,7 @@ class ClaimXEnrichmentWorker:
             raise
 
     async def stop(self) -> None:
-        logger.info("Stopping ClaimXEnrichmentWorker")
+        logger.info("Stopping XACTEnrichmentWorker")
         self._running = False
 
         if self._cycle_task and not self._cycle_task.done():
@@ -384,12 +293,9 @@ class ClaimXEnrichmentWorker:
         if self.producer:
             await self.producer.stop()
 
-        if self.api_client:
-            await self.api_client.close()
-
         await self.health_server.stop()
 
-        logger.info("ClaimXEnrichmentWorker stopped successfully")
+        logger.info("XACTEnrichmentWorker stopped successfully")
 
     async def request_shutdown(self) -> None:
         logger.info("Graceful shutdown requested")
@@ -431,11 +337,7 @@ class ClaimXEnrichmentWorker:
 
     async def _consume_loop(self) -> None:
         """
-        Main consumption loop.
-
-        CRITICAL (Issue #38): Commits offsets only after verifying all background tasks
-        (entity row production) complete successfully. This prevents data loss from
-        race conditions where offsets are committed before writes finish.
+        Main consumption loop - consumes enrichment tasks and processes them.
         """
         logger.info("Started consumption loop")
 
@@ -453,8 +355,7 @@ class ClaimXEnrichmentWorker:
                     for msg in messages:
                         await self._handle_enrichment_task(msg)
 
-                # CRITICAL (Issue #38): Wait for all background tasks to complete before committing offsets.
-                # This ensures entity rows are produced to Kafka before we advance the consumer offset.
+                # Wait for all background tasks to complete before committing offsets
                 if self._pending_tasks:
                     await self._wait_for_pending_tasks(timeout_seconds=30)
 
@@ -473,7 +374,6 @@ class ClaimXEnrichmentWorker:
             raise
         finally:
             logger.info("Consumption loop ended")
-
 
     def _create_tracked_task(
         self,
@@ -592,13 +492,13 @@ class ClaimXEnrichmentWorker:
             )
 
     async def _handle_enrichment_task(self, record: ConsumerRecord) -> None:
-        """Process enrichment task. No batching at enricher level - delta writer handles batching."""
+        """Process enrichment task - execute plugins and create download tasks."""
         try:
             message_data = json.loads(record.value.decode("utf-8"))
-            task = ClaimXEnrichmentTask.model_validate(message_data)
+            task = XACTEnrichmentTask.model_validate(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
-                "Failed to parse ClaimXEnrichmentTask",
+                "Failed to parse XACTEnrichmentTask",
                 extra={
                     "topic": record.topic,
                     "partition": record.partition,
@@ -615,171 +515,236 @@ class ClaimXEnrichmentWorker:
             "Processing enrichment task",
             extra={
                 "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "event_type": task.event_type,
-                "project_id": task.project_id,
+                "status_subtype": task.status_subtype,
                 "retry_count": task.retry_count,
             },
         )
 
         await self._process_single_task(task)
 
-    async def _process_single_task(self, task: ClaimXEnrichmentTask) -> None:
+    async def _process_single_task(self, task: XACTEnrichmentTask) -> None:
         start_time = datetime.now(timezone.utc)
-
-        if task.project_id:
-            await self._ensure_projects_exist([task.project_id])
-
-        event = ClaimXEventMessage(
-            event_id=task.event_id,
-            event_type=task.event_type,
-            project_id=task.project_id,
-            media_id=task.media_id,
-            task_assignment_id=task.task_assignment_id,
-            video_collaboration_id=task.video_collaboration_id,
-            master_file_name=task.master_file_name,
-            ingested_at=task.created_at,
-        )
-
-        handler_class = self.handler_registry.get_handler_class(event.event_type)
-        if not handler_class:
-            logger.warning(
-                "No handler found for event",
-                extra={
-                    "event_id": event.event_id,
-                    "event_type": event.event_type,
-                },
-            )
-            self._records_skipped += 1
-            return
-
-        handler = handler_class(self.api_client, project_cache=self.project_cache)
 
         try:
             from opentelemetry import trace
             from opentelemetry.trace import SpanKind
 
             tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("claimx.api.enrich", kind=SpanKind.CLIENT) as span:
+            with tracer.start_as_current_span("xact.enrich", kind=SpanKind.CLIENT) as span:
                 span.set_attribute("event.id", task.event_id)
                 span.set_attribute("event.type", task.event_type)
-                span.set_attribute("project.id", task.project_id)
-                handler_result = await handler.process([event])
+                span.set_attribute("status.subtype", task.status_subtype)
+                span.set_attribute("attachment.count", len(task.attachments))
 
-            entity_rows = handler_result.rows
-            self._records_succeeded += 1
-
-            if self.plugin_orchestrator:
-                plugin_context = PluginContext(
-                    domain=Domain.CLAIMX,
-                    stage=PipelineStage.ENRICHMENT_COMPLETE,
-                    message=task,
-                    event_id=task.event_id,
-                    event_type=task.event_type,
-                    project_id=task.project_id,
-                    data={
-                        "entities": entity_rows,
-                        "handler_result": handler_result,
-                    },
-                    headers={},
-                )
-
-                try:
-                    orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
-
-                    if orchestrator_result.terminated:
-                        logger.info(
-                            "Pipeline terminated by plugin",
-                            extra={
-                                "event_id": task.event_id,
-                                "event_type": task.event_type,
-                                "project_id": task.project_id,
-                                "reason": orchestrator_result.termination_reason,
-                                "plugin_results": orchestrator_result.success_count,
-                            },
-                        )
-                        return
-
-                    if orchestrator_result.actions_executed > 0:
-                        logger.debug(
-                            "Plugin actions executed",
-                            extra={
-                                "event_id": task.event_id,
-                                "actions": orchestrator_result.actions_executed,
-                                "plugins": orchestrator_result.success_count,
-                            },
-                        )
-
-                except Exception as e:
-                    logger.error(
-                        "Plugin execution failed",
-                        extra={
-                            "event_id": task.event_id,
-                            "error": str(e),
+                # Execute plugins at ENRICHMENT_COMPLETE stage
+                if self.plugin_orchestrator:
+                    plugin_context = PluginContext(
+                        domain=Domain.XACT,
+                        stage=PipelineStage.ENRICHMENT_COMPLETE,
+                        message=task,
+                        event_id=task.event_id,
+                        event_type=task.event_type,
+                        project_id=None,  # XACT doesn't have project_id
+                        data={
+                            "trace_id": task.trace_id,
+                            "status_subtype": task.status_subtype,
+                            "assignment_id": task.assignment_id,
+                            "estimate_version": task.estimate_version,
+                            "attachment_count": len(task.attachments),
                         },
-                        exc_info=True,
+                        headers={},
                     )
 
-            if self.enable_delta_writes and not entity_rows.is_empty():
-                self._create_tracked_task(
-                    self._produce_entity_rows(entity_rows, [task]),
-                    task_name="produce_entity_rows",
-                    context={
-                        "event_id": task.event_id,
-                        "row_count": entity_rows.row_count(),
-                    },
-                )
+                    try:
+                        orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
 
-            if entity_rows.media:
-                download_tasks = self._create_download_tasks_from_media(entity_rows.media)
+                        if orchestrator_result.terminated:
+                            logger.info(
+                                "Pipeline terminated by plugin",
+                                extra={
+                                    "event_id": task.event_id,
+                                    "trace_id": task.trace_id,
+                                    "status_subtype": task.status_subtype,
+                                    "reason": orchestrator_result.termination_reason,
+                                    "plugin_results": orchestrator_result.success_count,
+                                },
+                            )
+                            self._records_skipped += 1
+                            return
+
+                        if orchestrator_result.actions_executed > 0:
+                            logger.debug(
+                                "Plugin actions executed",
+                                extra={
+                                    "event_id": task.event_id,
+                                    "actions": orchestrator_result.actions_executed,
+                                    "plugins": orchestrator_result.success_count,
+                                },
+                            )
+
+                    except Exception as e:
+                        logger.error(
+                            "Plugin execution failed",
+                            extra={
+                                "event_id": task.event_id,
+                                "error": str(e),
+                            },
+                            exc_info=True,
+                        )
+                        # Continue processing - don't fail the task due to plugin error
+
+                # Create download tasks for each attachment
+                download_tasks = await self._create_download_tasks_from_attachments(task)
                 if download_tasks:
                     await self._produce_download_tasks(download_tasks)
 
-            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
-            logger.debug(
-                "Enrichment task complete",
-                extra={
-                    "event_id": task.event_id,
-                    "event_type": task.event_type,
-                    "handler": handler_class.__name__,
-                    "entity_rows": entity_rows.row_count(),
-                    "api_calls": handler_result.api_calls,
-                    "duration_ms": round(elapsed_ms, 2),
-                },
-            )
+                self._records_succeeded += 1
 
-        except ClaimXApiError as e:
-            log_worker_error(
-                logger,
-                "Handler failed with API error",
-                event_id=task.event_id,
-                error_category=e.category.value,
-                exc=e,
-                handler=handler_class.__name__,
-            )
-            record_processing_error(
-                topic=self.enrichment_topic,
-                consumer_group=self.consumer_group,
-                error_category=e.category.value,
-            )
-            await self._handle_enrichment_failure(task, e, e.category)
+                elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                logger.debug(
+                    "Enrichment task complete",
+                    extra={
+                        "event_id": task.event_id,
+                        "trace_id": task.trace_id,
+                        "status_subtype": task.status_subtype,
+                        "download_tasks": len(download_tasks),
+                        "duration_ms": round(elapsed_ms, 2),
+                    },
+                )
 
         except Exception as e:
             error_category = ErrorCategory.UNKNOWN
             log_worker_error(
                 logger,
-                "Handler failed with unexpected error",
+                "Enrichment task failed with unexpected error",
                 event_id=task.event_id,
                 error_category=error_category.value,
                 exc=e,
-                handler=handler_class.__name__,
+                status_subtype=task.status_subtype,
                 error_type=type(e).__name__,
             )
-            record_processing_error(
-                topic=self.enrichment_topic,
-                consumer_group=self.consumer_group,
-                error_category=error_category.value,
-            )
             await self._handle_enrichment_failure(task, e, error_category)
+
+    async def _create_download_tasks_from_attachments(
+        self,
+        task: XACTEnrichmentTask,
+    ) -> List[DownloadTaskMessage]:
+        """Create download tasks from enrichment task attachments."""
+        download_tasks = []
+
+        for attachment_url in task.attachments:
+            try:
+                # Validate attachment URL
+                is_valid, error_message = validate_download_url(attachment_url)
+                if not is_valid:
+                    logger.warning(
+                        "Invalid attachment URL, skipping",
+                        extra={
+                            "event_id": task.event_id,
+                            "trace_id": task.trace_id,
+                            "url": sanitize_url(attachment_url),
+                            "validation_error": error_message,
+                        },
+                    )
+                    continue
+
+                # Generate blob storage path
+                blob_path, file_type = generate_blob_path(
+                    status_subtype=task.status_subtype,
+                    trace_id=task.trace_id,
+                    assignment_id=task.assignment_id,
+                    download_url=attachment_url,
+                    estimate_version=task.estimate_version,
+                )
+
+                # Generate deterministic media_id
+                media_id = str(uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}"))
+
+                # Create download task
+                download_task = DownloadTaskMessage(
+                    media_id=media_id,
+                    trace_id=task.trace_id,
+                    attachment_url=attachment_url,
+                    blob_path=blob_path,
+                    status_subtype=task.status_subtype,
+                    file_type=file_type,
+                    assignment_id=task.assignment_id,
+                    estimate_version=task.estimate_version,
+                    retry_count=0,
+                    event_type=self.domain,
+                    event_subtype=task.status_subtype,
+                    original_timestamp=task.original_timestamp,
+                )
+                download_tasks.append(download_task)
+
+            except Exception as e:
+                logger.error(
+                    "Failed to create download task for attachment",
+                    extra={
+                        "event_id": task.event_id,
+                        "trace_id": task.trace_id,
+                        "url": sanitize_url(attachment_url),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                # Continue with other attachments
+
+        logger.debug(
+            "Created download tasks from attachments",
+            extra={
+                "event_id": task.event_id,
+                "attachments": len(task.attachments),
+                "download_tasks": len(download_tasks),
+            },
+        )
+
+        return download_tasks
+
+    async def _produce_download_tasks(
+        self,
+        download_tasks: List[DownloadTaskMessage],
+    ) -> None:
+        """Produce download tasks to downloads.pending topic."""
+        logger.info(
+            "Producing download tasks",
+            extra={"task_count": len(download_tasks)},
+        )
+
+        for task in download_tasks:
+            try:
+                metadata = await self.producer.send(
+                    topic=self.download_topic,
+                    key=task.trace_id,
+                    value=task,
+                    headers={"trace_id": task.trace_id, "media_id": task.media_id},
+                )
+
+                logger.debug(
+                    "Produced download task",
+                    extra={
+                        "media_id": task.media_id,
+                        "trace_id": task.trace_id,
+                        "blob_path": task.blob_path,
+                        "partition": metadata.partition,
+                        "offset": metadata.offset,
+                    },
+                )
+
+            except Exception as e:
+                logger.error(
+                    "Failed to produce download task",
+                    extra={
+                        "media_id": task.media_id,
+                        "trace_id": task.trace_id,
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                # Re-raise to trigger retry of the entire enrichment task
+                raise
 
     async def _periodic_cycle_output(self) -> None:
         logger.info(format_cycle_output(0, 0, 0, 0))
@@ -809,7 +774,6 @@ class ClaimXEnrichmentWorker:
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
                             "records_skipped": self._records_skipped,
-                            "project_cache_size": self.project_cache.size(),
                             "cycle_interval_seconds": 30,
                         },
                     )
@@ -818,196 +782,15 @@ class ClaimXEnrichmentWorker:
             logger.debug("Periodic cycle output task cancelled")
             raise
 
-    async def _ensure_projects_exist(
-        self,
-        project_ids: List[str],
-    ) -> None:
-        """
-        Pre-flight check: Ensure projects exist to prevent referential integrity issues
-        when writing child entities. Failures are non-fatal.
-        """
-        if not project_ids or not self.enable_delta_writes:
-            return
-
-        unique_project_ids = list(set(project_ids))
-
-        logger.debug(
-            "Pre-flight: Checking project existence",
-            extra={
-                "project_count": len(unique_project_ids),
-                "project_ids": unique_project_ids[:10],
-            },
-        )
-
-        try:
-            import polars as pl
-            from deltalake import DeltaTable
-
-            # Pre-flight check disabled in decoupled writer mode - project existence handled by downstream delta writer
-            return
-
-        except Exception as e:
-            logger.error(
-                "Pre-flight check failed",
-                extra={
-                    "error": str(e)[:200],
-                    "project_count": len(project_ids),
-                },
-                exc_info=True,
-            )
-
-    def _create_download_tasks_from_media(
-        self,
-        media_rows: List[Dict[str, Any]],
-    ) -> List[ClaimXDownloadTask]:
-        download_tasks = []
-
-        for media_row in media_rows:
-            download_url = media_row.get("full_download_link")
-            if not download_url:
-                logger.debug(
-                    "Skipping media row without download URL",
-                    extra={
-                        "media_id": media_row.get("media_id"),
-                        "project_id": media_row.get("project_id"),
-                    },
-                )
-                continue
-
-            task = ClaimXDownloadTask(
-                media_id=str(media_row.get("media_id", "")),
-                project_id=str(media_row.get("project_id", "")),
-                download_url=download_url,
-                blob_path=self._generate_blob_path(media_row),
-                file_type=media_row.get("file_type", ""),
-                file_name=media_row.get("file_name", ""),
-                source_event_id=media_row.get("event_id", ""),
-                retry_count=0,
-                expires_at=media_row.get("expires_at"),
-                refresh_count=0,
-            )
-            download_tasks.append(task)
-
-        logger.debug(
-            "Created download tasks from media rows",
-            extra={
-                "media_rows": len(media_rows),
-                "download_tasks": len(download_tasks),
-            },
-        )
-
-        return download_tasks
-
-    def _generate_blob_path(self, media_row: Dict[str, Any]) -> str:
-        """
-        Generate blob storage path for media file.
-        Path is relative to OneLake domain base path (which includes 'claimx' prefix).
-        """
-        project_id = media_row.get("project_id", "unknown")
-        media_id = media_row.get("media_id", "unknown")
-        file_name = media_row.get("file_name", f"media_{media_id}")
-        return f"{project_id}/media/{file_name}"
-
-    async def _produce_entity_rows(
-        self,
-        entity_rows: EntityRowsMessage,
-        tasks: List[ClaimXEnrichmentTask],
-    ) -> None:
-        """Write entity rows to Kafka. On failure, routes all tasks to retry/DLQ."""
-        batch_id = uuid.uuid4().hex[:8]
-        event_ids = [task.event_id for task in tasks[:5]]
-
-
-        try:
-            event_id = tasks[0].event_id if tasks else batch_id
-            await self.producer.send(
-                topic=self.entity_rows_topic,
-                value=entity_rows,
-                key=event_id,
-            )
-
-            logger.info(
-                "Produced entity rows batch",
-                extra={
-                    "batch_id": batch_id,
-                    "event_ids": event_ids,
-                    "row_count": entity_rows.row_count(),
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Error writing entities to Delta - routing batch to retry",
-                extra={
-                    "batch_id": batch_id,
-                    "event_ids": event_ids,
-                    "row_count": entity_rows.row_count(),
-                    "task_count": len(tasks),
-                    "error_category": ErrorCategory.TRANSIENT.value,
-                    "error": str(e)[:200],
-                },
-                exc_info=True,
-            )
-
-            record_delta_write(
-                table="claimx_entities_produce",
-                event_count=entity_rows.row_count(),
-                success=False,
-            )
-
-            error_category = ErrorCategory.TRANSIENT
-            for task in tasks:
-                await self._handle_enrichment_failure(task, e, error_category)
-
-    async def _produce_download_tasks(
-        self,
-        download_tasks: List[ClaimXDownloadTask],
-    ) -> None:
-        logger.info(
-            "Producing download tasks",
-            extra={"task_count": len(download_tasks)},
-        )
-
-        for task in download_tasks:
-            try:
-                metadata = await self.producer.send(
-                    topic=self.download_topic,
-                    key=task.source_event_id,
-                    value=task,
-                    headers={"event_id": task.source_event_id},
-                )
-
-                logger.debug(
-                    "Produced download task",
-                    extra={
-                        "media_id": task.media_id,
-                        "project_id": task.project_id,
-                        "partition": metadata.partition,
-                        "offset": metadata.offset,
-                    },
-                )
-
-            except Exception as e:
-                logger.error(
-                    "Failed to produce download task",
-                    extra={
-                        "media_id": task.media_id,
-                        "project_id": task.project_id,
-                        "error": str(e),
-                    },
-                    exc_info=True,
-                )
-
 
     async def _handle_enrichment_failure(
         self,
-        task: ClaimXEnrichmentTask,
+        task: XACTEnrichmentTask,
         error: Exception,
-        error_category: "ErrorCategory",
+        error_category: ErrorCategory,
     ) -> None:
         """
         Route failed task to retry topic or DLQ based on error category and retry count.
-        TRANSIENT/AUTH/CIRCUIT_OPEN/UNKNOWN -> retry with backoff, PERMANENT -> DLQ immediately.
         """
         assert self.retry_handler is not None, "Retry handler not initialized"
 
@@ -1017,18 +800,20 @@ class ClaimXEnrichmentWorker:
             event_id=task.event_id,
             error_category=error_category.value,
             exc=error,
-            event_type=task.event_type,
-            project_id=task.project_id,
+            status_subtype=task.status_subtype,
             retry_count=task.retry_count,
         )
 
         self._records_failed += 1
 
+        # Convert XACTEnrichmentTask to dict for retry handler
+        task_dict = task.model_dump()
+
         await self.retry_handler.handle_failure(
-            task=task,
+            task=task_dict,
             error=error,
             error_category=error_category,
         )
 
 
-__all__ = ["ClaimXEnrichmentWorker"]
+__all__ = ["XACTEnrichmentWorker"]

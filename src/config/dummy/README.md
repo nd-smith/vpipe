@@ -244,7 +244,7 @@ max_runtime_seconds: 1800  # Stop after N seconds
 
 **Solutions**:
 - Verify `plugin_profile: "itel_cabinet_api"` in config
-- Check plugin is enabled: `config/plugins/itel_cabinet_api/config.yaml`
+- Check plugin is enabled: `config/plugins/claimx/itel_cabinet_api/config.yaml`
 - Ensure domain includes `claimx`
 - Verify task_id is 32513 in generated events
 
@@ -272,8 +272,8 @@ max_runtime_seconds: 1800  # Stop after N seconds
 ## Documentation
 
 - **Plugin Testing Guide**: `kafka_pipeline/common/dummy/PLUGIN_TESTING.md`
-- **Worker Configuration**: `config/plugins/itel_cabinet_api/workers.yaml`
-- **Plugin Configuration**: `config/plugins/itel_cabinet_api/config.yaml`
+- **Worker Configuration**: `config/plugins/claimx/itel_cabinet_api/workers.yaml`
+- **Plugin Configuration**: `config/plugins/claimx/itel_cabinet_api/config.yaml`
 
 ## Support
 

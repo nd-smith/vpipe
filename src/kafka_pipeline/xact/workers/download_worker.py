@@ -119,12 +119,9 @@ class DownloadWorker:
         self.cache_dir = Path(config.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build list of topics: pending + retry topics
-        retry_delays = config.get_retry_delays(domain)
-        retry_topics = [
-            config.get_retry_topic(domain, i) for i in range(len(retry_delays))
-        ]
-        self.topics = [config.get_topic(domain, "downloads_pending")] + retry_topics
+        # Only consume from pending topic
+        # Unified retry scheduler handles routing retry messages back to pending
+        self.topics = [config.get_topic(domain, "downloads_pending")]
 
         self._consumer: Optional[AIOKafkaConsumer] = None
         self._running = False

@@ -26,7 +26,7 @@ payload_5423723_20260110_153045.json
 
 ## Enabling Test Mode
 
-In `config/plugins/itel_cabinet_api/workers.yaml`:
+In `config/plugins/claimx/itel_cabinet_api/workers.yaml`:
 
 ```yaml
 itel_cabinet_api_worker:
@@ -34,7 +34,7 @@ itel_cabinet_api_worker:
     - type: kafka_pipeline.plugins.itel_cabinet_api.handlers.itel_api_sender:ItelApiSender
       config:
         test_mode: true                                           # Enable test mode
-        test_output_dir: "config/plugins/itel_cabinet_api/test"  # Output directory
+        test_output_dir: "config/plugins/claimx/itel_cabinet_api/test"  # Output directory
 ```
 
 ## Log Output
@@ -46,7 +46,7 @@ When test mode is active, you'll see logs like:
   status=200 |
   assignmentId=5423723 |
   projectId=4895140 |
-  file=config/plugins/itel_cabinet_api/test/payload_5423723_20260110_153045.json
+  file=config/plugins/claimx/itel_cabinet_api/test/payload_5423723_20260110_153045.json
 ```
 
 ## Production Mode

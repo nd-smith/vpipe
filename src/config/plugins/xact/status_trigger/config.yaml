@@ -1,0 +1,60 @@
+# XACT Status Trigger Plugin Configuration
+#
+# This plugin monitors XACT events and triggers actions when specific status changes occur.
+# Supports multiple action types: Kafka publishing, HTTP webhooks, logging, and custom actions.
+#
+# Use this to trigger external workflows, notifications, or integrations
+# based on assignment status changes.
+
+plugin:
+  # Plugin module and class
+  module: "config.plugins.xact.status_trigger.xact_status_trigger_plugin"
+  class: "XACTStatusTriggerPlugin"
+
+  # Enable/disable this plugin
+  enabled: true
+
+  # Plugin configuration
+  config:
+    # List of status triggers - each maps a status to one or more actions
+    triggers:
+      # Example 1: Payment processor assigned - multiple actions
+      # - status: "paymentProcessorAssigned"
+      #   # Publish to Kafka topic
+      #   publish_to_topic: "xact.notifications.payment-processor-assigned"
+      #   # Call HTTP webhook
+      #   webhook:
+      #     url: "https://api.example.com/webhooks/payment-assigned"
+      #     method: "POST"
+      #     headers:
+      #       Authorization: "Bearer YOUR_TOKEN_HERE"
+      #     timeout: 30
+      #   # Log the event
+      #   log:
+      #     level: info
+      #     message: "Payment processor assigned | assignment_id={assignment_id}"
+
+      # Example 2: Estimate created - Kafka only
+      # - status: "estimateCreated"
+      #   publish_to_topic: "xact.notifications.estimate-created"
+
+      # Example 3: Documents received - webhook + log
+      # - status: "documentsReceived"
+      #   webhook: "https://api.example.com/webhooks/docs-received"
+      #   log:
+      #     level: info
+      #     message: "Documents received for assignment {assignment_id}"
+
+      # Example 4: Inspection scheduled - log only
+      # - status: "inspectionScheduled"
+      #   log:
+      #     level: info
+      #     message: "Inspection scheduled | trace_id={trace_id}"
+
+      # Add more status triggers as needed:
+      # - status: "yourStatusHere"
+      #   publish_to_topic: "your.topic.here"
+      #   webhook: "https://your-api.com/endpoint"
+      #   log:
+      #     level: info
+      #     message: "Your custom message"

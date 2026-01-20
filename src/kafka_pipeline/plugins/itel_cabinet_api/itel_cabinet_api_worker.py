@@ -11,7 +11,7 @@ Dev Mode (writes to files):
     python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
 
 Configuration:
-    config/plugins/itel_cabinet_api/workers.yaml
+    config/plugins/claimx/itel_cabinet_api/workers.yaml
 
 Environment Variables:
     ITEL_CABINET_API_BASE_URL: iTel API base URL

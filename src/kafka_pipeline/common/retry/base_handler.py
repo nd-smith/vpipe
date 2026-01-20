@@ -117,18 +117,24 @@ class BaseRetryHandler(ABC, Generic[TaskT, FailedMessageT]):
     ) -> None:
         """Send task to retry topic with incremented retry_count and error metadata."""
         retry_count = self._get_retry_count(task)
-        retry_topic = self.config.get_retry_topic(self.domain, retry_count)
+
+        # NEW: Single retry topic per domain
+        retry_topic = self.config.get_retry_topic(self.domain)
         delay_seconds = self._retry_delays[retry_count]
 
         updated_task = self._create_updated_task(task)
         self._add_error_metadata(updated_task, error, error_category, delay_seconds)
+
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+        target_topic = self._get_target_topic(task)
+        worker_type = self._get_worker_type()
+
         record_retry_attempt(
             domain=self.domain,
+            worker_type=worker_type,
             error_category=error_category.value,
             delay_seconds=delay_seconds,
         )
-
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
 
         logger.info(
             "Sending task to retry topic",
@@ -138,6 +144,8 @@ class BaseRetryHandler(ABC, Generic[TaskT, FailedMessageT]):
                 "retry_count": self._get_retry_count(updated_task),
                 "delay_seconds": delay_seconds,
                 "retry_at": retry_at.isoformat(),
+                "target_topic": target_topic,
+                "worker_type": worker_type,
             },
         )
 
@@ -147,7 +155,13 @@ class BaseRetryHandler(ABC, Generic[TaskT, FailedMessageT]):
             value=updated_task,
             headers={
                 "retry_count": str(self._get_retry_count(updated_task)),
+                "scheduled_retry_time": retry_at.isoformat(),
+                "retry_delay_seconds": str(delay_seconds),
+                "target_topic": target_topic,
+                "worker_type": worker_type,
+                "original_key": self._get_task_key(task),
                 "error_category": error_category.value,
+                "domain": self.domain,
             },
         )
 
@@ -156,6 +170,7 @@ class BaseRetryHandler(ABC, Generic[TaskT, FailedMessageT]):
             extra={
                 **self._get_log_context(updated_task),
                 "retry_topic": retry_topic,
+                "target_topic": target_topic,
             },
         )
 
@@ -219,6 +234,16 @@ class BaseRetryHandler(ABC, Generic[TaskT, FailedMessageT]):
     @abstractmethod
     def _get_task_key(self, task: TaskT) -> str:
         """Get Kafka partition key for the task."""
+        pass
+
+    @abstractmethod
+    def _get_target_topic(self, task: TaskT) -> str:
+        """Get target topic to route message when retry is ready."""
+        pass
+
+    @abstractmethod
+    def _get_worker_type(self) -> str:
+        """Get worker type for metrics and observability."""
         pass
 
     def _get_retry_count(self, task: TaskT) -> int:

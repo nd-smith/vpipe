@@ -218,7 +218,8 @@ class ClaimXUploadWorker:
             )
         except Exception as e:
             logger.error(
-                f"Failed to initialize OneLake client: {e}",
+                "Failed to initialize OneLake client",
+                extra={"error": str(e)},
                 exc_info=True,
             )
             # Clean up producer and health server since we're failing after they started
@@ -231,7 +232,8 @@ class ClaimXUploadWorker:
             await self._create_consumer()
         except Exception as e:
             logger.error(
-                f"Failed to create Kafka consumer: {e}",
+                "Failed to create Kafka consumer",
+                extra={"error": str(e)},
                 exc_info=True,
             )
             # Clean up OneLake client, producer, and health server on consumer creation failure
@@ -239,7 +241,7 @@ class ClaimXUploadWorker:
                 try:
                     await self.onelake_client.close()
                 except Exception as cleanup_error:
-                    logger.warning(f"Error cleaning up OneLake client: {cleanup_error}")
+                    logger.warning("Error cleaning up OneLake client", extra={"error": str(cleanup_error)})
                 finally:
                     self.onelake_client = None
             await self.producer.stop()
@@ -264,7 +266,7 @@ class ClaimXUploadWorker:
         except asyncio.CancelledError:
             logger.info("ClaimX upload worker cancelled")
         except Exception as e:
-            logger.error(f"ClaimX upload worker error: {e}", exc_info=True)
+            logger.error("ClaimX upload worker error", extra={"error": str(e)}, exc_info=True)
             raise
         finally:
             self._running = False
@@ -320,7 +322,8 @@ class ClaimXUploadWorker:
         # Wait for in-flight uploads (with timeout)
         if self._in_flight_tasks:
             logger.info(
-                f"Waiting for {len(self._in_flight_tasks)} in-flight uploads to complete..."
+                "Waiting for in-flight uploads to complete",
+                extra={"in_flight_count": len(self._in_flight_tasks)}
             )
             wait_start = time.time()
             while self._in_flight_tasks and (time.time() - wait_start) < 30:
@@ -328,7 +331,8 @@ class ClaimXUploadWorker:
 
             if self._in_flight_tasks:
                 logger.warning(
-                    f"Forcing shutdown with {len(self._in_flight_tasks)} uploads still in progress"
+                    "Forcing shutdown with uploads still in progress",
+                    extra={"in_flight_count": len(self._in_flight_tasks)}
                 )
 
         # Stop consumer
@@ -348,7 +352,7 @@ class ClaimXUploadWorker:
                 await self.onelake_client.close()
                 logger.debug("Closed OneLake client")
             except Exception as e:
-                logger.warning(f"Error closing OneLake client: {e}")
+                logger.warning("Error closing OneLake client", extra={"error": str(e)})
             finally:
                 self.onelake_client = None
 
@@ -473,7 +477,7 @@ class ClaimXUploadWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in consume loop: {e}", exc_info=True)
+                logger.error("Error in consume loop", extra={"error": str(e)}, exc_info=True)
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
@@ -489,7 +493,7 @@ class ClaimXUploadWorker:
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
-        logger.debug(f"Processing batch of {len(messages)} messages")
+        logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
         tasks = [
@@ -506,7 +510,7 @@ class ClaimXUploadWorker:
 
         for upload_result in results:
             if isinstance(upload_result, Exception):
-                logger.error(f"Unexpected error in upload: {upload_result}", exc_info=True)
+                logger.error("Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True)
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
                 exception_count += 1
             elif isinstance(upload_result, UploadResult):
@@ -515,7 +519,7 @@ class ClaimXUploadWorker:
                 else:
                     failed_count += 1
             else:
-                logger.warning(f"Unexpected result type: {type(upload_result)}")
+                logger.warning("Unexpected result type", extra={"result_type": str(type(upload_result))})
                 exception_count += 1
 
         # Only commit offsets if ALL uploads in batch succeeded
@@ -531,7 +535,7 @@ class ClaimXUploadWorker:
                     },
                 )
             except Exception as e:
-                logger.error(f"Failed to commit offsets: {e}", exc_info=True)
+                logger.error("Failed to commit offsets", extra={"error": str(e)}, exc_info=True)
         else:
             logger.warning(
                 "Skipping offset commit due to upload failures in batch",
@@ -696,7 +700,7 @@ class ClaimXUploadWorker:
                     value=result_message,
                 )
             except Exception as produce_error:
-                logger.error(f"Failed to produce failure result: {produce_error}")
+                logger.error("Failed to produce failure result", extra={"error": str(produce_error)})
 
             return UploadResult(
                 message=message,
@@ -766,7 +770,7 @@ class ClaimXUploadWorker:
                 except OSError:
                     pass
 
-            logger.debug(f"Cleaned up cache file: {cache_path}")
+            logger.debug("Cleaned up cache file", extra={"cache_path": str(cache_path)})
 
         except Exception as e:
-            logger.warning(f"Failed to clean up cache file {cache_path}: {e}")
+            logger.warning("Failed to clean up cache file", extra={"cache_path": str(cache_path), "error": str(e)})

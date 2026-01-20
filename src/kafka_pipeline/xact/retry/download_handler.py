@@ -173,7 +173,9 @@ class RetryHandler:
             Exception: If send to retry topic fails
         """
         retry_count = task.retry_count
-        retry_topic = self.config.get_retry_topic(self.domain, retry_count)
+
+        # NEW: Single unified retry topic per domain
+        retry_topic = self.config.get_retry_topic(self.domain)
         delay_seconds = self._retry_delays[retry_count]
 
         # Create updated task with incremented retry count
@@ -189,9 +191,13 @@ class RetryHandler:
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
+        # NEW: Get target topic for routing
+        target_topic = self.config.get_topic(self.domain, "downloads_pending")
+
         # Record retry attempt metric
         record_retry_attempt(
             domain=self.domain,
+            worker_type="download_worker",
             error_category=error_category.value,
             delay_seconds=delay_seconds,
         )
@@ -204,6 +210,7 @@ class RetryHandler:
                 "retry_count": updated_task.retry_count,
                 "delay_seconds": delay_seconds,
                 "retry_at": retry_at.isoformat(),
+                "target_topic": target_topic,
             },
         )
 
@@ -213,7 +220,13 @@ class RetryHandler:
             value=updated_task,
             headers={
                 "retry_count": str(updated_task.retry_count),
+                "scheduled_retry_time": retry_at.isoformat(),
+                "retry_delay_seconds": str(delay_seconds),
+                "target_topic": target_topic,
+                "worker_type": "download_worker",
+                "original_key": task.trace_id,
                 "error_category": error_category.value,
+                "domain": self.domain,
             },
         )
 
@@ -222,6 +235,7 @@ class RetryHandler:
             extra={
                 "trace_id": task.trace_id,
                 "retry_topic": retry_topic,
+                "target_topic": target_topic,
             },
         )
 

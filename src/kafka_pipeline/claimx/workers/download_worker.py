@@ -124,11 +124,9 @@ class ClaimXDownloadWorker:
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
 
-        retry_delays = config.get_retry_delays(domain)
-        retry_topics = [
-            config.get_retry_topic(domain, i) for i in range(len(retry_delays))
-        ]
-        self.topics = [config.get_topic(domain, "downloads_pending")] + retry_topics
+        # Only consume from pending topic
+        # Unified retry scheduler handles routing retry messages back to pending
+        self.topics = [config.get_topic(domain, "downloads_pending")]
 
         self._consumer: Optional[AIOKafkaConsumer] = None
         self._running = False

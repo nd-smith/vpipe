@@ -17,7 +17,7 @@ from kafka_pipeline.plugins.shared.loader import load_plugins_from_directory
 
 def check_plugin_config():
     """Check if plugin config file exists and is valid."""
-    config_path = Path("config/plugins/itel_cabinet_api/config.yaml")
+    config_path = Path("config/plugins/claimx/itel_cabinet_api/config.yaml")
 
     print("=" * 80)
     print("iTel Cabinet Plugin Configuration Checker")
@@ -120,7 +120,7 @@ def check_plugin_config():
         print("✗ Plugin is NOT loading correctly")
         print()
         print("Check:")
-        print("  - config/plugins/itel_cabinet_api/config.yaml exists")
+        print("  - config/plugins/claimx/itel_cabinet_api/config.yaml exists")
         print("  - enabled: true is set")
         print("  - triggers.32513 is configured")
 

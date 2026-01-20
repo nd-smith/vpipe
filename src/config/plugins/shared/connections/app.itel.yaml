@@ -11,7 +11,7 @@
 #   - ITEL_CABINET_API_TOKEN: Authentication token (or API key)
 #
 # Related Files:
-#   - config/plugins/itel_cabinet_api/workers.yaml - Worker using this connection
+#   - config/plugins/claimx/itel_cabinet_api/workers.yaml - Worker using this connection
 #   - kafka_pipeline/plugins/itel_cabinet_api/handlers/itel_api_sender.py - Handler implementation
 # =============================================================================
 

@@ -184,21 +184,21 @@ class KafkaConfig:
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
 
-    def get_retry_topic(self, domain: str, attempt: int) -> str:
-        """Get retry topic name for a specific retry attempt (e.g., 'xact.downloads.retry.5m')."""
+    def get_retry_topic(self, domain: str) -> str:
+        """Get unified retry topic for domain (e.g., 'xact.retry').
+
+        This is the single retry topic used for all retry types in the domain.
+        Routing is handled via message headers (target_topic, scheduled_retry_time).
+        """
         domain_config = self.xact if domain == "xact" else self.claimx
-        retry_delays = domain_config.get("retry_delays", [])
+        topics = domain_config.get("topics", {})
 
-        if attempt >= len(retry_delays):
-            raise ValueError(
-                f"Retry attempt {attempt} exceeds max retries {len(retry_delays)}"
-            )
+        # Check if retry topic is explicitly configured
+        if "retry" in topics:
+            return topics["retry"]
 
-        delay_seconds = retry_delays[attempt]
-        delay_minutes = delay_seconds // 60
-
-        pending_topic = self.get_topic(domain, "downloads_pending")
-        return f"{pending_topic}.retry.{delay_minutes}m"
+        # Fall back to standard naming: {domain}.retry
+        return f"{domain}.retry"
 
     def get_retry_delays(self, domain: str) -> List[int]:
         domain_config = self.xact if domain == "xact" else self.claimx
