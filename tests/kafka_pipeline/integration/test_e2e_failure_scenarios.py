@@ -824,6 +824,7 @@ async def test_large_file_streaming_memory_bounds(
                 pass
 
 
+@pytest.mark.skip(reason="Lag-based backpressure removed in retry simplification refactor")
 @pytest.mark.asyncio
 async def test_consumer_lag_buildup_scheduler_pauses(
     test_kafka_config: KafkaConfig,
@@ -844,39 +845,11 @@ async def test_consumer_lag_buildup_scheduler_pauses(
     - Resumes when lag drops below threshold
     - Backpressure mechanism protects system
 
-    Note: The DelayedRedeliveryScheduler currently has lag_threshold
-    parameter but may not have exposed _should_pause_delivery() method.
-    This test validates the concept of lag-based backpressure.
+    Note: This test was for DelayedRedeliveryScheduler which has been replaced
+    by UnifiedRetryScheduler. The lag-based backpressure feature was removed
+    as part of the retry simplification refactor.
     """
-    from kafka_pipeline.common.retry.scheduler import DelayedRedeliveryScheduler
-    from kafka_pipeline.common.producer import BaseKafkaProducer
-
-    # Create producer (required by scheduler)
-    producer = BaseKafkaProducer(config=test_kafka_config)
-
-    # Create scheduler with lag threshold
-    scheduler = DelayedRedeliveryScheduler(
-        config=test_kafka_config,
-        producer=producer,
-        lag_threshold=1000,  # Pause if >1000 messages in pending
-        check_interval_seconds=60,
-    )
-
-    # Verify scheduler has lag threshold configured
-    assert scheduler.lag_threshold == 1000, "Scheduler should have lag threshold configured"
-
-    # Verify scheduler has pending topic configured
-    assert scheduler.config.downloads_pending_topic is not None
-
-    logger.info(
-        f"Consumer lag test: Scheduler configured with lag_threshold={scheduler.lag_threshold}, "
-        f"pending_topic={scheduler.config.downloads_pending_topic}"
-    )
-
-    # In actual implementation, scheduler would monitor lag in background task
-    # and pause redelivery when lag exceeds threshold
-    # This test validates the scheduler is properly configured for lag monitoring
-    assert True, "Scheduler lag backpressure configuration validated"
+    pass
 
 
 @pytest.mark.asyncio
