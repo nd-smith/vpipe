@@ -83,6 +83,11 @@ class RetryHandler:
             },
         )
 
+    @property
+    def dlq_topic(self) -> str:
+        """Return the dead-letter queue topic name."""
+        return self._dlq_topic
+
     async def handle_failure(
         self,
         task: DownloadTaskMessage,
