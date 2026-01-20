@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import polars as pl
 from deltalake import DeltaTable, write_deltalake as _write_deltalake
 
-from kafka_pipeline.common.auth import get_storage_options
+from kafka_pipeline.common.auth import get_storage_options, get_auth
 from kafka_pipeline.common.retry import RetryConfig, with_retry
 from kafka_pipeline.common.storage.onelake import _refresh_all_credentials
 from core.resilience.circuit_breaker import CircuitBreakerConfig
@@ -624,6 +624,16 @@ class DeltaTableWriter(LoggedClass):
             return 0
 
         # Write to Delta - convert to Arrow for write_deltalake
+        # Log auth context before write to help debug 403 errors
+        auth = get_auth()
+        self._log(
+            logging.INFO,
+            "Delta write starting",
+            batch_id=batch_id,
+            rows=len(df),
+            table_path=self.table_path,
+            auth_mode=auth.auth_mode,
+        )
         opts = get_storage_options()
 
         # Align source schema with target to ensure column order matches
@@ -693,6 +703,17 @@ class DeltaTableWriter(LoggedClass):
         """
         if df.is_empty():
             return 0
+
+        # Log auth context for merge operations to help debug 403 errors
+        auth = get_auth()
+        self._log(
+            logging.INFO,
+            "Delta merge starting",
+            rows=len(df),
+            merge_keys=merge_keys,
+            table_path=self.table_path,
+            auth_mode=auth.auth_mode,
+        )
 
         if preserve_columns is None:
             preserve_columns = ["created_at"]
