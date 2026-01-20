@@ -1,0 +1,132 @@
+# Podman-compatible Kafka setup for RHEL8 production deployment
+#
+# Usage with podman-compose:
+#   podman-compose -f docker-compose.kafka.yml up -d
+#   podman-compose -f docker-compose.kafka.yml --profile ui up -d
+#   podman-compose -f docker-compose.kafka.yml down -v
+#
+# Usage with systemd:
+#   podman-compose -f docker-compose.kafka.yml up -d
+#   podman generate systemd --name kafka-pipeline-local --files
+#   sudo mv container-kafka-pipeline-local.service /etc/systemd/system/
+#   sudo systemctl enable --now container-kafka-pipeline-local
+
+services:
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kafka-pipeline-local
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      # KRaft mode (no Zookeeper)
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # Listeners Configuration
+      # INTERNAL (9092): For UI and other containers
+      # EXTERNAL (9094): For host machine (systemd workers)
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Topic settings
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 8
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      # Performance tuning
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Podman-specific: ensure container restarts on failure
+    restart: unless-stopped
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Creating Kafka topics..."
+        # Using 'kafka:9092' because it is inside the container network
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.cached --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.results --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.pending.retry.5m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.pending.retry.10m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.pending.retry.20m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.pending.retry.40m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.events.raw --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.enrichment.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.retry --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic delta-events.retry.5m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic delta-events.retry.10m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic delta-events.retry.20m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic delta-events.retry.40m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic delta-events.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.events.raw --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.enrichment.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.cached --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.results --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.pending.retry.5m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.pending.retry.10m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.pending.retry.20m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.pending.retry.40m --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.retry --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows.retry.60s --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows.retry.300s --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows.retry.900s --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.task.tracking --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.task.tracking.success --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.task.tracking.errors --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.api.success --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.api.errors --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.completed --partitions 5 --replication-factor 1
+
+        echo "Topics created successfully:"
+        /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    profiles:
+      - ui
+    restart: unless-stopped
+
+volumes:
+  kafka_data:
+
+networks:
+  default:
+    name: kafka_pipeline_network
