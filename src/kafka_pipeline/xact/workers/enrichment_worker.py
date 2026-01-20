@@ -528,15 +528,16 @@ class XACTEnrichmentWorker:
         start_time = datetime.now(timezone.utc)
 
         try:
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("xact.enrich", kind=SpanKind.CLIENT) as span:
-                span.set_attribute("event.id", task.event_id)
-                span.set_attribute("event.type", task.event_type)
-                span.set_attribute("status.subtype", task.status_subtype)
-                span.set_attribute("attachment.count", len(task.attachments))
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("xact.enrich") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("event.id", task.event_id)
+                span.set_tag("event.type", task.event_type)
+                span.set_tag("status.subtype", task.status_subtype)
+                span.set_tag("attachment.count", len(task.attachments))
 
                 # Execute plugins at ENRICHMENT_COMPLETE stage
                 if self.plugin_orchestrator:

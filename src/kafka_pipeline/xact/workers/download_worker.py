@@ -619,28 +619,25 @@ class DownloadWorker:
 
             download_task = self._convert_to_download_task(task_message)
 
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span(
-                "download.execute",
-                kind=SpanKind.CLIENT,
-                attributes={
-                    "http.url": task_message.attachment_url,
-                    "http.method": "GET",
-                    "trace_id": task_message.trace_id,
-                    "media_id": task_message.media_id,
-                    "file_type": task_message.file_type,
-                },
-            ) as span:
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("download.execute") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("http.url", task_message.attachment_url)
+                span.set_tag("http.method", "GET")
+                span.set_tag("trace_id", task_message.trace_id)
+                span.set_tag("media_id", task_message.media_id)
+                span.set_tag("file_type", task_message.file_type)
+
                 outcome = await self.downloader.download(download_task)
 
-                span.set_attribute("http.status_code", outcome.status_code or 0)
-                span.set_attribute("download.success", outcome.success)
-                span.set_attribute("download.bytes", outcome.bytes_downloaded or 0)
+                span.set_tag("http.status_code", outcome.status_code or 0)
+                span.set_tag("download.success", outcome.success)
+                span.set_tag("download.bytes", outcome.bytes_downloaded or 0)
                 if not outcome.success:
-                    span.set_attribute("error.category", outcome.error_category.value if outcome.error_category else "unknown")
+                    span.set_tag("error.category", outcome.error_category.value if outcome.error_category else "unknown")
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 

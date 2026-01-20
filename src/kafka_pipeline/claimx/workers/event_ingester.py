@@ -264,17 +264,18 @@ class ClaimXEventIngesterWorker:
 
     async def _handle_event_message(self, record: ConsumerRecord) -> None:
         start_time = time.perf_counter()
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         try:
-            with tracer.start_as_current_span("event.parse", kind=SpanKind.INTERNAL) as span:
+            with tracer.start_active_span("event.parse") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "internal")
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = ClaimXEventMessage.from_eventhouse_row(message_data)
-                span.set_attribute("event.type", event.event_type)
-                span.set_attribute("event.project_id", event.project_id)
-                span.set_attribute("trace_id", event.event_id)
+                span.set_tag("event.type", event.event_type)
+                span.set_tag("event.project_id", event.project_id)
+                span.set_tag("trace_id", event.event_id)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse ClaimXEventMessage",

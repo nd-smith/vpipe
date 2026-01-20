@@ -192,17 +192,18 @@ class EventIngesterWorker:
         self._records_processed += 1
 
         # Decode and parse EventMessage
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         try:
-            with tracer.start_as_current_span("event.parse", kind=SpanKind.INTERNAL) as span:
+            with tracer.start_active_span("event.parse") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "internal")
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = EventMessage.from_eventhouse_row(message_data)
-                span.set_attribute("event.type", event.type)
-                span.set_attribute("event.status_subtype", event.status_subtype)
-                span.set_attribute("event.attachment_count", len(event.attachments) if event.attachments else 0)
+                span.set_tag("event.type", event.type)
+                span.set_tag("event.status_subtype", event.status_subtype)
+                span.set_tag("event.attachment_count", len(event.attachments) if event.attachments else 0)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse EventMessage",
@@ -327,14 +328,15 @@ class EventIngesterWorker:
         assignment_id: str,
     ) -> None:
         """Create and produce enrichment task for this event."""
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span("event.create_enrichment", kind=SpanKind.INTERNAL) as span:
-            span.set_attribute("trace_id", event.trace_id)
-            span.set_attribute("event_id", event_id)
-            span.set_attribute("attachment_count", len(event.attachments) if event.attachments else 0)
+        tracer = get_tracer(__name__)
+        with tracer.start_active_span("event.create_enrichment") as scope:
+            span = scope.span if hasattr(scope, 'span') else scope
+            span.set_tag("span.kind", "internal")
+            span.set_tag("trace_id", event.trace_id)
+            span.set_tag("event_id", event_id)
+            span.set_tag("attachment_count", len(event.attachments) if event.attachments else 0)
 
             # Parse original timestamp from event
             original_timestamp = datetime.fromisoformat(
@@ -371,9 +373,9 @@ class EventIngesterWorker:
                 # Record task produced metric
                 record_event_task_produced(domain=self.domain, task_type="enrichment_task")
 
-                span.set_attribute("task.created", True)
-                span.set_attribute("task.partition", metadata.partition)
-                span.set_attribute("task.offset", metadata.offset)
+                span.set_tag("task.created", True)
+                span.set_tag("task.partition", metadata.partition)
+                span.set_tag("task.offset", metadata.offset)
 
                 logger.info(
                     "Created enrichment task",
@@ -395,8 +397,8 @@ class EventIngesterWorker:
                     error_type="SEND_FAILED"
                 )
 
-                span.set_attribute("task.created", False)
-                span.set_attribute("error", str(e))
+                span.set_tag("task.created", False)
+                span.set_tag("error", str(e))
 
                 logger.error(
                     "Failed to produce enrichment task - will retry on next poll",

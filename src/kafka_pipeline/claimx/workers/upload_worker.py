@@ -581,14 +581,15 @@ class ClaimXUploadWorker:
 
             # Upload to OneLake (using claimx domain-specific path)
             assert self.onelake_client is not None
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("onelake.upload", kind=SpanKind.CLIENT) as span:
-                span.set_attribute("media.id", media_id)
-                span.set_attribute("project.id", cached_message.project_id)
-                span.set_attribute("event.id", cached_message.source_event_id)
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("onelake.upload") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("media.id", media_id)
+                span.set_tag("project.id", cached_message.project_id)
+                span.set_tag("event.id", cached_message.source_event_id)
                 blob_path = await self.onelake_client.upload_file(
                     relative_path=cached_message.destination_path,
                     local_path=cache_path,

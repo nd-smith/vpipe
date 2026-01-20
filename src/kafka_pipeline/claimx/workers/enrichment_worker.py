@@ -655,14 +655,15 @@ class ClaimXEnrichmentWorker:
         handler = handler_class(self.api_client, project_cache=self.project_cache)
 
         try:
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("claimx.api.enrich", kind=SpanKind.CLIENT) as span:
-                span.set_attribute("event.id", task.event_id)
-                span.set_attribute("event.type", task.event_type)
-                span.set_attribute("project.id", task.project_id)
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("claimx.api.enrich") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("event.id", task.event_id)
+                span.set_tag("event.type", task.event_type)
+                span.set_tag("project.id", task.project_id)
                 handler_result = await handler.process([event])
 
             entity_rows = handler_result.rows

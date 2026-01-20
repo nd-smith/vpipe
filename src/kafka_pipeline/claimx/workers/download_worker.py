@@ -592,14 +592,15 @@ class ClaimXDownloadWorker:
 
             download_task = self._convert_to_download_task(task_message)
 
-            from opentelemetry import trace
-            from opentelemetry.trace import SpanKind
+            from kafka_pipeline.common.telemetry import get_tracer
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("download.execute", kind=SpanKind.CLIENT) as span:
-                span.set_attribute("media.id", task_message.media_id)
-                span.set_attribute("project.id", task_message.project_id)
-                span.set_attribute("event.id", task_message.source_event_id)
+            tracer = get_tracer(__name__)
+            with tracer.start_active_span("download.execute") as scope:
+                span = scope.span if hasattr(scope, 'span') else scope
+                span.set_tag("span.kind", "client")
+                span.set_tag("media.id", task_message.media_id)
+                span.set_tag("project.id", task_message.project_id)
+                span.set_tag("event.id", task_message.source_event_id)
                 outcome = await self.downloader.download(download_task)
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)

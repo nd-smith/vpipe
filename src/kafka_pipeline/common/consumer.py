@@ -309,33 +309,35 @@ class BaseKafkaConsumer:
                 await asyncio.sleep(1)
 
     async def _process_message(self, message: ConsumerRecord) -> None:
-        from opentelemetry.propagate import extract
-        from opentelemetry import trace
-        from opentelemetry.trace import SpanKind, StatusCode
+        from kafka_pipeline.common.telemetry import get_tracer
 
-        carrier = {}
-        if message.headers:
-            for key, value in message.headers:
-                k = key.decode("utf-8") if isinstance(key, bytes) else key
-                v = value.decode("utf-8") if isinstance(value, bytes) else value
-                carrier[k] = v
+        # Extract trace context from headers (optional - graceful degradation)
+        parent_context = None
+        try:
+            import opentracing
+            carrier = {}
+            if message.headers:
+                for key, value in message.headers:
+                    k = key.decode("utf-8") if isinstance(key, bytes) else key
+                    v = value.decode("utf-8") if isinstance(value, bytes) else value
+                    carrier[k] = v
+            tracer = get_tracer(__name__)
+            if hasattr(tracer, 'extract'):
+                parent_context = tracer.extract(opentracing.Format.TEXT_MAP, carrier)
+        except Exception:
+            pass  # Tracing not available
 
-        trace_context = extract(carrier)
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
+        with tracer.start_active_span("kafka.message.process", child_of=parent_context) as scope:
+            span = scope.span if hasattr(scope, 'span') else scope
+            span.set_tag("messaging.system", "kafka")
+            span.set_tag("messaging.destination", message.topic)
+            span.set_tag("messaging.kafka.partition", message.partition)
+            span.set_tag("messaging.kafka.offset", message.offset)
+            span.set_tag("messaging.kafka.consumer_group", self.group_id)
+            span.set_tag("messaging.message.id", message.key.decode("utf-8") if message.key else None)
+            span.set_tag("span.kind", "consumer")
 
-        with tracer.start_as_current_span(
-            "kafka.message.process",
-            context=trace_context,
-            kind=SpanKind.CONSUMER,
-            attributes={
-                "messaging.system": "kafka",
-                "messaging.destination": message.topic,
-                "messaging.kafka.partition": message.partition,
-                "messaging.kafka.offset": message.offset,
-                "messaging.kafka.consumer_group": self.group_id,
-                "messaging.message.id": message.key.decode("utf-8") if message.key else None,
-            },
-        ) as span:
             with KafkaLogContext(
                 topic=message.topic,
                 partition=message.partition,
@@ -377,8 +379,6 @@ class BaseKafkaConsumer:
                         duration_ms=round(duration * 1000, 2),
                     )
 
-                    span.set_status(StatusCode.OK)
-
                 except Exception as e:
                     duration = time.perf_counter() - start_time
                     message_processing_duration_seconds.labels(
@@ -389,8 +389,8 @@ class BaseKafkaConsumer:
                         message.topic, self.group_id, message_size, success=False
                     )
 
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(e)
+                    span.set_tag("error", True)
+                    span.log_kv({"event": "error", "error.object": str(e)})
 
                     await self._handle_processing_error(message, e, duration)
 
