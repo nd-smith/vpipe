@@ -377,25 +377,78 @@ def get_auth() -> AzureAuth:
     return _auth_instance
 
 
+def _mask_credential(value: Optional[str], visible_chars: int = 4) -> str:
+    """Mask a credential showing only first N chars for verification."""
+    if not value:
+        return "<not_set>"
+    if len(value) <= visible_chars:
+        return "***"
+    return f"{value[:visible_chars]}...({len(value)} chars)"
+
+
 def get_storage_options(force_refresh: bool = False) -> Dict[str, str]:
     """Get storage auth options from singleton."""
-    opts = get_auth().get_storage_options(force_refresh)
-    # Log what storage options are being returned (metadata only, no credentials)
+    auth = get_auth()
+    opts = auth.get_storage_options(force_refresh)
+
+    # Log detailed auth context for debugging 403 errors
+    auth_mode = auth.auth_mode
+    log_with_context(
+        logger,
+        logging.INFO,
+        "Storage auth context",
+        auth_mode=auth_mode,
+        force_refresh=force_refresh,
+    )
+
+    if auth_mode == "spn":
+        # Log partial SPN credentials for verification (first 4 chars only)
+        log_with_context(
+            logger,
+            logging.INFO,
+            "SPN credentials in use",
+            client_id_prefix=_mask_credential(auth.client_id),
+            tenant_id_prefix=_mask_credential(auth.tenant_id),
+            client_secret_set=bool(auth.client_secret),
+            client_secret_prefix=_mask_credential(auth.client_secret),
+        )
+    elif auth_mode == "file":
+        token = opts.get("azure_storage_token")
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Token file auth in use",
+            token_file=auth.token_file,
+            token_prefix=_mask_credential(token),
+        )
+    elif auth_mode == "cli":
+        token = opts.get("azure_storage_token")
+        log_with_context(
+            logger,
+            logging.INFO,
+            "CLI auth in use",
+            token_prefix=_mask_credential(token),
+        )
+    elif auth_mode == "none":
+        log_with_context(
+            logger,
+            logging.WARNING,
+            "No Azure credentials configured - operations will fail with 403",
+        )
+
+    # Also log the option keys being returned
     if opts:
-        # Only log keys, never log actual credential values
         log_with_context(
             logger,
             logging.DEBUG,
             "Storage options returned",
             option_keys=list(opts.keys()),
-            force_refresh=force_refresh,
         )
     else:
         log_with_context(
             logger,
-            logging.DEBUG,
-            "Storage options returned empty (no credentials configured)",
-            force_refresh=force_refresh,
+            logging.WARNING,
+            "Storage options returned empty",
         )
     return opts
 
