@@ -5,7 +5,7 @@ Provides centralized telemetry setup for distributed tracing and metrics:
 - Tracer provider with Jaeger exporter (OTLP/gRPC)
 - Meter provider with OTLP exporter → Prometheus via OTel Collector
 - W3C Trace Context propagation for Kafka headers
-- 100% sampling (AlwaysOnSampler)
+- 100% sampling (ALWAYS_ON)
 - Resource attributes (service.name, deployment.environment)
 """
 
@@ -15,7 +15,7 @@ from typing import Optional
 
 from opentelemetry import trace, metrics
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.sampling import AlwaysOnSampler
+from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
@@ -56,11 +56,21 @@ def initialize_telemetry(
         ...     environment="production",
         ...     jaeger_endpoint="http://jaeger:4317"
         ... )
+
+    Environment Variables:
+        ENABLE_TELEMETRY: Set to "false" or "0" to disable telemetry completely
     """
     global _initialized
 
     if _initialized:
         logger.warning("OpenTelemetry already initialized, skipping")
+        return
+
+    # Check if telemetry is disabled via environment variable
+    telemetry_enabled = os.getenv("ENABLE_TELEMETRY", "true").lower() not in ("false", "0", "no")
+    if not telemetry_enabled:
+        logger.info("OpenTelemetry disabled via ENABLE_TELEMETRY environment variable")
+        _initialized = True
         return
 
     # Get endpoint from environment if not provided
@@ -107,10 +117,10 @@ def initialize_telemetry(
 def _initialize_tracing(endpoint: str, resource: Resource) -> None:
     """Initialize tracing with Jaeger exporter."""
     try:
-        # Create tracer provider with AlwaysOnSampler (100% sampling)
+        # Create tracer provider with ALWAYS_ON (100% sampling)
         tracer_provider = TracerProvider(
             resource=resource,
-            sampler=AlwaysOnSampler(),
+            sampler=ALWAYS_ON,
         )
 
         # Configure OTLP span exporter to Jaeger
@@ -137,7 +147,7 @@ def _initialize_tracing(endpoint: str, resource: Resource) -> None:
             "Tracing initialized",
             extra={
                 "endpoint": endpoint,
-                "sampler": "AlwaysOnSampler",
+                "sampler": "ALWAYS_ON",
                 "batch_size": 512,
             },
         )

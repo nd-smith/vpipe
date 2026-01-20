@@ -177,3 +177,64 @@ observability:
 # Runtime metadata
 worker_id: "worker-01"
 test_mode: false
+
+# =============================================================================
+# DUMMY DATA SOURCE CONFIGURATION
+# =============================================================================
+# Configuration for the dummy data generator used in testing
+# Generates synthetic events for both XACT and ClaimX domains
+dummy:
+  # Generator configuration
+  generator:
+    # Mixed mode - standard ClaimX events with itel triggers
+    # Set to "itel_cabinet_api" for itel-only, null/omit for standard
+    plugin_profile: "mixed"
+
+    # Percentage of task events that trigger itel plugin (0.0 to 1.0)
+    # Only applies to CUSTOM_TASK_ASSIGNED and CUSTOM_TASK_COMPLETED events
+    itel_trigger_percentage: 0.3  # 30% of task events
+
+    # Whether to include itel triggers at all
+    include_itel_triggers: true
+
+    # Base URL for dummy file server
+    base_url: "http://localhost:8765"
+
+    # Include some failure scenarios for testing error handling
+    include_failures: false
+    failure_rate: 0.05
+
+  # File server configuration
+  file_server:
+    host: "0.0.0.0"
+    port: 8765
+    default_file_size: 100000
+    max_file_size: 10000000
+
+  # Domains to generate events for
+  # Both XACT and ClaimX will be generated
+  domains:
+    - xact
+    - claimx
+
+  # Event generation settings
+  # Combined rate: events/min total across all domains
+  events_per_minute: 4000
+
+  # Burst mode for load testing
+  burst_mode: false
+  burst_size: 10000
+  burst_interval_seconds: 60
+
+  # Generate all ClaimX event types
+  include_all_event_types: true
+
+  # Max concurrent claims to track
+  max_active_claims: 100000000000
+
+  # Runtime limits (optional)
+  # Stop after N events (null for unlimited)
+  max_events:
+
+  # Stop after N seconds (null for unlimited)
+  # max_runtime_seconds: 300

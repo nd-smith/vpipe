@@ -62,22 +62,22 @@ domains:
 
 # Event generation settings
 # Combined rate: 20 events/min total (10 per domain)
-events_per_minute: 10.0
+events_per_minute: 4000
 
 # Burst mode for load testing
 burst_mode: false
-burst_size: 50
+burst_size: 10000
 burst_interval_seconds: 60
 
 # Generate all ClaimX event types
 include_all_event_types: true
 
 # Max concurrent claims to track
-max_active_claims: 100
+max_active_claims: 100000000000
 
 # Runtime limits (optional)
 # Stop after N events (remove for unlimited)
-max_events: 100
+max_events:
 
 # Stop after N seconds (remove for unlimited)
 # max_runtime_seconds: 300

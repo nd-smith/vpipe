@@ -931,22 +931,6 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
-    _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
-    _debug_token_exists = Path(_debug_token_file).exists() if _debug_token_file else False
-    print(f"DEBUG [auth]: PROJECT_ROOT={PROJECT_ROOT}")
-    print(f"DEBUG [auth]: AZURE_TOKEN_FILE={_debug_token_file}")
-    print(f"DEBUG [auth]: Token file exists={_debug_token_exists}")
-    if _debug_token_file and not _debug_token_exists:
-        _resolved = PROJECT_ROOT / _debug_token_file
-        print(f"DEBUG [auth]: Resolved path={_resolved}, exists={_resolved.exists()}")
-
-    _debug_client_id = os.getenv("AZURE_CLIENT_ID")
-    _debug_tenant_id = os.getenv("AZURE_TENANT_ID")
-    _debug_client_secret = os.getenv("AZURE_CLIENT_SECRET")
-    print(f"DEBUG [auth]: AZURE_CLIENT_ID={_debug_client_id[:8] + '...' if _debug_client_id else None}")
-    print(f"DEBUG [auth]: AZURE_TENANT_ID={_debug_tenant_id[:8] + '...' if _debug_tenant_id else None}")
-    print(f"DEBUG [auth]: AZURE_CLIENT_SECRET={'set' if _debug_client_secret else None}")
-
     global logger
     args = parse_args()
 
@@ -1320,15 +1304,16 @@ def main():
                 )
         elif args.worker == "dummy-source":
             import yaml
-            from config.pipeline_config import DEFAULT_CONFIG_PATH
+            from config.pipeline_config import DEFAULT_CONFIG_DIR
 
             dummy_config = {}
-            if DEFAULT_CONFIG_PATH.exists():
-                with open(DEFAULT_CONFIG_PATH) as f:
+            config_file = DEFAULT_CONFIG_DIR / "shared.yaml"
+            if config_file.exists():
+                with open(config_file) as f:
                     full_config = yaml.safe_load(f)
                     dummy_config = full_config.get("dummy", {})
                 logger.info(
-                    f"Loaded dummy source config from {DEFAULT_CONFIG_PATH}",
+                    f"Loaded dummy source config from {config_file}",
                     extra={
                         "domains": dummy_config.get("domains", ["xact", "claimx"]),
                         "events_per_minute": dummy_config.get("events_per_minute", 10.0),
@@ -1337,7 +1322,7 @@ def main():
                 )
             else:
                 logger.warning(
-                    f"Config file not found at {DEFAULT_CONFIG_PATH}, using defaults (10 events/min)"
+                    f"Config file not found at {config_file}, using defaults (10 events/min)"
                 )
             if args.count > 1:
                 loop.run_until_complete(
