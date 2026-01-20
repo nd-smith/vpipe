@@ -1,0 +1,16 @@
+# Dockerfile for the monitoring service
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install only the dependency needed for the monitoring service
+RUN pip install --no-cache-dir aiohttp>=3.9.0
+
+# Copy the source code
+COPY src/ /app/
+
+# Set PYTHONPATH so the module can be found
+ENV PYTHONPATH=/app
+
+# Default command (can be overridden in docker-compose)
+CMD ["python", "-m", "kafka_pipeline.common.monitoring_service"]
