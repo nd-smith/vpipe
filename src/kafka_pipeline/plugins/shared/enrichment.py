@@ -462,9 +462,6 @@ BUILTIN_HANDLERS = {
     "batching": BatchingHandler,
 }
 
-# Alias for backwards compatibility
-ENRICHMENT_HANDLERS = BUILTIN_HANDLERS
-
 
 def create_handler_from_config(config: dict[str, Any]) -> EnrichmentHandler:
     """Create enrichment handler from configuration.

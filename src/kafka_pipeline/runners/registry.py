@@ -158,7 +158,7 @@ def build_dummy_source_args(
     local_kafka_config=None,
 ):
     """Build arguments for dummy-source worker."""
-    from kafka_pipeline.config import DEFAULT_CONFIG_FILE
+    from config.config import DEFAULT_CONFIG_FILE
 
     dummy_config = {}
     if DEFAULT_CONFIG_FILE.exists():
