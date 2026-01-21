@@ -16,9 +16,8 @@ from typing import Optional
 import aiohttp
 
 from core.errors.exceptions import (
-    ConnectionError as PipelineConnectionError,
     ErrorCategory,
-    TimeoutError as PipelineTimeoutError,
+    TransientError,
     classify_http_status,
 )
 

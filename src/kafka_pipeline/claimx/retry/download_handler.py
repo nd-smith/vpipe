@@ -14,8 +14,6 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.metrics import (
-    record_retry_attempt,
-    record_retry_exhausted,
     record_dlq_message,
 )
 from kafka_pipeline.claimx.api_client import ClaimXApiClient
@@ -145,10 +143,10 @@ class DownloadRetryHandler:
                 },
             )
             # Record retry exhausted metric
-            record_retry_exhausted(
-                domain="claimx",
-                error_category=error_category.value,
-            )
+#             record_retry_exhausted(
+#                 domain="claimx",
+#                 error_category=error_category.value,
+#             )
             await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
 
@@ -348,12 +346,12 @@ class DownloadRetryHandler:
         )
 
         # Record retry attempt metric
-        record_retry_attempt(
-            domain="claimx",
-            worker_type="download_worker",
-            error_category=error_category.value,
-            delay_seconds=delay_seconds,
-        )
+#         record_retry_attempt(
+#             domain="claimx",
+#             worker_type="download_worker",
+#             error_category=error_category.value,
+#             delay_seconds=delay_seconds,
+#         )
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self.producer.send(

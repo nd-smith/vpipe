@@ -16,7 +16,7 @@ import aiohttp
 
 from core.errors.exceptions import (
     ErrorCategory,
-    TimeoutError as PipelineTimeoutError,
+    TransientError,
     classify_http_status,
 )
 

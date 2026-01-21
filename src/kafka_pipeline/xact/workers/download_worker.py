@@ -50,7 +50,6 @@ from kafka_pipeline.common.metrics import (
     record_processing_error,
     update_connection_status,
     update_assigned_partitions,
-    update_downloads_batch_size,
     message_processing_duration_seconds,
 )
 
@@ -375,7 +374,6 @@ class DownloadWorker:
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(self.CONSUMER_GROUP, 0)
-        update_downloads_batch_size(self.WORKER_NAME, 0)
 
         logger.info("Download worker stopped successfully")
 
@@ -462,7 +460,6 @@ class DownloadWorker:
                 if not messages:
                     continue
 
-                update_downloads_batch_size(self.WORKER_NAME, len(messages))
 
                 logger.info(
                     "Processing message batch",
@@ -485,7 +482,6 @@ class DownloadWorker:
 
                 self._cleanup_dedup_cache()
 
-                update_downloads_batch_size(self.WORKER_NAME, 0)
 
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")

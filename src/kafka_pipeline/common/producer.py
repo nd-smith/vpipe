@@ -23,7 +23,7 @@ from kafka_pipeline.common.metrics import (
     record_message_produced,
     record_producer_error,
     update_connection_status,
-    batch_processing_duration_seconds,
+    message_processing_duration_seconds,
 )
 
 logger = get_logger(__name__)
@@ -286,7 +286,7 @@ class BaseKafkaProducer:
                 results.append(metadata)
 
             duration = time.perf_counter() - start_time
-            batch_processing_duration_seconds.labels(topic=topic).observe(duration)
+            message_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in results:
                 record_message_produced(topic, total_bytes // len(results), success=True)
 
@@ -304,7 +304,7 @@ class BaseKafkaProducer:
 
         except Exception as e:
             duration = time.perf_counter() - start_time
-            batch_processing_duration_seconds.labels(topic=topic).observe(duration)
+            message_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in messages:
                 record_message_produced(topic, total_bytes // len(messages), success=False)
             record_producer_error(topic, type(e).__name__)

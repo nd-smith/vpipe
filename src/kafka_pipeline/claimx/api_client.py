@@ -18,11 +18,6 @@ from core.resilience.circuit_breaker import (
 from core.types import ErrorCategory
 from core.logging import get_logger
 from kafka_pipeline.common.logging import logged_operation, LoggedClass
-from kafka_pipeline.common.metrics import (
-    claimx_api_requests_total,
-    claimx_api_request_duration_seconds,
-)
-
 logger = get_logger(__name__)
 
 
@@ -215,12 +210,10 @@ class ClaimXApiClient(LoggedClass):
                     timeout=aiohttp.ClientTimeout(total=self.timeout_seconds),
                 ) as response:
                     duration = asyncio.get_event_loop().time() - start_time
-                    claimx_api_request_duration_seconds.labels(
                         method=method, endpoint=endpoint
                     ).observe(duration)
 
                     status_tag = "success" if response.status == 200 else "error"
-                    claimx_api_requests_total.labels(
                         method=method, endpoint=endpoint, status=status_tag
                     ).inc()
 

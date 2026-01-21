@@ -35,7 +35,7 @@ from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.xact.schemas.events import EventMessage
 from kafka_pipeline.xact.schemas.tasks import XACTEnrichmentTask
 from kafka_pipeline.common.metrics import (
-    event_ingestion_duration_seconds,
+    message_processing_duration_seconds,
     record_processing_error,
 )
 
@@ -314,7 +314,7 @@ class EventIngesterWorker:
 
         # Record successful ingestion and duration
         duration = time.perf_counter() - start_time
-        event_ingestion_duration_seconds.labels(domain=self.domain).observe(duration)
+        message_processing_duration_seconds.labels(domain=self.domain).observe(duration)
 
     async def _create_enrichment_task(
         self,

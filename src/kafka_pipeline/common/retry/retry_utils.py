@@ -11,8 +11,6 @@ from typing import Any, Dict, Optional
 
 from core.types import ErrorCategory
 from kafka_pipeline.common.metrics import (
-    record_retry_attempt,
-    record_retry_exhausted,
     record_dlq_message,
 )
 
@@ -212,25 +210,17 @@ def record_retry_metrics(
     """
     Record retry attempt metrics.
 
+    Note: Simplified after metrics refactor - granular retry metrics removed.
+    Retries are now tracked via DLQ messages and processing errors.
+
     Args:
         domain: Domain identifier (e.g., "xact", "claimx")
         error_category: Classification of the error
         delay_seconds: Delay before retry in seconds
         worker_type: Optional worker type for additional granularity
     """
-    if worker_type:
-        record_retry_attempt(
-            domain=domain,
-            worker_type=worker_type,
-            error_category=error_category.value,
-            delay_seconds=delay_seconds,
-        )
-    else:
-        record_retry_attempt(
-            domain=domain,
-            error_category=error_category.value,
-            delay_seconds=delay_seconds,
-        )
+    # Metrics simplified - no per-retry tracking needed
+    pass
 
 
 def record_dlq_metrics(
@@ -247,9 +237,6 @@ def record_dlq_metrics(
         error_category: Optional error classification for exhausted retries
     """
     record_dlq_message(domain=domain, reason=reason)
-
-    if reason == "exhausted" and error_category:
-        record_retry_exhausted(domain=domain, error_category=error_category.value)
 
 
 __all__ = [

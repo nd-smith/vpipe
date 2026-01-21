@@ -49,9 +49,9 @@ from kafka_pipeline.plugins.shared.connections import (
 logger = get_logger(__name__)
 
 # Configuration paths
-DEFAULT_CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
-WORKERS_CONFIG_PATH = DEFAULT_CONFIG_DIR / "plugins" / "itel_cabinet_api" / "workers.yaml"
-CONNECTIONS_CONFIG_PATH = DEFAULT_CONFIG_DIR / "plugins" / "shared" / "connections" / "app.itel.yaml"
+CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
+WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "itel_cabinet_api" / "workers.yaml"
+CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "app.itel.yaml"
 
 
 class ItelCabinetApiWorker:

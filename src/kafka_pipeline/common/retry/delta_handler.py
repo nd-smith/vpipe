@@ -58,8 +58,6 @@ from typing import Any, Dict, List, Optional
 from config.config import KafkaConfig
 from core.types import ErrorCategory
 from kafka_pipeline.common.metrics import (
-    record_retry_attempt,
-    record_retry_exhausted,
     record_dlq_message,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
@@ -389,7 +387,6 @@ class DeltaRetryHandler:
                     "max_retries": self._max_retries,
                 },
             )
-            record_retry_exhausted(domain=self.domain, error_category=error_cat.value)
             record_dlq_message(domain=self.domain, reason="exhausted")
             await self._send_to_dlq(
                 batch=batch,
@@ -462,13 +459,7 @@ class DeltaRetryHandler:
             event_count=len(batch),
         )
 
-        # Record retry attempt metric
-        record_retry_attempt(
-            domain=self.domain,
-            worker_type="delta_worker",
-            error_category=error_category.value,
-            delay_seconds=delay_seconds,
-        )
+        # Metrics simplified after refactor - no per-retry tracking
 
         # Extract sample trace IDs for logging
         sample_trace_ids = []

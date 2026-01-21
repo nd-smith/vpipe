@@ -46,9 +46,9 @@ from .delta import ItelCabinetDeltaWriter
 logger = get_logger(__name__)
 
 # Configuration paths
-DEFAULT_CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
-WORKERS_CONFIG_PATH = DEFAULT_CONFIG_DIR / "plugins" / "itel_cabinet_api" / "workers.yaml"
-CONNECTIONS_CONFIG_PATH = DEFAULT_CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
+CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
+WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "itel_cabinet_api" / "workers.yaml"
+CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
 
 
 class ItelCabinetTrackingWorker:

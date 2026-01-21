@@ -13,8 +13,6 @@ from typing import Optional
 from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
-    record_retry_attempt,
-    record_retry_exhausted,
     record_dlq_message,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
@@ -148,7 +146,7 @@ class RetryHandler:
                     "max_retries": self._max_retries,
                 },
             )
-            record_retry_exhausted(domain=self.domain, error_category=error_category.value)
+            # record_retry_exhausted removed - metrics simplified
             record_dlq_message(domain=self.domain, reason="exhausted")
             await self._send_to_dlq(task, error, error_category)
             return
@@ -200,12 +198,12 @@ class RetryHandler:
         target_topic = self.config.get_topic(self.domain, "downloads_pending")
 
         # Record retry attempt metric
-        record_retry_attempt(
-            domain=self.domain,
-            worker_type="download_worker",
-            error_category=error_category.value,
-            delay_seconds=delay_seconds,
-        )
+#         record_retry_attempt(
+#             domain=self.domain,
+#             worker_type="download_worker",
+#             error_category=error_category.value,
+#             delay_seconds=delay_seconds,
+#         )
 
         logger.info(
             "Sending task to retry topic",

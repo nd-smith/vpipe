@@ -21,7 +21,7 @@ from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
-    event_ingestion_duration_seconds,
+    message_processing_duration_seconds,
 )
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
@@ -323,7 +323,7 @@ class ClaimXEventIngesterWorker:
         self._mark_processed(event_id)
         self._cleanup_dedup_cache()
         duration = time.perf_counter() - start_time
-        event_ingestion_duration_seconds.labels(domain=self.domain).observe(duration)
+        message_processing_duration_seconds.labels(domain=self.domain).observe(duration)
 
     async def _create_enrichment_task(self, event: ClaimXEventMessage) -> None:
         enrichment_task = ClaimXEnrichmentTask(

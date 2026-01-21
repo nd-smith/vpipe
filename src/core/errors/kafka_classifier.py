@@ -10,14 +10,11 @@ from typing import Optional
 from core.errors.exceptions import (
     AuthError,
     CircuitOpenError,
-    ConnectionError,
     KafkaError,
     PermanentError,
     PipelineError,
     ThrottlingError,
-    TimeoutError,
     TransientError,
-    ValidationError,
     wrap_exception,
 )
 
@@ -160,13 +157,13 @@ class KafkaErrorClassifier:
         if category == "transient":
             # Differentiate between timeout and connection errors
             if "timeout" in error_str or "KafkaTimeoutError" in error_type:
-                return TimeoutError(
+                return TransientError(
                     f"Kafka consumer timeout: {error}",
                     cause=error,
                     context=error_context,
                 )
             if "connection" in error_str or "KafkaConnectionError" in error_type:
-                return ConnectionError(
+                return TransientError(
                     f"Kafka consumer connection error: {error}",
                     cause=error,
                     context=error_context,
@@ -268,7 +265,7 @@ class KafkaErrorClassifier:
                     context=error_context,
                 )
             if "invalid" in error_str:
-                return ValidationError(
+                return PermanentError(
                     f"Kafka producer validation error: {error}",
                     cause=error,
                     context=error_context,
@@ -282,13 +279,13 @@ class KafkaErrorClassifier:
         if category == "transient":
             # Differentiate between timeout and connection errors
             if "timeout" in error_str or "KafkaTimeoutError" in error_type:
-                return TimeoutError(
+                return TransientError(
                     f"Kafka producer timeout: {error}",
                     cause=error,
                     context=error_context,
                 )
             if "connection" in error_str or "KafkaConnectionError" in error_type:
-                return ConnectionError(
+                return TransientError(
                     f"Kafka producer connection error: {error}",
                     cause=error,
                     context=error_context,

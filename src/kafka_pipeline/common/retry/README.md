@@ -1,139 +1,198 @@
 # Retry Handlers
 
-This package provides a generic base retry handler that can be extended for different task types.
+This package provides retry handling infrastructure for the Kafka pipeline with common utility functions that reduce duplication across domain-specific handlers.
 
 ## Overview
 
 All retry handlers follow the same pattern:
-1. Check if error is PERMANENT -> send to DLQ immediately
-2. Check if retries exhausted -> send to DLQ
-3. Otherwise -> send to retry topic with exponential backoff
+1. Check if error is PERMANENT → send to DLQ immediately
+2. Check if retries exhausted → send to DLQ
+3. Otherwise → send to unified retry topic with exponential backoff
 
-The `BaseRetryHandler` extracts this common logic so each task type only needs to implement:
-- How to copy and increment retry count on tasks
-- How to create DLQ messages
-- What key to use for Kafka partitioning
+## Architecture
 
-## Usage
+**Common Utilities** (`retry_utils.py`):
+- `should_send_to_dlq()` - DLQ routing decision logic
+- `calculate_retry_timestamp()` - Retry timing calculation
+- `create_retry_headers()` - Standard Kafka headers for retry messages
+- `create_dlq_headers()` - Standard Kafka headers for DLQ messages
+- `truncate_error_message()` - Error message size control
+- `add_error_metadata_to_dict()` - Metadata injection for retry context
+- `log_retry_decision()` - Consistent logging format
+- `record_retry_metrics()` - Unified metrics recording
+- `record_dlq_metrics()` - DLQ metrics with retry exhaustion tracking
 
-### Creating a Concrete Handler
+**Concrete Handlers**:
+Each domain implements task-specific handlers that use the common utilities:
+- `kafka_pipeline.common.retry.delta_handler.DeltaRetryHandler` - Delta Lake batch retry
+- `kafka_pipeline.xact.retry.download_handler.DownloadRetryHandler` - XACT download retry
+- `kafka_pipeline.claimx.retry.download_handler.DownloadRetryHandler` - ClaimX download retry (with URL refresh)
+- `kafka_pipeline.claimx.retry.enrichment_handler.EnrichmentRetryHandler` - ClaimX enrichment retry
+
+**Unified Scheduler** (`unified_scheduler.py`):
+Consumes from a single retry topic and redelivers messages when their retry timestamp has elapsed.
+
+## Creating a New Retry Handler
+
+When creating a new handler, use the common utilities from `retry_utils` to avoid duplication:
 
 ```python
-from kafka_pipeline.common.retry import BaseRetryHandler
-from datetime import datetime, timezone
+from kafka_pipeline.common.retry import retry_utils
+from kafka_pipeline.common.producer import BaseKafkaProducer
 from core.types import ErrorCategory
+from datetime import datetime, timezone
 
-class MyTaskRetryHandler(BaseRetryHandler[MyTask, MyFailedMessage]):
+class MyTaskRetryHandler:
     """Retry handler for MyTask."""
 
-    def _create_updated_task(self, task: MyTask) -> MyTask:
-        """Create a copy with retry_count incremented."""
-        updated = task.model_copy(deep=True)
-        updated.retry_count += 1
-        return updated
+    def __init__(self, config, producer: BaseKafkaProducer):
+        self.config = config
+        self.producer = producer
+        self.max_retries = config.max_retries
+        self.retry_topic = config.retry_topic
+        self.dlq_topic = config.dlq_topic
 
-    def _create_dlq_message(
+    async def handle_failure(
         self,
         task: MyTask,
-        error_message: str,
+        error: Exception,
         error_category: ErrorCategory,
-    ) -> MyFailedMessage:
-        """Create DLQ message with full context."""
-        return MyFailedMessage(
+    ) -> None:
+        """Handle task failure with retry or DLQ routing."""
+
+        # Use utility to check if should go to DLQ
+        if retry_utils.should_send_to_dlq(
+            error_category=error_category,
+            retry_count=task.retry_count,
+            max_retries=self.max_retries,
+        ):
+            await self._send_to_dlq(task, error, error_category)
+        else:
+            await self._send_to_retry(task, error, error_category)
+
+    async def _send_to_retry(self, task, error, error_category):
+        """Send to retry topic with backoff."""
+        # Calculate retry timestamp using utility
+        retry_timestamp = retry_utils.calculate_retry_timestamp(
+            retry_count=task.retry_count,
+            base_delay_seconds=self.config.retry_delay_base,
+        )
+
+        # Increment retry count
+        task.retry_count += 1
+
+        # Add error metadata using utility
+        retry_utils.add_error_metadata_to_dict(
+            target_dict=task.metadata,  # or create new dict
+            error_message=str(error),
+            error_category=error_category,
+            retry_timestamp=retry_timestamp,
+        )
+
+        # Create headers using utility
+        headers = retry_utils.create_retry_headers(
+            retry_count=task.retry_count,
+            max_retries=self.max_retries,
+            retry_timestamp=retry_timestamp,
+            error_category=error_category,
+        )
+
+        # Send to retry topic
+        await self.producer.send(
+            topic=self.retry_topic,
+            key=task.id,
+            value=task.model_dump_json().encode("utf-8"),
+            headers=headers,
+        )
+
+        # Log using utility
+        retry_utils.log_retry_decision(
+            decision="RETRY",
+            task_id=task.id,
+            retry_count=task.retry_count,
+            max_retries=self.max_retries,
+            error_message=str(error),
+            error_category=error_category,
+        )
+
+        # Record metrics using utility
+        retry_utils.record_retry_metrics(
+            domain="my_domain",
+            task_type="my_task",
+            retry_count=task.retry_count,
+        )
+
+    async def _send_to_dlq(self, task, error, error_category):
+        """Send to dead-letter queue."""
+        # Create DLQ message
+        dlq_message = MyFailedMessage(
             task_id=task.id,
             original_task=task,
-            final_error=error_message,
+            final_error=retry_utils.truncate_error_message(str(error)),
             error_category=error_category.value,
             retry_count=task.retry_count,
             failed_at=datetime.now(timezone.utc),
         )
 
-    def _get_task_key(self, task: MyTask) -> str:
-        """Get key for Kafka partitioning."""
-        return task.id
+        # Create headers using utility
+        headers = retry_utils.create_dlq_headers(
+            retry_count=task.retry_count,
+            max_retries=self.max_retries,
+            error_category=error_category,
+            final_error=str(error),
+        )
+
+        # Send to DLQ
+        await self.producer.send(
+            topic=self.dlq_topic,
+            key=task.id,
+            value=dlq_message.model_dump_json().encode("utf-8"),
+            headers=headers,
+        )
+
+        # Log using utility
+        retry_utils.log_retry_decision(
+            decision="DLQ",
+            task_id=task.id,
+            retry_count=task.retry_count,
+            max_retries=self.max_retries,
+            error_message=str(error),
+            error_category=error_category,
+        )
+
+        # Record metrics using utility
+        retry_utils.record_dlq_metrics(
+            domain="my_domain",
+            task_type="my_task",
+            error_category=error_category,
+            retries_exhausted=(task.retry_count >= self.max_retries),
+        )
 ```
 
-### Using the Handler
+## Benefits of Utility-Based Approach
 
-```python
-# Initialize
-config = KafkaConfig.from_env()
-producer = BaseKafkaProducer(config)
-await producer.start()
-handler = MyTaskRetryHandler(config, producer, domain="my_domain")
+**Reduced Duplication**: Common logic (routing decisions, timestamp calculation, metrics, logging) is centralized in `retry_utils.py`.
 
-# Handle failures
-await handler.handle_failure(
-    task=my_task,
-    error=ConnectionError("Network timeout"),
-    error_category=ErrorCategory.TRANSIENT,
-)
-```
+**Flexibility**: Handlers can use utilities as needed without being constrained by inheritance hierarchy.
 
-## Customization Hooks
+**Consistency**: All handlers use the same logic for core retry operations, ensuring uniform behavior.
 
-### Override Retry Count Access
+**Testability**: Utility functions can be tested independently of handler implementations.
 
-If your task stores retry_count differently:
+## Unified Retry Topic
 
-```python
-def _get_retry_count(self, task: MyTask) -> int:
-    return task.attempts  # Use 'attempts' instead of 'retry_count'
-```
-
-### Override Metadata Addition
-
-If your task has different metadata structure:
-
-```python
-def _add_error_metadata(self, task, error, error_category, delay_seconds):
-    # Add custom fields
-    retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
-    task.error_info = {
-        "message": str(error)[:500],
-        "category": error_category.value,
-        "retry_at": retry_at.isoformat(),
-        "custom_field": "custom_value",
-    }
-```
-
-### Override Log Context
-
-Add task-specific fields to log messages:
-
-```python
-def _get_log_context(self, task: MyTask) -> Dict[str, Any]:
-    return {
-        "task_id": task.id,
-        "task_type": task.type,
-        "priority": task.priority,
-    }
-```
-
-## What the Base Handler Does
-
-The base handler automatically handles:
-- **Retry limit checking**: Compares retry_count against max_retries
-- **Permanent error detection**: Sends directly to DLQ for PERMANENT errors
-- **Retry topic routing**: Uses KafkaConfig to get correct retry topic
-- **Exponential backoff**: Calculates retry timestamps based on configured delays
-- **Metrics recording**: Records retry attempts, exhaustion, and DLQ messages
-- **Error truncation**: Truncates long error messages to prevent huge messages
-- **Kafka sending**: Sends to retry topics and DLQ with proper headers
-- **Structured logging**: Logs with consistent context throughout retry flow
-
-## Existing Handlers
-
-Examples of concrete handlers using BaseRetryHandler:
-- `kafka_pipeline.common.retry.handler.RetryHandler` - Download task retry handler (xact domain)
-- `kafka_pipeline.claimx.retry.handler.DeltaRetryHandler` - Delta batch retry handler (claimx domain)
-- `kafka_pipeline.claimx.retry.enrichment_handler.EnrichmentRetryHandler` - Enrichment task handler
+All domains use a single unified retry topic (`vpipe-claimx-retry` or `vpipe-xact-retry`). The `UnifiedRetryScheduler` consumes from this topic and redelivers messages when their retry timestamp has elapsed.
 
 ## Testing
 
-See `tests/kafka_pipeline/common/retry/test_base_handler.py` for comprehensive examples of:
-- Testing concrete handlers
-- Verifying retry routing
-- Verifying DLQ routing
-- Testing customization hooks
-- Testing edge cases
+When testing handlers:
+- Mock the producer and verify correct topic routing
+- Test both retry and DLQ paths
+- Verify retry count increments correctly
+- Verify metrics and logging calls
+- Test edge cases (max retries, permanent errors, etc.)
+
+See existing handler tests for examples:
+- `tests/kafka_pipeline/common/retry/test_delta_handler.py`
+- `tests/kafka_pipeline/xact/retry/test_download_handler.py`
+- `tests/kafka_pipeline/claimx/retry/test_enrichment_handler.py`
