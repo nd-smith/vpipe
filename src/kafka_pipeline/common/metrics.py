@@ -231,9 +231,15 @@ def record_message_produced(topic: str, message_bytes: int, success: bool = True
         producer_errors_counter.labels(topic=topic, error_type="send_failed").inc()
 
 
-def record_message_consumed(topic: str, consumer_group: str, message_bytes: int) -> None:
+def record_message_consumed(
+    topic: str, consumer_group: str, message_bytes: int, success: bool = True
+) -> None:
     """Record a consumed message."""
     messages_consumed_counter.labels(topic=topic, consumer_group=consumer_group).inc()
+    if not success:
+        processing_errors_counter.labels(
+            topic=topic, consumer_group=consumer_group, error_category="processing_failed"
+        ).inc()
 
 
 def record_processing_error(topic: str, consumer_group: str, error_category: str) -> None:
