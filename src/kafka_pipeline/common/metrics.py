@@ -219,6 +219,20 @@ message_processing_duration_seconds = _create_histogram(
     buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
 )
 
+# ClaimX handler metrics
+claimx_handler_duration_seconds = _create_histogram(
+    "claimx_handler_duration_seconds",
+    "Time spent in ClaimX handlers processing events",
+    labelnames=["handler_name", "status"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+)
+
+claimx_handler_events_total = _create_counter(
+    "claimx_handler_events_total",
+    "Total events processed by ClaimX handlers",
+    labelnames=["handler_name", "status"]
+)
+
 
 # =============================================================================
 # Convenience Functions (minimal set, callers can use metrics directly)
@@ -310,6 +324,8 @@ __all__ = [
     "kafka_connection_status_gauge",
     "consumer_assigned_partitions_gauge",
     "message_processing_duration_seconds",
+    "claimx_handler_duration_seconds",
+    "claimx_handler_events_total",
     # Helper functions
     "record_message_produced",
     "record_message_consumed",
