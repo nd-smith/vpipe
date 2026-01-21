@@ -55,16 +55,44 @@ class NoOpSpan:
     """No-op span when telemetry is disabled or unavailable."""
 
     def set_tag(self, key: str, value: Any):
-        """No-op set_tag."""
+        """No-op set_tag (OpenTracing API)."""
+        pass
+
+    def set_attribute(self, key: str, value: Any):
+        """No-op set_attribute (OpenTelemetry API)."""
+        pass
+
+    def set_attributes(self, attributes: dict):
+        """No-op set_attributes (OpenTelemetry API)."""
+        pass
+
+    def add_event(self, name: str, attributes: dict = None):
+        """No-op add_event (OpenTelemetry API)."""
+        pass
+
+    def record_exception(self, exception: Exception, attributes: dict = None):
+        """No-op record_exception (OpenTelemetry API)."""
+        pass
+
+    def set_status(self, status: Any, description: str = None):
+        """No-op set_status (OpenTelemetry API)."""
         pass
 
     def log_kv(self, kv: dict):
-        """No-op log_kv."""
+        """No-op log_kv (OpenTracing API)."""
         pass
 
     def finish(self):
         """No-op finish."""
         pass
+
+    def is_recording(self) -> bool:
+        """Return False for no-op span."""
+        return False
+
+    def get_span_context(self):
+        """Return None for no-op span context."""
+        return None
 
     def __enter__(self):
         return self
