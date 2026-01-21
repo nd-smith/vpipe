@@ -254,11 +254,11 @@ class JSONFormatter(logging.Formatter):
         if log_context["trace_id"]:
             log_entry["trace_id"] = log_context["trace_id"]
 
-        # Inject OpenTelemetry trace context if available
-        if log_context.get("otel_trace_id"):
-            log_entry["otel_trace_id"] = log_context["otel_trace_id"]
-        if log_context.get("otel_span_id"):
-            log_entry["otel_span_id"] = log_context["otel_span_id"]
+        # Inject OpenTracing trace context if available
+        if log_context.get("opentracing_trace_id"):
+            log_entry["opentracing_trace_id"] = log_context["opentracing_trace_id"]
+        if log_context.get("opentracing_span_id"):
+            log_entry["opentracing_span_id"] = log_context["opentracing_span_id"]
 
         # Add source location for DEBUG/ERROR
         if record.levelno in (logging.DEBUG, logging.ERROR, logging.CRITICAL):

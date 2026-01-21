@@ -87,7 +87,7 @@ class ItelCabinetTrackingWorker:
         """Start the worker (connect to Kafka)."""
         logger.info("Starting iTel Cabinet Tracking Worker")
 
-        # Initialize OpenTelemetry
+        # Initialize OpenTracing
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 
