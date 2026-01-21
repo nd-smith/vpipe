@@ -1,0 +1,103 @@
+# =============================================================================
+# ClaimX Mitigation Task Tracking Plugin Configuration
+# =============================================================================
+# Tracks completions of mitigation tasks (task_id 25367 and 24454) and publishes
+# to a Kafka topic for asynchronous processing and enrichment.
+#
+# Architecture:
+#   ClaimX Event → Plugin (filter task_id=25367|24454, status=COMPLETED) → Kafka Topic → Worker → Success Topic
+#
+# Related Files:
+#   - plugins/config/connections.yaml - ClaimX API connection config
+#   - plugins/config/workers.yaml - Worker configuration
+# =============================================================================
+
+# Plugin metadata
+name: claimx_mitigation_task
+module: kafka_pipeline.plugins.shared.task_trigger
+class: TaskTriggerPlugin
+enabled: true
+priority: 50
+
+# Plugin configuration
+config:
+  # Include full task and project data in the payload
+  # This gives the worker complete context for enrichment
+  include_task_data: true
+  include_project_data: true
+
+  # Task trigger configuration
+  # Map of task_id (ClaimX task template ID) to trigger actions
+  triggers:
+    # ==========================================================================
+    # Mitigation Task 25367
+    # ==========================================================================
+    # Trigger on COMPLETED status only for task 25367
+    # ==========================================================================
+    25367:
+      name: Mitigation Task 25367
+      description: Track completed mitigation tasks for enrichment and downstream processing
+
+      # Trigger on COMPLETED status only
+      on_completed:
+        # Publish to unified tracking topic
+        # Worker will consume from this topic, enrich with ClaimX API data,
+        # and publish to success topic
+        publish_to_topic: claimx.mitigation.task.tracking
+
+        log:
+          level: info
+          message: "Mitigation task completed | event_id={event_id} | task_id={task_id} | assignment_id={assignment_id}"
+
+    # ==========================================================================
+    # Mitigation Task 24454
+    # ==========================================================================
+    # Trigger on COMPLETED status only for task 24454
+    # ==========================================================================
+    24454:
+      name: Mitigation Task 24454
+      description: Track completed mitigation tasks for enrichment and downstream processing
+
+      # Trigger on COMPLETED status only
+      on_completed:
+        # Publish to same unified tracking topic
+        publish_to_topic: claimx.mitigation.task.tracking
+
+        log:
+          level: info
+          message: "Mitigation task completed | event_id={event_id} | task_id={task_id} | assignment_id={assignment_id}"
+
+# =============================================================================
+# Configuration Notes
+# =============================================================================
+#
+# Task IDs:
+#   - 25367 and 24454 are ClaimX task template IDs for mitigation tasks
+#   - Both tasks publish to the same tracking topic for unified processing
+#
+# Event Tracking:
+#   - on_completed: Captures ONLY CUSTOM_TASK_COMPLETED events
+#   - Alternative: Use on_any to capture all status changes
+#
+# Kafka Topic:
+#   - claimx.mitigation.task.tracking: Single topic for all mitigation task completions
+#   - Worker consumes from this topic for processing
+#   - Retention: 7 days (configured in Kafka)
+#
+# Payload Structure:
+#   Published messages include:
+#   {
+#     "trigger_name": "Mitigation Task 25367|24454",
+#     "event_id": "unique-event-id",
+#     "event_type": "CUSTOM_TASK_COMPLETED",
+#     "project_id": "12345",
+#     "task_id": 25367|24454,
+#     "assignment_id": 789,
+#     "task_name": "Mitigation Task",
+#     "task_status": "completed",
+#     "timestamp": "2026-01-21T12:34:56.789Z",
+#     "task": { /* full task row data */ },
+#     "project": { /* full project row data */ }
+#   }
+#
+# =============================================================================

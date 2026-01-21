@@ -78,6 +78,8 @@ services:
         /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.api.success --partitions 5 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.api.errors --partitions 5 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.completed --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.mitigation.task.tracking --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.mitigation.task.success --partitions 5 --replication-factor 1
 
         echo "Topics created successfully:"
         /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092

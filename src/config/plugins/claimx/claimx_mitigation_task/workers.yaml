@@ -1,0 +1,43 @@
+# =============================================================================
+# ClaimX Mitigation Task Workers Configuration
+# =============================================================================
+# Simple, clear configuration - no handler framework magic.
+#
+# Architecture:
+#   Plugin → Kafka (claimx.mitigation.task.tracking)
+#                ↓
+#        Tracking Worker
+#        (Enrichment + Success Topic)
+# =============================================================================
+
+workers:
+  # ===========================================================================
+  # ClaimX Mitigation Task Tracking Worker
+  # ===========================================================================
+  # Processes completed mitigation task events, enriches with ClaimX API data,
+  # and publishes to success topic.
+  #
+  # Startup:
+  #   python -m kafka_pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker
+  # ===========================================================================
+  mitigation_tracking:
+    # Kafka settings
+    kafka:
+      input_topic: claimx.mitigation.task.tracking
+      consumer_group: claimx_mitigation_tracking_group
+
+    # Pipeline configuration
+    pipeline:
+      claimx_connection: claimx_api
+      output_topic: claimx.mitigation.task.success
+
+# =============================================================================
+# Environment Variables Required
+# =============================================================================
+# ClaimX API connection
+# export CLAIMX_API_BASE_PATH="https://www.claimxperience.com/service/cxedirest"
+# export CLAIMX_API_TOKEN="your-claimx-basic-token"
+#
+# Kafka connection
+# export KAFKA_BOOTSTRAP_SERVERS="localhost:9094"
+# =============================================================================
