@@ -137,6 +137,42 @@ class KafkaError(PipelineError):
     pass
 
 
+class KustoError(TransientError):
+    """Error from Kusto/Eventhouse operations."""
+
+    pass
+
+
+class KustoQueryError(PermanentError):
+    """KQL query syntax or semantic error (non-retryable)."""
+
+    pass
+
+
+class DeltaTableError(TransientError):
+    """Error from Delta table operations."""
+
+    pass
+
+
+class OneLakeError(TransientError):
+    """Error from OneLake operations."""
+
+    pass
+
+
+class TimeoutError(TransientError):
+    """Operation timeout error (transient, retryable)."""
+
+    pass
+
+
+class ConnectionError(TransientError):
+    """Connection error (transient, retryable)."""
+
+    pass
+
+
 # =============================================================================
 # Error Classification Utilities
 # =============================================================================

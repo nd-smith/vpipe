@@ -9,9 +9,15 @@ from typing import Optional
 
 from core.errors.exceptions import (
     AuthError,
+    ConnectionError,
+    DeltaTableError,
+    KustoError,
+    KustoQueryError,
+    OneLakeError,
     PermanentError,
     PipelineError,
     ThrottlingError,
+    TimeoutError,
     TransientError,
     wrap_exception,
 )
