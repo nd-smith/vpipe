@@ -70,24 +70,30 @@ def load_plugins_from_directory(
 
     plugins_loaded = []
 
-    # Scan for plugin directories
-    for plugin_dir in plugins_path.iterdir():
-        if not plugin_dir.is_dir():
-            continue
+    # Recursively scan for config.yaml files in all subdirectories
+    # This supports nested directory structures like:
+    #   plugins/claimx/my_plugin/config.yaml
+    #   plugins/xact/status_trigger/config.yaml
+    config_files = list(plugins_path.rglob("config.yaml"))
+    config_files.extend(plugins_path.rglob("plugin.yaml"))
 
-        # Look for config.yaml or plugin.yaml in the directory
-        config_file = plugin_dir / "config.yaml"
-        if not config_file.exists():
-            config_file = plugin_dir / "plugin.yaml"
+    # Skip shared/connections directory (contains connection configs, not plugins)
+    config_files = [
+        f for f in config_files
+        if "connections" not in f.parts
+    ]
 
-        if not config_file.exists():
-            log_with_context(
-                logger,
-                logging.DEBUG,
-                "No config file found in plugin directory",
-                plugin_dir=str(plugin_dir),
-            )
-            continue
+    if not config_files:
+        log_with_context(
+            logger,
+            logging.DEBUG,
+            "No plugin config files found in directory",
+            plugins_dir=plugins_dir,
+        )
+        return []
+
+    for config_file in config_files:
+        plugin_dir = config_file.parent
 
         # Load plugin from config file
         try:
