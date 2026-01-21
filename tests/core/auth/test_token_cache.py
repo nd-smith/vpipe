@@ -19,44 +19,13 @@ import pytest
 
 from core.auth.token_cache import (
     TokenCache,
-    CachedToken,
     TOKEN_REFRESH_MINS,
     TOKEN_EXPIRY_MINS,
 )
 
 
-class TestCachedToken:
-    """Tests for CachedToken dataclass."""
-
-    def test_is_valid_fresh_token(self):
-        """Fresh token should be valid."""
-        token = CachedToken("test_token", datetime.now(timezone.utc))
-        assert token.is_valid(buffer_mins=50)
-
-    def test_is_valid_expired_token(self):
-        """Token older than buffer should be invalid."""
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=51)
-        token = CachedToken("test_token", old_time)
-        assert not token.is_valid(buffer_mins=50)
-
-    def test_is_valid_edge_case(self):
-        """Token exactly at buffer edge should be invalid."""
-        edge_time = datetime.now(timezone.utc) - timedelta(minutes=50, seconds=1)
-        token = CachedToken("test_token", edge_time)
-        assert not token.is_valid(buffer_mins=50)
-
-    def test_is_valid_custom_buffer(self):
-        """Should respect custom buffer duration."""
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=31)
-        token = CachedToken("test_token", old_time)
-        assert not token.is_valid(buffer_mins=30)
-        assert token.is_valid(buffer_mins=40)
-
-    def test_uses_utc_timezone(self):
-        """Should use UTC timezone for all comparisons."""
-        token = CachedToken("test_token", datetime.now(timezone.utc))
-        # If timezone-aware, this should work correctly
-        assert token.acquired_at.tzinfo == timezone.utc
+# NOTE: CachedToken dataclass was removed in refactor - tokens now managed internally by TokenCache
+# Tests for CachedToken removed as implementation detail no longer exposed
 
 
 class TestTokenCache:

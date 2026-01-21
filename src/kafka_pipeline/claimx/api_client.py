@@ -210,12 +210,10 @@ class ClaimXApiClient(LoggedClass):
                     timeout=aiohttp.ClientTimeout(total=self.timeout_seconds),
                 ) as response:
                     duration = asyncio.get_event_loop().time() - start_time
-                        method=method, endpoint=endpoint
-                    ).observe(duration)
+                    # Metrics removed in refactor - domain-specific API metrics simplified
 
                     status_tag = "success" if response.status == 200 else "error"
-                        method=method, endpoint=endpoint, status=status_tag
-                    ).inc()
+                    # Metrics removed in refactor
 
                     if response.status != 200:
                         try:

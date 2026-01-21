@@ -21,11 +21,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kafka_pipeline.common.storage.inmemory_delta import (
-    InMemoryDeltaTable,
-    InMemoryDeltaTableWriter,
-    InMemoryDeltaRegistry,
-)
+# NOTE: InMemoryDelta classes removed in refactor per OVER_ENGINEERING_REVIEW.md
+# Removed entire in-memory Delta Lake simulation (~870 lines)
+# Tests now use real Delta Lake or mock objects as needed
+# from kafka_pipeline.common.storage.inmemory_delta import (
+#     InMemoryDeltaTable,
+#     InMemoryDeltaTableWriter,
+#     InMemoryDeltaRegistry,
+# )
 
 
 # =============================================================================
@@ -201,112 +204,112 @@ def mock_storage(
 
 
 # =============================================================================
-# In-Memory Delta Tables - For E2E testing with full DataFrame support
+# In-Memory Delta Tables - DISABLED (removed in refactor)
+# InMemoryDelta classes removed per OVER_ENGINEERING_REVIEW.md (~870 lines)
 # =============================================================================
 
-
-@pytest.fixture
-def inmemory_delta_registry() -> InMemoryDeltaRegistry:
-    """
-    Provide a registry for managing multiple in-memory Delta tables.
-
-    The registry allows creating and accessing multiple tables by name,
-    and provides easy reset between tests.
-
-    Usage:
-        def test_something(inmemory_delta_registry):
-            events = inmemory_delta_registry.get_table("events")
-            inventory = inmemory_delta_registry.get_table("inventory")
-    """
-    registry = InMemoryDeltaRegistry()
-    yield registry
-    registry.reset()
-
-
-@pytest.fixture
-def inmemory_xact_events() -> InMemoryDeltaTable:
-    """
-    Provide in-memory Delta table for XACT events.
-
-    Configured to match production xact_events table structure.
-    """
-    table = InMemoryDeltaTable(
-        table_path="inmemory://xact_events",
-        timestamp_column="created_at",
-        partition_column="event_date",
-        z_order_columns=["event_date", "trace_id", "event_id", "type"],
-    )
-    yield table
-    table.clear()
+# @pytest.fixture
+# def inmemory_delta_registry() -> InMemoryDeltaRegistry:
+#     """
+#     Provide a registry for managing multiple in-memory Delta tables.
+#
+#     The registry allows creating and accessing multiple tables by name,
+#     and provides easy reset between tests.
+#
+#     Usage:
+#         def test_something(inmemory_delta_registry):
+#             events = inmemory_delta_registry.get_table("events")
+#             inventory = inmemory_delta_registry.get_table("inventory")
+#     """
+#     registry = InMemoryDeltaRegistry()
+#     yield registry
+#     registry.reset()
 
 
-@pytest.fixture
-def inmemory_xact_attachments() -> InMemoryDeltaTable:
-    """
-    Provide in-memory Delta table for XACT attachments/inventory.
-
-    Configured to match production xact_attachments table structure.
-    """
-    table = InMemoryDeltaTable(
-        table_path="inmemory://xact_attachments",
-        timestamp_column="created_at",
-        partition_column="created_date",
-    )
-    yield table
-    table.clear()
-
-
-@pytest.fixture
-def inmemory_claimx_events() -> InMemoryDeltaTable:
-    """
-    Provide in-memory Delta table for ClaimX events.
-
-    Configured to match production claimx_events table structure.
-    """
-    table = InMemoryDeltaTable(
-        table_path="inmemory://claimx_events",
-        timestamp_column="ingested_at",
-        partition_column="event_date",
-        z_order_columns=["project_id"],
-    )
-    yield table
-    table.clear()
-
-
-@pytest.fixture
-def inmemory_delta_storage(
-    inmemory_xact_events: InMemoryDeltaTable,
-    inmemory_xact_attachments: InMemoryDeltaTable,
-    inmemory_claimx_events: InMemoryDeltaTable,
-    mock_onelake_client: MockOneLakeClient,
-) -> Dict[str, object]:
-    """
-    Provide all in-memory storage components for E2E testing.
-
-    This fixture combines in-memory Delta tables with mock OneLake
-    for complete pipeline testing without external dependencies.
-
-    Usage:
-        def test_e2e(inmemory_delta_storage):
-            xact_events = inmemory_delta_storage["xact_events"]
-            xact_attachments = inmemory_delta_storage["xact_attachments"]
-            claimx_events = inmemory_delta_storage["claimx_events"]
-            onelake = inmemory_delta_storage["onelake"]
-    """
-    return {
-        "xact_events": inmemory_xact_events,
-        "xact_attachments": inmemory_xact_attachments,
-        "claimx_events": inmemory_claimx_events,
-        "onelake": mock_onelake_client,
-    }
-
-
-# =============================================================================
-# Helper function to check if running integration tests
-# =============================================================================
-
-
-def _is_integration_test(request) -> bool:
+# @pytest.fixture
+# def inmemory_xact_events() -> InMemoryDeltaTable:
+#     """
+#     Provide in-memory Delta table for XACT events.
+# 
+#     Configured to match production xact_events table structure.
+#     """
+#     table = InMemoryDeltaTable(
+#         table_path="inmemory://xact_events",
+#         timestamp_column="created_at",
+#         partition_column="event_date",
+#         z_order_columns=["event_date", "trace_id", "event_id", "type"],
+#     )
+#     yield table
+#     table.clear()
+# 
+# 
+# @pytest.fixture
+# def inmemory_xact_attachments() -> InMemoryDeltaTable:
+#     """
+#     Provide in-memory Delta table for XACT attachments/inventory.
+# 
+#     Configured to match production xact_attachments table structure.
+#     """
+#     table = InMemoryDeltaTable(
+#         table_path="inmemory://xact_attachments",
+#         timestamp_column="created_at",
+#         partition_column="created_date",
+#     )
+#     yield table
+#     table.clear()
+# 
+# 
+# @pytest.fixture
+# def inmemory_claimx_events() -> InMemoryDeltaTable:
+#     """
+#     Provide in-memory Delta table for ClaimX events.
+# 
+#     Configured to match production claimx_events table structure.
+#     """
+#     table = InMemoryDeltaTable(
+#         table_path="inmemory://claimx_events",
+#         timestamp_column="ingested_at",
+#         partition_column="event_date",
+#         z_order_columns=["project_id"],
+#     )
+#     yield table
+#     table.clear()
+# 
+# 
+# @pytest.fixture
+# def inmemory_delta_storage(
+#     inmemory_xact_events: InMemoryDeltaTable,
+#     inmemory_xact_attachments: InMemoryDeltaTable,
+#     inmemory_claimx_events: InMemoryDeltaTable,
+#     mock_onelake_client: MockOneLakeClient,
+# ) -> Dict[str, object]:
+#     """
+#     Provide all in-memory storage components for E2E testing.
+# 
+#     This fixture combines in-memory Delta tables with mock OneLake
+#     for complete pipeline testing without external dependencies.
+# 
+#     Usage:
+#         def test_e2e(inmemory_delta_storage):
+#             xact_events = inmemory_delta_storage["xact_events"]
+#             xact_attachments = inmemory_delta_storage["xact_attachments"]
+#             claimx_events = inmemory_delta_storage["claimx_events"]
+#             onelake = inmemory_delta_storage["onelake"]
+#     """
+#     return {
+#         "xact_events": inmemory_xact_events,
+#         "xact_attachments": inmemory_xact_attachments,
+#         "claimx_events": inmemory_claimx_events,
+#         "onelake": mock_onelake_client,
+#     }
+# 
+# 
+# # =============================================================================
+# # Helper function to check if running integration tests
+# # =============================================================================
+# 
+# 
+# def _is_integration_test(request) -> bool:
     """Check if the current test is marked as an integration test."""
     # Check if any item in the session has integration marker
     if hasattr(request, "node"):
