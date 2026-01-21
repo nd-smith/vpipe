@@ -36,6 +36,10 @@ class NoOpTracer:
         """Return a no-op context manager."""
         return NoOpSpanContext()
 
+    def start_as_current_span(self, operation_name: str, **kwargs):
+        """Return a no-op context manager (OpenTelemetry API compatibility)."""
+        return NoOpSpanContext()
+
 
 class NoOpSpan:
     """No-op span when telemetry is disabled or unavailable."""
