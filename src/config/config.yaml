@@ -432,7 +432,7 @@ health:
 logging:
   level: "${LOG_LEVEL}"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  log_dir: "logs"
+  log_dir: "../logs"
 
 observability:
   json_logs: true
