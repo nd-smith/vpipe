@@ -26,7 +26,7 @@ _prometheus_registry: Optional[Any] = None
 
 
 class SpanKind:
-    """Span kind constants (OpenTelemetry API compatibility)."""
+    """Span kind constants for OpenTracing compatibility."""
 
     INTERNAL = 0
     SERVER = 1
@@ -47,7 +47,7 @@ class NoOpTracer:
         return NoOpSpanContext()
 
     def start_as_current_span(self, operation_name: str, **kwargs):
-        """Return a no-op context manager (OpenTelemetry API compatibility)."""
+        """Return a no-op context manager (OpenTracing API compatibility)."""
         return NoOpSpanContext()
 
 
@@ -59,23 +59,23 @@ class NoOpSpan:
         pass
 
     def set_attribute(self, key: str, value: Any):
-        """No-op set_attribute (OpenTelemetry API)."""
+        """No-op set_attribute (OpenTracing API)."""
         pass
 
     def set_attributes(self, attributes: dict):
-        """No-op set_attributes (OpenTelemetry API)."""
+        """No-op set_attributes (OpenTracing API)."""
         pass
 
     def add_event(self, name: str, attributes: dict = None):
-        """No-op add_event (OpenTelemetry API)."""
+        """No-op add_event (OpenTracing API)."""
         pass
 
     def record_exception(self, exception: Exception, attributes: dict = None):
-        """No-op record_exception (OpenTelemetry API)."""
+        """No-op record_exception (OpenTracing API)."""
         pass
 
     def set_status(self, status: Any, description: str = None):
-        """No-op set_status (OpenTelemetry API)."""
+        """No-op set_status (OpenTracing API)."""
         pass
 
     def log_kv(self, kv: dict):
