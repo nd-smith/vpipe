@@ -262,7 +262,7 @@ class ClaimXEventIngesterWorker:
 
     async def _handle_event_message(self, record: ConsumerRecord) -> None:
         start_time = time.perf_counter()
-        from kafka_pipeline.common.telemetry import get_tracer
+        from kafka_pipeline.common.telemetry import get_tracer, SpanKind
 
         tracer = get_tracer(__name__)
         try:

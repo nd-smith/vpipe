@@ -25,6 +25,16 @@ _tracer: Optional[Any] = None
 _prometheus_registry: Optional[Any] = None
 
 
+class SpanKind:
+    """Span kind constants (OpenTelemetry API compatibility)."""
+
+    INTERNAL = 0
+    SERVER = 1
+    CLIENT = 2
+    PRODUCER = 3
+    CONSUMER = 4
+
+
 class NoOpTracer:
     """No-op tracer when telemetry is disabled or unavailable."""
 
