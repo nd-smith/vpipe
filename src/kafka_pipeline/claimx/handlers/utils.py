@@ -7,7 +7,7 @@ used across handler modules.
 
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 
 def safe_int(value: Any) -> Optional[int]:
@@ -122,3 +122,36 @@ def parse_timestamp_dt(value: Any) -> Optional[datetime]:
 
 def elapsed_ms(start: datetime) -> int:
     return int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+
+
+class BaseTransformer:
+    """
+    Base transformer class providing common metadata injection.
+
+    Eliminates boilerplate timestamp injection across all transformers.
+    """
+
+    @staticmethod
+    def inject_metadata(
+        row: Dict[str, Any],
+        event_id: str,
+        include_last_enriched: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Inject common metadata fields into a row dictionary.
+
+        Args:
+            row: The row dictionary to inject metadata into
+            event_id: Event ID for traceability
+            include_last_enriched: Whether to include last_enriched_at field
+
+        Returns:
+            The row dictionary with metadata fields injected
+        """
+        now = now_datetime()
+        row["event_id"] = event_id
+        row["created_at"] = now
+        row["updated_at"] = now
+        if include_last_enriched:
+            row["last_enriched_at"] = now
+        return row

@@ -22,8 +22,6 @@ from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     event_ingestion_duration_seconds,
-    record_event_ingested,
-    record_event_task_produced,
 )
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
@@ -287,7 +285,6 @@ class ClaimXEventIngesterWorker:
                 },
                 exc_info=True,
             )
-            record_event_ingested(domain=self.domain, status="parse_error")
             raise
 
         # event_id generated deterministically in schema from stable Eventhouse fields
@@ -304,7 +301,6 @@ class ClaimXEventIngesterWorker:
                     "project_id": event.project_id,
                 },
             )
-            record_event_ingested(domain=self.domain, status="deduplicated")
             return
 
         self._records_processed += 1
@@ -328,7 +324,6 @@ class ClaimXEventIngesterWorker:
         self._cleanup_dedup_cache()
         duration = time.perf_counter() - start_time
         event_ingestion_duration_seconds.labels(domain=self.domain).observe(duration)
-        record_event_ingested(domain=self.domain, status="success")
 
     async def _create_enrichment_task(self, event: ClaimXEventMessage) -> None:
         enrichment_task = ClaimXEnrichmentTask(
@@ -361,7 +356,6 @@ class ClaimXEventIngesterWorker:
                 },
             )
             self._records_succeeded += 1
-            record_event_task_produced(domain=self.domain, task_type="enrichment_task")
         except Exception as e:
             logger.error(
                 "Failed to produce ClaimX enrichment task",

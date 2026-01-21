@@ -24,7 +24,6 @@ from requests.adapters import HTTPAdapter
 
 from kafka_pipeline.common.auth import get_auth, clear_token_cache
 from kafka_pipeline.common.logging import LoggedClass, logged_operation
-from kafka_pipeline.common.metrics import record_onelake_error, record_onelake_operation
 from kafka_pipeline.common.retry import RetryConfig, with_retry
 
 # Retry config for OneLake operations
@@ -161,6 +160,8 @@ class FileBackedTokenCredential:
     - Token refresher writes new token every 45 minutes
     - Azure tokens expire at 60 minutes
     - This class re-reads token every 5 minutes to stay fresh
+
+    Supports both storage and Kusto resources through unified auth system.
     """
 
     TOKEN_REFRESH_MINUTES = 5
@@ -183,9 +184,14 @@ class FileBackedTokenCredential:
         auth = get_auth()
         clear_token_cache()
 
-        token = auth.get_storage_token(force_refresh=True)
+        # Use appropriate token method based on resource
+        if "kusto" in self._resource.lower() or "fabric" in self._resource.lower():
+            token = auth.get_kusto_token(self._resource, force_refresh=True)
+        else:
+            token = auth.get_storage_token(force_refresh=True)
+
         if not token:
-            raise RuntimeError("Failed to get storage token")
+            raise RuntimeError(f"Failed to get token for resource: {self._resource}")
 
         self._cached_token = token
         self._token_acquired_at = datetime.now(timezone.utc)
@@ -214,6 +220,10 @@ class FileBackedTokenCredential:
         self._cached_token = None
         self._token_acquired_at = None
         self._fetch_token()
+
+    def close(self) -> None:
+        """Close the credential (no-op for file-backed credential)."""
+        pass
 
 
 def parse_abfss_path(path: str) -> Tuple[str, str, str]:
@@ -409,6 +419,18 @@ class OneLakeClient(LoggedClass):
         self.close()
         return False
 
+    async def __aenter__(self):
+        """Async context manager entry - create and initialize client."""
+        import asyncio
+        await asyncio.to_thread(self._create_clients, max_pool_size=self._max_pool_size)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - close client."""
+        import asyncio
+        await asyncio.to_thread(self.close)
+        return False
+
     def close(self) -> None:
         if self._service_client is not None:
             try:
@@ -527,20 +549,11 @@ class OneLakeClient(LoggedClass):
         full_path = self._full_path(relative_path)
         directory, filename = self._split_path(full_path)
         bytes_count = len(data)
-        start_time = time.perf_counter()
 
         try:
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
             file_client.upload_data(data, overwrite=overwrite)
-
-            duration = time.perf_counter() - start_time
-            record_onelake_operation(
-                operation="upload",
-                status="success",
-                duration=duration,
-                bytes_transferred=bytes_count,
-            )
 
             result_path = f"{self.base_path}/{relative_path}"
             self._log(
@@ -552,15 +565,6 @@ class OneLakeClient(LoggedClass):
             return result_path
 
         except Exception as e:
-            duration = time.perf_counter() - start_time
-            error_type = _classify_error(e)
-            record_onelake_operation(
-                operation="upload",
-                status="error",
-                duration=duration,
-                bytes_transferred=0,
-            )
-            record_onelake_error(operation="upload", error_type=error_type)
             self._handle_auth_error(e)
             raise
 
@@ -611,7 +615,6 @@ class OneLakeClient(LoggedClass):
 
         full_path = self._full_path(relative_path)
         directory, filename = self._split_path(full_path)
-        start_time = time.perf_counter()
 
         try:
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
@@ -620,14 +623,7 @@ class OneLakeClient(LoggedClass):
             download = file_client.download_file()
             content = download.readall()
 
-            duration = time.perf_counter() - start_time
             bytes_count = len(content)
-            record_onelake_operation(
-                operation="download",
-                status="success",
-                duration=duration,
-                bytes_transferred=bytes_count,
-            )
 
             self._log(
                 logging.DEBUG,
@@ -638,15 +634,6 @@ class OneLakeClient(LoggedClass):
             return content
 
         except Exception as e:
-            duration = time.perf_counter() - start_time
-            error_type = _classify_error(e)
-            record_onelake_operation(
-                operation="download",
-                status="error",
-                duration=duration,
-                bytes_transferred=0,
-            )
-            record_onelake_error(operation="download", error_type=error_type)
             self._handle_auth_error(e)
             raise
 
@@ -664,7 +651,6 @@ class OneLakeClient(LoggedClass):
         directory, filename = self._split_path(full_path)
 
         file_size = os.path.getsize(local_path)
-        start_time = time.perf_counter()
 
         try:
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
@@ -672,14 +658,6 @@ class OneLakeClient(LoggedClass):
 
             with open(local_path, "rb") as f:
                 file_client.upload_data(f, overwrite=overwrite)
-
-            duration = time.perf_counter() - start_time
-            record_onelake_operation(
-                operation="upload",
-                status="success",
-                duration=duration,
-                bytes_transferred=file_size,
-            )
 
             result_path = f"{self.base_path}/{relative_path}"
             self._log(
@@ -691,15 +669,6 @@ class OneLakeClient(LoggedClass):
             return result_path
 
         except Exception as e:
-            duration = time.perf_counter() - start_time
-            error_type = _classify_error(e)
-            record_onelake_operation(
-                operation="upload",
-                status="error",
-                duration=duration,
-                bytes_transferred=0,
-            )
-            record_onelake_error(operation="upload", error_type=error_type)
             self._handle_auth_error(e)
             raise
 
@@ -709,39 +678,19 @@ class OneLakeClient(LoggedClass):
 
         full_path = self._full_path(relative_path)
         directory, filename = self._split_path(full_path)
-        start_time = time.perf_counter()
 
         try:
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
             file_client.get_file_properties()
 
-            duration = time.perf_counter() - start_time
-            record_onelake_operation(
-                operation="exists",
-                status="success",
-                duration=duration,
-            )
             return True
         except Exception as e:
-            duration = time.perf_counter() - start_time
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
-                record_onelake_operation(
-                    operation="exists",
-                    status="success",
-                    duration=duration,
-                )
                 self._log(logging.DEBUG, "File does not exist", blob_path=relative_path)
                 return False
 
-            error_type = _classify_error(e)
-            record_onelake_operation(
-                operation="exists",
-                status="error",
-                duration=duration,
-            )
-            record_onelake_error(operation="exists", error_type=error_type)
             self._handle_auth_error(e)
             raise
 
@@ -751,39 +700,19 @@ class OneLakeClient(LoggedClass):
 
         full_path = self._full_path(relative_path)
         directory, filename = self._split_path(full_path)
-        start_time = time.perf_counter()
 
         try:
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
             file_client.delete_file()
 
-            duration = time.perf_counter() - start_time
-            record_onelake_operation(
-                operation="delete",
-                status="success",
-                duration=duration,
-            )
             self._log(logging.DEBUG, "Deleted file", blob_path=relative_path)
             return True
         except Exception as e:
-            duration = time.perf_counter() - start_time
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
-                record_onelake_operation(
-                    operation="delete",
-                    status="success",
-                    duration=duration,
-                )
                 return False
 
-            error_type = _classify_error(e)
-            record_onelake_operation(
-                operation="delete",
-                status="error",
-                duration=duration,
-            )
-            record_onelake_error(operation="delete", error_type=error_type)
             self._handle_auth_error(e)
             raise
 
@@ -863,6 +792,101 @@ class OneLakeClient(LoggedClass):
             errors_encountered=stats["errors_encountered"],
             error_rate_pct=round(error_rate, 2),
             uptime_seconds=round(stats["uptime_seconds"], 1),
+        )
+
+    # Async methods for use in async contexts
+    async def async_upload_file(
+        self,
+        relative_path: str,
+        local_path,  # str or Path
+        overwrite: bool = True,
+    ) -> str:
+        """
+        Upload file from local path to OneLake (async, non-blocking).
+
+        Args:
+            relative_path: Path relative to base_path (e.g. "claims/C-123/file.pdf")
+            local_path: Local file path to upload (str or pathlib.Path)
+            overwrite: Whether to overwrite existing file (default: True)
+
+        Returns:
+            Full abfss:// path to uploaded file
+
+        Raises:
+            FileNotFoundError: If local_path doesn't exist
+            Exception: On upload failures (auth, network, etc.)
+        """
+        import asyncio
+        from pathlib import Path
+
+        # Convert Path to str if needed
+        local_path_str = str(local_path) if isinstance(local_path, Path) else local_path
+
+        return await asyncio.to_thread(
+            self.upload_file,
+            relative_path,
+            local_path_str,
+            overwrite,
+        )
+
+    async def async_upload_bytes(
+        self,
+        relative_path: str,
+        data: bytes,
+        overwrite: bool = True,
+    ) -> str:
+        """
+        Upload bytes to OneLake (async, non-blocking).
+
+        Args:
+            relative_path: Path relative to base_path
+            data: File content as bytes
+            overwrite: Whether to overwrite existing file (default: True)
+
+        Returns:
+            Full abfss:// path to uploaded file
+
+        Raises:
+            Exception: On upload failures (auth, network, etc.)
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.upload_bytes,
+            relative_path,
+            data,
+            overwrite,
+        )
+
+    async def async_exists(self, relative_path: str) -> bool:
+        """
+        Check if file exists in OneLake (async, non-blocking).
+
+        Args:
+            relative_path: Path relative to base_path
+
+        Returns:
+            True if file exists, False otherwise
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.exists,
+            relative_path,
+        )
+
+    async def async_delete(self, relative_path: str) -> bool:
+        """
+        Delete a file from OneLake (async, non-blocking).
+
+        Args:
+            relative_path: Path relative to base_path
+
+        Returns:
+            True if deleted, False if didn't exist
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.delete,
+            relative_path,
         )
 
 

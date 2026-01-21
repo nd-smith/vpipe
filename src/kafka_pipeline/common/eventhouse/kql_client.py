@@ -6,7 +6,6 @@ with connection pooling, retry logic, and proper error classification.
 """
 
 import asyncio
-import json
 import logging
 import os
 import time
@@ -25,6 +24,7 @@ from core.errors.exceptions import KustoError, KustoQueryError
 from kafka_pipeline.common.storage.onelake import (
     _register_file_credential,
     _refresh_all_credentials,
+    FileBackedTokenCredential,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,112 +36,12 @@ DEFAULT_CONFIG_PATH = Path(__file__).parent.parent.parent / "config.yaml"
 KUSTO_RESOURCE = "https://kusto.kusto.windows.net"
 
 
-class FileBackedKustoCredential:
-    """
-    Credential that reads tokens from a JSON file for Kusto authentication.
-
-    The token file should be a JSON object with resource URLs as keys:
-    {
-        "https://kusto.kusto.windows.net": "token_value",
-        "https://storage.azure.com/": "token_value"
-    }
-
-    This credential re-reads from the file when tokens are near expiry,
-    allowing token_refresher to keep tokens updated externally.
-    """
-
-    def __init__(
-        self,
-        token_file: str,
-        resource: str = KUSTO_RESOURCE,
-        refresh_threshold_minutes: int = 10,
-    ):
-        """
-        Initialize file-backed credential.
-
-        """
-        self._token_file = Path(token_file)
-        self._resource = resource
-        self._refresh_threshold = timedelta(minutes=refresh_threshold_minutes)
-        self._cached_token: Optional[str] = None
-        self._token_acquired_at: Optional[datetime] = None
-        # Register for coordinated refresh on auth errors
-        _register_file_credential(self)
-
-    def _should_refresh(self) -> bool:
-        """Check if token should be refreshed from file."""
-        if self._cached_token is None or self._token_acquired_at is None:
-            return True
-        age = datetime.now(timezone.utc) - self._token_acquired_at
-        return age >= self._refresh_threshold
-
-    def _read_token(self) -> str:
-        """Read token from file."""
-        if not self._token_file.exists():
-            raise RuntimeError(f"Token file not found: {self._token_file}")
-
-        content = self._token_file.read_text(encoding="utf-8-sig").strip()
-        if not content:
-            raise RuntimeError(f"Token file is empty: {self._token_file}")
-
-        try:
-            tokens = json.loads(content)
-            if isinstance(tokens, dict):
-                if self._resource in tokens:
-                    return tokens[self._resource]
-                # Try normalized match (with/without trailing slash)
-                resource_normalized = self._resource.rstrip("/")
-                for key, value in tokens.items():
-                    if key.rstrip("/") == resource_normalized:
-                        return value
-                # Try cluster URL pattern for Kusto
-                for key, value in tokens.items():
-                    if "kusto" in key.lower() or "fabric" in key.lower():
-                        logger.debug(
-                            "Using token for resource %s (requested %s)",
-                            key, self._resource
-                        )
-                        return value
-                raise RuntimeError(
-                    f"Token file does not contain token for resource: {self._resource}"
-                )
-            else:
-                return content
-        except json.JSONDecodeError:
-            # Not JSON, treat as plain text
-            return content
-
-    def get_token(self, *scopes, **kwargs) -> AccessToken:
-        """
-        Return token in Azure SDK expected format.
-
-        Automatically refreshes from file if token is near expiry.
-        """
-        if self._should_refresh():
-            self._cached_token = self._read_token()
-            self._token_acquired_at = datetime.now(timezone.utc)
-            logger.debug(
-                "Read Kusto token from file",
-                extra={"token_file": str(self._token_file)},
-            )
-
-        # Token expiry is approximate (assume 1 hour from read)
-        expires_on = int(
-            (self._token_acquired_at + timedelta(hours=1)).timestamp()
-        )
-        return AccessToken(self._cached_token, expires_on)
-
-    def close(self) -> None:
-        """Close the credential (no-op for file-backed credential)."""
-        # No resources to clean up - the file handle is not kept open
-        pass
-
-
 @dataclass
 class EventhouseConfig:
     """Configuration for connecting to Eventhouse.
 
-    Load from environment using EventhouseConfig.from_env().
+    Load configuration using EventhouseConfig.load_config() which reads from
+    config.yaml with environment variable overrides.
     """
 
     # Connection
@@ -151,7 +51,6 @@ class EventhouseConfig:
     max_retries: int = 3  # Max retry attempts for transient failures
     retry_base_delay_seconds: float = 1.0  # Base delay between retries
     retry_max_delay_seconds: float = 30.0  # Max delay between retries
-    max_connections: int = 10  # Connection pool size
 
     @classmethod
     def load_config(
@@ -181,7 +80,6 @@ class EventhouseConfig:
             "max_retries": os.getenv("EVENTHOUSE_MAX_RETRIES"),
             "retry_base_delay_seconds": os.getenv("EVENTHOUSE_RETRY_BASE_DELAY"),
             "retry_max_delay_seconds": os.getenv("EVENTHOUSE_RETRY_MAX_DELAY"),
-            "max_connections": os.getenv("EVENTHOUSE_MAX_CONNECTIONS"),
         }
         for key, value in env_overrides.items():
             if value is not None:
@@ -207,49 +105,6 @@ class EventhouseConfig:
             max_retries=int(data.get("max_retries", 3)),
             retry_base_delay_seconds=float(data.get("retry_base_delay_seconds", 1.0)),
             retry_max_delay_seconds=float(data.get("retry_max_delay_seconds", 30.0)),
-            max_connections=int(data.get("max_connections", 10)),
-        )
-
-    @classmethod
-    def from_env(cls) -> "EventhouseConfig":
-        """Load configuration from environment variables.
-
-        DEPRECATED: Use load_config() instead.
-        This method is kept for backwards compatibility.
-
-        Required environment variables:
-            EVENTHOUSE_CLUSTER_URL: Kusto cluster URL
-            EVENTHOUSE_DATABASE: Database name
-
-        Optional environment variables (with defaults):
-            EVENTHOUSE_QUERY_TIMEOUT: Query timeout in seconds (default: 120)
-            EVENTHOUSE_MAX_RETRIES: Max retry attempts (default: 3)
-            EVENTHOUSE_RETRY_BASE_DELAY: Base retry delay in seconds (default: 1.0)
-            EVENTHOUSE_RETRY_MAX_DELAY: Max retry delay in seconds (default: 30.0)
-            EVENTHOUSE_MAX_CONNECTIONS: Connection pool size (default: 10)
-        """
-        cluster_url = os.getenv("EVENTHOUSE_CLUSTER_URL")
-        if not cluster_url:
-            raise ValueError(
-                "EVENTHOUSE_CLUSTER_URL environment variable is required"
-            )
-
-        database = os.getenv("EVENTHOUSE_DATABASE")
-        if not database:
-            raise ValueError("EVENTHOUSE_DATABASE environment variable is required")
-
-        return cls(
-            cluster_url=cluster_url,
-            database=database,
-            query_timeout_seconds=int(os.getenv("EVENTHOUSE_QUERY_TIMEOUT", "120")),
-            max_retries=int(os.getenv("EVENTHOUSE_MAX_RETRIES", "3")),
-            retry_base_delay_seconds=float(
-                os.getenv("EVENTHOUSE_RETRY_BASE_DELAY", "1.0")
-            ),
-            retry_max_delay_seconds=float(
-                os.getenv("EVENTHOUSE_RETRY_MAX_DELAY", "30.0")
-            ),
-            max_connections=int(os.getenv("EVENTHOUSE_MAX_CONNECTIONS", "10")),
         )
 
 
@@ -284,7 +139,7 @@ class KQLClient:
     Example:
         import logging
         logger = logging.getLogger(__name__)
-        config = EventhouseConfig.from_env()
+        config = EventhouseConfig.load_config()
         async with KQLClient(config) as client:
             result = await client.execute_query(
                 "Events | where ingestion_time() > ago(1h) | take 100"
@@ -294,14 +149,10 @@ class KQLClient:
     """
 
     def __init__(self, config: EventhouseConfig):
-        """Initialize KQL client with configuration.
-
-
-        """
+        """Initialize KQL client with configuration."""
         self.config = config
         self._client: Optional[KustoClient] = None
         self._credential: Optional[DefaultAzureCredential] = None
-        self._lock = asyncio.Lock()
 
     async def __aenter__(self) -> "KQLClient":
         """Async context manager entry."""
@@ -320,119 +171,116 @@ class KQLClient:
         2. SPN credentials (if AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID are set)
         3. DefaultAzureCredential (managed identity, CLI, etc.)
         """
-        async with self._lock:
-            if self._client is not None:
-                return  # Already connected
+        if self._client is not None:
+            return  # Already connected
+
+        logger.info(
+            "Connecting to Eventhouse",
+            extra={
+                "cluster_url": self.config.cluster_url,
+                "database": self.config.database,
+            },
+        )
+
+        try:
+            # Check for token file authentication first
+            token_file = os.getenv("AZURE_TOKEN_FILE")
+            auth_mode = "default"
+            kcsb = None
+
+            # Check for SPN credentials
+            client_id = os.getenv("AZURE_CLIENT_ID")
+            client_secret = os.getenv("AZURE_CLIENT_SECRET")
+            tenant_id = os.getenv("AZURE_TENANT_ID")
+            has_spn = client_id and client_secret and tenant_id
+
+            if token_file:
+                token_path = Path(token_file)
+                if token_path.exists():
+                    try:
+                        self._credential = FileBackedTokenCredential(
+                            resource=KUSTO_RESOURCE,
+                        )
+                        auth_mode = "token_file"
+                        kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
+                            self.config.cluster_url,
+                            self._credential,
+                        )
+                        logger.info(
+                            "Using token file for Eventhouse authentication via unified auth",
+                            extra={"token_file": token_file},
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Token file auth failed, trying SPN/default",
+                            extra={"error": str(e)[:200]},
+                        )
+
+            # Use SPN with direct AAD app key auth (more reliable than token credential)
+            if kcsb is None and has_spn:
+                kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
+                    self.config.cluster_url,
+                    client_id,
+                    client_secret,
+                    tenant_id,
+                )
+                auth_mode = "spn"
+                logger.info(
+                    "Using SPN credentials for Eventhouse authentication",
+                    extra={"client_id": client_id[:8] + "..."},
+                )
+
+            # Fall back to DefaultAzureCredential
+            if kcsb is None:
+                self._credential = DefaultAzureCredential()
+                kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
+                    self.config.cluster_url,
+                    self._credential,
+                )
+                auth_mode = "default"
+
+            # Create client (sync client, will execute in thread pool)
+            self._client = KustoClient(kcsb)
 
             logger.info(
-                "Connecting to Eventhouse",
+                "Connected to Eventhouse",
                 extra={
                     "cluster_url": self.config.cluster_url,
                     "database": self.config.database,
+                    "auth_mode": auth_mode,
                 },
             )
 
-            try:
-                # Check for token file authentication first
-                token_file = os.getenv("AZURE_TOKEN_FILE")
-                auth_mode = "default"
-                kcsb = None
-
-                # Check for SPN credentials
-                client_id = os.getenv("AZURE_CLIENT_ID")
-                client_secret = os.getenv("AZURE_CLIENT_SECRET")
-                tenant_id = os.getenv("AZURE_TENANT_ID")
-                has_spn = client_id and client_secret and tenant_id
-
-                if token_file:
-                    token_path = Path(token_file)
-                    if token_path.exists():
-                        try:
-                            self._credential = FileBackedKustoCredential(
-                                token_file=token_file,
-                                resource=KUSTO_RESOURCE,
-                            )
-                            auth_mode = "token_file"
-                            kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
-                                self.config.cluster_url,
-                                self._credential,
-                            )
-                            logger.info(
-                                "Using token file for Eventhouse authentication",
-                                extra={"token_file": token_file},
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Token file auth failed, trying SPN/default",
-                                extra={"error": str(e)[:200]},
-                            )
-
-                # Use SPN with direct AAD app key auth (more reliable than token credential)
-                if kcsb is None and has_spn:
-                    kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
-                        self.config.cluster_url,
-                        client_id,
-                        client_secret,
-                        tenant_id,
-                    )
-                    auth_mode = "spn"
-                    logger.info(
-                        "Using SPN credentials for Eventhouse authentication",
-                        extra={"client_id": client_id[:8] + "..."},
-                    )
-
-                # Fall back to DefaultAzureCredential
-                if kcsb is None:
-                    self._credential = DefaultAzureCredential()
-                    kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
-                        self.config.cluster_url,
-                        self._credential,
-                    )
-                    auth_mode = "default"
-
-                # Create client (sync client, will execute in thread pool)
-                self._client = KustoClient(kcsb)
-
-                logger.info(
-                    "Connected to Eventhouse",
-                    extra={
-                        "cluster_url": self.config.cluster_url,
-                        "database": self.config.database,
-                        "auth_mode": auth_mode,
-                    },
-                )
-
-            except Exception as e:
-                logger.error(
-                    "Failed to connect to Eventhouse: %s",
-                    str(e)[:200],
-                    extra={
-                        "cluster_url": self.config.cluster_url,
-                        "database": self.config.database,
-                        "error": str(e)[:200],
-                    },
-                )
-                raise StorageErrorClassifier.classify_kusto_error(
-                    e, {"operation": "connect"}
-                ) from e
+        except Exception as e:
+            logger.error(
+                "Failed to connect to Eventhouse: %s",
+                str(e)[:200],
+                extra={
+                    "cluster_url": self.config.cluster_url,
+                    "database": self.config.database,
+                    "error": str(e)[:200],
+                },
+            )
+            raise StorageErrorClassifier.classify_kusto_error(
+                e, {"operation": "connect"}
+            ) from e
 
     async def close(self) -> None:
         """Close connection and cleanup resources."""
-        async with self._lock:
-            if self._client is not None:
-                try:
-                    # KustoClient.close() is sync
-                    self._client.close()
-                except Exception as e:
-                    logger.warning(
-                        "Error closing Kusto client: %s",
-                        str(e)[:100],
-                    )
-                finally:
-                    self._client = None
-                    self._credential = None
+        if self._client is not None:
+            try:
+                # KustoClient.close() is sync
+                self._client.close()
+            except Exception as e:
+                logger.warning(
+                    "Error closing Kusto client: %s",
+                    str(e)[:100],
+                )
+            finally:
+                self._client = None
+                self._credential = None
 
-                logger.debug("Eventhouse connection closed")
+            logger.debug("Eventhouse connection closed")
 
     async def execute_query(
         self,
@@ -650,26 +498,3 @@ class KQLClient:
             )
 
             raise
-
-    async def health_check(self) -> bool:
-        """Check if connection is healthy.
-        """
-        try:
-            # Simple query to verify connection
-            result = await self.execute_query(
-                "print 1",
-                timeout_seconds=10,
-            )
-            return result.row_count == 1
-
-        except Exception as e:
-            logger.warning(
-                "Eventhouse health check failed: %s",
-                str(e)[:100],
-            )
-            return False
-
-    @property
-    def is_connected(self):
-        """Check if client is connected."""
-        return self._client is not None

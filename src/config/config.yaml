@@ -1,0 +1,482 @@
+# =============================================================================
+# VPIPE CONFIGURATION
+# =============================================================================
+# Consolidated configuration for the VPipe Kafka pipeline
+# All domains (XACT, ClaimX) and shared settings in one place
+#
+# Environment variables ARE supported using ${VAR_NAME} syntax
+# Sensitive values should be loaded from .env file
+# =============================================================================
+
+# =============================================================================
+# PIPELINE EVENT SOURCE
+# =============================================================================
+event_source: "eventhouse"  # Options: "eventhouse", "eventhub", "dummy"
+
+# =============================================================================
+# SHARED CONFIGURATION
+# =============================================================================
+# Settings that apply across all domains
+
+kafka:
+  # ===========================================================================
+  # CONNECTION SETTINGS (shared across all consumers/producers)
+  # ===========================================================================
+  connection:
+    bootstrap_servers: "${KAFKA_BOOTSTRAP_SERVERS}"
+    security_protocol: "PLAINTEXT"
+    sasl_mechanism: "OAUTHBEARER"
+    sasl_plain_username: ""
+    sasl_plain_password: ""
+    request_timeout_ms: 120000  # 2 minutes
+    metadata_max_age_ms: 300000  # 5 minutes
+    connections_max_idle_ms: 540000  # 9 minutes
+
+  # ===========================================================================
+  # DEFAULT CONSUMER SETTINGS
+  # Applied to all consumers unless overridden in worker-specific config
+  # ===========================================================================
+  consumer_defaults:
+    auto_offset_reset: "earliest"
+    enable_auto_commit: false
+    max_poll_records: 1000
+    max_poll_interval_ms: 300000  # 5 minutes
+    fetch_min_bytes: 1
+    fetch_max_wait_ms: 500
+    session_timeout_ms: 60000  # 60 seconds
+    heartbeat_interval_ms: 3000
+    partition_assignment_strategy: "RoundRobin"
+
+  # ===========================================================================
+  # DEFAULT PRODUCER SETTINGS
+  # Applied to all producers unless overridden in worker-specific config
+  # ===========================================================================
+  producer_defaults:
+    acks: "all"
+    retries: 3
+    retry_backoff_ms: 1000
+    batch_size: 16384  # 16 KB
+    linger_ms: 10
+    compression_type: "lz4"
+    max_in_flight_requests_per_connection: 5
+    buffer_memory: 33554432  # 32 MB
+
+  # ===========================================================================
+  # XACT DOMAIN CONFIGURATION
+  # ===========================================================================
+  xact:
+    # Topics
+    topics:
+      events: "xact.events.raw"
+      enrichment_pending: "xact.enrichment.pending"
+      enrichment_complete: "xact.enrichment.complete"
+      downloads_pending: "xact.downloads.pending"
+      downloads_cached: "xact.downloads.cached"
+      downloads_results: "xact.downloads.results"
+      events_ingested: "xact.events.ingested"
+      retry: "xact.retry"
+      dlq: "xact.downloads.dlq"
+
+    # Consumer group prefix
+    consumer_group_prefix: "xact"
+
+    # Retry configuration
+    retry_delays: [300, 600]  # 5min, 10min
+    max_retries: 4
+
+    # -------------------------------------------------------------------------
+    # Event Ingester Worker
+    # -------------------------------------------------------------------------
+    event_ingester:
+      consumer:
+        group_id: "xact-event-ingester"
+        max_poll_records: 1000
+        max_poll_interval_ms: 3000000  # 10 minutes
+        session_timeout_ms: 45000  # 45 seconds
+        fetch_min_bytes: 10240  # 10 KB
+        fetch_max_wait_ms: 1000
+
+      producer:
+        acks: "1"
+        batch_size: 32768  # 32 KB
+        linger_ms: 100
+        compression_type: "lz4"
+
+      processing:
+        batch_size: 1000
+        max_batches: null
+        health_port: 8080
+
+    # -------------------------------------------------------------------------
+    # Enrichment Worker
+    # -------------------------------------------------------------------------
+    enrichment_worker:
+      consumer:
+        group_id: "xact-enrichment-worker"
+        max_poll_records: 100
+        max_poll_interval_ms: 600000  # 10 minutes
+        session_timeout_ms: 45000
+
+      producer:
+        acks: "all"
+        compression_type: "snappy"
+
+      processing:
+        max_poll_records: 100
+        plugins_dir: "config/plugins"
+        plugins_enabled: true
+        health_port: 8081
+
+    # -------------------------------------------------------------------------
+    # Download Worker
+    # -------------------------------------------------------------------------
+    download_worker:
+      consumer:
+        group_id: "xact-download-worker"
+        max_poll_records: 20
+        max_poll_interval_ms: 900000  # 15 minutes
+        session_timeout_ms: 60000
+        fetch_max_wait_ms: 2000
+
+      producer:
+        acks: "all"
+        compression_type: "none"
+
+      processing:
+        concurrency: 20
+        batch_size: 20
+        timeout_seconds: 60
+
+    # -------------------------------------------------------------------------
+    # Upload Worker
+    # -------------------------------------------------------------------------
+    upload_worker:
+      consumer:
+        group_id: "xact-upload-worker"
+        max_poll_records: 30
+        max_poll_interval_ms: 900000  # 15 minutes
+        session_timeout_ms: 60000
+
+      producer:
+        acks: "all"
+        compression_type: "none"
+
+      processing:
+        concurrency: 50
+        batch_size: 30
+
+    # -------------------------------------------------------------------------
+    # Delta Events Writer Worker
+    # -------------------------------------------------------------------------
+    delta_events_writer:
+      consumer:
+        group_id: "xact-delta-events-writer"
+        max_poll_records: 4000
+        max_poll_interval_ms: 3000000  # 10 minutes
+        session_timeout_ms: 45000
+
+      producer:
+        acks: "all"
+        compression_type: "snappy"
+        max_request_size_bytes: 10485760  # 10 MB
+
+      processing:
+        batch_size: 1500
+        max_batches: null
+        batch_timeout_seconds: 10
+        retry_delays: [300, 600]
+        max_retries: 2
+        retry_topic_prefix: "delta-events.retry"
+        dlq_topic: "delta-events.dlq"
+
+  # ===========================================================================
+  # CLAIMX DOMAIN CONFIGURATION
+  # ===========================================================================
+  claimx:
+    # Topics
+    topics:
+      events: "claimx.events.raw"
+      enrichment_pending: "claimx.enrichment.pending"
+      downloads_pending: "claimx.downloads.pending"
+      downloads_cached: "claimx.downloads.cached"
+      downloads_results: "claimx.downloads.results"
+      retry: "claimx.retry"
+      dlq: "claimx.downloads.dlq"
+      entities_rows: "claimx.entities.rows"
+
+    # Consumer group prefix
+    consumer_group_prefix: "claimx"
+
+    # Retry configuration
+    retry_delays: [300, 600]
+    max_retries: 2
+
+    # -------------------------------------------------------------------------
+    # Event Ingester Worker
+    # -------------------------------------------------------------------------
+    event_ingester:
+      consumer:
+        group_id: "claimx-event-ingester"
+        max_poll_records: 1000
+        max_poll_interval_ms: 300000  # 5 minutes
+
+      producer:
+        acks: "1"
+        batch_size: 32768  # 32 KB
+        linger_ms: 100
+        compression_type: "lz4"
+
+      processing:
+        batch_size: 100
+        health_port: 8084
+
+    # -------------------------------------------------------------------------
+    # Enrichment Worker
+    # -------------------------------------------------------------------------
+    enrichment_worker:
+      consumer:
+        group_id: "claimx-enrichment-worker"
+        max_poll_records: 2000
+        max_poll_interval_ms: 3000000  # 10 minutes
+        session_timeout_ms: 45000
+
+      producer:
+        acks: "1"
+        compression_type: "lz4"
+
+      processing:
+        api_concurrency: 20
+        api_timeout_seconds: 30
+        batch_size: 3000
+        batch_timeout_seconds: 5.0
+        health_port: 8081
+        project_cache:
+          ttl_seconds: 1800
+          preload_from_delta: true
+        plugins_dir: "config/plugins"
+        plugins_enabled: true
+
+    # -------------------------------------------------------------------------
+    # Download Worker
+    # -------------------------------------------------------------------------
+    download_worker:
+      consumer:
+        group_id: "claimx-download-worker"
+        max_poll_records: 40
+        max_poll_interval_ms: 900000  # 15 minutes
+        session_timeout_ms: 60000
+
+      producer:
+        acks: "all"
+
+      processing:
+        concurrency: 40
+        batch_size: 40
+        timeout_seconds: 120
+        health_port: 8082
+
+    # -------------------------------------------------------------------------
+    # Upload Worker
+    # -------------------------------------------------------------------------
+    upload_worker:
+      consumer:
+        group_id: "claimx-upload-worker"
+        max_poll_records: 30
+        max_poll_interval_ms: 900000  # 15 minutes
+        session_timeout_ms: 60000
+
+      producer:
+        acks: "all"
+
+      processing:
+        concurrency: 25
+        batch_size: 30
+        health_port: 8083
+
+    # -------------------------------------------------------------------------
+    # Delta Events Writer Worker
+    # -------------------------------------------------------------------------
+    delta_events_writer:
+      consumer:
+        group_id: "claimx-delta-events-writer"
+        max_poll_records: 4000
+        max_poll_interval_ms: 3000000  # 10 minutes
+
+      producer:
+        acks: "all"
+        compression_type: "snappy"
+
+      processing:
+        batch_size: 1500
+        batch_timeout_seconds: 10
+        retry_delays: [300, 600]
+        max_retries: 2
+        retry_topic_prefix: "claimx-delta-events.retry"
+        dlq_topic: "claimx-delta-events.dlq"
+
+    # -------------------------------------------------------------------------
+    # Entity Delta Writer Worker
+    # -------------------------------------------------------------------------
+    entity_delta_writer:
+      consumer:
+        group_id: "claimx-entity-delta-writer"
+        max_poll_records: 500
+        max_poll_interval_ms: 600000  # 10 minutes
+        session_timeout_ms: 45000
+
+      producer:
+        acks: "all"
+        compression_type: "snappy"
+
+      processing:
+        batch_size: 40
+        batch_timeout_seconds: 10
+        max_retries: 3
+        retry_delays: [60, 300, 900]
+        retry_topic_prefix: "claimx.entities.rows.retry"
+        dlq_topic: "claimx.entities.rows.dlq"
+        health_port: 8086
+
+# =============================================================================
+# STORAGE CONFIGURATION
+# =============================================================================
+storage:
+  onelake_domain_paths:
+    xact: "${ONELAKE_BASE_PATH}/xact"
+    claimx: "${ONELAKE_BASE_PATH}/claimx"
+  onelake_base_path: "${ONELAKE_BASE_PATH}"
+  cache_dir: "${CACHE_DIR}"
+
+# =============================================================================
+# DELTA LAKE TABLE PATHS
+# =============================================================================
+delta:
+  enable_writes: true
+
+  xact:
+    events_table_path: "${XACT_DELTA_EVENTS_TABLE}"
+    inventory_table_path: "${XACT_DELTA_INVENTORY_TABLE}"
+    failed_table_path: ""
+
+  claimx:
+    events_table_path: "${CLAIMX_DELTA_EVENTS_TABLE}"
+    inventory_table_path: "${CLAIMX_DELTA_INVENTORY_TABLE}"
+    projects_table_path: "${CLAIMX_DELTA_PROJECTS_TABLE}"
+    contacts_table_path: "${CLAIMX_DELTA_CONTACTS_TABLE}"
+    media_table_path: "${CLAIMX_DELTA_MEDIA_TABLE}"
+    tasks_table_path: "${CLAIMX_DELTA_TASKS_TABLE}"
+    task_templates_table_path: "${CLAIMX_DELTA_TASK_TEMPLATES_TABLE}"
+    external_links_table_path: "${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE}"
+    video_collab_table_path: "${CLAIMX_DELTA_VIDEO_COLLAB_TABLE}"
+
+# =============================================================================
+# CLAIMX API CONFIGURATION
+# =============================================================================
+claimx:
+  api:
+    base_url: "${CLAIMX_API_BASE_PATH}"
+    token: "${CLAIMX_API_TOKEN}"
+    timeout_seconds: 30
+    max_concurrent: 20
+
+# =============================================================================
+# EVENTHOUSE INTEGRATION
+# =============================================================================
+xact_eventhouse:
+  cluster_url: "${EVENTHOUSE_CLUSTER_URL}"
+  database: "${XACT_EVENTHOUSE_DATABASE}"
+  query_timeout_seconds: 240
+  max_retries: 2
+  retry_base_delay_seconds: 10
+  retry_max_delay_seconds: 30.0
+  max_connections: 5
+
+  poller:
+    poll_interval_seconds: 3
+    batch_size: 8000
+    source_table: "${XACT_EVENTHOUSE_SOURCE_TABLE}"
+    events_table_path: ""
+    backfill_start_stamp: null
+    backfill_stop_stamp: null
+    bulk_backfill: false
+    max_kafka_lag: 500000
+    lag_check_interval_seconds: 60
+
+claimx_eventhouse:
+  cluster_url: "${EVENTHOUSE_CLUSTER_URL}"
+  database: "${CLAIMX_EVENTHOUSE_DATABASE}"
+  query_timeout_seconds: 120
+
+  poller:
+    poll_interval_seconds: 30
+    batch_size: 1000
+    source_table: "${CLAIMX_EVENTHOUSE_SOURCE_TABLE}"
+    events_table_path: "${CLAIMX_DELTA_EVENTS_TABLE}"
+    backfill_start_stamp: null
+    backfill_stop_stamp: null
+    bulk_backfill: false
+
+  dedup:
+    claimx_events_window_hours: 24
+    eventhouse_query_window_hours: 1
+    overlap_minutes: 5
+
+# =============================================================================
+# OBSERVABILITY & MONITORING
+# =============================================================================
+health:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+
+logging:
+  level: "${LOG_LEVEL}"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  log_dir: "logs"
+
+observability:
+  json_logs: true
+  log_upload_enabled: true
+  log_upload_interval_cycles: 10
+  log_retention_days: 7
+  memory_checkpoints_enabled: true
+  memory_checkpoint_level: "DEBUG"
+  memory_profiling_enabled: true
+  memory_snapshot_interval: 5
+  memory_alert_threshold_mb: 4096
+
+# =============================================================================
+# RUNTIME METADATA
+# =============================================================================
+worker_id: "worker-01"
+test_mode: false
+
+# =============================================================================
+# DUMMY DATA SOURCE (for testing)
+# =============================================================================
+dummy:
+  generator:
+    plugin_profile: "mixed"
+    itel_trigger_percentage: 0.3
+    include_itel_triggers: true
+    base_url: "http://localhost:8765"
+    include_failures: false
+    failure_rate: 0.05
+
+  file_server:
+    host: "0.0.0.0"
+    port: 8765
+    default_file_size: 100000
+    max_file_size: 10000000
+
+  domains:
+    - xact
+    - claimx
+
+  events_per_minute: 4000
+  burst_mode: false
+  burst_size: 10000
+  burst_interval_seconds: 60
+  include_all_event_types: true
+  max_active_claims: 100000000000
+  max_events: null

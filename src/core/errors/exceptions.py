@@ -68,12 +68,6 @@ class AuthError(PipelineError):
     category = ErrorCategory.AUTH
 
 
-class TokenExpiredError(AuthError):
-    """Token has expired, needs refresh."""
-
-    pass
-
-
 # =============================================================================
 # Network/Connection Errors (Transient)
 # =============================================================================
@@ -83,18 +77,6 @@ class TransientError(PipelineError):
     """Base class for transient/retriable errors."""
 
     category = ErrorCategory.TRANSIENT
-
-
-class ConnectionError(TransientError):
-    """Network connection failed (VPN drop, DNS, etc)."""
-
-    pass
-
-
-class TimeoutError(TransientError):
-    """Operation timed out."""
-
-    pass
 
 
 class ThrottlingError(TransientError):
@@ -111,12 +93,6 @@ class ThrottlingError(TransientError):
         self.retry_after = retry_after  # Seconds to wait if provided
 
 
-class ServiceUnavailableError(TransientError):
-    """Service temporarily unavailable (503)."""
-
-    pass
-
-
 # =============================================================================
 # Permanent Errors (Don't Retry)
 # =============================================================================
@@ -126,30 +102,6 @@ class PermanentError(PipelineError):
     """Base class for permanent/non-retriable errors."""
 
     category = ErrorCategory.PERMANENT
-
-
-class NotFoundError(PermanentError):
-    """Resource not found (404)."""
-
-    pass
-
-
-class ForbiddenError(PermanentError):
-    """Access denied (403) - permissions issue, not auth."""
-
-    pass
-
-
-class ValidationError(PermanentError):
-    """Data validation failed."""
-
-    pass
-
-
-class ConfigurationError(PermanentError):
-    """Invalid configuration."""
-
-    pass
 
 
 # =============================================================================
@@ -179,82 +131,10 @@ class CircuitOpenError(PipelineError):
 # =============================================================================
 
 
-class KustoError(PipelineError):
-    """Error from Kusto/Eventhouse operations."""
-
-    pass
-
-
-class KustoQueryError(KustoError):
-    """Query execution failed."""
-
-    pass
-
-
-class DeltaTableError(PipelineError):
-    """Error from Delta table operations."""
-
-    pass
-
-
-class OneLakeError(PipelineError):
-    """Error from OneLake operations."""
-
-    pass
-
-
 class KafkaError(PipelineError):
     """Error from Kafka operations (producer/consumer)."""
 
     pass
-
-
-class DownloadError(PipelineError):
-    """Error downloading attachment from source."""
-
-    pass
-
-
-class AttachmentAuthError(DownloadError):
-    """Attachment URL returned 401 - may be transient (VPN/proxy)."""
-
-    category = ErrorCategory.TRANSIENT
-
-
-class AttachmentThrottlingError(DownloadError):
-    """Attachment URL returned 429."""
-
-    category = ErrorCategory.TRANSIENT
-
-
-class AttachmentServiceError(DownloadError):
-    """Attachment URL returned 5xx."""
-
-    category = ErrorCategory.TRANSIENT
-
-
-class AttachmentClientError(DownloadError):
-    """Attachment URL returned 4xx (other than 401/403/404)."""
-
-    category = ErrorCategory.PERMANENT
-
-
-class AttachmentNotFoundError(DownloadError):
-    """Attachment URL returned 404."""
-
-    category = ErrorCategory.PERMANENT
-
-
-class AttachmentForbiddenError(DownloadError):
-    """Attachment URL returned 403."""
-
-    category = ErrorCategory.PERMANENT
-
-
-class AttachmentTokenExpiredError(DownloadError):
-    """STS/presigned URL token expired - PERMANENT for Xact (no refresh capability)."""
-
-    category = ErrorCategory.PERMANENT
 
 
 # =============================================================================
@@ -463,27 +343,33 @@ def wrap_exception(
 
     category = classify_exception(exc)
     exc_str = str(exc).lower()
+    context = context or {}
 
-    # Map to specific exception types
+    # Add error details to context dict instead of using specialized classes
+    if "timeout" in exc_str:
+        context["error_type"] = "timeout"
+    elif "429" in exc_str or "throttl" in exc_str:
+        context["error_type"] = "throttling"
+    elif "503" in exc_str:
+        context["error_type"] = "service_unavailable"
+    elif "404" in exc_str or "not found" in exc_str:
+        context["error_type"] = "not_found"
+    elif "403" in exc_str or "forbidden" in exc_str:
+        context["error_type"] = "forbidden"
+    elif "expired" in exc_str:
+        context["error_type"] = "token_expired"
+
+    # Map to base exception types by category
     if category == ErrorCategory.AUTH:
-        if "expired" in exc_str:
-            return TokenExpiredError(str(exc), cause=exc, context=context)
         return AuthError(str(exc), cause=exc, context=context)
 
     if category == ErrorCategory.TRANSIENT:
-        if "timeout" in exc_str:
-            return TimeoutError(str(exc), cause=exc, context=context)
+        # Use ThrottlingError if rate limited (has retry_after logic)
         if "429" in exc_str or "throttl" in exc_str:
             return ThrottlingError(str(exc), cause=exc, context=context)
-        if "503" in exc_str:
-            return ServiceUnavailableError(str(exc), cause=exc, context=context)
-        return ConnectionError(str(exc), cause=exc, context=context)
+        return TransientError(str(exc), cause=exc, context=context)
 
     if category == ErrorCategory.PERMANENT:
-        if "404" in exc_str or "not found" in exc_str:
-            return NotFoundError(str(exc), cause=exc, context=context)
-        if "403" in exc_str or "forbidden" in exc_str:
-            return ForbiddenError(str(exc), cause=exc, context=context)
         return PermanentError(str(exc), cause=exc, context=context)
 
     # Default wrapper

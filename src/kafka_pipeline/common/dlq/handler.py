@@ -4,14 +4,11 @@ Dead-letter queue (DLQ) handler for manual review and replay.
 Provides DLQ message management with:
 - Manual consumption from DLQ topic (no auto-commit)
 - Message replay capability to original pending topic
-- Manual acknowledgment for audit trail
-- Comprehensive audit logging for compliance
+- Manual acknowledgment
 """
 
 import json
 import logging
-import os
-from datetime import datetime, timezone
 from typing import Optional
 
 from aiokafka.structs import ConsumerRecord
@@ -23,21 +20,6 @@ from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
 from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
 
 logger = logging.getLogger(__name__)
-
-# Create dedicated audit logger for DLQ operations
-audit_logger = logging.getLogger(f"{__name__}.audit")
-audit_logger.setLevel(logging.INFO)
-
-# Add file handler for audit logs if AUDIT_LOG_PATH is set
-audit_log_path = os.getenv("AUDIT_LOG_PATH")
-if audit_log_path:
-    audit_handler = logging.FileHandler(audit_log_path)
-    audit_handler.setLevel(logging.INFO)
-    audit_formatter = logging.Formatter(
-        '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s", "data": %(message)s}'
-    )
-    audit_handler.setFormatter(audit_formatter)
-    audit_logger.addHandler(audit_handler)
 
 
 class DLQHandler:
@@ -179,20 +161,6 @@ class DLQHandler:
                 },
             )
 
-            # Audit log: DLQ message received
-            audit_logger.info(
-                json.dumps({
-                    "action": "dlq_message_received",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "trace_id": dlq_msg.trace_id,
-                    "attachment_url": dlq_msg.attachment_url,
-                    "retry_count": dlq_msg.retry_count,
-                    "error_category": dlq_msg.error_category,
-                    "kafka_offset": record.offset,
-                    "kafka_partition": record.partition,
-                })
-            )
-
             # In a real implementation, this would trigger manual review workflow
             # For now, just log and acknowledge
             # Note: We don't commit here - manual review workflow will call acknowledge_message
@@ -301,21 +269,6 @@ class DLQHandler:
             },
         )
 
-        # Audit log: Message replayed
-        audit_logger.info(
-            json.dumps({
-                "action": "dlq_message_replayed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "trace_id": dlq_msg.trace_id,
-                "attachment_url": dlq_msg.attachment_url,
-                "original_retry_count": dlq_msg.retry_count,
-                "destination_topic": self._pending_topic,
-                "dlq_offset": record.offset,
-                "dlq_partition": record.partition,
-                "new_retry_count": 0,
-            })
-        )
-
         # Don't commit offset here - let caller decide when to acknowledge
 
     async def acknowledge_message(self, record: ConsumerRecord) -> None:
@@ -357,18 +310,6 @@ class DLQHandler:
                 "partition": record.partition,
                 "offset": record.offset,
             },
-        )
-
-        # Audit log: Message acknowledged
-        audit_logger.info(
-            json.dumps({
-                "action": "dlq_message_acknowledged",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "trace_id": dlq_msg.trace_id,
-                "attachment_url": dlq_msg.attachment_url,
-                "kafka_offset": record.offset,
-                "kafka_partition": record.partition,
-            })
         )
 
     @property

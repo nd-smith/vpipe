@@ -1,5 +1,5 @@
 """Storage abstractions and clients."""
 
-from kafka_pipeline.common.storage.onelake_client import OneLakeClient
+from kafka_pipeline.common.storage.onelake import OneLakeClient
 
 __all__ = ["OneLakeClient"]

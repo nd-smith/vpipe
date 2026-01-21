@@ -6,7 +6,7 @@ from config.config import (
     get_config,
     set_config,
     reset_config,
-    DEFAULT_CONFIG_DIR,
+    DEFAULT_CONFIG_FILE,
 )
 
 __all__ = [
@@ -15,5 +15,5 @@ __all__ = [
     "get_config",
     "set_config",
     "reset_config",
-    "DEFAULT_CONFIG_DIR",
+    "DEFAULT_CONFIG_FILE",
 ]

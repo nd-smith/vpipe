@@ -8,9 +8,8 @@ Handler Types:
     - ProjectHandler: Handles PROJECT_CREATED, PROJECT_MFN_ADDED events
     - MediaHandler: Handles PROJECT_FILE_ADDED events
     - TaskHandler: Handles CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED events
-    - PolicyholderHandler: Handles POLICYHOLDER_INVITED, POLICYHOLDER_JOINED events
+    - ProjectUpdateHandler: Handles POLICYHOLDER_INVITED, POLICYHOLDER_JOINED, PROJECT_AUTO_XA_LINKING_UNSUCCESSFUL events
     - VideoCollabHandler: Handles VIDEO_COLLABORATION_INVITE_SENT, VIDEO_COLLABORATION_COMPLETED events
-    - XALinkingHandler: Handles PROJECT_AUTO_XA_LINKING_UNSUCCESSFUL events
 
 Base Classes:
     - EventHandler: Abstract base class for all handlers
@@ -54,9 +53,8 @@ def _ensure_handlers_registered() -> None:
     from kafka_pipeline.claimx.handlers import project  # noqa: F401
     from kafka_pipeline.claimx.handlers import media  # noqa: F401
     from kafka_pipeline.claimx.handlers import task  # noqa: F401
-    from kafka_pipeline.claimx.handlers import contact  # noqa: F401
+    from kafka_pipeline.claimx.handlers import project_update  # noqa: F401
     from kafka_pipeline.claimx.handlers import video  # noqa: F401
-    from kafka_pipeline.claimx.handlers import xa_linking  # noqa: F401
 
     _handlers_registered = True
 

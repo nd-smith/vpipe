@@ -18,11 +18,6 @@ from pydantic import BaseModel
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging import get_logger, log_with_context, log_exception
-from core.resilience.circuit_breaker import (
-    CircuitBreaker,
-    KAFKA_CIRCUIT_CONFIG,
-    get_circuit_breaker,
-)
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     record_message_produced,
@@ -42,7 +37,6 @@ class BaseKafkaProducer:
         config: KafkaConfig,
         domain: str,
         worker_name: str,
-        circuit_breaker: Optional[CircuitBreaker] = None,
     ):
         # Producer settings loaded via config.get_worker_config(domain, worker_name, "producer")
         # which merges worker-specific overrides with defaults
@@ -50,9 +44,6 @@ class BaseKafkaProducer:
         self.domain = domain
         self.worker_name = worker_name
         self._producer: Optional[AIOKafkaProducer] = None
-        self._circuit_breaker = circuit_breaker or get_circuit_breaker(
-            f"kafka_producer_{domain}_{worker_name}", KAFKA_CIRCUIT_CONFIG
-        )
         self._started = False
         self.producer_config = config.get_worker_config(domain, worker_name, "producer")
 
@@ -222,16 +213,13 @@ class BaseKafkaProducer:
             value_size=len(value_bytes),
         )
 
-        async def _send():
-            return await self._producer.send_and_wait(
+        try:
+            metadata = await self._producer.send_and_wait(
                 topic,
                 key=key.encode("utf-8"),
                 value=value_bytes,
                 headers=headers_list,
             )
-
-        try:
-            metadata = await self._circuit_breaker.call_async(_send)
             record_message_produced(topic, len(value_bytes), success=True)
 
             log_with_context(
@@ -291,15 +279,12 @@ class BaseKafkaProducer:
             )
             futures.append(future)
 
-        async def _wait_for_batch():
+        try:
             results = []
             for future in futures:
                 metadata = await future
                 results.append(metadata)
-            return results
 
-        try:
-            results = await self._circuit_breaker.call_async(_wait_for_batch)
             duration = time.perf_counter() - start_time
             batch_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in results:
@@ -347,8 +332,6 @@ class BaseKafkaProducer:
 __all__ = [
     "BaseKafkaProducer",
     "AIOKafkaProducer",
-    "get_circuit_breaker",
-    "CircuitBreaker",
     "RecordMetadata",
     "create_kafka_oauth_callback",
 ]

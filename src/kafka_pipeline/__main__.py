@@ -1329,18 +1329,17 @@ def main():
                 )
         elif args.worker == "dummy-source":
             import yaml
-            from config.pipeline_config import DEFAULT_CONFIG_DIR
+            from kafka_pipeline.config import DEFAULT_CONFIG_FILE
 
             dummy_config = {}
-            config_file = DEFAULT_CONFIG_DIR / "shared.yaml"
-            if config_file.exists():
-                with open(config_file) as f:
+            if DEFAULT_CONFIG_FILE.exists():
+                with open(DEFAULT_CONFIG_FILE) as f:
                     full_config = yaml.safe_load(f)
                     dummy_config = full_config.get("dummy", {})
                 logger.info(
                     "Loaded dummy source config",
                     extra={
-                        "config_file": str(config_file),
+                        "config_file": str(DEFAULT_CONFIG_FILE),
                         "domains": dummy_config.get("domains", ["xact", "claimx"]),
                         "events_per_minute": dummy_config.get("events_per_minute", 10.0),
                         "burst_mode": dummy_config.get("burst_mode", False),

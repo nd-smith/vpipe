@@ -34,6 +34,7 @@ from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     record_delta_write,
     record_message_consumed,
+    record_processing_error,
     update_connection_status,
     update_assigned_partitions,
 )
@@ -61,6 +62,7 @@ from kafka_pipeline.plugins.shared.registry import (
     PluginOrchestrator,
     get_plugin_registry,
 )
+from kafka_pipeline.claimx.workers.download_factory import DownloadTaskFactory
 
 logger = get_logger(__name__)
 
@@ -623,12 +625,170 @@ class ClaimXEnrichmentWorker:
 
         await self._process_single_task(task)
 
+    async def _execute_handler(
+        self,
+        handler,
+        event: ClaimXEventMessage,
+        task: ClaimXEnrichmentTask,
+    ):
+        """
+        Execute handler to enrich event with API data.
+
+        Args:
+            handler: Handler instance for this event type
+            event: Event message to process
+            task: Original enrichment task
+
+        Returns:
+            HandlerResult with entity rows and metadata
+        """
+        from kafka_pipeline.common.telemetry import get_tracer
+
+        tracer = get_tracer(__name__)
+        with tracer.start_active_span("claimx.api.enrich") as scope:
+            span = scope.span if hasattr(scope, 'span') else scope
+            span.set_tag("span.kind", "client")
+            span.set_tag("event.id", task.event_id)
+            span.set_tag("event.type", task.event_type)
+            span.set_tag("project.id", task.project_id)
+            handler_result = await handler.process([event])
+
+        return handler_result
+
+    async def _execute_plugins(
+        self,
+        task: ClaimXEnrichmentTask,
+        entity_rows: EntityRowsMessage,
+        handler_result,
+    ) -> bool:
+        """
+        Execute plugins for post-enrichment processing.
+
+        Args:
+            task: Original enrichment task
+            entity_rows: Entity rows from handler
+            handler_result: Handler result metadata
+
+        Returns:
+            True if pipeline should continue, False if terminated by plugin
+        """
+        if not self.plugin_orchestrator:
+            return True
+
+        plugin_context = PluginContext(
+            domain=Domain.CLAIMX,
+            stage=PipelineStage.ENRICHMENT_COMPLETE,
+            message=task,
+            event_id=task.event_id,
+            event_type=task.event_type,
+            project_id=task.project_id,
+            data={
+                "entities": entity_rows,
+                "handler_result": handler_result,
+            },
+            headers={},
+        )
+
+        try:
+            orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
+
+            if orchestrator_result.terminated:
+                logger.info(
+                    "Pipeline terminated by plugin",
+                    extra={
+                        "event_id": task.event_id,
+                        "event_type": task.event_type,
+                        "project_id": task.project_id,
+                        "reason": orchestrator_result.termination_reason,
+                        "plugin_results": orchestrator_result.success_count,
+                    },
+                )
+                return False
+
+            if orchestrator_result.actions_executed > 0:
+                logger.debug(
+                    "Plugin actions executed",
+                    extra={
+                        "event_id": task.event_id,
+                        "actions": orchestrator_result.actions_executed,
+                        "plugins": orchestrator_result.success_count,
+                    },
+                )
+
+        except Exception as e:
+            logger.error(
+                "Plugin execution failed",
+                extra={
+                    "event_id": task.event_id,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+
+        return True
+
+    def _dispatch_entity_rows(
+        self,
+        task: ClaimXEnrichmentTask,
+        entity_rows: EntityRowsMessage,
+    ) -> None:
+        """
+        Dispatch entity rows to Kafka for Delta Lake writing.
+
+        Creates background task to produce rows without blocking.
+
+        Args:
+            task: Original enrichment task
+            entity_rows: Entity rows to produce
+        """
+        if not self.enable_delta_writes or entity_rows.is_empty():
+            return
+
+        self._create_tracked_task(
+            self._produce_entity_rows(entity_rows, [task]),
+            task_name="produce_entity_rows",
+            context={
+                "event_id": task.event_id,
+                "row_count": entity_rows.row_count(),
+            },
+        )
+
+    async def _dispatch_download_tasks(
+        self,
+        entity_rows: EntityRowsMessage,
+    ) -> None:
+        """
+        Create and dispatch download tasks for media files.
+
+        Args:
+            entity_rows: Entity rows containing media metadata
+        """
+        if not entity_rows.media:
+            return
+
+        download_tasks = DownloadTaskFactory.create_download_tasks_from_media(entity_rows.media)
+        if download_tasks:
+            await self._produce_download_tasks(download_tasks)
+
     async def _process_single_task(self, task: ClaimXEnrichmentTask) -> None:
+        """
+        Process single enrichment task through the pipeline.
+
+        Flow:
+        1. Ensure project exists in cache
+        2. Create event message from task
+        3. Execute handler to fetch API data
+        4. Execute plugins for post-processing
+        5. Dispatch entity rows to Kafka
+        6. Dispatch download tasks for media files
+        """
         start_time = datetime.now(timezone.utc)
 
+        # Step 1: Ensure project exists in cache
         if task.project_id:
             await self._ensure_projects_exist([task.project_id])
 
+        # Step 2: Create event message from task
         event = ClaimXEventMessage(
             event_id=task.event_id,
             event_type=task.event_type,
@@ -640,6 +800,7 @@ class ClaimXEnrichmentWorker:
             ingested_at=task.created_at,
         )
 
+        # Step 3: Get handler for event type
         handler_class = self.handler_registry.get_handler_class(event.event_type)
         if not handler_class:
             logger.warning(
@@ -655,86 +816,23 @@ class ClaimXEnrichmentWorker:
         handler = handler_class(self.api_client, project_cache=self.project_cache)
 
         try:
-            from kafka_pipeline.common.telemetry import get_tracer
-
-            tracer = get_tracer(__name__)
-            with tracer.start_active_span("claimx.api.enrich") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
-                span.set_tag("span.kind", "client")
-                span.set_tag("event.id", task.event_id)
-                span.set_tag("event.type", task.event_type)
-                span.set_tag("project.id", task.project_id)
-                handler_result = await handler.process([event])
-
+            # Step 4: Execute handler to enrich event with API data
+            handler_result = await self._execute_handler(handler, event, task)
             entity_rows = handler_result.rows
             self._records_succeeded += 1
 
-            if self.plugin_orchestrator:
-                plugin_context = PluginContext(
-                    domain=Domain.CLAIMX,
-                    stage=PipelineStage.ENRICHMENT_COMPLETE,
-                    message=task,
-                    event_id=task.event_id,
-                    event_type=task.event_type,
-                    project_id=task.project_id,
-                    data={
-                        "entities": entity_rows,
-                        "handler_result": handler_result,
-                    },
-                    headers={},
-                )
+            # Step 5: Execute plugins for post-processing
+            should_continue = await self._execute_plugins(task, entity_rows, handler_result)
+            if not should_continue:
+                return
 
-                try:
-                    orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
+            # Step 6: Dispatch entity rows to Kafka
+            self._dispatch_entity_rows(task, entity_rows)
 
-                    if orchestrator_result.terminated:
-                        logger.info(
-                            "Pipeline terminated by plugin",
-                            extra={
-                                "event_id": task.event_id,
-                                "event_type": task.event_type,
-                                "project_id": task.project_id,
-                                "reason": orchestrator_result.termination_reason,
-                                "plugin_results": orchestrator_result.success_count,
-                            },
-                        )
-                        return
+            # Step 7: Dispatch download tasks for media files
+            await self._dispatch_download_tasks(entity_rows)
 
-                    if orchestrator_result.actions_executed > 0:
-                        logger.debug(
-                            "Plugin actions executed",
-                            extra={
-                                "event_id": task.event_id,
-                                "actions": orchestrator_result.actions_executed,
-                                "plugins": orchestrator_result.success_count,
-                            },
-                        )
-
-                except Exception as e:
-                    logger.error(
-                        "Plugin execution failed",
-                        extra={
-                            "event_id": task.event_id,
-                            "error": str(e),
-                        },
-                        exc_info=True,
-                    )
-
-            if self.enable_delta_writes and not entity_rows.is_empty():
-                self._create_tracked_task(
-                    self._produce_entity_rows(entity_rows, [task]),
-                    task_name="produce_entity_rows",
-                    context={
-                        "event_id": task.event_id,
-                        "row_count": entity_rows.row_count(),
-                    },
-                )
-
-            if entity_rows.media:
-                download_tasks = self._create_download_tasks_from_media(entity_rows.media)
-                if download_tasks:
-                    await self._produce_download_tasks(download_tasks)
-
+            # Log completion
             elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             logger.debug(
                 "Enrichment task complete",
@@ -856,58 +954,6 @@ class ClaimXEnrichmentWorker:
                 },
                 exc_info=True,
             )
-
-    def _create_download_tasks_from_media(
-        self,
-        media_rows: List[Dict[str, Any]],
-    ) -> List[ClaimXDownloadTask]:
-        download_tasks = []
-
-        for media_row in media_rows:
-            download_url = media_row.get("full_download_link")
-            if not download_url:
-                logger.debug(
-                    "Skipping media row without download URL",
-                    extra={
-                        "media_id": media_row.get("media_id"),
-                        "project_id": media_row.get("project_id"),
-                    },
-                )
-                continue
-
-            task = ClaimXDownloadTask(
-                media_id=str(media_row.get("media_id", "")),
-                project_id=str(media_row.get("project_id", "")),
-                download_url=download_url,
-                blob_path=self._generate_blob_path(media_row),
-                file_type=media_row.get("file_type", ""),
-                file_name=media_row.get("file_name", ""),
-                source_event_id=media_row.get("event_id", ""),
-                retry_count=0,
-                expires_at=media_row.get("expires_at"),
-                refresh_count=0,
-            )
-            download_tasks.append(task)
-
-        logger.debug(
-            "Created download tasks from media rows",
-            extra={
-                "media_rows": len(media_rows),
-                "download_tasks": len(download_tasks),
-            },
-        )
-
-        return download_tasks
-
-    def _generate_blob_path(self, media_row: Dict[str, Any]) -> str:
-        """
-        Generate blob storage path for media file.
-        Path is relative to OneLake domain base path (which includes 'claimx' prefix).
-        """
-        project_id = media_row.get("project_id", "unknown")
-        media_id = media_row.get("media_id", "unknown")
-        file_name = media_row.get("file_name", f"media_{media_id}")
-        return f"{project_id}/media/{file_name}"
 
     async def _produce_entity_rows(
         self,

@@ -14,11 +14,6 @@ from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging import get_logger, log_with_context, log_exception, KafkaLogContext
 from core.errors.exceptions import CircuitOpenError, ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
-from core.resilience.circuit_breaker import (
-    CircuitBreaker,
-    KAFKA_CIRCUIT_CONFIG,
-    get_circuit_breaker,
-)
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
@@ -28,8 +23,6 @@ from kafka_pipeline.common.metrics import (
     update_consumer_lag,
     update_consumer_offset,
     message_processing_duration_seconds,
-    record_consumer_shutdown,
-    record_consumer_shutdown_error,
 )
 
 logger = get_logger(__name__)
@@ -45,7 +38,6 @@ class BaseKafkaConsumer:
         worker_name: str,
         topics: List[str],
         message_handler: Callable[[ConsumerRecord], Awaitable[None]],
-        circuit_breaker: Optional[CircuitBreaker] = None,
         enable_message_commit: bool = True,
     ):
         if not topics:
@@ -67,9 +59,6 @@ class BaseKafkaConsumer:
         self.max_batches = processing_config.get("max_batches")
         self._batch_count = 0
 
-        self._circuit_breaker = circuit_breaker or get_circuit_breaker(
-            f"kafka_consumer_{self.group_id}", KAFKA_CIRCUIT_CONFIG
-        )
         self._enable_message_commit = enable_message_commit
 
         log_with_context(
@@ -277,14 +266,8 @@ class BaseKafkaConsumer:
                     _logged_assignment_received = True
                     update_assigned_partitions(self.group_id, len(assignment))
 
-                # Circuit breaker uses threading.RLock which deadlocks with multiple async consumers
-                # sharing the same lock, so call getmany() directly and record success/failure manually
-                try:
-                    data = await self._consumer.getmany(timeout_ms=1000)
-                    self._circuit_breaker.record_success()
-                except Exception as fetch_error:
-                    self._circuit_breaker.record_failure(fetch_error)
-                    raise
+                # Fetch messages with timeout
+                data = await self._consumer.getmany(timeout_ms=1000)
 
                 if data:
                     self._batch_count += 1
@@ -646,8 +629,6 @@ class BaseKafkaConsumer:
 __all__ = [
     "BaseKafkaConsumer",
     "AIOKafkaConsumer",
-    "get_circuit_breaker",
-    "CircuitBreaker",
     "ConsumerRecord",
     "create_kafka_oauth_callback",
 ]

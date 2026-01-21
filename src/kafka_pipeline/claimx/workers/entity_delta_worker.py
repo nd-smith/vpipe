@@ -26,13 +26,13 @@ from kafka_pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
 logger = get_logger(__name__)
 
 
-class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
+class ClaimXEntityDeltaWorker:
     """
     Worker to consume entity rows and write to Delta Lake.
-    
+
     Consumes EntityRowsMessage batches from Kafka and writes them to
     ClaimX entity tables (projects, contacts, media, etc.) using ClaimXEntityWriter.
-    
+
     Features:
     - Batch processing
     - Graceful shutdown
@@ -57,8 +57,9 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         Initialize ClaimX entity delta worker.
         """
         entity_rows_topic = entity_rows_topic or config.get_topic(domain, "entities_rows")
-        
-        super().__init__(
+
+        # Composition: create consumer instance instead of inheriting
+        self._consumer = BaseKafkaConsumer(
             config=config,
             domain=domain,
             worker_name="entity_delta_writer",
@@ -66,6 +67,8 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
             message_handler=self._handle_message,
         )
 
+        # Store domain for use in worker-specific logic
+        self.domain = domain
         self.producer: Optional[BaseKafkaProducer] = None
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
@@ -156,7 +159,8 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         # Update health check readiness
         self.health_server.set_ready(kafka_connected=True)
 
-        await super().start()
+        # Start the consumer
+        await self._consumer.start()
 
     async def stop(self) -> None:
         """Stop the worker."""
@@ -176,13 +180,18 @@ class ClaimXEntityDeltaWorker(BaseKafkaConsumer):
         # Flush remaining batch
         await self._flush_batch()
 
-        await super().stop()
+        # Stop the consumer
+        await self._consumer.stop()
 
         if self.producer:
             await self.producer.stop()
 
         # Stop health check server
         await self.health_server.stop()
+
+    async def commit(self) -> None:
+        """Commit consumer offsets after successful batch processing."""
+        await self._consumer.commit()
 
     async def _handle_message(self, record: ConsumerRecord) -> None:
         """

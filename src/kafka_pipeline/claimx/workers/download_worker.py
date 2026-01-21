@@ -53,7 +53,6 @@ from kafka_pipeline.common.metrics import (
     record_processing_error,
     update_connection_status,
     update_assigned_partitions,
-    update_downloads_concurrent,
     update_downloads_batch_size,
     message_processing_duration_seconds,
     claim_processing_seconds,
@@ -367,7 +366,6 @@ class ClaimXDownloadWorker:
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(consumer_group, 0)
-        update_downloads_concurrent(self.WORKER_NAME, 0)
         update_downloads_batch_size(self.WORKER_NAME, 0)
 
         logger.info("ClaimX download worker stopped successfully")
@@ -495,8 +493,6 @@ class ClaimXDownloadWorker:
             async with self._semaphore:
                 return await self._process_single_task(message)
 
-        update_downloads_concurrent(self.WORKER_NAME, len(messages))
-
         tasks = [bounded_process(msg) for msg in messages]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -517,8 +513,6 @@ class ClaimXDownloadWorker:
                 processed_results.append(None)  # type: ignore
             else:
                 processed_results.append(result)
-
-        update_downloads_concurrent(self.WORKER_NAME, 0)
 
         succeeded = sum(1 for r in processed_results if r and r.success)
         failed = sum(1 for r in processed_results if r and not r.success)

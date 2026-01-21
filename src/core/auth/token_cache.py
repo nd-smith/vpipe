@@ -25,50 +25,14 @@ Example:
     ...     # Token expired or not cached, fetch new one
 """
 
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import threading
 
 
 # Token timing constants
 TOKEN_REFRESH_MINS = 50  # Refresh before expiry (Azure tokens: 60 min lifetime)
 TOKEN_EXPIRY_MINS = 60   # Azure token lifetime
-
-
-@dataclass
-class CachedToken:
-    """
-    Token with acquisition timestamp for expiration tracking.
-
-    Attributes:
-        value: The access token string
-        acquired_at: UTC timestamp when token was cached
-    """
-
-    value: str
-    acquired_at: datetime
-
-    def is_valid(self, buffer_mins: int = TOKEN_REFRESH_MINS) -> bool:
-        """
-        Check if token is still valid with safety buffer.
-
-        Tokens are considered invalid when they're within buffer_mins of expiry.
-        This prevents using tokens that might expire mid-request.
-
-        Args:
-            buffer_mins: Minutes before expiry to consider token invalid.
-                        Default is 50 min for 60 min Azure tokens.
-
-        Returns:
-            True if token age is less than buffer_mins, False otherwise.
-
-        Example:
-            >>> token = CachedToken("abc123", datetime.now(timezone.utc))
-            >>> token.is_valid(buffer_mins=50)  # True if < 50 min old
-        """
-        age = datetime.now(timezone.utc) - self.acquired_at
-        return age < timedelta(minutes=buffer_mins)
 
 
 class TokenCache:
@@ -105,8 +69,13 @@ class TokenCache:
 
     def __init__(self):
         """Initialize empty token cache with thread lock."""
-        self._tokens: Dict[str, CachedToken] = {}
+        self._tokens: Dict[str, Tuple[str, datetime]] = {}
         self._lock = threading.Lock()
+
+    def _is_valid(self, acquired_at: datetime, buffer_mins: int = TOKEN_REFRESH_MINS) -> bool:
+        """Check if token is still valid based on age."""
+        age = datetime.now(timezone.utc) - acquired_at
+        return age < timedelta(minutes=buffer_mins)
 
     def get(self, resource: str) -> Optional[str]:
         """
@@ -126,8 +95,10 @@ class TokenCache:
         """
         with self._lock:
             cached = self._tokens.get(resource)
-            if cached and cached.is_valid():
-                return cached.value
+            if cached:
+                token, acquired_at = cached
+                if self._is_valid(acquired_at):
+                    return token
             return None
 
     def set(self, resource: str, token: str) -> None:
@@ -144,9 +115,7 @@ class TokenCache:
             >>> cache.set("https://storage.azure.com/", "eyJ0eXAiOiJKV1...")
         """
         with self._lock:
-            self._tokens[resource] = CachedToken(
-                value=token, acquired_at=datetime.now(timezone.utc)
-            )
+            self._tokens[resource] = (token, datetime.now(timezone.utc))
 
     def clear(self, resource: Optional[str] = None) -> None:
         """
@@ -190,8 +159,9 @@ class TokenCache:
         with self._lock:
             cached = self._tokens.get(resource)
             if cached:
-                return datetime.now(timezone.utc) - cached.acquired_at
+                _, acquired_at = cached
+                return datetime.now(timezone.utc) - acquired_at
             return None
 
 
-__all__ = ["TokenCache", "CachedToken", "TOKEN_REFRESH_MINS", "TOKEN_EXPIRY_MINS"]
+__all__ = ["TokenCache", "TOKEN_REFRESH_MINS", "TOKEN_EXPIRY_MINS"]

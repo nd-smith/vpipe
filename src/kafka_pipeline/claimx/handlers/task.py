@@ -28,6 +28,7 @@ from kafka_pipeline.claimx.handlers.utils import (
     now_datetime,
     today_date,
     elapsed_ms,
+    BaseTransformer,
 )
 
 from core.types import ErrorCategory
@@ -57,9 +58,7 @@ class TaskTransformer:
         event_id: str,
     ) -> Dict[str, Any]:
         """Transform task assignment to row."""
-        now = now_datetime()
-
-        return {
+        row = {
             "assignment_id": safe_int(data.get("assignmentId")),
             "task_id": safe_int(data.get("taskId")),
             "task_name": safe_str(data.get("taskName")),
@@ -87,11 +86,8 @@ class TaskTransformer:
                 data.get("resubmitTaskAssignmentId")
             ),
             "task_url": safe_str(data.get("url")),
-            "event_id": event_id,
-            "created_at": now,
-            "updated_at": now,
-            "last_enriched_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id)
 
     @staticmethod
     def to_template_row(
@@ -99,9 +95,7 @@ class TaskTransformer:
         event_id: str,
     ) -> Dict[str, Any]:
         """Transform custom task template to row."""
-        now = now_datetime()
-
-        return {
+        row = {
             "task_id": safe_int(template.get("taskId")),
             "comp_id": safe_int(template.get("compId")),
             "name": safe_str(template.get("name")),
@@ -131,11 +125,8 @@ class TaskTransformer:
             "modified_by": safe_str(template.get("modifiedBy")),
             "modified_by_id": safe_int(template.get("modifiedById")),
             "modified_date": parse_timestamp(template.get("modifiedDate")),
-            "event_id": event_id,
-            "created_at": now,
-            "updated_at": now,
-            "last_enriched_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id)
 
     @staticmethod
     def to_link_row(
@@ -145,9 +136,7 @@ class TaskTransformer:
         event_id: str,
     ) -> Dict[str, Any]:
         """Transform external link data to row."""
-        now = now_iso()
-
-        return {
+        row = {
             "link_id": safe_int(link.get("linkId")),
             "assignment_id": assignment_id,
             "project_id": safe_str_id(project_id),
@@ -161,10 +150,8 @@ class TaskTransformer:
             "created_date": None,
             "accessed_count": 0,
             "last_accessed": None,
-            "event_id": event_id,
-            "created_at": now,
-            "updated_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id, include_last_enriched=False)
 
     @staticmethod
     def to_contact_from_link(
@@ -180,7 +167,7 @@ class TaskTransformer:
 
         now = now_datetime()
         today = today_date()
-        return {
+        row = {
             "project_id": safe_str_id(project_id),
             "contact_email": email,
             "contact_type": "POLICYHOLDER",
@@ -192,12 +179,10 @@ class TaskTransformer:
             "master_file_name": None,
             "task_assignment_id": safe_int32(assignment_id),
             "video_collaboration_id": None,
-            "event_id": event_id,
-            "created_at": now,
             "updated_at": now_iso(),
             "created_date": today,
-            "last_enriched_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id)
 
 
 @register_handler
@@ -253,14 +238,11 @@ class TaskHandler(EventHandler):
         assignment_id = (
             safe_int(response.get("assignmentId")) or int(event.task_assignment_id)
         )
-        
+
         # 2. In-flight Project Verification
-        from kafka_pipeline.claimx.handlers.project import ProjectHandler
-        
-        project_handler = ProjectHandler(self.client, project_cache=self.project_cache)
-        project_rows = await project_handler.fetch_project_data(
+        project_rows = await self.ensure_project_exists(
             project_id,
-            source_event_id=event.event_id
+            source_event_id=event.event_id,
         )
         rows.merge(project_rows)
 

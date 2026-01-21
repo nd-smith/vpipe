@@ -21,8 +21,8 @@ from kafka_pipeline.claimx.handlers.utils import (
     safe_str,
     safe_decimal_str,
     parse_timestamp,
-    now_datetime,
     elapsed_ms,
+    BaseTransformer,
 )
 
 from core.logging import get_logger, log_with_context
@@ -55,17 +55,14 @@ class VideoCollabHandler(EventHandler):
         response = await self.client.get_video_collaboration(event.project_id)
 
         collab_data = self._extract_collab_data(response, event.project_id)
-        
+
         rows = EntityRowsMessage()
-        
+
         # 2. In-flight Project Verification
         # We need to ensure the project exists in our warehouse
-        from kafka_pipeline.claimx.handlers.project import ProjectHandler
-        
-        project_handler = ProjectHandler(self.client, project_cache=self.project_cache)
-        project_rows = await project_handler.fetch_project_data(
+        project_rows = await self.ensure_project_exists(
             int(event.project_id),
-            source_event_id=event.event_id
+            source_event_id=event.event_id,
         )
         rows.merge(project_rows)
 
@@ -189,8 +186,6 @@ class VideoCollabTransformer:
         Returns:
             Video collaboration row dict
         """
-        now = now_datetime()
-
         first_name = safe_str(data.get("claimRepFirstName"))
         last_name = safe_str(data.get("claimRepLastName"))
         full_name = safe_str(data.get("claimRepFullName"))
@@ -199,7 +194,7 @@ class VideoCollabTransformer:
             parts = [p for p in [first_name, last_name] if p]
             full_name = " ".join(parts) if parts else None
 
-        return {
+        row = {
             "video_collaboration_id": safe_int(
                 data.get("videoCollaborationId") or data.get("id")
             ),
@@ -225,8 +220,5 @@ class VideoCollabTransformer:
             "company_id": safe_int(data.get("companyId")),
             "company_name": safe_str(data.get("companyName")),
             "guid": safe_str(data.get("guid")),
-            "event_id": event_id,
-            "created_at": now,
-            "updated_at": now,
-            "last_enriched_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id)

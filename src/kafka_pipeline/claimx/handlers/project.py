@@ -25,6 +25,7 @@ from kafka_pipeline.claimx.handlers.utils import (
     now_iso,
     today_date,
     elapsed_ms,
+    BaseTransformer,
 )
 
 from core.types import ErrorCategory
@@ -261,8 +262,6 @@ class ProjectTransformer:
         Returns:
             Project row dict
         """
-        now = now_datetime()
-
         # Navigate to project object
         inner = data.get("data", data)
         project = inner.get("project", {})
@@ -301,7 +300,7 @@ class ProjectTransformer:
             team_member_count=len(inner.get("teamMembers", [])),
         )
 
-        return {
+        row = {
             "project_id": project_id,
             "project_number": safe_str(project.get("projectNumber")),
             "master_file_name": safe_str(project.get("mfn")),
@@ -342,10 +341,8 @@ class ProjectTransformer:
                 project.get("customExternalUniqueId")
             ),
             "company_name": safe_str(inner.get("companyName")),
-            "event_id": event_id,
-            "created_at": now,
-            "updated_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id, include_last_enriched=False)
 
     @staticmethod
     def to_contact_rows(
@@ -369,7 +366,6 @@ class ProjectTransformer:
             List of contact row dicts
         """
         contacts = []
-        now = now_datetime()
         today = today_date()
 
         inner = data.get("data", data)
@@ -394,52 +390,44 @@ class ProjectTransformer:
                 phone = safe_str(phones[0].get("phoneNumber"))
                 phone_country_code = safe_int(phones[0].get("phoneCountryCode"))
 
-            contacts.append(
-                {
-                    "project_id": project_id,
-                    "contact_email": primary_email,
-                    "contact_type": "POLICYHOLDER",
-                    "first_name": safe_str(customer.get("firstName")),
-                    "last_name": safe_str(customer.get("lastName")),
-                    "phone_number": phone,
-                    "phone_country_code": phone_country_code,
-                    "is_primary_contact": True,
-                    "master_file_name": None,
-                    "event_id": event_id,
-                    "created_at": now,
-                    "updated_at": now_iso(),
-                    "created_date": today,
-                    "last_enriched_at": now,
-                    "task_assignment_id": None,
-                    "video_collaboration_id": None,
-                }
-            )
+            row = {
+                "project_id": project_id,
+                "contact_email": primary_email,
+                "contact_type": "POLICYHOLDER",
+                "first_name": safe_str(customer.get("firstName")),
+                "last_name": safe_str(customer.get("lastName")),
+                "phone_number": phone,
+                "phone_country_code": phone_country_code,
+                "is_primary_contact": True,
+                "master_file_name": None,
+                "updated_at": now_iso(),
+                "created_date": today,
+                "task_assignment_id": None,
+                "video_collaboration_id": None,
+            }
+            contacts.append(BaseTransformer.inject_metadata(row, event_id))
 
         for member in team_members:
             username = safe_str(member.get("userName"))
             if username:
-                contacts.append(
-                    {
-                        "project_id": project_id,
-                        "contact_email": username,
-                        "contact_type": "CLAIM_REP",
-                        "first_name": None,
-                        "last_name": None,
-                        "phone_number": None,
-                        "phone_country_code": None,
-                        "is_primary_contact": safe_bool(
-                            member.get("primaryContact", False)
-                        ),
-                        "master_file_name": safe_str(member.get("mfn")),
-                        "event_id": event_id,
-                        "created_at": now,
-                        "updated_at": now_iso(),
-                        "created_date": today,
-                        "last_enriched_at": now,
-                        "task_assignment_id": None,
-                        "video_collaboration_id": None,
-                    }
-                )
+                row = {
+                    "project_id": project_id,
+                    "contact_email": username,
+                    "contact_type": "CLAIM_REP",
+                    "first_name": None,
+                    "last_name": None,
+                    "phone_number": None,
+                    "phone_country_code": None,
+                    "is_primary_contact": safe_bool(
+                        member.get("primaryContact", False)
+                    ),
+                    "master_file_name": safe_str(member.get("mfn")),
+                    "updated_at": now_iso(),
+                    "created_date": today,
+                    "task_assignment_id": None,
+                    "video_collaboration_id": None,
+                }
+                contacts.append(BaseTransformer.inject_metadata(row, event_id))
 
         # Log contact extraction summary
         policyholder_count = sum(

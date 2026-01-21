@@ -36,8 +36,6 @@ from kafka_pipeline.xact.schemas.events import EventMessage
 from kafka_pipeline.xact.schemas.tasks import XACTEnrichmentTask
 from kafka_pipeline.common.metrics import (
     event_ingestion_duration_seconds,
-    record_event_ingested,
-    record_event_task_produced,
     record_processing_error,
 )
 
@@ -215,8 +213,6 @@ class EventIngesterWorker:
                 },
                 exc_info=True,
             )
-            # Record parse error in metrics
-            record_event_ingested(domain=self.domain, status="parse_error")
             raise
 
         # Generate deterministic event_id from trace_id (UUID5)
@@ -319,7 +315,6 @@ class EventIngesterWorker:
         # Record successful ingestion and duration
         duration = time.perf_counter() - start_time
         event_ingestion_duration_seconds.labels(domain=self.domain).observe(duration)
-        record_event_ingested(domain=self.domain, status="success")
 
     async def _create_enrichment_task(
         self,
@@ -369,9 +364,6 @@ class EventIngesterWorker:
 
                 # Track successful task creation for cycle output
                 self._records_succeeded += 1
-
-                # Record task produced metric
-                record_event_task_produced(domain=self.domain, task_type="enrichment_task")
 
                 span.set_tag("task.created", True)
                 span.set_tag("task.partition", metadata.partition)

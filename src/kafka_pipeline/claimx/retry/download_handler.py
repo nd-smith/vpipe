@@ -398,18 +398,13 @@ class DownloadRetryHandler:
         """
         # Truncate error message to prevent huge DLQ messages
         error_message = str(error)
-        if len(error_message) > 500:
-            error_message = error_message[:497] + "..."
         dlq_message = FailedDownloadMessage(
             media_id=task.media_id,
             project_id=task.project_id,
             download_url=task.download_url,
-            blob_path=task.blob_path,
             original_task=task,
-            final_error=error_message,
             error_category=error_category.value,
             retry_count=task.retry_count,
-            url_refresh_attempted=url_refresh_attempted,
             failed_at=datetime.now(timezone.utc),
         )
 

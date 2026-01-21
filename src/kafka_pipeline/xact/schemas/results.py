@@ -202,50 +202,20 @@ class FailedDownloadMessage(BaseModel):
     """Schema for messages sent to dead-letter queue (DLQ).
 
     Sent when a download task has exhausted all retry attempts.
-    Preserves complete context for manual review and potential replay.
+    Contains only essential fields for replay capability.
 
     Attributes:
         trace_id: Unique event identifier for correlation
         attachment_url: URL of the attachment that failed
         original_task: Complete original task message for replay capability
-        final_error: Final error message (truncated to 500 chars)
         error_category: Error classification from final attempt
         retry_count: Total number of retry attempts made
         failed_at: Timestamp when task was sent to DLQ
-
-    Example:
-        >>> from datetime import datetime, timezone
-        >>> task = DownloadTaskMessage(
-        ...     trace_id="evt-456",
-        ...     attachment_url="https://storage.example.com/bad.pdf",
-        ...     blob_path="claims/C-789/bad.pdf",
-        ...     status_subtype="documentsReceived",
-        ...     file_type="pdf",
-        ...     assignment_id="C-789",
-        ...     event_type="claim",
-        ...     event_subtype="created",
-        ...     retry_count=4,
-        ...     original_timestamp=datetime.now(timezone.utc)
-        ... )
-        >>> dlq = FailedDownloadMessage(
-        ...     trace_id="evt-456",
-        ...     attachment_url="https://storage.example.com/bad.pdf",
-        ...     original_task=task,
-        ...     final_error="File not found after 4 retries",
-        ...     error_category="permanent",
-        ...     retry_count=4,
-        ...     failed_at=datetime.now(timezone.utc)
-        ... )
     """
 
     trace_id: str = Field(
         ...,
         description="Unique event identifier for correlation",
-        min_length=1
-    )
-    media_id: str = Field(
-        ...,
-        description="Unique deterministic ID for the attachment",
         min_length=1
     )
     attachment_url: str = Field(
@@ -256,10 +226,6 @@ class FailedDownloadMessage(BaseModel):
     original_task: DownloadTaskMessage = Field(
         ...,
         description="Complete original task message for replay capability"
-    )
-    final_error: str = Field(
-        ...,
-        description="Final error message (truncated to 500 chars)"
     )
     error_category: str = Field(
         ...,
@@ -276,17 +242,13 @@ class FailedDownloadMessage(BaseModel):
         description="Timestamp when task was sent to DLQ"
     )
 
-    @field_validator('trace_id', 'media_id', 'attachment_url', 'error_category')
+    @field_validator('trace_id', 'attachment_url', 'error_category')
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
         if not v or not v.strip():
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
-
-    @field_validator('final_error')
-    @classmethod
-    def truncate_final_error(cls, v: str) -> str:
         """Truncate error message to prevent huge messages."""
         if not v or not v.strip():
             raise ValueError("final_error cannot be empty or whitespace")

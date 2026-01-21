@@ -42,7 +42,6 @@ from kafka_pipeline.common.metrics import (
     update_assigned_partitions,
     update_consumer_lag,
     update_consumer_offset,
-    update_uploads_concurrent,
     message_processing_duration_seconds,
 )
 
@@ -480,9 +479,6 @@ class UploadWorker:
 
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
-        # Update concurrent uploads metric
-        update_uploads_concurrent(self.WORKER_NAME, len(messages))
-
         # Process all messages concurrently
         tasks = [
             asyncio.create_task(self._process_single_with_semaphore(msg))
@@ -490,9 +486,6 @@ class UploadWorker:
         ]
 
         results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Update concurrent uploads metric - all complete
-        update_uploads_concurrent(self.WORKER_NAME, 0)
 
         # Handle any exceptions
         for upload_result in results:
@@ -595,7 +588,7 @@ class UploadWorker:
                 span.set_tag("destination_path", cached_message.destination_path)
                 span.set_tag("bytes", cached_message.bytes_downloaded)
 
-                blob_path = await onelake_client.upload_file(
+                blob_path = await onelake_client.async_upload_file(
                     relative_path=cached_message.destination_path,
                     local_path=cache_path,
                     overwrite=True,

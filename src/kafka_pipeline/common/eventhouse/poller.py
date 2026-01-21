@@ -77,59 +77,19 @@ class PollerCheckpoint:
         """
         Save checkpoint to JSON file.
 
-        Uses atomic write pattern: write to temp file, then rename.
-        Handles stale temp files from previous failed attempts.
-        On Windows, includes retry logic for locked files.
+        Uses atomic write pattern: write to temp file, then os.replace().
         """
-        import platform
-
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             self.updated_at = datetime.now(timezone.utc).isoformat()
 
             temp_path = path.with_suffix(".tmp")
 
-            # Clean up stale temp file from previous failed attempt
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except OSError:
-                    # If we can't delete it, another process likely has it locked
-                    logger.warning(
-                        "Cannot remove stale temp file - another poller instance may be running",
-                        extra={"temp_path": str(temp_path)},
-                    )
-                    return False
-
             with open(temp_path, "w") as f:
                 json.dump(asdict(self), f, indent=2)
 
-            # Windows-compatible atomic replace with retry
-            max_retries = 3
-            retry_delay = 0.1  # 100ms between retries
-
-            for attempt in range(max_retries):
-                try:
-                    os.replace(temp_path, path)
-                    return True
-                except OSError as replace_error:
-                    # On Windows, os.replace can fail if target is locked
-                    if platform.system() != "Windows" or attempt == max_retries - 1:
-                        raise
-
-                    # Windows fallback: try explicit delete then rename
-                    try:
-                        if path.exists():
-                            path.unlink()
-                        temp_path.rename(path)
-                        return True
-                    except OSError:
-                        # File may be temporarily locked (antivirus, indexer, etc.)
-                        # Wait and retry
-                        time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
-                        continue
-
+            # Atomic replace (works on POSIX and modern Windows)
+            os.replace(temp_path, path)
             return True
 
         except (OSError, IOError) as e:

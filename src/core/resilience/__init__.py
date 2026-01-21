@@ -8,7 +8,6 @@ Components:
     - @circuit_protected: Decorator for circuit breaker protection
     - RetryConfig: Exponential backoff configuration
     - @with_retry decorator: Retry with jitter
-    - RetryBudget: Retry amplification prevention
     - Standard configs: KAFKA_CIRCUIT_CONFIG, KUSTO_CIRCUIT_CONFIG, etc.
 """
 
@@ -29,7 +28,6 @@ from .circuit_breaker import (
 from .retry import (
     AUTH_RETRY,
     DEFAULT_RETRY,
-    RetryBudget,
     RetryConfig,
     RetryStats,
     with_retry,
@@ -47,7 +45,6 @@ __all__ = [
     # Retry
     "RetryConfig",
     "RetryStats",
-    "RetryBudget",
     "with_retry",
     "DEFAULT_RETRY",
     "AUTH_RETRY",

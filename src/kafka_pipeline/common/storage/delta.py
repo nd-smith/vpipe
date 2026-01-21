@@ -14,8 +14,6 @@ import inspect
 import logging
 import os
 import warnings
-import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -61,16 +59,6 @@ DELTA_CIRCUIT_CONFIG = CircuitBreakerConfig(
     failure_threshold=5,
     timeout_seconds=30.0,
 )
-
-
-@dataclass
-class WriteOperation:
-    """Write operation for idempotency tracking. Token is a UUID uniquely identifying the operation."""
-
-    token: str
-    table_path: str
-    timestamp: datetime
-    row_count: int
 
 
 def _on_auth_error() -> None:
@@ -834,65 +822,6 @@ class DeltaTableWriter(LoggedClass):
 
         return rows_inserted + rows_updated
 
-    @logged_operation(level=logging.DEBUG)
-    @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
-    def upsert_with_idempotency(
-        self,
-        df: pl.DataFrame,
-        merge_key: str,
-        event_id_field: str = "_event_id",
-    ) -> int:
-        """
-        Upsert with deduplication by event ID.
-
-        Useful for idempotent processing where the same event may be
-        processed multiple times but should only result in one row.
-
-        Args:
-            df: Data to upsert
-            merge_key: Primary key column for merge (e.g., "project_id")
-            event_id_field: Column containing event ID for dedup
-
-        Returns:
-            Number of rows written
-        """
-        if df.is_empty():
-            self._log(logging.DEBUG, "No data to upsert")
-            return 0
-
-        initial_count = len(df)
-
-        # Phase 1: Dedupe within batch by event_id (keep last occurrence)
-        if event_id_field in df.columns:
-            df = df.unique(subset=[event_id_field], keep="last")
-            if len(df) < initial_count:
-                self._log(
-                    logging.DEBUG,
-                    "Removed duplicates by event_id",
-                    dedupe_field=event_id_field,
-                    records_processed=initial_count - len(df),
-                )
-
-        # Phase 2: Dedupe within batch by merge_key (keep last occurrence)
-        if merge_key in df.columns:
-            before = len(df)
-            df = df.unique(subset=[merge_key], keep="last")
-            if len(df) < before:
-                self._log(
-                    logging.DEBUG,
-                    "Removed duplicates by merge_key",
-                    dedupe_field=merge_key,
-                    records_processed=before - len(df),
-                )
-
-        if df.is_empty():
-            return 0
-
-        # Write using append mode (no dedup at write time)
-        rows_written: int = self.append(df)  # type: ignore[assignment]
-        return rows_written
-
-
     @logged_operation(level=logging.INFO)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def merge_batched(
@@ -1012,150 +941,6 @@ class DeltaTableWriter(LoggedClass):
 
         result: int = self.append(df)  # type: ignore[assignment]
         return result
-
-    @logged_operation(level=logging.INFO)
-    @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
-    def write_with_idempotency(
-        self,
-        df: pl.DataFrame,
-        operation_token: Optional[str] = None,
-    ) -> WriteOperation:
-        """
-        Write data with idempotency token to prevent duplicate writes (Task G.3).
-
-        Uses a separate idempotency tracking table to record write tokens.
-        If the same token is used again, the write is skipped.
-
-        Args:
-            df: Data to write
-            operation_token: Optional idempotency token (UUID generated if not provided)
-
-        Returns:
-            WriteOperation containing token and write metadata
-
-        Raises:
-            Exception: On write failure after retries
-        """
-        # Generate token if not provided
-        if operation_token is None:
-            operation_token = str(uuid.uuid4())
-
-        # Check if this operation was already completed
-        if self._is_duplicate(operation_token):
-            self._log(
-                logging.INFO,
-                "Skipping duplicate write operation",
-                operation_token=operation_token,
-                table_path=self.table_path,
-            )
-            return WriteOperation(
-                token=operation_token,
-                table_path=self.table_path,
-                timestamp=datetime.now(timezone.utc),
-                row_count=0,
-            )
-
-        # Perform the write
-        rows_written = self.append(df)
-
-        # Record token to prevent future duplicates
-        write_op = WriteOperation(
-            token=operation_token,
-            table_path=self.table_path,
-            timestamp=datetime.now(timezone.utc),
-            row_count=rows_written,
-        )
-        self._record_token(write_op)
-
-        return write_op
-
-    def _is_duplicate(self, token: str) -> bool:
-        """Check if operation token exists in idempotency table (Task G.3).
-
-        Args:
-            token: Operation token to check
-
-        Returns:
-            True if token exists (duplicate operation), False otherwise
-        """
-        try:
-            # Idempotency table path
-            idempotency_table = f"{self.table_path}_idempotency"
-
-            # Check if idempotency table exists
-            opts = get_storage_options()
-            try:
-                DeltaTable(idempotency_table, storage_options=opts)
-            except Exception:
-                # Table doesn't exist yet
-                return False
-
-            # Read idempotency table and check for token
-            reader = DeltaTableReader(idempotency_table)
-            if not reader.exists():
-                return False
-
-            df = reader.read(columns=["token"])
-            if df.is_empty():
-                return False
-
-            return token in df["token"].to_list()
-
-        except Exception as e:
-            self._log_exception(
-                e,
-                "Error checking idempotency token",
-                level=logging.WARNING,
-                token=token,
-            )
-            # On error, assume not duplicate (fail open for writes)
-            return False
-
-    def _record_token(self, operation: WriteOperation) -> None:
-        """Record operation token in idempotency table (Task G.3).
-
-        Args:
-            operation: WriteOperation to record
-        """
-        try:
-            # Idempotency table path
-            idempotency_table = f"{self.table_path}_idempotency"
-
-            # Create record
-            record_df = pl.DataFrame(
-                {
-                    "token": [operation.token],
-                    "table_path": [operation.table_path],
-                    "timestamp": [operation.timestamp],
-                    "row_count": [operation.row_count],
-                }
-            )
-
-            # Write to idempotency table
-            opts = get_storage_options()
-            write_deltalake(
-                idempotency_table,
-                record_df.to_arrow(),
-                mode="append",
-                schema_mode="merge",
-                storage_options=opts,
-            )  # type: ignore[call-overload]
-
-            self._log(
-                logging.DEBUG,
-                "Recorded idempotency token",
-                token=operation.token,
-                idempotency_table=idempotency_table,
-            )
-
-        except Exception as e:
-            self._log_exception(
-                e,
-                "Error recording idempotency token",
-                level=logging.WARNING,
-                token=operation.token,
-            )
-            # Don't raise - write succeeded, token recording is best-effort
 
 
 class EventsTableReader(DeltaTableReader):
@@ -1335,92 +1120,11 @@ class EventsTableReader(DeltaTableReader):
         return result
 
 
-# Z-Ordering Helper Functions and Constants (P3.2)
-
-RECOMMENDED_Z_ORDER_COLUMNS = {
-    "inventory": [
-        "created_date",  # Time-based queries
-        "status",  # Status filtering
-        "trace_id",  # Lookup by trace
-    ],
-    "retry_queue": [
-        "retry_count",  # Retry filtering
-        "error_type",  # Error analysis
-        "created_date",  # Time-based queries
-    ],
-    "attachments": [
-        "download_status",  # Status filtering
-        "attachment_url",  # Lookup by URL
-        "created_date",  # Time-based queries
-    ],
-}
-"""Recommended Z-order columns by table type for query optimization."""
-
-
-def suggest_z_order_columns(
-    table_path: str, query_patterns: Optional[List[str]] = None
-) -> List[str]:
-    """
-    Suggest Z-order columns based on query patterns or table type (P3.2).
-
-    Z-ordering improves query performance by co-locating related data.
-    This function suggests appropriate columns based on common query
-    patterns for known table types.
-
-    Args:
-        table_path: Path to Delta table
-        query_patterns: Optional list of common filter columns
-
-    Returns:
-        Suggested Z-order columns
-
-    Example:
-        # Use explicit query patterns
-        columns = suggest_z_order_columns(
-            "path/to/table",
-            query_patterns=["created_date", "status"]
-        )
-
-        # Infer from table name
-        columns = suggest_z_order_columns("inventory_table")
-        # Returns: ["created_date", "status", "trace_id"]
-    """
-    # If query patterns provided, use those
-    if query_patterns:
-        return query_patterns
-
-    # Otherwise, use common patterns for this domain
-    table_path_lower = table_path.lower()
-
-    # Try to infer from table name
-    for pattern_name, columns in RECOMMENDED_Z_ORDER_COLUMNS.items():
-        if pattern_name in table_path_lower:
-            logger.info(
-                "Suggested Z-order columns for table",
-                extra={
-                    "table": table_path,
-                    "pattern": pattern_name,
-                    "columns": columns,
-                },
-            )
-            return columns
-
-    # Default: use timestamp columns
-    logger.info(
-        "No specific pattern matched, using default Z-order columns",
-        extra={"table": table_path, "default_columns": ["created_date"]},
-    )
-    return ["created_date"]
-
-
 __all__ = [
     "DeltaTableReader",
     "DeltaTableWriter",
     "EventsTableReader",
-    "WriteOperation",
     "DELTA_RETRY_CONFIG",
     "DELTA_CIRCUIT_CONFIG",
-    "suggest_z_order_columns",
-    "RECOMMENDED_Z_ORDER_COLUMNS",
     "get_open_file_descriptors",
 ]

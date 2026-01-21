@@ -159,91 +159,6 @@ class RetryStats:
         return self.attempts > 1
 
 
-@dataclass
-class RetryBudget:
-    """
-    Retry budget tracker to prevent retry amplification (P2.10).
-
-    Implements Google SRE pattern: track retry ratio and reject retries
-    when budget is exhausted to prevent cascading failures.
-
-    Default threshold: 10% (for every 100 requests, allow 10 retries)
-    """
-
-    threshold: float = 0.1  # 10% retry threshold
-    window_size: int = 1000  # Rolling window size
-
-    def __post_init__(self):
-        """Initialize tracking state."""
-        self._total_requests = 0
-        self._total_retries = 0
-        self._recent_requests: list = []
-        self._recent_retries: list = []
-
-    def can_retry(self) -> bool:
-        """
-        Check if retry budget allows another retry.
-
-        Returns:
-            True if retry is allowed within budget
-        """
-        if self._total_requests == 0:
-            return True
-
-        retry_ratio = self._total_retries / self._total_requests
-        return retry_ratio < self.threshold
-
-    def record_request(self, retried: bool = False) -> None:
-        """
-        Record a request and whether it was retried.
-
-        Args:
-            retried: Whether this request involved retries
-        """
-        self._total_requests += 1
-        self._recent_requests.append(1)
-
-        if retried:
-            self._total_retries += 1
-            self._recent_retries.append(1)
-        else:
-            self._recent_retries.append(0)
-
-        # Trim to window size
-        if len(self._recent_requests) > self.window_size:
-            self._recent_requests.pop(0)
-            self._recent_retries.pop(0)
-
-    def get_stats(self) -> dict:
-        """Get current retry budget statistics."""
-        if self._total_requests == 0:
-            return {
-                "total_requests": 0,
-                "total_retries": 0,
-                "retry_ratio": 0.0,
-                "budget_remaining": 1.0,
-                "threshold": self.threshold,
-            }
-
-        retry_ratio = self._total_retries / self._total_requests
-        budget_remaining = max(0.0, self.threshold - retry_ratio)
-
-        return {
-            "total_requests": self._total_requests,
-            "total_retries": self._total_retries,
-            "retry_ratio": round(retry_ratio, 4),
-            "budget_remaining": round(budget_remaining, 4),
-            "threshold": self.threshold,
-        }
-
-    def reset(self) -> None:
-        """Reset retry budget counters."""
-        self._total_requests = 0
-        self._total_retries = 0
-        self._recent_requests = []
-        self._recent_retries = []
-
-
 def with_retry(
     config: Optional[RetryConfig] = None,
     on_auth_error: Optional[Callable[[], None]] = None,
@@ -439,7 +354,6 @@ def with_retry(
 __all__ = [
     "RetryConfig",
     "RetryStats",
-    "RetryBudget",
     "with_retry",
     "DEFAULT_RETRY",
     "AUTH_RETRY",

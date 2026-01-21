@@ -1,17 +1,13 @@
 """Configuration loading for Kafka pipeline.
 
 This module provides centralized configuration loading for the Kafka pipeline system.
-Configuration is loaded from multi-file config/ directory structure.
+Configuration is loaded from a single consolidated config.yaml file.
 
 Configuration Structure
 -----------------------
 
 config/
-    shared.yaml          # Global connection settings and defaults
-    xact_config.yaml     # XACT domain configuration
-    claimx_config.yaml   # ClaimX domain configuration
-    plugins/             # Optional plugin configurations
-        monitoring.yaml
+    config.yaml          # Consolidated configuration with all settings
 
 Main Functions
 --------------
@@ -56,21 +52,16 @@ Configuration Priority
 
 Settings are merged in the following priority (highest to lowest):
 
-1. Environment variables (for specific settings like CLAIMX_API_TOKEN)
-2. YAML configuration files
+1. Environment variables (using ${VAR_NAME} syntax in YAML)
+2. YAML configuration values
 3. Dataclass defaults
-
-For multi-file mode:
-- Files are merged in order: shared.yaml → xact_config.yaml → claimx_config.yaml → plugins/*.yaml
-- Later files override earlier files for conflicting keys
-- Nested dictionaries are deep-merged
 
 Configuration Loading
 --------------------
 
-Configuration is loaded exclusively from the config/ directory.
-Single-file config.yaml is no longer supported. See config.yaml.old for
-historical reference.
+All configuration is loaded from a single config/config.yaml file with clear
+domain sections for XACT and ClaimX. Environment variables are expanded
+using ${VAR_NAME} syntax.
 
 See Also
 --------

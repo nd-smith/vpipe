@@ -21,8 +21,8 @@ from kafka_pipeline.claimx.handlers.utils import (
     safe_str,
     safe_str_id,
     safe_float,
-    now_iso,
     elapsed_ms,
+    BaseTransformer,
 )
 
 from core.types import ErrorCategory
@@ -70,10 +70,9 @@ class MediaTransformer:
         Returns:
             Media row dict
         """
-        now = now_iso()
         download_link = safe_str(media.get("fullDownloadLink"))
 
-        return {
+        row = {
             "media_id": safe_str_id(media.get("mediaID")),
             "project_id": safe_str_id(project_id),
             "task_assignment_id": safe_str(media.get("taskAssignmentId")),
@@ -87,11 +86,8 @@ class MediaTransformer:
             "taken_date": safe_str(media.get("takenDate")),
             "full_download_link": download_link,
             "expires_at": safe_str(media.get("expiresAt")),
-            "event_id": event_id,
-            "created_at": now,
-            "updated_at": now,
-            "last_enriched_at": now,
         }
+        return BaseTransformer.inject_metadata(row, event_id)
 
 
 @register_handler
@@ -163,10 +159,7 @@ class MediaHandler(EventHandler):
 
             # In-flight Project Verification
             # Ensure the project exists in our warehouse before processing media
-            from kafka_pipeline.claimx.handlers.project import ProjectHandler
-
-            project_handler = ProjectHandler(self.client, project_cache=self.project_cache)
-            project_rows = await project_handler.fetch_project_data(
+            project_rows = await self.ensure_project_exists(
                 int(project_id),
                 source_event_id=events[0].event_id,
             )

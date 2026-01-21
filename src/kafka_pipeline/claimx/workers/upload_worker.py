@@ -590,7 +590,7 @@ class ClaimXUploadWorker:
                 span.set_tag("media.id", media_id)
                 span.set_tag("project.id", cached_message.project_id)
                 span.set_tag("event.id", cached_message.source_event_id)
-                blob_path = await self.onelake_client.upload_file(
+                blob_path = await self.onelake_client.async_upload_file(
                     relative_path=cached_message.destination_path,
                     local_path=cache_path,
                     overwrite=True,

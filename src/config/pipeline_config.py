@@ -25,42 +25,32 @@ import yaml
 
 from config.config import KafkaConfig
 
-# Default config directory: config/ in src/ directory
-DEFAULT_CONFIG_DIR = Path(__file__).parent.parent / "config"
+# Default config file: config/config.yaml in src/ directory
+DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
 
 
 def _load_config_data(config_path: Path) -> Dict[str, Any]:
-    """Load configuration data from config directory.
+    """Load configuration data from config.yaml file.
 
     Args:
-        config_path: Path to config directory
+        config_path: Path to config.yaml file
 
     Returns:
-        Merged configuration dictionary
+        Configuration dictionary
 
     Raises:
-        FileNotFoundError: If config directory doesn't exist
-        ValueError: If config_path is not a directory
+        FileNotFoundError: If config file doesn't exist
     """
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration directory not found: {config_path}\n"
-            f"Expected directory structure:\n"
-            f"  config/\n"
-            f"    shared.yaml\n"
-            f"    xact_config.yaml\n"
-            f"    claimx_config.yaml\n"
+            f"Configuration file not found: {config_path}\n"
+            f"Expected file: config/config.yaml"
         )
 
-    if not config_path.is_dir():
-        raise ValueError(
-            f"Configuration path must be a directory: {config_path}\n"
-            f"Single-file config.yaml is no longer supported."
-        )
-
-    # Load and merge from config directory
-    from config.config import _load_multi_file_config
-    return _load_multi_file_config(config_path)
+    # Load from single file
+    from config.config import load_yaml, _expand_env_vars
+    config_data = load_yaml(config_path)
+    return _expand_env_vars(config_data)
 
 
 
@@ -218,7 +208,7 @@ class LocalKafkaConfig:
             ONELAKE_CLAIMX_PATH: OneLake path for claimx domain
             DELTA_EVENTS_BATCH_SIZE: Events per batch for Delta writes (default: 1000)
         """
-        resolved_path = config_path or DEFAULT_CONFIG_DIR
+        resolved_path = config_path or DEFAULT_CONFIG_FILE
         yaml_data = _load_config_data(resolved_path)
         kafka_data = yaml_data.get("kafka", {})
         connection_data = kafka_data.get("connection", kafka_data)
@@ -443,7 +433,7 @@ class EventhouseSourceConfig:
             XACT_EVENTS_TABLE_PATH: Path to xact_events Delta table
         """
         # Use default config directory if not specified
-        resolved_path = config_path or DEFAULT_CONFIG_DIR
+        resolved_path = config_path or DEFAULT_CONFIG_FILE
 
         # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
@@ -590,7 +580,7 @@ class ClaimXEventhouseSourceConfig:
             CLAIMX_EVENTS_TOPIC: Kafka topic (default: claimx.events.raw)
         """
         # Use default config directory if not specified
-        resolved_path = config_path or DEFAULT_CONFIG_DIR
+        resolved_path = config_path or DEFAULT_CONFIG_FILE
 
         # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
@@ -743,7 +733,7 @@ class PipelineConfig:
         - eventhouse: Poll Microsoft Fabric Eventhouse
         """
         # Use default config directory if not specified
-        resolved_path = config_path or DEFAULT_CONFIG_DIR
+        resolved_path = config_path or DEFAULT_CONFIG_FILE
 
         # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
@@ -855,7 +845,7 @@ def get_event_source_type(config_path: Optional[Path] = None) -> EventSourceType
     then checks EVENT_SOURCE env var for override.
     """
     # Use default config directory if not specified
-    resolved_path = config_path or DEFAULT_CONFIG_DIR
+    resolved_path = config_path or DEFAULT_CONFIG_FILE
 
     # Load configuration data from config directory
     yaml_data = _load_config_data(resolved_path)

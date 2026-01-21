@@ -279,42 +279,17 @@ class FailedEnrichmentMessage(BaseModel):
 class FailedDownloadMessage(BaseModel):
     """Schema for failed download tasks routed to Dead Letter Queue (DLQ).
 
-    Sent to claimx.downloads.dlq topic when:
-    - Download task fails with permanent error (404, 403, validation error, etc.)
-    - Download task exceeds max retry attempts (4 retries)
-    - URL refresh fails after expired URL detection
-
-    Used for:
-    - Manual review of failures
-    - Replay capability (send back to downloads.pending with retry_count=0)
-    - Audit trail for compliance
+    Sent to claimx.downloads.dlq topic when download task fails permanently.
+    Contains only essential fields for replay capability.
 
     Attributes:
         media_id: Media file identifier from ClaimX
         project_id: ClaimX project ID this media belongs to
-        download_url: Original S3 presigned URL (may be expired)
-        blob_path: Target path in OneLake (relative to base path)
+        download_url: Original S3 presigned URL
         original_task: Complete original download task for replay capability
-        final_error: Error message truncated to 500 chars to prevent huge DLQ messages
         error_category: Classification of error (transient, permanent, auth, etc.)
         retry_count: Number of retry attempts before reaching DLQ
-        url_refresh_attempted: Whether URL refresh was attempted
         failed_at: Timestamp when task was moved to DLQ
-
-    Example:
-        >>> from datetime import datetime, timezone
-        >>> failed = FailedDownloadMessage(
-        ...     media_id="media_111",
-        ...     project_id="proj_67890",
-        ...     download_url="https://s3.amazonaws.com/presigned/expired.jpg",
-        ...     blob_path="claimx/proj_67890/media/photo.jpg",
-        ...     original_task=download_task,
-        ...     final_error="403 Forbidden: Presigned URL expired",
-        ...     error_category="transient",
-        ...     retry_count=4,
-        ...     url_refresh_attempted=True,
-        ...     failed_at=datetime.now(timezone.utc)
-        ... )
     """
 
     media_id: str = Field(
@@ -329,42 +304,28 @@ class FailedDownloadMessage(BaseModel):
     )
     download_url: str = Field(
         ...,
-        description="Original S3 presigned URL (may be expired)",
-        min_length=1
-    )
-    blob_path: str = Field(
-        ...,
-        description="Target path in OneLake (relative to base path)",
+        description="Original S3 presigned URL",
         min_length=1
     )
     original_task: ClaimXDownloadTask = Field(
         ...,
         description="Complete original download task for replay capability"
     )
-    final_error: str = Field(
-        ...,
-        description="Error message truncated to 500 chars",
-        max_length=500
-    )
     error_category: str = Field(
         ...,
-        description="Classification of error (transient, permanent, auth, circuit_open, unknown)"
+        description="Classification of error (transient, permanent, auth, etc.)"
     )
     retry_count: int = Field(
         ...,
         description="Number of retry attempts before reaching DLQ",
         ge=0
     )
-    url_refresh_attempted: bool = Field(
-        default=False,
-        description="Whether URL refresh was attempted before DLQ"
-    )
     failed_at: datetime = Field(
         ...,
         description="Timestamp when task was moved to DLQ"
     )
 
-    @field_validator('media_id', 'project_id', 'download_url', 'blob_path')
+    @field_validator('media_id', 'project_id', 'download_url')
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""

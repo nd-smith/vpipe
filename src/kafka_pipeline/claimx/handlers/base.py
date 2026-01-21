@@ -245,6 +245,32 @@ class EventHandler(ABC):
     def name(self):
         return self.__class__.__name__
 
+    async def ensure_project_exists(
+        self,
+        project_id: int,
+        source_event_id: str,
+    ) -> "EntityRowsMessage":
+        """
+        Ensure project exists in warehouse by fetching project data.
+
+        This is used by handlers to perform in-flight project verification,
+        ensuring the project record exists before adding related entities.
+
+        Args:
+            project_id: Project ID to verify
+            source_event_id: Source event ID for traceability
+
+        Returns:
+            EntityRowsMessage containing project and contact rows
+        """
+        from kafka_pipeline.claimx.handlers.project import ProjectHandler
+
+        project_handler = ProjectHandler(self.client, project_cache=self.project_cache)
+        return await project_handler.fetch_project_data(
+            project_id,
+            source_event_id=source_event_id,
+        )
+
     @abstractmethod
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
         pass
