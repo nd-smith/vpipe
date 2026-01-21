@@ -19,7 +19,7 @@ from kafka_pipeline.runners import claimx_runners, xact_runners
 logger = logging.getLogger(__name__)
 
 
-def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event):
+def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwargs):
     """Build arguments for xact-poller worker."""
     return {
         "pipeline_config": pipeline_config,
@@ -55,6 +55,7 @@ def build_xact_delta_writer_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for xact-delta-writer worker."""
     from config.pipeline_config import EventSourceType
@@ -95,6 +96,7 @@ def build_claimx_delta_writer_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for claimx-delta-writer worker."""
     claimx_events_table_path = os.getenv("CLAIMX_EVENTS_TABLE_PATH", "")
@@ -117,6 +119,7 @@ def build_claimx_enricher_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for claimx-enricher worker."""
     return {
@@ -130,6 +133,7 @@ def build_claimx_result_processor_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for claimx-result-processor worker."""
     return {
@@ -143,6 +147,7 @@ def build_claimx_entity_writer_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for claimx-entity-writer worker."""
     return {
@@ -156,6 +161,7 @@ def build_dummy_source_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for dummy-source worker."""
     from config.config import DEFAULT_CONFIG_FILE
