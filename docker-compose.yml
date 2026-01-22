@@ -10,8 +10,6 @@
 #   # Scale specific workers
 #   docker-compose up -d --scale xact-download=5 --scale xact-upload=3
 
-version: '3.8'
-
 services:
   # =============================================================================
   # KAFKA INFRASTRUCTURE (Optional - use profile)
@@ -145,7 +143,6 @@ services:
 
   xact-event-ingester:
     image: kafka-pipeline:latest
-    container_name: xact-event-ingester
     command: ["--worker", "xact-event-ingester"]
     env_file:
       - .env
@@ -226,7 +223,6 @@ services:
 
   xact-delta-writer:
     image: kafka-pipeline:latest
-    container_name: xact-delta-writer
     command: ["--worker", "xact-delta-writer"]
     env_file:
       - .env
@@ -279,7 +275,6 @@ services:
 
   claimx-ingester:
     image: kafka-pipeline:latest
-    container_name: claimx-ingester
     command: ["--worker", "claimx-ingester"]
     env_file:
       - .env
@@ -296,7 +291,6 @@ services:
 
   claimx-enricher:
     image: kafka-pipeline:latest
-    container_name: claimx-enricher
     command: ["--worker", "claimx-enricher"]
     env_file:
       - .env
@@ -345,7 +339,6 @@ services:
 
   claimx-result-processor:
     image: kafka-pipeline:latest
-    container_name: claimx-result-processor
     command: ["--worker", "claimx-result-processor"]
     env_file:
       - .env
@@ -362,7 +355,6 @@ services:
 
   claimx-delta-writer:
     image: kafka-pipeline:latest
-    container_name: claimx-delta-writer
     command: ["--worker", "claimx-delta-writer"]
     env_file:
       - .env
@@ -395,7 +387,6 @@ services:
 
   claimx-entity-writer:
     image: kafka-pipeline:latest
-    container_name: claimx-entity-writer
     command: ["--worker", "claimx-entity-writer"]
     env_file:
       - .env
