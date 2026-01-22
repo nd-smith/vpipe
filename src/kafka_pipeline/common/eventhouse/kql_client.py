@@ -47,11 +47,17 @@ KUSTO_RESOURCE = "https://kusto.kusto.windows.net"
 _requests_patched = False
 
 
-def _patch_requests_for_proxy(proxy_url: str) -> None:
+def _patch_requests_for_proxy(proxy_url: str, disable_ssl_verify: bool = False) -> None:
     """Patch requests.Session to always use the specified proxy.
 
     This ensures that ALL HTTP requests made by any library using requests
     (including MSAL/AAD authentication) will go through the proxy.
+
+    Args:
+        proxy_url: The proxy URL to use for all requests.
+        disable_ssl_verify: If True, disable SSL certificate verification.
+            This is needed when corporate proxies do SSL interception with
+            their own CA certificate that isn't in the container's trust store.
     """
     global _requests_patched
     if _requests_patched:
@@ -68,12 +74,21 @@ def _patch_requests_for_proxy(proxy_url: str) -> None:
             "http": proxy_url,
             "https": proxy_url,
         }
+        # Disable SSL verification if configured (for corporate proxy SSL interception)
+        if disable_ssl_verify:
+            self.verify = False
 
     requests.Session.__init__ = patched_init
     _requests_patched = True
+
+    # Also disable SSL warnings if verification is disabled
+    if disable_ssl_verify:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
     logger.info(
         "Patched requests.Session to use proxy globally",
-        extra={"proxy_url": proxy_url},
+        extra={"proxy_url": proxy_url, "ssl_verify_disabled": disable_ssl_verify},
     )
 
 
@@ -93,6 +108,7 @@ class EventhouseConfig:
     retry_base_delay_seconds: float = 1.0  # Base delay between retries
     retry_max_delay_seconds: float = 30.0  # Max delay between retries
     proxy_url: Optional[str] = None  # HTTP proxy URL (e.g., "http://proxy:8080")
+    ssl_verify: bool = True  # SSL certificate verification (disable for proxy SSL interception)
 
     @classmethod
     def load_config(
@@ -126,6 +142,8 @@ class EventhouseConfig:
             "proxy_url": os.getenv("EVENTHOUSE_PROXY_URL")
             or os.getenv("HTTPS_PROXY")
             or os.getenv("HTTP_PROXY"),
+            # SSL verification: disable for corporate proxy SSL interception
+            "ssl_verify": os.getenv("EVENTHOUSE_SSL_VERIFY"),
         }
         for key, value in env_overrides.items():
             if value is not None:
@@ -144,6 +162,10 @@ class EventhouseConfig:
                 "Set in config.yaml or via EVENTHOUSE_DATABASE env var."
             )
 
+        # Parse ssl_verify (default True, set to "false" to disable)
+        ssl_verify_str = str(data.get("ssl_verify", "true")).lower()
+        ssl_verify = ssl_verify_str not in ("false", "0", "no", "off")
+
         return cls(
             cluster_url=cluster_url,
             database=database,
@@ -152,6 +174,7 @@ class EventhouseConfig:
             retry_base_delay_seconds=float(data.get("retry_base_delay_seconds", 1.0)),
             retry_max_delay_seconds=float(data.get("retry_max_delay_seconds", 30.0)),
             proxy_url=data.get("proxy_url"),
+            ssl_verify=ssl_verify,
         )
 
 
@@ -234,7 +257,10 @@ class KQLClient:
 
             # Patch requests.Session globally to ensure ALL HTTP requests
             # (including MSAL/AAD internal requests) use the proxy
-            _patch_requests_for_proxy(self.config.proxy_url)
+            _patch_requests_for_proxy(
+                self.config.proxy_url,
+                disable_ssl_verify=not self.config.ssl_verify,
+            )
 
             logger.info(
                 "Set proxy environment variables for Azure/Kusto SDK auth requests",
