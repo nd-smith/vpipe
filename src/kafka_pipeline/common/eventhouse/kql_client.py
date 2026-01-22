@@ -186,6 +186,21 @@ class KQLClient:
         if self._client is not None:
             return  # Already connected
 
+        # CRITICAL: Set proxy environment variables FIRST, before any credential or
+        # connection string builder operations. The Azure Identity SDK and Kusto SDK
+        # make HTTP requests during initialization (auth metadata discovery, token
+        # acquisition) that need the proxy to be configured in the environment.
+        if self.config.proxy_url:
+            os.environ["HTTP_PROXY"] = self.config.proxy_url
+            os.environ["HTTPS_PROXY"] = self.config.proxy_url
+            # Also set lowercase variants for libraries that check these
+            os.environ["http_proxy"] = self.config.proxy_url
+            os.environ["https_proxy"] = self.config.proxy_url
+            logger.info(
+                "Set proxy environment variables for Azure/Kusto SDK auth requests",
+                extra={"proxy_url": self.config.proxy_url},
+            )
+
         # Log proxy configuration for troubleshooting
         proxy_env_vars = {
             "EVENTHOUSE_PROXY_URL": os.getenv("EVENTHOUSE_PROXY_URL"),
@@ -263,17 +278,9 @@ class KQLClient:
                 )
                 auth_mode = "default"
 
-            # Configure proxy BEFORE creating client to ensure it's used for auth requests
-            if self.config.proxy_url:
-                # Set env vars so requests library picks them up during session creation
-                os.environ["HTTP_PROXY"] = self.config.proxy_url
-                os.environ["HTTPS_PROXY"] = self.config.proxy_url
-                logger.debug(
-                    "Set proxy environment variables for requests library",
-                    extra={"proxy_url": self.config.proxy_url},
-                )
-
             # Create client (sync client, will execute in thread pool)
+            # Note: Proxy env vars were set at the start of connect() to ensure
+            # they're available for auth metadata requests during client creation
             self._client = KustoClient(kcsb)
 
             # Configure proxy if specified (belt and suspenders)
