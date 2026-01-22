@@ -115,8 +115,8 @@ class MitigationTaskPipeline:
         # Fetch task assignment data
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
 
-        # Get media IDs affiliated with this task
-        task_media_ids = task_data.get("claimMediaIds", [])
+        # Extract media IDs from nested response structure
+        task_media_ids = self._extract_claim_media_ids(task_data)
 
         # Fetch project export data
         project_id = int(event.project_id)
@@ -138,6 +138,31 @@ class MitigationTaskPipeline:
         )
 
         return submission
+
+    def _extract_claim_media_ids(self, task_data: dict) -> list[int]:
+        """Extract all claimMediaIds from nested response structure.
+
+        Path: response.groups[].questionAndAnswers[].responseAnswerExport.claimMediaIds
+        """
+        media_ids = []
+
+        response = task_data.get("response", {})
+        groups = response.get("groups", [])
+
+        for group in groups:
+            question_and_answers = group.get("questionAndAnswers", [])
+            for qa in question_and_answers:
+                response_answer_export = qa.get("responseAnswerExport", {})
+                claim_media_ids = response_answer_export.get("claimMediaIds", [])
+                if claim_media_ids:
+                    media_ids.extend(claim_media_ids)
+
+        logger.info(
+            "Extracted claimMediaIds from task response",
+            extra={'media_ids_count': len(media_ids), 'media_ids': media_ids}
+        )
+
+        return media_ids
 
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         """Fetch assignment data from ClaimX API."""
@@ -181,16 +206,21 @@ class MitigationTaskPipeline:
 
         return response
 
+    # Media descriptions that should always be included
+    ALWAYS_INCLUDE_DESCRIPTIONS = [
+        "Custom Task: Property GHRN Water Mitigation Assignment",
+        "Custom Task: Property GHRN Fire/Smoke Mitigation Assignment",
+    ]
+
     async def _fetch_project_media(
         self,
         project_id: int,
         task_media_ids: list[int],
     ) -> list[dict]:
-        """Fetch project media and filter to task's media IDs only."""
-        if not task_media_ids:
-            logger.info("No task media IDs to fetch", extra={'project_id': project_id})
-            return []
+        """Fetch project media and filter to task's media IDs.
 
+        Also always includes media with specific task descriptions.
+        """
         endpoint = f"/export/project/{project_id}/media"
 
         logger.debug("Fetching project media from ClaimX", extra={'project_id': project_id})
@@ -222,12 +252,24 @@ class MitigationTaskPipeline:
         else:
             all_media = []
 
-        # Filter to only media IDs affiliated with this task
+        # Filter media: include if mediaID in task_media_ids OR has required description
         task_media_ids_set = set(task_media_ids)
-        filtered_media = [
-            media for media in all_media
-            if media.get("mediaID") in task_media_ids_set
-        ]
+        filtered_media = []
+        seen_media_ids = set()
+
+        for media in all_media:
+            media_id = media.get("mediaID")
+            description = media.get("mediaDescription", "")
+
+            # Include if mediaID matches task's claimMediaIds
+            in_task_media = media_id in task_media_ids_set
+
+            # Include if description matches required patterns
+            has_required_description = description in self.ALWAYS_INCLUDE_DESCRIPTIONS
+
+            if (in_task_media or has_required_description) and media_id not in seen_media_ids:
+                filtered_media.append(media)
+                seen_media_ids.add(media_id)
 
         logger.info(
             "Fetched and filtered project media",
