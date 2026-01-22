@@ -46,10 +46,18 @@ async def run_claimx_eventhouse_poller(
             "Set in config.yaml under 'claimx_eventhouse:' or via CLAIMX_EVENTHOUSE_* env vars."
         )
 
+    # Get proxy URL from environment (same priority as EventhouseConfig.load_config)
+    proxy_url = (
+        os.getenv("EVENTHOUSE_PROXY_URL")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("HTTP_PROXY")
+    )
+
     eventhouse_config = EventhouseConfig(
         cluster_url=claimx_eventhouse.cluster_url,
         database=claimx_eventhouse.database,
         query_timeout_seconds=claimx_eventhouse.query_timeout_seconds,
+        proxy_url=proxy_url,
     )
 
     local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
