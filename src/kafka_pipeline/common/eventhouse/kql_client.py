@@ -186,6 +186,18 @@ class KQLClient:
         if self._client is not None:
             return  # Already connected
 
+        # Log proxy configuration for troubleshooting
+        proxy_env_vars = {
+            "EVENTHOUSE_PROXY_URL": os.getenv("EVENTHOUSE_PROXY_URL"),
+            "HTTPS_PROXY": os.getenv("HTTPS_PROXY"),
+            "HTTP_PROXY": os.getenv("HTTP_PROXY"),
+        }
+        logger.info(
+            "Proxy environment: %s -> using: %s",
+            {k: (v[:20] + "..." if v and len(v) > 20 else v) for k, v in proxy_env_vars.items()},
+            self.config.proxy_url or "(none)",
+        )
+
         logger.info(
             "Connecting to Eventhouse",
             extra={
