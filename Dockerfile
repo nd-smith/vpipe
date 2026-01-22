@@ -11,7 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements and install Python dependencies
 COPY src/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Using --trusted-host to bypass SSL verification (for corporate proxy environments)
+RUN pip install --no-cache-dir \
+    --trusted-host pypi.org \
+    --trusted-host pypi.python.org \
+    --trusted-host files.pythonhosted.org \
+    -r requirements.txt
 
 # Copy application code
 COPY src/ .
