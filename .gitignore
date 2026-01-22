@@ -24,6 +24,7 @@ share/python-wheels/
 MANIFEST
 *.tmp.*
 .ruff_cache
+docs*
 
 # Virtual environments
 venv/
