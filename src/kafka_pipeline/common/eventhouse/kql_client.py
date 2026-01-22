@@ -57,6 +57,7 @@ class EventhouseConfig:
     max_retries: int = 3  # Max retry attempts for transient failures
     retry_base_delay_seconds: float = 1.0  # Base delay between retries
     retry_max_delay_seconds: float = 30.0  # Max delay between retries
+    proxy_url: Optional[str] = None  # HTTP proxy URL (e.g., "http://proxy:8080")
 
     @classmethod
     def load_config(
@@ -86,6 +87,10 @@ class EventhouseConfig:
             "max_retries": os.getenv("EVENTHOUSE_MAX_RETRIES"),
             "retry_base_delay_seconds": os.getenv("EVENTHOUSE_RETRY_BASE_DELAY"),
             "retry_max_delay_seconds": os.getenv("EVENTHOUSE_RETRY_MAX_DELAY"),
+            # Proxy: check EVENTHOUSE_PROXY_URL first, then HTTPS_PROXY, then HTTP_PROXY
+            "proxy_url": os.getenv("EVENTHOUSE_PROXY_URL")
+            or os.getenv("HTTPS_PROXY")
+            or os.getenv("HTTP_PROXY"),
         }
         for key, value in env_overrides.items():
             if value is not None:
@@ -111,6 +116,7 @@ class EventhouseConfig:
             max_retries=int(data.get("max_retries", 3)),
             retry_base_delay_seconds=float(data.get("retry_base_delay_seconds", 1.0)),
             retry_max_delay_seconds=float(data.get("retry_max_delay_seconds", 30.0)),
+            proxy_url=data.get("proxy_url"),
         )
 
 
@@ -248,12 +254,21 @@ class KQLClient:
             # Create client (sync client, will execute in thread pool)
             self._client = KustoClient(kcsb)
 
+            # Configure proxy if specified
+            if self.config.proxy_url:
+                self._client.set_proxy(self.config.proxy_url)
+                logger.info(
+                    "Configured proxy for Eventhouse",
+                    extra={"proxy_url": self.config.proxy_url},
+                )
+
             logger.info(
                 "Connected to Eventhouse",
                 extra={
                     "cluster_url": self.config.cluster_url,
                     "database": self.config.database,
                     "auth_mode": auth_mode,
+                    "proxy_configured": bool(self.config.proxy_url),
                 },
             )
 
