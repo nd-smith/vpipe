@@ -78,10 +78,6 @@ class MitigationSubmission:
     task_name: str
     status: str
 
-    # Form identifiers
-    form_id: str
-    form_response_id: str
-
     # Project data from export/project API
     master_filename: Optional[str] = None
     type_of_loss: Optional[str] = None
@@ -92,10 +88,7 @@ class MitigationSubmission:
     date_assigned: Optional[str] = None
     date_completed: Optional[str] = None
 
-    # Media IDs array from claimMediaIds
-    claim_media_ids: Optional[list[int]] = None
-
-    # Media metadata (filtered to claim_media_ids only)
+    # All project media metadata
     media: Optional[list[dict]] = None
 
     # Processing metadata
@@ -110,15 +103,12 @@ class MitigationSubmission:
             'task_id': self.task_id,
             'task_name': self.task_name,
             'status': self.status,
-            'form_id': self.form_id,
-            'form_response_id': self.form_response_id,
             'master_filename': self.master_filename,
             'type_of_loss': self.type_of_loss,
             'claim_number': self.claim_number,
             'policy_number': self.policy_number,
             'date_assigned': self.date_assigned,
             'date_completed': self.date_completed,
-            'claim_media_ids': self.claim_media_ids,
             'media': self.media,
             'ingested_at': self.ingested_at,
         }

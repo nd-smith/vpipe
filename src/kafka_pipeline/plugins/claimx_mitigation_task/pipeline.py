@@ -114,14 +114,13 @@ class MitigationTaskPipeline:
 
         # Fetch task assignment data
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
-        claim_media_ids = task_data.get("claimMediaIds", [])
 
         # Fetch project export data
         project_id = int(event.project_id)
         project_data = await self._fetch_project_export(project_id)
 
-        # Fetch and filter media metadata
-        media_list = await self._fetch_project_media(project_id, claim_media_ids)
+        # Fetch all project media
+        media_list = await self._fetch_project_media(project_id)
 
         # Parse submission with all enriched data
         submission = self._parse_submission(task_data, event, project_data, media_list)
@@ -130,7 +129,6 @@ class MitigationTaskPipeline:
             "Task enriched successfully",
             extra={
                 'assignment_id': event.assignment_id,
-                'claim_media_ids_count': len(claim_media_ids),
                 'media_count': len(media_list),
             }
         )
@@ -179,15 +177,8 @@ class MitigationTaskPipeline:
 
         return response
 
-    async def _fetch_project_media(
-        self,
-        project_id: int,
-        claim_media_ids: list[int],
-    ) -> list[dict]:
-        """Fetch project media and filter to claim_media_ids only."""
-        if not claim_media_ids:
-            return []
-
+    async def _fetch_project_media(self, project_id: int) -> list[dict]:
+        """Fetch all project media from ClaimX API."""
         endpoint = f"/export/project/{project_id}/media"
 
         logger.debug("Fetching project media from ClaimX", extra={'project_id': project_id})
@@ -208,34 +199,26 @@ class MitigationTaskPipeline:
 
         # Handle different response formats
         if isinstance(response, list):
-            all_media = response
+            media_list = response
         elif isinstance(response, dict):
             if "data" in response:
-                all_media = response["data"]
+                media_list = response["data"]
             elif "media" in response:
-                all_media = response["media"]
+                media_list = response["media"]
             else:
-                all_media = [response]
+                media_list = []
         else:
-            all_media = []
-
-        # Filter to only media IDs in claim_media_ids
-        claim_media_ids_set = set(claim_media_ids)
-        filtered_media = [
-            media for media in all_media
-            if media.get("mediaID") in claim_media_ids_set
-        ]
+            media_list = []
 
         logger.info(
-            "Fetched and filtered project media",
+            "Fetched project media",
             extra={
                 'project_id': project_id,
-                'total_media': len(all_media),
-                'filtered_media': len(filtered_media),
+                'media_count': len(media_list),
             }
         )
 
-        return filtered_media
+        return media_list
 
     def _parse_submission(
         self,
@@ -245,17 +228,9 @@ class MitigationTaskPipeline:
         media_list: list[dict],
     ) -> MitigationSubmission:
         """Parse task data into flat MitigationSubmission."""
-        # Extract form data
-        form_response = task_data.get("formResponse", {})
-        form_id = form_response.get("formId", "")
-        form_response_id = form_response.get("_id", "")
-
         # Get dates from API response (not from event)
         date_assigned = task_data.get("dateAssigned")
         date_completed = task_data.get("dateCompleted")
-
-        # Extract claimMediaIds array
-        claim_media_ids = task_data.get("claimMediaIds", [])
 
         # Extract project data from export/project response
         project = project_data.get("data", {}).get("project", {})
@@ -271,15 +246,12 @@ class MitigationTaskPipeline:
             task_id=event.task_id,
             task_name=event.task_name,
             status=event.task_status,
-            form_id=form_id,
-            form_response_id=form_response_id,
             master_filename=master_filename,
             type_of_loss=type_of_loss,
             claim_number=claim_number,
             policy_number=policy_number,
             date_assigned=date_assigned,
             date_completed=date_completed,
-            claim_media_ids=claim_media_ids,
             media=media_list,
             ingested_at=datetime.utcnow().isoformat(),
         )
