@@ -66,87 +66,72 @@ class MitigationTaskEvent:
 @dataclass
 class MitigationSubmission:
     """
-    Parsed mitigation task submission.
+    Flat mitigation task submission structure.
 
-    This is the structured data extracted from ClaimX task response.
-    Fields will be expanded as the model is built out.
+    All fields at top level for easy consumption.
     """
     # Primary identifiers
+    event_id: str
     assignment_id: int
-    project_id: str  # String from ClaimX (e.g., "5395115")
-    form_id: str  # MongoDB ObjectId string
-    form_response_id: str  # MongoDB ObjectId string
+    project_id: str
+    task_id: int
+    task_name: str
     status: str
-    event_id: str  # Kafka event ID for traceability
 
-    # Task metadata
-    task_id: Optional[int] = None
-    task_name: Optional[str] = None
+    # Form identifiers
+    form_id: str
+    form_response_id: str
 
-    # Dates
+    # Project data from export/project API
+    master_filename: Optional[str] = None
+    type_of_loss: Optional[str] = None
+    claim_number: Optional[str] = None  # from projectNumber
+    policy_number: Optional[str] = None  # from secondaryNumber
+
+    # Dates from API response
     date_assigned: Optional[str] = None
     date_completed: Optional[str] = None
-    ingested_at: Optional[datetime] = None
 
-    # Raw data blob (preserves original structure as JSON string)
-    raw_data: Optional[str] = None
+    # Media IDs array from claimMediaIds
+    claim_media_ids: Optional[list[int]] = None
 
-    # Metadata
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    # Media metadata (filtered to claim_media_ids only)
+    media: Optional[list[dict]] = None
 
-    def to_dict(self) -> dict:
-        """Convert to dictionary for Delta write or Kafka publish."""
-        result = {}
-        for key, value in self.__dict__.items():
-            if isinstance(value, datetime):
-                result[key] = value.isoformat()
-            else:
-                result[key] = value
-        return result
+    # Processing metadata
+    ingested_at: Optional[str] = None
 
-
-@dataclass
-class MitigationAttachment:
-    """
-    Media attachment linked to form question.
-    """
-    assignment_id: int
-    project_id: int  # ClaimX project ID
-    event_id: str  # Kafka event ID for traceability
-    control_id: str  # Form control ID for tracking
-    question_key: str
-    question_text: str
-    topic_category: str  # e.g., "Mitigation", "Documentation"
-    media_id: int  # ClaimX media ID
-    url: Optional[str] = None  # Download URL from ClaimX
-    display_order: int = 0
-    created_at: Optional[datetime] = None
-    is_active: bool = True
-    media_type: str = "image/jpeg"  # Default assumption
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for Delta write."""
-        result = {}
-        for key, value in self.__dict__.items():
-            if isinstance(value, datetime):
-                result[key] = value.isoformat()
-            else:
-                result[key] = value
-        return result
+    def to_flat_dict(self) -> dict:
+        """Convert to flat dictionary for Kafka publish."""
+        return {
+            'event_id': self.event_id,
+            'assignment_id': self.assignment_id,
+            'project_id': self.project_id,
+            'task_id': self.task_id,
+            'task_name': self.task_name,
+            'status': self.status,
+            'form_id': self.form_id,
+            'form_response_id': self.form_response_id,
+            'master_filename': self.master_filename,
+            'type_of_loss': self.type_of_loss,
+            'claim_number': self.claim_number,
+            'policy_number': self.policy_number,
+            'date_assigned': self.date_assigned,
+            'date_completed': self.date_completed,
+            'claim_media_ids': self.claim_media_ids,
+            'media': self.media,
+            'ingested_at': self.ingested_at,
+        }
 
 
 @dataclass
 class ProcessedMitigationTask:
     """
     Final output after pipeline processing.
-
-    Contains everything we learned about the task.
     """
     event: MitigationTaskEvent
     submission: Optional[MitigationSubmission]
-    attachments: list[MitigationAttachment]
 
     def was_enriched(self) -> bool:
-        """Check if task was fully enriched (vs metadata-only)."""
+        """Check if task was fully enriched."""
         return self.submission is not None

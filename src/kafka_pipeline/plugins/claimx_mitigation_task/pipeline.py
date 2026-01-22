@@ -3,14 +3,12 @@
 import json
 import logging
 from datetime import datetime
-from typing import Optional
 
 from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 from .models import (
     MitigationTaskEvent,
     MitigationSubmission,
-    MitigationAttachment,
     ProcessedMitigationTask,
 )
 
@@ -69,15 +67,14 @@ class MitigationTaskPipeline:
         self._validate_event(event)
 
         # Enrich completed task with ClaimX API data
-        submission, attachments = await self._enrich_task(event)
+        submission = await self._enrich_task(event)
 
         # Publish to success topic
-        await self._publish_to_success(event, submission, attachments)
+        await self._publish_to_success(submission)
 
         return ProcessedMitigationTask(
             event=event,
             submission=submission,
-            attachments=attachments,
         )
 
     def _validate_event(self, event: MitigationTaskEvent) -> None:
@@ -102,37 +99,43 @@ class MitigationTaskPipeline:
     async def _enrich_task(
         self,
         event: MitigationTaskEvent,
-    ) -> tuple[MitigationSubmission, list[MitigationAttachment]]:
+    ) -> MitigationSubmission:
         """Fetch and parse task data from ClaimX API.
 
         1. Fetch task assignment from ClaimX
-        2. Parse form data into submission
-        3. Extract attachments with media URLs
+        2. Fetch project export for project metadata
+        3. Fetch project media and filter to claim_media_ids
+        4. Parse into flat submission structure
         """
         logger.info(
             "Enriching mitigation task",
             extra={'assignment_id': event.assignment_id}
         )
 
+        # Fetch task assignment data
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
-        project_id = int(task_data.get("projectId", event.project_id))
-        media_url_map = await self._fetch_project_media_urls(project_id)
+        claim_media_ids = task_data.get("claimMediaIds", [])
 
-        # Parse submission and attachments
-        submission = self._parse_submission(task_data, event)
-        attachments = self._parse_attachments(
-            task_data, event, project_id, media_url_map
-        )
+        # Fetch project export data
+        project_id = int(event.project_id)
+        project_data = await self._fetch_project_export(project_id)
+
+        # Fetch and filter media metadata
+        media_list = await self._fetch_project_media(project_id, claim_media_ids)
+
+        # Parse submission with all enriched data
+        submission = self._parse_submission(task_data, event, project_data, media_list)
 
         logger.info(
             "Task enriched successfully",
             extra={
                 'assignment_id': event.assignment_id,
-                'attachment_count': len(attachments),
+                'claim_media_ids_count': len(claim_media_ids),
+                'media_count': len(media_list),
             }
         )
 
-        return submission, attachments
+        return submission
 
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         """Fetch assignment data from ClaimX API."""
@@ -154,11 +157,40 @@ class MitigationTaskPipeline:
 
         return response
 
-    async def _fetch_project_media_urls(self, project_id: int) -> dict[int, str]:
-        """Build media_id -> download URL lookup map from ClaimX API."""
+    async def _fetch_project_export(self, project_id: int) -> dict:
+        """Fetch project export data from ClaimX API."""
+        endpoint = f"/export/project/{project_id}"
+
+        logger.debug("Fetching project export from ClaimX", extra={'project_id': project_id})
+
+        status, response = await self.connections.request_json(
+            connection_name=self.claimx_connection,
+            method='GET',
+            path=endpoint,
+            params={},
+        )
+
+        if status < 200 or status >= 300:
+            logger.warning(
+                f"Failed to fetch project export: HTTP {status}",
+                extra={'project_id': project_id, 'status': status}
+            )
+            return {}
+
+        return response
+
+    async def _fetch_project_media(
+        self,
+        project_id: int,
+        claim_media_ids: list[int],
+    ) -> list[dict]:
+        """Fetch project media and filter to claim_media_ids only."""
+        if not claim_media_ids:
+            return []
+
         endpoint = f"/export/project/{project_id}/media"
 
-        logger.debug(f"Fetching all project media", extra={'project_id': project_id})
+        logger.debug("Fetching project media from ClaimX", extra={'project_id': project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -172,151 +204,111 @@ class MitigationTaskPipeline:
                 f"Failed to fetch project media: HTTP {status}",
                 extra={'project_id': project_id, 'status': status}
             )
-            return {}
+            return []
 
+        # Handle different response formats
         if isinstance(response, list):
-            media_list = response
+            all_media = response
         elif isinstance(response, dict):
             if "data" in response:
-                media_list = response["data"]
+                all_media = response["data"]
             elif "media" in response:
-                media_list = response["media"]
+                all_media = response["media"]
             else:
-                media_list = [response]
+                all_media = [response]
         else:
-            media_list = []
+            all_media = []
 
-        media_url_map = {}
-        for media in media_list:
-            media_id = media.get("mediaID")
-            download_url = media.get("fullDownloadLink")
-            if media_id and download_url:
-                media_url_map[media_id] = download_url
+        # Filter to only media IDs in claim_media_ids
+        claim_media_ids_set = set(claim_media_ids)
+        filtered_media = [
+            media for media in all_media
+            if media.get("mediaID") in claim_media_ids_set
+        ]
 
         logger.info(
-            f"Fetched project media URLs",
+            "Fetched and filtered project media",
             extra={
                 'project_id': project_id,
-                'total_media': len(media_list),
-                'with_urls': len(media_url_map),
+                'total_media': len(all_media),
+                'filtered_media': len(filtered_media),
             }
         )
 
-        return media_url_map
+        return filtered_media
 
     def _parse_submission(
         self,
         task_data: dict,
         event: MitigationTaskEvent,
+        project_data: dict,
+        media_list: list[dict],
     ) -> MitigationSubmission:
-        """Parse task data into MitigationSubmission.
-
-        This is a basic implementation - expand as the model is built out.
-        """
-        now = datetime.utcnow()
-
+        """Parse task data into flat MitigationSubmission."""
         # Extract form data
         form_response = task_data.get("formResponse", {})
         form_id = form_response.get("formId", "")
         form_response_id = form_response.get("_id", "")
 
+        # Get dates from API response (not from event)
+        date_assigned = task_data.get("dateAssigned")
+        date_completed = task_data.get("dateCompleted")
+
+        # Extract claimMediaIds array
+        claim_media_ids = task_data.get("claimMediaIds", [])
+
+        # Extract project data from export/project response
+        project = project_data.get("data", {}).get("project", {})
+        master_filename = project.get("masterFilename")
+        type_of_loss = project.get("typeOfLoss")
+        claim_number = project.get("projectNumber")
+        policy_number = project.get("secondaryNumber")
+
         return MitigationSubmission(
+            event_id=event.event_id,
             assignment_id=event.assignment_id,
             project_id=event.project_id,
-            form_id=form_id,
-            form_response_id=form_response_id,
-            status=event.task_status,
-            event_id=event.event_id,
             task_id=event.task_id,
             task_name=event.task_name,
-            date_assigned=event.task_created_at,
-            date_completed=event.task_completed_at,
-            ingested_at=now,
-            raw_data=json.dumps(task_data),
-            created_at=now,
-            updated_at=now,
+            status=event.task_status,
+            form_id=form_id,
+            form_response_id=form_response_id,
+            master_filename=master_filename,
+            type_of_loss=type_of_loss,
+            claim_number=claim_number,
+            policy_number=policy_number,
+            date_assigned=date_assigned,
+            date_completed=date_completed,
+            claim_media_ids=claim_media_ids,
+            media=media_list,
+            ingested_at=datetime.utcnow().isoformat(),
         )
-
-    def _parse_attachments(
-        self,
-        task_data: dict,
-        event: MitigationTaskEvent,
-        project_id: int,
-        media_url_map: dict[int, str],
-    ) -> list[MitigationAttachment]:
-        """Extract attachments from task data.
-
-        This is a basic implementation - expand as the model is built out.
-        """
-        attachments = []
-        now = datetime.utcnow()
-
-        form_response = task_data.get("formResponse", {})
-        responses = form_response.get("responses", [])
-
-        for response in responses:
-            media_list = response.get("media", [])
-            control_id = response.get("controlId", "")
-            question_key = response.get("questionKey", "")
-            question_text = response.get("questionText", "")
-
-            for idx, media in enumerate(media_list):
-                media_id = media.get("mediaID") or media.get("mediaId")
-                if not media_id:
-                    continue
-
-                attachment = MitigationAttachment(
-                    assignment_id=event.assignment_id,
-                    project_id=project_id,
-                    event_id=event.event_id,
-                    control_id=control_id,
-                    question_key=question_key,
-                    question_text=question_text,
-                    topic_category="Mitigation",
-                    media_id=media_id,
-                    url=media_url_map.get(media_id),
-                    display_order=idx,
-                    created_at=now,
-                )
-                attachments.append(attachment)
-
-        return attachments
 
     async def _publish_to_success(
         self,
-        event: MitigationTaskEvent,
         submission: MitigationSubmission,
-        attachments: list[MitigationAttachment],
     ) -> None:
-        """Publish enriched data to success topic."""
+        """Publish flat enriched data to success topic."""
         logger.info(
             "Publishing to success topic",
             extra={
-                'assignment_id': event.assignment_id,
+                'assignment_id': submission.assignment_id,
                 'topic': self.output_topic,
             }
         )
 
-        payload = {
-            'event_id': event.event_id,
-            'event_timestamp': event.event_timestamp,
-            'assignment_id': event.assignment_id,
-            'project_id': event.project_id,
-            'task_id': event.task_id,
-            'task_name': event.task_name,
-            'submission': submission.to_dict(),
-            'attachments': [att.to_dict() for att in attachments],
-            'published_at': datetime.utcnow().isoformat(),
-            'source': 'mitigation_tracking_worker',
-        }
+        # Flat structure - all fields at top level
+        payload = submission.to_flat_dict()
+        payload['published_at'] = datetime.utcnow().isoformat()
+        payload['source'] = 'mitigation_tracking_worker'
 
         await self.kafka.send(
             topic=self.output_topic,
             value=json.dumps(payload).encode('utf-8'),
-            key=event.event_id.encode('utf-8'),
+            key=submission.event_id.encode('utf-8'),
         )
 
         logger.info(
             "Published to success topic successfully",
-            extra={'assignment_id': event.assignment_id}
+            extra={'assignment_id': submission.assignment_id}
         )
