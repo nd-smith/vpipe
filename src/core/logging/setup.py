@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """Logging setup and configuration."""
 
 import io
@@ -7,7 +13,7 @@ import secrets
 import shutil
 import sys
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,8 +25,9 @@ from core.logging.formatters import ConsoleFormatter, JSONFormatter
 
 # Default settings
 DEFAULT_LOG_DIR = Path("logs")
-DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10MB
-DEFAULT_BACKUP_COUNT = 5
+DEFAULT_ROTATION_WHEN = "H"  # When to rotate: 'H' (hourly), 'midnight', etc.
+DEFAULT_ROTATION_INTERVAL = 1  # Interval for rotation (every 1 hour)
+DEFAULT_BACKUP_COUNT = 24  # Keep 24 hours of logs by default
 DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
 
@@ -34,11 +41,11 @@ NOISY_LOGGERS = [
 ]
 
 
-class ArchivingRotatingFileHandler(RotatingFileHandler):
+class ArchivingTimedRotatingFileHandler(TimedRotatingFileHandler):
     """
-    Custom RotatingFileHandler that automatically moves rotated files to an archive folder.
+    Custom TimedRotatingFileHandler that automatically moves rotated files to an archive folder.
 
-    When a log file is rotated (e.g., file.log -> file.log.1), the backup files
+    When a log file is rotated (e.g., file.log -> file.log.2026-01-22), the backup files
     are automatically moved to an 'archive' subdirectory to keep the main log
     directory clean.
 
@@ -46,43 +53,46 @@ class ArchivingRotatingFileHandler(RotatingFileHandler):
         Before rotation:
             logs/xact/2026-01-05/xact_download_0105_1430_happy-tiger.log
 
-        After rotation:
+        After rotation (daily at midnight):
             logs/xact/2026-01-05/xact_download_0105_1430_happy-tiger.log (new file)
-            logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.1
-            logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.2
-            
+            logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.2026-01-05
+            logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.2026-01-04
+
     If archive_dir is provided, rotated files are moved there instead.
     """
 
-    def __init__(self, filename, mode="a", maxBytes=0, backupCount=0, encoding=None, delay=False, archive_dir=None):
-        super().__init__(filename, mode, maxBytes, backupCount, encoding, delay)
+    def __init__(self, filename, when="midnight", interval=1, backupCount=0, encoding=None, delay=False, utc=False, archive_dir=None):
+        super().__init__(filename, when, interval, backupCount, encoding, delay, utc)
         if archive_dir:
             self.archive_dir = Path(archive_dir)
         else:
             # Fallback to subdirectory behavior
             log_path = Path(self.baseFilename)
             self.archive_dir = log_path.parent / "archive"
-        
+
         self.archive_dir.mkdir(parents=True, exist_ok=True)
 
     def doRollover(self):
         super().doRollover()
 
-        # Move rotated files (*.log.1, *.log.2, etc.) to archive
+        # Move rotated files to archive
+        # TimedRotatingFileHandler appends timestamps like .2026-01-22 to rotated files
         log_path = Path(self.baseFilename)
         log_dir = log_path.parent
         base_name = log_path.name
 
-        # Find all rotated backup files
-        for i in range(1, self.backupCount + 1):
-            rotated_file = log_dir / f"{base_name}.{i}"
-            if rotated_file.exists():
-                archive_file = self.archive_dir / f"{base_name}.{i}"
-                try:
-                    shutil.move(str(rotated_file), str(archive_file))
-                except Exception as e:
-                    # Log to stderr if we can't move the file (don't use logger to avoid recursion)
-                    print(f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr)
+        # Find all rotated backup files (they have timestamps appended)
+        for rotated_file in log_dir.glob(f"{base_name}.*"):
+            # Skip the current log file itself
+            if rotated_file == log_path:
+                continue
+
+            archive_file = self.archive_dir / rotated_file.name
+            try:
+                shutil.move(str(rotated_file), str(archive_file))
+            except Exception as e:
+                # Log to stderr if we can't move the file (don't use logger to avoid recursion)
+                print(f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr)
 
 
 def get_log_file_path(
@@ -156,14 +166,15 @@ def setup_logging(
     json_format: bool = True,
     console_level: int = DEFAULT_CONSOLE_LEVEL,
     file_level: int = DEFAULT_FILE_LEVEL,
-    max_bytes: int = DEFAULT_MAX_BYTES,
+    rotation_when: str = DEFAULT_ROTATION_WHEN,
+    rotation_interval: int = DEFAULT_ROTATION_INTERVAL,
     backup_count: int = DEFAULT_BACKUP_COUNT,
     suppress_noisy: bool = True,
     worker_id: Optional[str] = None,
     use_instance_id: bool = True,
 ) -> logging.Logger:
     """
-    Configure logging with console and auto-archiving rotating file handlers.
+    Configure logging with console and auto-archiving time-based rotating file handlers.
 
     Log files are organized by domain and date with human-readable names:
         logs/xact/2026-01-05/xact_download_0105_1430_happy-tiger.log
@@ -173,9 +184,9 @@ def setup_logging(
     the log filename to prevent file locking conflicts when multiple workers of
     the same type run concurrently.
 
-    Rotated backup files (*.log.1, *.log.2, etc.) are automatically moved to
+    Rotated backup files (with timestamps like .2026-01-05) are automatically moved to
     an 'archive' subdirectory to keep the main log directory clean:
-        logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.1
+        logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.2026-01-05
 
     Args:
         name: Logger name and log file prefix
@@ -185,8 +196,9 @@ def setup_logging(
         json_format: Use JSON format for file logs (default: True)
         console_level: Console handler level (default: INFO)
         file_level: File handler level (default: DEBUG)
-        max_bytes: Max size per log file before rotation (default: 10MB)
-        backup_count: Number of backup files to keep (default: 5)
+        rotation_when: When to rotate logs - 'midnight', 'H' (hourly), 'M' (minutes) (default: midnight)
+        rotation_interval: Interval for rotation (default: 1)
+        backup_count: Number of backup files to keep (default: 7)
         suppress_noisy: Quiet down Azure SDK and HTTP client loggers
         worker_id: Worker identifier for context
         use_instance_id: Generate unique phrase for log filename (default: True).
@@ -226,7 +238,7 @@ def setup_logging(
         )
     console_formatter = ConsoleFormatter()
 
-    # File handler with rotation and auto-archiving
+    # File handler with time-based rotation and auto-archiving
     # Calculate centralized archive directory
     # Structure: logs/archive/domain/date
     try:
@@ -236,10 +248,11 @@ def setup_logging(
         # Fallback if relative path calculation fails
         archive_dir = log_file.parent / "archive"
 
-    # File handler with rotation and auto-archiving
-    file_handler = ArchivingRotatingFileHandler(
+    # File handler with time-based rotation and auto-archiving
+    file_handler = ArchivingTimedRotatingFileHandler(
         log_file,
-        maxBytes=max_bytes,
+        when=rotation_when,
+        interval=rotation_interval,
         backupCount=backup_count,
         encoding="utf-8",
         archive_dir=archive_dir,
@@ -288,15 +301,16 @@ def setup_multi_worker_logging(
     json_format: bool = True,
     console_level: int = DEFAULT_CONSOLE_LEVEL,
     file_level: int = DEFAULT_FILE_LEVEL,
-    max_bytes: int = DEFAULT_MAX_BYTES,
+    rotation_when: str = DEFAULT_ROTATION_WHEN,
+    rotation_interval: int = DEFAULT_ROTATION_INTERVAL,
     backup_count: int = DEFAULT_BACKUP_COUNT,
     suppress_noisy: bool = True,
     use_instance_id: bool = True,
 ) -> logging.Logger:
     """
-    Configure logging with per-worker auto-archiving file handlers.
+    Configure logging with per-worker auto-archiving time-based file handlers.
 
-    Creates one ArchivingRotatingFileHandler per worker type, each filtered
+    Creates one ArchivingTimedRotatingFileHandler per worker type, each filtered
     to only receive logs from that worker's context. Also creates
     a combined log file that receives all logs.
 
@@ -318,8 +332,9 @@ def setup_multi_worker_logging(
         json_format: Use JSON format for file logs (default: True)
         console_level: Console handler level (default: INFO)
         file_level: File handler level (default: DEBUG)
-        max_bytes: Max size per log file before rotation (default: 10MB)
-        backup_count: Number of backup files to keep (default: 5)
+        rotation_when: When to rotate logs - 'midnight', 'H' (hourly), 'M' (minutes) (default: midnight)
+        rotation_interval: Interval for rotation (default: 1)
+        backup_count: Number of backup files to keep (default: 7)
         suppress_noisy: Quiet down Azure SDK and HTTP client loggers
         use_instance_id: Generate unique phrase for log filenames (default: True)
 
@@ -370,9 +385,10 @@ def setup_multi_worker_logging(
         except ValueError:
             archive_dir = log_file.parent / "archive"
 
-        handler = ArchivingRotatingFileHandler(
+        handler = ArchivingTimedRotatingFileHandler(
             log_file,
-            maxBytes=max_bytes,
+            when=rotation_when,
+            interval=rotation_interval,
             backupCount=backup_count,
             encoding="utf-8",
             archive_dir=archive_dir,
@@ -394,9 +410,10 @@ def setup_multi_worker_logging(
     except ValueError:
         combined_archive_dir = combined_file.parent / "archive"
 
-    combined_handler = ArchivingRotatingFileHandler(
+    combined_handler = ArchivingTimedRotatingFileHandler(
         combined_file,
-        maxBytes=max_bytes,
+        when=rotation_when,
+        interval=rotation_interval,
         backupCount=backup_count,
         encoding="utf-8",
         archive_dir=combined_archive_dir,

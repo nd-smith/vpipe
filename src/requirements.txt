@@ -1,40 +1,39 @@
 # Core dependencies
-polars>=0.20.0
-deltalake>=0.15.0
-pyyaml>=6.0
-python-dotenv>=1.0.0
+polars>=1.0.0,<2.0.0
+deltalake>=0.15.0,<1.0.0
+pyyaml>=6.0.3,<7.0.0
+python-dotenv>=1.0.0,<2.0.0
 tzdata>=2024.1
-requests>=2.28.0
-pyarrow>=14.0.0
-psutil>=5.9.0
-cryptography>=41.0.0  # For temp file encryption at rest
-coolname>=2.2.0  # Human-readable log filenames
-tenacity>=9.1.2
+requests>=2.32.5,<3.0.0  # CVE-2024-35195, CVE-2023-32681
+pyarrow>=22.0.0,<23.0.0  # CVE-2023-47248
+psutil>=5.9.0,<6.0.0
+cryptography>=46.0.3,<47.0.0  # CVE-2024-12797, CVE-2024-6119, CVE-2023-50782
+coolname>=2.2.0,<3.0.0  # Human-readable log filenames
 
 
 # Azure SDK
-azure-kusto-data>=4.2.0
-azure-identity>=1.15.0
-azure-storage-file-datalake>=12.14.0
+azure-kusto-data>=6.0.0,<7.0.0
+azure-identity>=1.16.1,<2.0.0  # CVE-2024-35255
+azure-storage-file-datalake>=12.14.0,<13.0.0
 
 # Async HTTP
-aiohttp>=3.9.0
+aiohttp>=3.9.2,<4.0.0  # CVE-2024-23334
 
 # Kafka
-aiokafka[lz4]>=0.11.0
+aiokafka[lz4]>=0.11.0,<1.0.0
 
-# Telemetry (Metrics & Tracing) - Optional
-# If these are not available in your Artifactory, the app will run without telemetry
-prometheus-client>=0.19.0  # Metrics
-jaeger-client>=4.8.0  # Distributed tracing
-opentracing>=2.4.0  # OpenTracing API (required by jaeger-client)
+# Telemetry (Metrics) - Optional
+# If not available in your Artifactory, the app will run without telemetry
+prometheus-client>=0.19.0,<1.0.0  # Metrics
+# Note: Distributed tracing (jaeger-client, opentracing) removed - deprecated packages
+# Tracing code remains but uses NoOpTracer fallback. Migrate to OpenTelemetry if needed.
 
 # Validation
-pydantic>=2.0.0
+pydantic>=2.4.0,<3.0.0  # CVE-2024-3772
 
 # Testing
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-pytest-cov>=4.1.0
-testcontainers>=4.0.0  # For integration tests with Docker
-docker>=7.0.0  # Python Docker SDK for testcontainers
+pytest>=8.0.0,<9.0.0
+pytest-asyncio>=0.23.0,<1.0.0
+pytest-cov>=4.1.0,<6.0.0
+testcontainers>=4.0.0,<5.0.0  # For integration tests with Docker
+docker>=7.0.0,<8.0.0  # Python Docker SDK for testcontainers

@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 ClaimX Result Processor - Processes download/upload results and tracks outcomes.
 
@@ -62,6 +68,8 @@ class ClaimXResultProcessor:
         >>> await processor.stop()
     """
 
+    WORKER_NAME = "result_processor"
+
     # Batching configuration
     BATCH_SIZE = 2000
     BATCH_TIMEOUT_SECONDS = 5
@@ -73,6 +81,7 @@ class ClaimXResultProcessor:
         inventory_table_path: str = "",
         batch_size: Optional[int] = None,
         batch_timeout_seconds: Optional[float] = None,
+        instance_id: Optional[str] = None,
     ):
         """
         Initialize ClaimX result processor.
@@ -83,10 +92,18 @@ class ClaimXResultProcessor:
             inventory_table_path: Full abfss:// path to claimx_attachments table (optional)
             batch_size: Optional custom batch size (default: 100)
             batch_timeout_seconds: Optional custom timeout (default: 5.0)
+            instance_id: Optional instance ID for multiple workers (default: None)
         """
         self.config = config
         self.domain = "claimx"
         self.worker_name = "result_processor"
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Batching configuration
         self.batch_size = batch_size or self.BATCH_SIZE
@@ -117,6 +134,10 @@ class ClaimXResultProcessor:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
+
         # Initialize Delta writer for inventory if path is provided
         self.inventory_writer: Optional[BaseDeltaWriter] = None
         if inventory_table_path:
@@ -138,6 +159,10 @@ class ClaimXResultProcessor:
         logger.info(
             "Initialized ClaimXResultProcessor",
             extra={
+                "domain": self.domain,
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": self.consumer_group,
                 "results_topic": self.results_topic,
                 "inventory_table": inventory_table_path,
@@ -184,6 +209,7 @@ class ClaimXResultProcessor:
             topics=[self.results_topic],
             message_handler=self._handle_result_message,
             enable_message_commit=False,
+            instance_id=self.instance_id,
         )
 
         # Start periodic background tasks
@@ -444,7 +470,21 @@ class ClaimXResultProcessor:
         Background task for periodic cycle logging.
         """
         # Initial cycle output
-        logger.info(format_cycle_output(0, 0, 0, 0))
+        logger.info(
+            format_cycle_output(
+                cycle_count=0,
+                succeeded=0,
+                failed=0,
+                skipped=0,
+                deduplicated=0,
+            ),
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "result_processing",
+                "cycle": 0,
+                "cycle_id": "cycle-0",
+            },
+        )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -460,17 +500,24 @@ class ClaimXResultProcessor:
                     async with self._batch_lock:
                         pending = len(self._batch)
 
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    errors_cycle = self._records_failed - self._last_cycle_failed
+
                     # Use standardized cycle output format
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
-                    )
                     logger.info(
-                        cycle_msg,
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=self._records_skipped,
+                            deduplicated=0,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "result_processing",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
@@ -480,6 +527,10 @@ class ClaimXResultProcessor:
                             "cycle_interval_seconds": 30,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_failed = self._records_failed
 
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")

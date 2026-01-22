@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 ClaimX upload worker for uploading cached downloads to OneLake.
 
@@ -30,7 +36,7 @@ from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.claimx.monitoring import HealthCheckServer
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from kafka_pipeline.common.storage import OneLakeClient
@@ -87,9 +93,16 @@ class ClaimXUploadWorker:
 
     WORKER_NAME = "upload_worker"
 
-    def __init__(self, config: KafkaConfig, domain: str = "claimx"):
+    def __init__(self, config: KafkaConfig, domain: str = "claimx", instance_id: Optional[str] = None):
         self.config = config
         self.domain = domain
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Validate OneLake configuration for claimx domain
         if not config.onelake_domain_paths and not config.onelake_base_path:
@@ -128,6 +141,10 @@ class ClaimXUploadWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
+
         # Create producer for result messages
         self.producer = BaseKafkaProducer(
             config=config,
@@ -149,7 +166,9 @@ class ClaimXUploadWorker:
             "Initialized ClaimX upload worker",
             extra={
                 "domain": domain,
+                "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, self.WORKER_NAME),
                 "topic": self.topic,
                 "results_topic": self.results_topic,
@@ -370,6 +389,7 @@ class ClaimXUploadWorker:
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+            "client_id": f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}",
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "enable_auto_commit": False,
             "max_poll_records": self.batch_size,
@@ -610,7 +630,6 @@ class ClaimXUploadWorker:
                     "blob_path": blob_path,
                     "bytes_uploaded": cached_message.bytes_downloaded,
                     "processing_time_ms": processing_time_ms,
-                    "records_succeeded": self._records_succeeded,
                 },
             )
 
@@ -718,7 +737,21 @@ class ClaimXUploadWorker:
 
     async def _periodic_cycle_output(self) -> None:
         # Initial cycle output
-        logger.info(format_cycle_output(0, 0, 0, 0, 0))
+        logger.info(
+            format_cycle_output(
+                cycle_count=0,
+                succeeded=0,
+                failed=0,
+                skipped=0,
+                deduplicated=0,
+            ),
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "upload",
+                "cycle": 0,
+                "cycle_id": "cycle-0",
+            },
+        )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -734,18 +767,24 @@ class ClaimXUploadWorker:
                     async with self._in_flight_lock:
                          in_flight = len(self._in_flight_tasks)
 
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    errors_cycle = self._records_failed - self._last_cycle_failed
+
                     # Use standardized cycle output format
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
-                        in_flight=in_flight,
-                    )
                     logger.info(
-                        cycle_msg,
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=self._records_skipped,
+                            deduplicated=0,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "upload",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
@@ -754,6 +793,10 @@ class ClaimXUploadWorker:
                             "cycle_interval_seconds": 30,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_failed = self._records_failed
 
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")

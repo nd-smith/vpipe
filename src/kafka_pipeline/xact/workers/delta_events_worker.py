@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Delta Events Worker - Writes events to Delta Lake xact_events table.
 
@@ -31,6 +37,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
@@ -75,6 +82,8 @@ class DeltaEventsWorker:
         >>> await worker.start()
     """
 
+    WORKER_NAME = "delta_events_writer"
+
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
@@ -84,6 +93,7 @@ class DeltaEventsWorker:
         producer: BaseKafkaProducer,
         events_table_path: str,
         domain: str = "xact",
+        instance_id: Optional[str] = None,
     ):
         """
         Initialize Delta events worker.
@@ -97,9 +107,16 @@ class DeltaEventsWorker:
         """
         self.config = config
         self.domain = domain
+        self.instance_id = instance_id
         self.events_table_path = events_table_path
         self.consumer: Optional[BaseKafkaConsumer] = None
         self.producer = producer
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Batch configuration - use worker-specific config
         processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
@@ -157,7 +174,9 @@ class DeltaEventsWorker:
             "Initialized DeltaEventsWorker",
             extra={
                 "domain": domain,
-                "worker_name": "delta_events_writer",
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, "delta_events_writer"),
                 "events_topic": config.get_topic(domain, "events"),
                 "events_table_path": events_table_path,
@@ -216,6 +235,7 @@ class DeltaEventsWorker:
             topics=[self.config.get_topic(self.domain, "events_ingested")],
             message_handler=self._handle_event_message,
             enable_message_commit=False,
+            instance_id=self.instance_id,
         )
 
         # Update health check readiness
@@ -302,15 +322,14 @@ class DeltaEventsWorker:
         try:
             message_data = json.loads(record.value.decode("utf-8"))
         except json.JSONDecodeError as e:
-            logger.error(
+            log_worker_error(
+                logger,
                 "Failed to parse message JSON",
-                extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                    "error": str(e),
-                },
-                exc_info=True,
+                error_category="PERMANENT",
+                exc=e,
+                topic=record.topic,
+                partition=record.partition,
+                offset=record.offset,
             )
             raise
 
@@ -471,18 +490,16 @@ class DeltaEventsWorker:
                 span.set_tag("error.type", type(e).__name__)
                 span.set_tag("error.message", str(e)[:200])
 
-                logger.error(
+                log_worker_error(
+                    logger,
                     "Delta write error - classified for routing",
-                    extra={
-                        "batch_id": batch_id,
-                        "batch_size": batch_size,
-                        "error_category": error_category.value,
-                        "error_type": type(e).__name__,
-                        "error": str(e)[:200],
-                        "trace_ids": trace_ids,
-                        "event_ids": event_ids,
-                    },
-                    exc_info=True,
+                    error_category=error_category.value,
+                    exc=e,
+                    batch_id=batch_id,
+                    batch_size=batch_size,
+                    error_type=type(e).__name__,
+                    trace_ids=trace_ids,
+                    event_ids=event_ids,
                 )
                 record_delta_write(
                     table="xact_events",
@@ -498,8 +515,12 @@ class DeltaEventsWorker:
         Logs processing statistics at regular intervals for operational visibility.
         """
         logger.info(
-            "Cycle 0: processed=0, batches_written=0, pending=0 [cycle output every %ds]",
-            self.CYCLE_LOG_INTERVAL_SECONDS,
+            f"{format_cycle_output(0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "delta_write",
+                "cycle": 0,
+            },
         )
         self._last_cycle_log = time.monotonic()
 
@@ -514,10 +535,16 @@ class DeltaEventsWorker:
                     self._last_cycle_log = time.monotonic()
 
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed}, "
-                        f"batches_written={self._batches_written}, pending={len(self._batch)}",
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=0,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "delta_write",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "batches_written": self._batches_written,
                             "records_succeeded": self._records_succeeded,

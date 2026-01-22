@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Resilience patterns module.
 
@@ -8,6 +14,8 @@ Components:
     - @circuit_protected: Decorator for circuit breaker protection
     - RetryConfig: Exponential backoff configuration
     - @with_retry decorator: Retry with jitter
+    - RateLimiter: Token bucket rate limiting
+    - @rate_limited: Decorator for rate limiting
     - Standard configs: KAFKA_CIRCUIT_CONFIG, KUSTO_CIRCUIT_CONFIG, etc.
 """
 
@@ -24,6 +32,14 @@ from .circuit_breaker import (
     CircuitStats,
     circuit_protected,
     get_circuit_breaker,
+)
+from .rate_limiter import (
+    CLAIMX_API_RATE_CONFIG,
+    EXTERNAL_DOWNLOAD_RATE_CONFIG,
+    RateLimiter,
+    RateLimiterConfig,
+    get_rate_limiter,
+    rate_limited,
 )
 from .retry import (
     AUTH_RETRY,
@@ -42,6 +58,11 @@ __all__ = [
     "CircuitStats",
     "circuit_protected",
     "get_circuit_breaker",
+    # Rate Limiter
+    "RateLimiter",
+    "RateLimiterConfig",
+    "rate_limited",
+    "get_rate_limiter",
     # Retry
     "RetryConfig",
     "RetryStats",
@@ -54,4 +75,7 @@ __all__ = [
     "KAFKA_CIRCUIT_CONFIG",
     "KUSTO_CIRCUIT_CONFIG",
     "ONELAKE_CIRCUIT_CONFIG",
+    # Rate Limiter Configs
+    "CLAIMX_API_RATE_CONFIG",
+    "EXTERNAL_DOWNLOAD_RATE_CONFIG",
 ]

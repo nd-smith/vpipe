@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """Worker registry for mapping CLI worker names to runner functions.
 
 This registry defines all available workers and how to execute them.
@@ -320,6 +326,7 @@ async def run_worker_from_registry(
     enable_delta_writes: bool = True,
     eventhub_config=None,
     local_kafka_config=None,
+    instance_id: Optional[int] = None,
 ):
     """Run a worker by looking it up in the registry.
 
@@ -330,6 +337,7 @@ async def run_worker_from_registry(
         enable_delta_writes: Whether to enable Delta writes
         eventhub_config: Event Hub configuration (optional)
         local_kafka_config: Local Kafka configuration (optional)
+        instance_id: Instance identifier for multi-instance deployments (optional)
 
     Raises:
         ValueError: If worker not found in registry or requirements not met
@@ -355,6 +363,10 @@ async def run_worker_from_registry(
         eventhub_config=eventhub_config,
         local_kafka_config=local_kafka_config,
     )
+
+    # Add instance_id if provided
+    if instance_id is not None:
+        kwargs["instance_id"] = instance_id
 
     # Run the worker
     runner = worker_def["runner"]

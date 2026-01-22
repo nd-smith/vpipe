@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 XACT Enrichment Worker - Executes plugins and produces download tasks.
 
@@ -70,6 +76,11 @@ class XACTEnrichmentWorker:
     - Background task tracking for graceful shutdown
     """
 
+    WORKER_NAME = "enrichment_worker"
+
+    # Cycle output configuration
+    CYCLE_LOG_INTERVAL_SECONDS = 30
+
     def __init__(
         self,
         config: KafkaConfig,
@@ -77,12 +88,20 @@ class XACTEnrichmentWorker:
         enrichment_topic: str = "",
         download_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
+        instance_id: Optional[str] = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
+        self.instance_id = instance_id
         self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
         self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "enrichment_worker-happy-tiger"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
         self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
@@ -125,6 +144,10 @@ class XACTEnrichmentWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
+
         # UUID namespace for deterministic media_id generation
         self.MEDIA_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "http://xactPipeline/media_id")
 
@@ -132,7 +155,9 @@ class XACTEnrichmentWorker:
             "Initialized XACTEnrichmentWorker",
             extra={
                 "domain": domain,
+                "worker_id": self.worker_id,
                 "worker_name": "enrichment_worker",
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, "enrichment_worker"),
                 "topics": self.topics,
                 "enrichment_topic": self.enrichment_topic,
@@ -311,6 +336,7 @@ class XACTEnrichmentWorker:
         common_args = {
             "bootstrap_servers": self.consumer_config.bootstrap_servers,
             "group_id": group_id,
+            "client_id": f"{self.domain}-enrichment-{self.instance_id}" if self.instance_id else f"{self.domain}-enrichment",
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "metadata_max_age_ms": 30000,
@@ -748,7 +774,14 @@ class XACTEnrichmentWorker:
                 raise
 
     async def _periodic_cycle_output(self) -> None:
-        logger.info(format_cycle_output(0, 0, 0, 0))
+        logger.info(
+            f"{format_cycle_output(0, 0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "enrichment",
+                "cycle": 0,
+            },
+        )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -757,25 +790,27 @@ class XACTEnrichmentWorker:
                 await asyncio.sleep(1)
 
                 cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:
+                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
-                    )
                     logger.info(
-                        cycle_msg,
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=self._records_skipped,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "enrichment",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
                             "records_skipped": self._records_skipped,
-                            "cycle_interval_seconds": 30,
+                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
                         },
                     )
 

@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """Kafka consumer with circuit breaker, auth, error classification, and DLQ routing (WP-211)."""
 
 import asyncio
@@ -39,6 +45,7 @@ class BaseKafkaConsumer:
         topics: List[str],
         message_handler: Callable[[ConsumerRecord], Awaitable[None]],
         enable_message_commit: bool = True,
+        instance_id: Optional[str] = None,
     ):
         if not topics:
             raise ValueError("At least one topic must be specified")
@@ -46,6 +53,7 @@ class BaseKafkaConsumer:
         self.config = config
         self.domain = domain
         self.worker_name = worker_name
+        self.instance_id = instance_id
         self.topics = topics
         self.message_handler = message_handler
         self._consumer: Optional[AIOKafkaConsumer] = None
@@ -91,6 +99,7 @@ class BaseKafkaConsumer:
         kafka_consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.group_id,
+            "client_id": f"{self.domain}-{self.worker_name}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.worker_name}",
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
             "connections_max_idle_ms": self.config.connections_max_idle_ms,

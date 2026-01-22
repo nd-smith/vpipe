@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 ClaimX Event Ingester Worker - Consumes events and produces enrichment tasks.
 
@@ -25,7 +31,7 @@ from kafka_pipeline.common.metrics import (
 )
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.claimx.monitoring import HealthCheckServer
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 
@@ -40,19 +46,29 @@ class ClaimXEventIngesterWorker:
     Deterministic SHA256 event_id generation from stable Eventhouse fields.
     """
 
+    WORKER_NAME = "event_ingester"
+
     def __init__(
         self,
         config: KafkaConfig,
         domain: str = "claimx",
         enrichment_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
+        instance_id: Optional[str] = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
+        self.instance_id = instance_id
         self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
         self.producer: Optional[BaseKafkaProducer] = None
         self.consumer: Optional[BaseKafkaConsumer] = None
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Background task tracking for graceful shutdown
         self._pending_tasks: Set[asyncio.Task] = set()
@@ -63,6 +79,10 @@ class ClaimXEventIngesterWorker:
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
+
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_deduped = 0
 
         # In-memory dedup cache prevents duplicate event processing when
         # Eventhouse sends duplicates or Kafka retries deliver same message twice
@@ -82,7 +102,9 @@ class ClaimXEventIngesterWorker:
             "Initialized ClaimXEventIngesterWorker",
             extra={
                 "domain": domain,
-                "worker_name": "event_ingester",
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, "event_ingester"),
                 "events_topic": config.get_topic(domain, "events"),
                 "enrichment_topic": self.enrichment_topic,
@@ -304,7 +326,7 @@ class ClaimXEventIngesterWorker:
             return
 
         self._records_processed += 1
-        logger.info(
+        logger.debug(
             "Processing ClaimX event",
             extra={
                 "event_id": event.event_id,
@@ -417,7 +439,21 @@ class ClaimXEventIngesterWorker:
             )
 
     async def _periodic_cycle_output(self) -> None:
-        logger.info(format_cycle_output(0, 0, 0, 0, deduplicated=0))
+        logger.info(
+            format_cycle_output(
+                cycle_count=0,
+                succeeded=0,
+                failed=0,
+                skipped=0,
+                deduplicated=0,
+            ),
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "ingestion",
+                "cycle": 0,
+                "cycle_id": "cycle-0",
+            },
+        )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -429,17 +465,24 @@ class ClaimXEventIngesterWorker:
                 if cycle_elapsed >= 30:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=0,
-                        skipped=0,
-                        deduplicated=self._records_deduplicated,
-                    )
+
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    deduped_cycle = self._records_deduplicated - self._last_cycle_deduped
+
                     logger.info(
-                        cycle_msg,
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=0,
+                            skipped=0,
+                            deduplicated=self._records_deduplicated,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "ingestion",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_deduplicated": self._records_deduplicated,
@@ -447,6 +490,10 @@ class ClaimXEventIngesterWorker:
                             "cycle_interval_seconds": 30,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_deduped = self._records_deduplicated
 
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")

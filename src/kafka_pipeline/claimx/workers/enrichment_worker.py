@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 ClaimX Enrichment Worker - Enriches events with API data and produces download tasks.
 
@@ -43,7 +49,7 @@ from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from kafka_pipeline.claimx.handlers import get_handler_registry, HandlerRegistry
 from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
 from kafka_pipeline.common.storage.delta import DeltaTableReader
-from kafka_pipeline.claimx.monitoring import HealthCheckServer
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.retry import EnrichmentRetryHandler
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -79,6 +85,8 @@ class ClaimXEnrichmentWorker:
     - Background task tracking for graceful shutdown
     """
 
+    WORKER_NAME = "enrichment_worker"
+
     def __init__(
         self,
         config: KafkaConfig,
@@ -89,14 +97,22 @@ class ClaimXEnrichmentWorker:
         download_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
         projects_table_path: str = "",
+        instance_id: Optional[str] = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
+        self.instance_id = instance_id
         self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
         self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
         self.entity_rows_topic = config.get_topic(domain, "entities_rows")
         self.enable_delta_writes = enable_delta_writes
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
         
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
         self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
@@ -148,13 +164,19 @@ class ClaimXEnrichmentWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
+
         self._projects_table_path = projects_table_path
 
         logger.info(
             "Initialized ClaimXEnrichmentWorker",
             extra={
                 "domain": domain,
-                "worker_name": "enrichment_worker",
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, "enrichment_worker"),
                 "topics": self.topics,
                 "enrichment_topic": self.enrichment_topic,
@@ -407,6 +429,7 @@ class ClaimXEnrichmentWorker:
         common_args = {
             "bootstrap_servers": self.consumer_config.bootstrap_servers,
             "group_id": group_id,
+            "client_id": f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}",
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "metadata_max_age_ms": 30000,
@@ -881,7 +904,21 @@ class ClaimXEnrichmentWorker:
             await self._handle_enrichment_failure(task, e, error_category)
 
     async def _periodic_cycle_output(self) -> None:
-        logger.info(format_cycle_output(0, 0, 0, 0))
+        logger.info(
+            format_cycle_output(
+                cycle_count=0,
+                succeeded=0,
+                failed=0,
+                skipped=0,
+                deduplicated=0,
+            ),
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "enrichment",
+                "cycle": 0,
+                "cycle_id": "cycle-0",
+            },
+        )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -894,16 +931,23 @@ class ClaimXEnrichmentWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
-                    )
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    errors_cycle = self._records_failed - self._last_cycle_failed
+
                     logger.info(
-                        cycle_msg,
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=self._records_skipped,
+                            deduplicated=0,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "enrichment",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
@@ -912,6 +956,10 @@ class ClaimXEnrichmentWorker:
                             "cycle_interval_seconds": 30,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_failed = self._records_failed
 
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")

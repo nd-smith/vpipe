@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """ClaimX domain worker runners.
 
 Contains all runner functions for ClaimX pipeline workers:
@@ -12,6 +18,7 @@ Contains all runner functions for ClaimX pipeline workers:
 import asyncio
 import logging
 import os
+from typing import Optional
 
 from kafka_pipeline.runners.common import (
     execute_poller_with_shutdown,
@@ -86,6 +93,7 @@ async def run_claimx_eventhouse_poller(
 async def run_claimx_event_ingester(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """ClaimX event ingester worker."""
     from kafka_pipeline.claimx.workers.event_ingester import ClaimXEventIngesterWorker
@@ -93,11 +101,13 @@ async def run_claimx_event_ingester(
     worker = ClaimXEventIngesterWorker(
         config=kafka_config,
         domain="claimx",
+        instance_id=instance_id,
     )
     await execute_worker_with_shutdown(
         worker,
         stage_name="claimx-ingester",
         shutdown_event=shutdown_event,
+        instance_id=instance_id,
     )
 
 
@@ -105,6 +115,7 @@ async def run_claimx_enrichment_worker(
     kafka_config,
     pipeline_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """ClaimX enrichment worker with entity extraction."""
     from kafka_pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
@@ -114,42 +125,48 @@ async def run_claimx_enrichment_worker(
         domain="claimx",
         enable_delta_writes=pipeline_config.enable_delta_writes,
         projects_table_path=pipeline_config.claimx_projects_table_path,
+        instance_id=instance_id,
     )
     await execute_worker_with_shutdown(
         worker,
         stage_name="claimx-enricher",
         shutdown_event=shutdown_event,
         stop_method="stop",
+        instance_id=instance_id,
     )
 
 
 async def run_claimx_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """ClaimX download worker."""
     from kafka_pipeline.claimx.workers.download_worker import ClaimXDownloadWorker
 
-    worker = ClaimXDownloadWorker(config=kafka_config, domain="claimx")
+    worker = ClaimXDownloadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
     await execute_worker_with_shutdown(
         worker,
         stage_name="claimx-downloader",
         shutdown_event=shutdown_event,
+        instance_id=instance_id,
     )
 
 
 async def run_claimx_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """ClaimX upload worker."""
     from kafka_pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
 
-    worker = ClaimXUploadWorker(config=kafka_config, domain="claimx")
+    worker = ClaimXUploadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
     await execute_worker_with_shutdown(
         worker,
         stage_name="claimx-uploader",
         shutdown_event=shutdown_event,
+        instance_id=instance_id,
     )
 
 
@@ -157,6 +174,7 @@ async def run_claimx_result_processor(
     kafka_config,
     pipeline_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """ClaimX result processor."""
     from kafka_pipeline.claimx.workers.result_processor import ClaimXResultProcessor
@@ -168,6 +186,7 @@ async def run_claimx_result_processor(
     processor = ClaimXResultProcessor(
         config=kafka_config,
         inventory_table_path=pipeline_config.claimx_inventory_table_path,
+        instance_id=instance_id,
     )
 
     async def shutdown_watcher():
@@ -197,6 +216,7 @@ async def run_claimx_delta_events_worker(
     kafka_config,
     events_table_path: str,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Consumes events from claimx events topic and writes to claimx_events Delta table.
     Runs independently of ClaimXEventIngesterWorker with its own consumer group."""
@@ -212,12 +232,14 @@ async def run_claimx_delta_events_worker(
         shutdown_event=shutdown_event,
         worker_kwargs={"events_table_path": events_table_path},
         producer_worker_name="delta_events_writer",
+        instance_id=instance_id,
     )
 
 
 async def run_claimx_retry_scheduler(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Unified retry scheduler for all ClaimX retry types.
     Routes messages from claimx.retry topic to target topics based on headers."""
@@ -232,6 +254,7 @@ async def run_claimx_retry_scheduler(
         stage_name="claimx-retry-scheduler",
         shutdown_event=shutdown_event,
         producer_worker_name="unified_retry_scheduler",
+        instance_id=instance_id,
     )
 
 
@@ -239,6 +262,7 @@ async def run_claimx_entity_delta_worker(
     kafka_config,
     pipeline_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Consumes EntityRowsMessage from claimx.entities.rows and writes to Delta tables."""
     from kafka_pipeline.claimx.workers.entity_delta_worker import ClaimXEntityDeltaWorker
@@ -258,6 +282,7 @@ async def run_claimx_entity_delta_worker(
         task_templates_table_path=pipeline_config.claimx_task_templates_table_path,
         external_links_table_path=pipeline_config.claimx_external_links_table_path,
         video_collab_table_path=pipeline_config.claimx_video_collab_table_path,
+        instance_id=instance_id,
     )
 
     async def shutdown_watcher():

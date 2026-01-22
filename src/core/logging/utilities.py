@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """Logging utility functions."""
 
 import logging
@@ -98,48 +104,36 @@ def format_cycle_output(
     succeeded: int,
     failed: int,
     skipped: int = 0,
-    in_flight: Optional[int] = None,
-    error_breakdown: Optional[dict[str, int]] = None,
-    deduplicated: Optional[int] = None,
+    deduplicated: int = 0,
 ) -> str:
     """
     Format standardized cycle output for workers.
 
     Args:
         cycle_count: Current cycle number
-        succeeded: Number of records succeeded
-        failed: Number of records failed
-        skipped: Number of records skipped (default: 0)
-        in_flight: Number of records currently being processed (optional)
-        error_breakdown: Error category breakdown, e.g., {"transient": 20, "permanent": 14}
-        deduplicated: Number of records deduplicated (optional, for event ingester)
+        succeeded: Total count of successfully processed records
+        failed: Total count of failed records
+        skipped: Total count of skipped records (default: 0)
+        deduplicated: Total count of deduplicated records (default: 0)
 
     Returns:
         Formatted cycle output string
 
     Example:
-        >>> format_cycle_output(1, 1200, 34, 0, 12, {"transient": 20, "permanent": 14})
-        '[CYCLE 1] Processing | Succeeded: 1200 | Failed: 34 (transient: 20, permanent: 14) | Skipped: 0 | In-flight: 12'
+        >>> format_cycle_output(1, 1200, 34, 50, 100)
+        'Cycle 1: processed=1200 (succeeded=1200, failed=34, skipped=50, deduped=100)'
     """
-    parts = [f"[CYCLE {cycle_count}] Processing"]
-    parts.append(f"Succeeded: {succeeded}")
+    parts = [f"processed={succeeded + failed + skipped}"]
+    parts.append(f"succeeded={succeeded}")
+    parts.append(f"failed={failed}")
 
-    # Format failed with optional breakdown
-    if error_breakdown and failed > 0:
-        breakdown_str = ", ".join(f"{k}: {v}" for k, v in sorted(error_breakdown.items()))
-        parts.append(f"Failed: {failed} ({breakdown_str})")
-    else:
-        parts.append(f"Failed: {failed}")
+    if skipped > 0:
+        parts.append(f"skipped={skipped}")
 
-    parts.append(f"Skipped: {skipped}")
+    if deduplicated > 0:
+        parts.append(f"deduped={deduplicated}")
 
-    if deduplicated is not None:
-        parts.append(f"Deduplicated: {deduplicated}")
-
-    if in_flight is not None:
-        parts.append(f"In-flight: {in_flight}")
-
-    return " | ".join(parts)
+    return f"Cycle {cycle_count}: {', '.join(parts)}"
 
 
 def log_worker_error(

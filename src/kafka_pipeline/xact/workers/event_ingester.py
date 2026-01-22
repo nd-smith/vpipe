@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Event Ingester Worker - Consumes events and produces enrichment tasks.
 
@@ -26,6 +32,7 @@ from pydantic import ValidationError
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from core.paths.resolver import generate_blob_path
 from core.security.url_validation import validate_download_url, sanitize_url
 from config.config import KafkaConfig
@@ -45,6 +52,8 @@ logger = get_logger(__name__)
 class EventIngesterWorker:
     """Worker to consume events and produce download tasks."""
 
+    WORKER_NAME = "event_ingester"
+
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
@@ -62,10 +71,19 @@ class EventIngesterWorker:
         config: KafkaConfig,
         domain: str = "xact",
         producer_config: Optional[KafkaConfig] = None,
+        instance_id: Optional[str] = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
+
         self.producer: Optional[BaseKafkaProducer] = None
         self.consumer: Optional[BaseKafkaConsumer] = None
 
@@ -98,7 +116,9 @@ class EventIngesterWorker:
             "Initialized EventIngesterWorker",
             extra={
                 "domain": domain,
+                "worker_id": self.worker_id,
                 "worker_name": "event_ingester",
+                "instance_id": instance_id,
                 "events_topic": config.get_topic(domain, "events"),
                 "ingested_topic": self.producer_config.get_topic(domain, "events_ingested"),
                 "enrichment_topic": self.producer_config.get_topic(domain, "enrichment_pending"),
@@ -392,15 +412,14 @@ class EventIngesterWorker:
                 span.set_tag("task.created", False)
                 span.set_tag("error", str(e))
 
-                logger.error(
+                log_worker_error(
+                    logger,
                     "Failed to produce enrichment task - will retry on next poll",
-                    extra={
-                        "trace_id": event.trace_id,
-                        "event_id": event_id,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
-                    exc_info=True,
+                    event_id=event_id,
+                    error_category="TRANSIENT",
+                    exc=e,
+                    trace_id=event.trace_id,
+                    error_type=type(e).__name__,
                 )
                 # Re-raise to prevent offset commit - message will be retried
                 # This ensures at-least-once semantics: if send fails, we retry
@@ -408,8 +427,12 @@ class EventIngesterWorker:
 
     async def _periodic_cycle_output(self) -> None:
         logger.info(
-            "Cycle 0: events=0 (tasks=0, skipped=0, deduped=0) [cycle output every %ds]",
-            self.CYCLE_LOG_INTERVAL_SECONDS,
+            f"{format_cycle_output(0, 0, 0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
+            extra={
+                "worker_id": self.WORKER_NAME,
+                "stage": "ingestion",
+                "cycle": 0,
+            },
         )
         self._last_cycle_log = time.monotonic()
 
@@ -424,11 +447,18 @@ class EventIngesterWorker:
                     self._last_cycle_log = time.monotonic()
 
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, skipped={self._records_skipped}, "
-                        f"deduped={self._records_deduplicated})",
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=0,
+                            skipped=self._records_skipped,
+                            deduplicated=self._records_deduplicated,
+                        ),
                         extra={
+                            "worker_id": self.WORKER_NAME,
+                            "stage": "ingestion",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_skipped": self._records_skipped,

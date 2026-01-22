@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 ClaimX Entity Delta Worker - Writes entity rows to Delta Lake tables.
 
@@ -39,6 +45,8 @@ class ClaimXEntityDeltaWorker:
     - Retry handling via DeltaRetryHandler
     """
 
+    WORKER_NAME = "entity_delta_writer"
+
     def __init__(
         self,
         config: KafkaConfig,
@@ -52,6 +60,7 @@ class ClaimXEntityDeltaWorker:
         external_links_table_path: str = "",
         video_collab_table_path: str = "",
         producer_config: Optional[KafkaConfig] = None,
+        instance_id: Optional[str] = None,
     ):
         """
         Initialize ClaimX entity delta worker.
@@ -69,6 +78,13 @@ class ClaimXEntityDeltaWorker:
 
         # Store domain for use in worker-specific logic
         self.domain = domain
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
         self.producer: Optional[BaseKafkaProducer] = None
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
@@ -110,11 +126,30 @@ class ClaimXEntityDeltaWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
+
         # Health check server - use worker-specific port from config
         health_port = processing_config.get("health_port", 8086)
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-entity-delta-worker",
+        )
+
+        logger.info(
+            "Initialized ClaimXEntityDeltaWorker",
+            extra={
+                "domain": domain,
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
+                "entity_rows_topic": entity_rows_topic,
+                "batch_size": self.batch_size,
+                "batch_timeout_seconds": self.batch_timeout_seconds,
+                "max_retries": self.max_retries,
+                "retry_delays": self._retry_delays,
+            },
         )
 
     async def start(self) -> None:
@@ -256,7 +291,7 @@ class ClaimXEntityDeltaWorker:
             return
 
         try:
-            logger.info(
+            logger.debug(
                 "Flushing entity batch to Delta tables",
                 extra={
                     "messages_in_batch": batch_size,
@@ -412,7 +447,7 @@ class ClaimXEntityDeltaWorker:
         """
         import time as time_module
         # Initial cycle output
-        logger.info(format_cycle_output(0, 0, 0, 0))
+        logger.info(format_cycle_output(0, 0, 0, 0, 0, 0, 0))
         self._last_cycle_log = time_module.monotonic()
         self._cycle_count = 0
 
@@ -425,17 +460,27 @@ class ClaimXEntityDeltaWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time_module.monotonic()
 
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    errors_cycle = self._records_failed - self._last_cycle_failed
+
                     # Use standardized cycle output format
                     cycle_msg = format_cycle_output(
                         cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
+                        processed_cycle=processed_cycle,
+                        processed_total=self._records_processed,
+                        errors_cycle=errors_cycle,
+                        errors_total=self._records_failed,
+                        deduped_cycle=0,
+                        deduped_total=0,
                     )
                     logger.info(
                         cycle_msg,
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "entity_delta_write",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
@@ -444,6 +489,10 @@ class ClaimXEntityDeltaWorker:
                             "cycle_interval_seconds": 30,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_failed = self._records_failed
 
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")

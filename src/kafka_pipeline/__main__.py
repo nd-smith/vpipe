@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Entry point for running Kafka pipeline workers.
 
@@ -75,6 +81,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
 
+import coolname
 from dotenv import load_dotenv
 from prometheus_client import start_http_server
 
@@ -113,14 +120,22 @@ async def run_worker_pool(
     **kwargs: Any,
 ) -> None:
     """Run multiple instances of a worker concurrently.
-    Each instance joins the same consumer group for automatic partition distribution."""
+    Each instance joins the same consumer group for automatic partition distribution.
+    Each instance gets a unique instance_id (coolname) for distinct logging and identity."""
     logger.info("Starting worker instances", extra={"count": count, "worker_name": worker_name})
 
     tasks = []
     for i in range(count):
+        # Generate unique coolname for this worker instance (e.g., "happy-tiger")
+        instance_id = coolname.generate_slug(2)
+
+        # Pass instance_id to worker for distinct logging and Kafka client_id
+        instance_kwargs = kwargs.copy()
+        instance_kwargs["instance_id"] = instance_id
+
         task = asyncio.create_task(
-            worker_fn(*args, **kwargs),
-            name=f"{worker_name}-{i}",
+            worker_fn(*args, **instance_kwargs),
+            name=f"{worker_name}-{instance_id}",
         )
         tasks.append(task)
 

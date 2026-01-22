@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Structured logging module.
 
@@ -30,7 +36,12 @@ from core.logging.setup import (
     log_worker_startup,
     setup_logging,
 )
-from core.logging.utilities import log_exception, log_with_context
+from core.logging.utilities import (
+    format_cycle_output,
+    log_exception,
+    log_with_context,
+    log_worker_error,
+)
 
 __all__ = [
     # Setup
@@ -60,4 +71,6 @@ __all__ = [
     # Utilities
     "log_with_context",
     "log_exception",
+    "format_cycle_output",
+    "log_worker_error",
 ]

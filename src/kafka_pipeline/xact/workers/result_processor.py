@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Result processor worker for batching download results.
 
@@ -26,6 +32,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
@@ -78,6 +85,8 @@ class ResultProcessor:
         >>> await processor.stop()
     """
 
+    WORKER_NAME = "result_processor"
+
     # Batching configuration
     BATCH_SIZE = 100
     BATCH_TIMEOUT_SECONDS = 5
@@ -94,6 +103,7 @@ class ResultProcessor:
         batch_size: Optional[int] = None,
         batch_timeout_seconds: Optional[float] = None,
         max_batches: Optional[int] = None,
+        instance_id: Optional[str] = None,
     ):
         """
         Initialize result processor.
@@ -117,6 +127,13 @@ class ResultProcessor:
         # Domain and worker configuration (must be set before using them)
         self.domain = "xact"
         self.worker_name = "result_processor"
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Delta writers
         self._inventory_writer = DeltaInventoryWriter(table_path=inventory_table_path)
@@ -164,6 +181,7 @@ class ResultProcessor:
             topics=[self._results_topic],
             message_handler=self._handle_result,
             enable_message_commit=False,
+            instance_id=self.instance_id,
         )
 
         # Background flush task
@@ -181,6 +199,10 @@ class ResultProcessor:
         logger.info(
             "Initialized result processor",
             extra={
+                "domain": self.domain,
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "batch_size": self.batch_size,
                 "batch_timeout_seconds": self.batch_timeout_seconds,
                 "max_batches": self.max_batches,
@@ -322,15 +344,14 @@ class ResultProcessor:
         try:
             result = DownloadResultMessage.model_validate_json(message.value)
         except Exception as e:
-            logger.error(
+            log_worker_error(
+                logger,
                 "Failed to parse result message",
-                extra={
-                    "topic": message.topic,
-                    "partition": message.partition,
-                    "offset": message.offset,
-                    "error": str(e),
-                },
-                exc_info=True,
+                error_category="PERMANENT",
+                exc=e,
+                topic=message.topic,
+                partition=message.partition,
+                offset=message.offset,
             )
             raise
 
@@ -406,11 +427,15 @@ class ResultProcessor:
         Logs cycle output at regular intervals for operational visibility.
         """
         logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0, skipped=0), written=0, pending=0 "
-            "[cycle output every %ds]",
-            self.CYCLE_LOG_INTERVAL_SECONDS,
+            f"{format_cycle_output(0, 0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "result_processing",
+                "cycle": 0,
+            },
         )
         self._last_cycle_log = time.monotonic()
+        self._cycle_count = 0
 
         try:
             while self._running:
@@ -456,12 +481,17 @@ class ResultProcessor:
                         pending_failed = len(self._failed_batch)
 
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}, "
-                        f"skipped={self._records_skipped}), "
-                        f"written={self._total_records_written}, pending={pending_success}",
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=self._records_skipped,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "result_processing",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,

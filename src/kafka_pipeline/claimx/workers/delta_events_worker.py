@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Delta Events Worker - Writes ClaimX events to Delta Lake claimx_events table.
 
@@ -71,6 +77,8 @@ class ClaimXDeltaEventsWorker:
         >>> await worker.start()
     """
 
+    WORKER_NAME = "delta_events_writer"
+
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
@@ -80,6 +88,7 @@ class ClaimXDeltaEventsWorker:
         producer: BaseKafkaProducer,
         events_table_path: str,
         domain: str = "claimx",
+        instance_id: Optional[str] = None,
     ):
         """
         Initialize ClaimX Delta events worker.
@@ -92,9 +101,16 @@ class ClaimXDeltaEventsWorker:
         """
         self.config = config
         self.domain = domain
+        self.instance_id = instance_id
         self.events_table_path = events_table_path
         self.consumer: Optional[BaseKafkaConsumer] = None
         self.producer = producer
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Batch configuration - use worker-specific config
         processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
@@ -121,6 +137,10 @@ class ClaimXDeltaEventsWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
         self._running = False
+
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
 
         # Initialize Delta writer
         if not events_table_path:
@@ -151,7 +171,9 @@ class ClaimXDeltaEventsWorker:
             "Initialized ClaimXDeltaEventsWorker",
             extra={
                 "domain": domain,
-                "worker_name": "delta_events_writer",
+                "worker_id": self.worker_id,
+                "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, "delta_events_writer"),
                 "events_topic": config.get_topic(domain, "events"),
                 "events_table_path": events_table_path,
@@ -198,6 +220,7 @@ class ClaimXDeltaEventsWorker:
             topics=[self.config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
             enable_message_commit=False,
+            instance_id=self.instance_id,
         )
 
         # Update health check readiness
@@ -292,7 +315,6 @@ class ClaimXDeltaEventsWorker:
                     "Batch written successfully",
                     extra={
                         "batch_size": len(batch_to_write),
-                        "batches_written": self._batches_written,
                     },
                 )
             else:
@@ -428,7 +450,7 @@ class ClaimXDeltaEventsWorker:
     async def _periodic_cycle_output(self) -> None:
         """Log progress periodically."""
         # Initial cycle output
-        logger.info(format_cycle_output(0, 0, 0, 0))
+        logger.info(format_cycle_output(0, 0, 0, 0, 0, 0, 0))
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -441,17 +463,27 @@ class ClaimXDeltaEventsWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    errors_cycle = self._records_failed - self._last_cycle_failed
+
                     # Use standardized cycle output format
                     cycle_msg = format_cycle_output(
                         cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
+                        processed_cycle=processed_cycle,
+                        processed_total=self._records_processed,
+                        errors_cycle=errors_cycle,
+                        errors_total=self._records_failed,
+                        deduped_cycle=0,
+                        deduped_total=0,
                     )
                     logger.info(
                         cycle_msg,
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "delta_write",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
@@ -460,6 +492,11 @@ class ClaimXDeltaEventsWorker:
                             "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_failed = self._records_failed
+
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")
             raise

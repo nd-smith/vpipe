@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """Kafka pipeline configuration from YAML file.
 
 Loads from config/config.yaml with all settings in one place:
@@ -423,9 +429,9 @@ def load_config(
 
     claimx_api_token = os.getenv("CLAIMX_API_TOKEN") or claimx_api.get("token", "")
     if not claimx_api_token:
-        print("WARNING: CLAIMX_API_TOKEN not found in environment variables or config.yaml")
+        logger.warning("ClaimX API token not configured")
     else:
-        print("INFO: CLAIMX_API_TOKEN loaded successfully")
+        logger.info("ClaimX API authentication configured")
     config = KafkaConfig(
         bootstrap_servers=connection.get("bootstrap_servers", ""),
         security_protocol=connection.get("security_protocol", "PLAINTEXT"),

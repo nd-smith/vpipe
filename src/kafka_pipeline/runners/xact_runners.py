@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """XACT domain worker runners.
 
 Contains all runner functions for XACT pipeline workers:
@@ -27,6 +33,7 @@ async def run_event_ingester(
     local_kafka_config,
     shutdown_event: asyncio.Event,
     domain: str = "xact",
+    instance_id: Optional[int] = None,
 ):
     """Reads events from Event Hub and produces download tasks to local Kafka.
     Delta Lake writes are handled by a separate DeltaEventsWorker."""
@@ -36,11 +43,13 @@ async def run_event_ingester(
         config=eventhub_config,
         domain=domain,
         producer_config=local_kafka_config,
+        instance_id=instance_id,
     )
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-event-ingester",
         shutdown_event=shutdown_event,
+        instance_id=instance_id,
     )
 
 
@@ -84,6 +93,7 @@ async def run_delta_events_worker(
     kafka_config,
     events_table_path: str,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Consumes events from events.raw and writes to xact_events Delta table.
     Runs independently of EventIngesterWorker with its own consumer group."""
@@ -99,12 +109,14 @@ async def run_delta_events_worker(
         shutdown_event=shutdown_event,
         worker_kwargs={"events_table_path": events_table_path},
         producer_worker_name="delta_events_writer",
+        instance_id=instance_id,
     )
 
 
 async def run_xact_retry_scheduler(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Unified retry scheduler for all XACT retry types.
     Routes messages from xact.retry topic to target topics based on headers."""
@@ -119,12 +131,14 @@ async def run_xact_retry_scheduler(
         stage_name="xact-retry-scheduler",
         shutdown_event=shutdown_event,
         producer_worker_name="unified_retry_scheduler",
+        instance_id=instance_id,
     )
 
 
 async def run_xact_enrichment_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Run XACT enrichment worker with plugin-based enrichment."""
     from kafka_pipeline.xact.workers.enrichment_worker import XACTEnrichmentWorker
@@ -132,44 +146,50 @@ async def run_xact_enrichment_worker(
     worker = XACTEnrichmentWorker(
         config=kafka_config,
         domain="xact",
+        instance_id=instance_id,
     )
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-enricher",
         shutdown_event=shutdown_event,
         stop_method="stop",
+        instance_id=instance_id,
     )
 
 
 async def run_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Download files from external sources."""
     from kafka_pipeline.xact.workers.download_worker import DownloadWorker
 
-    worker = DownloadWorker(config=kafka_config, domain="xact")
+    worker = DownloadWorker(config=kafka_config, domain="xact", instance_id=instance_id)
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-download",
         shutdown_event=shutdown_event,
         stop_method="stop",
+        instance_id=instance_id,
     )
 
 
 async def run_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
+    instance_id: Optional[int] = None,
 ):
     """Upload cached files to storage."""
     from kafka_pipeline.xact.workers.upload_worker import UploadWorker
 
-    worker = UploadWorker(config=kafka_config, domain="xact")
+    worker = UploadWorker(config=kafka_config, domain="xact", instance_id=instance_id)
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-upload",
         shutdown_event=shutdown_event,
         stop_method="stop",
+        instance_id=instance_id,
     )
 
 
@@ -179,6 +199,7 @@ async def run_result_processor(
     enable_delta_writes: bool = True,
     inventory_table_path: str = "",
     failed_table_path: str = "",
+    instance_id: Optional[int] = None,
 ):
     """Reads download results and writes to Delta Lake tables.
     On Delta write failure, batches are routed to retry topics."""
@@ -212,6 +233,7 @@ async def run_result_processor(
             "batch_timeout_seconds": 5.0,
         },
         producer_worker_name="result_processor",
+        instance_id=instance_id,
     )
 
 
@@ -219,6 +241,7 @@ async def run_local_event_ingester(
     local_kafka_config,
     shutdown_event: asyncio.Event,
     domain: str = "xact",
+    instance_id: Optional[int] = None,
 ):
     """Consumes from local Kafka events.raw topic and processes events to downloads.pending.
     Used in Eventhouse mode. Delta Lake writes handled by separate DeltaEventsWorker."""
@@ -227,11 +250,13 @@ async def run_local_event_ingester(
     worker = EventIngesterWorker(
         config=local_kafka_config,
         domain=domain,
+        instance_id=instance_id,
     )
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-event-ingester",
         shutdown_event=shutdown_event,
+        instance_id=instance_id,
     )
 
 

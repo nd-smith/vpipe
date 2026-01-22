@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 ClaimX download worker for processing download tasks with concurrent processing.
 
@@ -44,7 +50,7 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.claimx.api_client import ClaimXApiClient
-from kafka_pipeline.claimx.monitoring import HealthCheckServer
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.retry import DownloadRetryHandler
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
@@ -109,9 +115,16 @@ class ClaimXDownloadWorker:
 
     WORKER_NAME = "download_worker"
 
-    def __init__(self, config: KafkaConfig, domain: str = "claimx", temp_dir: Optional[Path] = None):
+    def __init__(self, config: KafkaConfig, domain: str = "claimx", temp_dir: Optional[Path] = None, instance_id: Optional[str] = None):
         self.config = config
         self.domain = domain
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         self.temp_dir = temp_dir or Path(tempfile.gettempdir()) / "claimx_download_worker"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +156,10 @@ class ClaimXDownloadWorker:
         self._cycle_count = 0
         self._cycle_task: Optional[asyncio.Task] = None
 
+        # Cycle-specific metrics (reset each cycle)
+        self._last_cycle_processed = 0
+        self._last_cycle_failed = 0
+
         self._http_session: Optional[aiohttp.ClientSession] = None
 
         self.producer = BaseKafkaProducer(
@@ -165,7 +182,9 @@ class ClaimXDownloadWorker:
             "Initialized ClaimX download worker with concurrent processing",
             extra={
                 "domain": domain,
+                "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, self.WORKER_NAME),
                 "topics": self.topics,
                 "temp_dir": str(self.temp_dir),
@@ -273,6 +292,7 @@ class ClaimXDownloadWorker:
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+            "client_id": f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}",
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "max_poll_records": self.batch_size,
@@ -456,7 +476,7 @@ class ClaimXDownloadWorker:
 
                 update_downloads_batch_size(self.WORKER_NAME, len(messages))
 
-                logger.info(
+                logger.debug(
                     "Processing message batch",
                     extra={
                         "batch_size": len(messages),
@@ -518,7 +538,7 @@ class ClaimXDownloadWorker:
         failed = sum(1 for r in processed_results if r and not r.success)
         errors = sum(1 for r in processed_results if r is None)
 
-        logger.info(
+        logger.debug(
             "Batch processing complete",
             extra={
                 "batch_size": len(messages),
@@ -571,7 +591,7 @@ class ClaimXDownloadWorker:
         set_log_context(trace_id=task_message.source_event_id)
 
         try:
-            logger.info(
+            logger.debug(
                 "Processing ClaimX download task",
                 extra={
                     "event_id": task_message.source_event_id,
@@ -671,7 +691,21 @@ class ClaimXDownloadWorker:
         )
 
     async def _periodic_cycle_output(self) -> None:
-        logger.info(format_cycle_output(0, 0, 0, 0, 0))
+        logger.info(
+            format_cycle_output(
+                cycle_count=0,
+                succeeded=0,
+                failed=0,
+                skipped=0,
+                deduplicated=0,
+            ),
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "download",
+                "cycle": 0,
+                "cycle_id": "cycle-0",
+            },
+        )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
 
@@ -684,28 +718,34 @@ class ClaimXDownloadWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
-                    async with self._in_flight_lock:
-                         in_flight = len(self._in_flight_tasks)
+                    # Calculate cycle-specific deltas
+                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    errors_cycle = self._records_failed - self._last_cycle_failed
 
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        succeeded=self._records_succeeded,
-                        failed=self._records_failed,
-                        skipped=self._records_skipped,
-                        in_flight=in_flight,
-                    )
                     logger.info(
-                        cycle_msg,
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=self._records_skipped,
+                            deduplicated=0,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "download",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
                             "records_skipped": self._records_skipped,
-                            "in_flight": in_flight,
                             "cycle_interval_seconds": 30,
                         },
                     )
+
+                    # Update last cycle counters
+                    self._last_cycle_processed = self._records_processed
+                    self._last_cycle_failed = self._records_failed
 
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")
@@ -862,7 +902,7 @@ class ClaimXDownloadWorker:
                 error_category=error_category,
             )
 
-            logger.info(
+            logger.debug(
                 "Routed failed task through retry handler",
                 extra={
                     "media_id": task_message.media_id,

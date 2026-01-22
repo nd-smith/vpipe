@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Download worker for processing download tasks with concurrent processing.
 
@@ -34,6 +40,7 @@ from aiokafka.structs import ConsumerRecord
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadTask, DownloadOutcome
 from core.errors.exceptions import CircuitOpenError
@@ -101,15 +108,21 @@ class DownloadWorker:
         await worker.stop()
     """
 
-    CONSUMER_GROUP = "xact-download-worker"
     WORKER_NAME = "download_worker"
 
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
-    def __init__(self, config: KafkaConfig, domain: str = "xact", temp_dir: Optional[Path] = None):
+    def __init__(self, config: KafkaConfig, domain: str = "xact", temp_dir: Optional[Path] = None, instance_id: Optional[str] = None):
         self.config = config
         self.domain = domain
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         self.temp_dir = temp_dir or Path(tempfile.gettempdir()) / "download_worker"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +186,9 @@ class DownloadWorker:
             "Initialized download worker with concurrent processing",
             extra={
                 "domain": domain,
+                "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, self.WORKER_NAME),
                 "topics": self.topics,
                 "temp_dir": str(self.temp_dir),
@@ -283,6 +298,7 @@ class DownloadWorker:
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+            "client_id": f"{self.domain}-download-{self.instance_id}" if self.instance_id else f"{self.domain}-download",
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "max_poll_records": self.batch_size,
@@ -793,17 +809,16 @@ class DownloadWorker:
 
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
 
-        logger.warning(
+        log_worker_error(
+            logger,
             "Download failed",
-            extra={
-                "trace_id": task_message.trace_id,
-                "attachment_url": task_message.attachment_url,
-                "error_message": outcome.error_message,
-                "error_category": error_category.value,
-                "status_code": outcome.status_code,
-                "processing_time_ms": processing_time_ms,
-                "retry_count": task_message.retry_count,
-            },
+            error_category=error_category.value,
+            trace_id=task_message.trace_id,
+            attachment_url=task_message.attachment_url,
+            error_message=outcome.error_message,
+            status_code=outcome.status_code,
+            processing_time_ms=processing_time_ms,
+            retry_count=task_message.retry_count,
         )
 
         record_processing_error(
@@ -944,9 +959,12 @@ class DownloadWorker:
 
     async def _periodic_cycle_output(self) -> None:
         logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0), bytes=0, in_flight=0 "
-            "[cycle output every %ds]",
-            self.CYCLE_LOG_INTERVAL_SECONDS,
+            f"{format_cycle_output(0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "download",
+                "cycle": 0,
+            },
         )
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
@@ -962,11 +980,16 @@ class DownloadWorker:
                     in_flight = len(self._in_flight_tasks)
 
                     logger.info(
-                        f"Cycle {self._cycle_count}: processed={self._records_processed} "
-                        f"(succeeded={self._records_succeeded}, failed={self._records_failed}), "
-                        f"bytes={self._bytes_downloaded}, in_flight={in_flight}",
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "download",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,

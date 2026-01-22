@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """ClaimX REST API client with circuit breaker protection and rate limiting."""
 
 import asyncio
@@ -14,6 +20,10 @@ import aiohttp
 from core.resilience.circuit_breaker import (
     get_circuit_breaker,
     CLAIMX_API_CIRCUIT_CONFIG,
+)
+from core.resilience.rate_limiter import (
+    get_rate_limiter,
+    CLAIMX_API_RATE_CONFIG,
 )
 from core.types import ErrorCategory
 from core.logging import get_logger
@@ -124,6 +134,7 @@ class ClaimXApiClient(LoggedClass):
         self._session: Optional[aiohttp.ClientSession] = None
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._circuit = get_circuit_breaker("claimx_api", CLAIMX_API_CIRCUIT_CONFIG)
+        self._rate_limiter = get_rate_limiter("claimx_api", CLAIMX_API_RATE_CONFIG)
 
         super().__init__()
 
@@ -196,6 +207,9 @@ class ClaimXApiClient(LoggedClass):
             raise error
 
         request_headers = {"Authorization": self._auth_header}
+
+        # Rate limiting - controls throughput to prevent hitting API rate limits
+        await self._rate_limiter.acquire()
 
         async with self._semaphore:
             start_time = asyncio.get_event_loop().time()

@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """Common worker execution patterns and utilities.
 
 Provides reusable templates for running workers with consistent:
@@ -21,6 +27,7 @@ async def execute_worker_with_shutdown(
     stage_name: str,
     shutdown_event: asyncio.Event,
     stop_method: str = "stop",
+    instance_id: Optional[int] = None,
 ) -> None:
     """Execute a worker with standard shutdown handling.
 
@@ -29,13 +36,23 @@ async def execute_worker_with_shutdown(
         stage_name: Name for logging context
         shutdown_event: Event to signal graceful shutdown
         stop_method: Name of the stop method on worker (default: "stop")
+        instance_id: Instance identifier for multi-instance deployments (optional)
     """
-    set_log_context(stage=stage_name)
-    logger.info(f"Starting {stage_name}...")
+    # Set log context with instance_id if provided
+    context = {"stage": stage_name}
+    if instance_id is not None:
+        context["instance_id"] = instance_id
+        context["worker_id"] = f"{stage_name}-{instance_id}"
+        logger_suffix = f" (instance {instance_id})"
+    else:
+        logger_suffix = ""
+
+    set_log_context(**context)
+    logger.info(f"Starting {stage_name}{logger_suffix}...")
 
     async def shutdown_watcher():
         await shutdown_event.wait()
-        logger.info(f"Shutdown signal received, stopping {stage_name}...")
+        logger.info(f"Shutdown signal received, stopping {stage_name}{logger_suffix}...")
         stop_fn = getattr(worker_instance, stop_method)
         await stop_fn()
 
@@ -62,6 +79,7 @@ async def execute_worker_with_producer(
     shutdown_event: asyncio.Event,
     worker_kwargs: Optional[dict] = None,
     producer_worker_name: Optional[str] = None,
+    instance_id: Optional[int] = None,
 ) -> None:
     """Execute a worker that requires a producer with shutdown handling.
 
@@ -74,12 +92,27 @@ async def execute_worker_with_producer(
         shutdown_event: Event to signal graceful shutdown
         worker_kwargs: Additional kwargs for worker instantiation
         producer_worker_name: Name for producer (defaults to stage_name)
+        instance_id: Instance identifier for multi-instance deployments (optional)
     """
-    set_log_context(stage=stage_name)
-    logger.info(f"Starting {stage_name}...")
+    # Set log context with instance_id if provided
+    context = {"stage": stage_name}
+    if instance_id is not None:
+        context["instance_id"] = instance_id
+        context["worker_id"] = f"{stage_name}-{instance_id}"
+        logger_suffix = f" (instance {instance_id})"
+    else:
+        logger_suffix = ""
+
+    set_log_context(**context)
+    logger.info(f"Starting {stage_name}{logger_suffix}...")
 
     worker_kwargs = worker_kwargs or {}
     producer_worker_name = producer_worker_name or stage_name.replace("-", "_")
+
+    # Add instance_id to producer and worker if provided
+    if instance_id is not None:
+        producer_worker_name = f"{producer_worker_name}_{instance_id}"
+        worker_kwargs["instance_id"] = instance_id
 
     producer = producer_class(
         config=kafka_config,
@@ -97,7 +130,7 @@ async def execute_worker_with_producer(
 
     async def shutdown_watcher():
         await shutdown_event.wait()
-        logger.info(f"Shutdown signal received, stopping {stage_name}...")
+        logger.info(f"Shutdown signal received, stopping {stage_name}{logger_suffix}...")
         await worker.stop()
 
     watcher_task = asyncio.create_task(shutdown_watcher())

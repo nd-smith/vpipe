@@ -1,3 +1,9 @@
+# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
+# SPDX-License-Identifier: PROPRIETARY
+# 
+# This file is proprietary and confidential. Unauthorized copying of this file,
+# via any medium is strictly prohibited.
+
 """
 Upload worker for processing cached downloads and uploading to OneLake.
 
@@ -28,6 +34,7 @@ from aiokafka.structs import ConsumerRecord
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
+from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
@@ -91,9 +98,16 @@ class UploadWorker:
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
-    def __init__(self, config: KafkaConfig, domain: str = "xact"):
+    def __init__(self, config: KafkaConfig, domain: str = "xact", instance_id: Optional[str] = None):
         self.config = config
         self.domain = domain
+        self.instance_id = instance_id
+
+        # Create worker_id with instance suffix (coolname) if provided
+        if instance_id:
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "upload_worker-happy-tiger"
+        else:
+            self.worker_id = self.WORKER_NAME
 
         # Validate OneLake configuration - need either domain paths or base path
         if not config.onelake_domain_paths and not config.onelake_base_path:
@@ -153,7 +167,9 @@ class UploadWorker:
             "Initialized upload worker",
             extra={
                 "domain": domain,
+                "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
+                "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, self.WORKER_NAME),
                 "topic": self.topic,
                 "configured_domains": configured_domains,
@@ -332,6 +348,7 @@ class UploadWorker:
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+            "client_id": f"{self.domain}-upload-{self.instance_id}" if self.instance_id else f"{self.domain}-upload",
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "enable_auto_commit": False,
             "max_poll_records": self.batch_size,
@@ -384,11 +401,15 @@ class UploadWorker:
 
         # Log initial cycle 0
         logger.info(
-            "Cycle 0: processed=0 (succeeded=0, failed=0), bytes=0, in_flight=0 "
-            "[cycle output every %ds]",
-            self.CYCLE_LOG_INTERVAL_SECONDS,
+            f"{format_cycle_output(0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
+            extra={
+                "worker_id": self.worker_id,
+                "stage": "upload",
+                "cycle": 0,
+            },
         )
         self._last_cycle_log = time.monotonic()
+        self._cycle_count = 0
 
         while self._running:
             try:
@@ -441,9 +462,16 @@ class UploadWorker:
                     self._last_cycle_log = time.monotonic()
                     in_flight = len(self._in_flight_tasks)
                     logger.info(
-                        "Upload cycle progress",
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                        ),
                         extra={
+                            "worker_id": self.worker_id,
+                            "stage": "upload",
                             "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_failed": self._records_failed,
@@ -659,14 +687,13 @@ class UploadWorker:
             # Track failed upload for cycle output
             self._records_failed += 1
 
-            logger.error(
+            log_worker_error(
+                logger,
                 "Upload failed",
-                extra={
-                    "error": str(e),
-                    "trace_id": trace_id,
-                    "media_id": cached_message.media_id if cached_message else None,
-                },
-                exc_info=True,
+                error_category="TRANSIENT",
+                exc=e,
+                trace_id=trace_id,
+                media_id=cached_message.media_id if cached_message else None,
             )
             record_processing_error(self.topic, consumer_group, "upload_error")
 
