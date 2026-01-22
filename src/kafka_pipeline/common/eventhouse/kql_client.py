@@ -63,6 +63,27 @@ def _patch_requests_for_proxy(proxy_url: str, disable_ssl_verify: bool = False) 
     if _requests_patched:
         return
 
+    # If disabling SSL verification, set it up BEFORE patching sessions
+    if disable_ssl_verify:
+        import ssl
+        import urllib3
+
+        # Disable SSL warnings
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        # Set environment variables that some libraries check
+        os.environ["PYTHONHTTPSVERIFY"] = "0"
+        os.environ["CURL_CA_BUNDLE"] = ""
+        os.environ["REQUESTS_CA_BUNDLE"] = ""
+
+        # Create an unverified SSL context as the default
+        # This affects libraries that use ssl.create_default_context()
+        try:
+            ssl._create_default_https_context = ssl._create_unverified_context
+            logger.debug("Set default SSL context to unverified")
+        except AttributeError:
+            pass  # Not available on all Python versions
+
     original_init = requests.Session.__init__
 
     @wraps(original_init)
@@ -80,11 +101,6 @@ def _patch_requests_for_proxy(proxy_url: str, disable_ssl_verify: bool = False) 
 
     requests.Session.__init__ = patched_init
     _requests_patched = True
-
-    # Also disable SSL warnings if verification is disabled
-    if disable_ssl_verify:
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     logger.info(
         "Patched requests.Session to use proxy globally",
