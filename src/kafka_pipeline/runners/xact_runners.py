@@ -71,11 +71,16 @@ async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event):
         or os.getenv("HTTP_PROXY")
     )
 
+    # SSL verification - disable for corporate proxy SSL interception
+    ssl_verify_str = os.getenv("EVENTHOUSE_SSL_VERIFY", "true").lower()
+    ssl_verify = ssl_verify_str not in ("false", "0", "no", "off")
+
     eventhouse_config = EventhouseConfig(
         cluster_url=eventhouse_source.cluster_url,
         database=eventhouse_source.database,
         query_timeout_seconds=eventhouse_source.query_timeout_seconds,
         proxy_url=proxy_url,
+        ssl_verify=ssl_verify,
     )
 
     poller_config = PollerConfig(

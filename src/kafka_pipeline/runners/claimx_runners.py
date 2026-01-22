@@ -53,11 +53,16 @@ async def run_claimx_eventhouse_poller(
         or os.getenv("HTTP_PROXY")
     )
 
+    # SSL verification - disable for corporate proxy SSL interception
+    ssl_verify_str = os.getenv("EVENTHOUSE_SSL_VERIFY", "true").lower()
+    ssl_verify = ssl_verify_str not in ("false", "0", "no", "off")
+
     eventhouse_config = EventhouseConfig(
         cluster_url=claimx_eventhouse.cluster_url,
         database=claimx_eventhouse.database,
         query_timeout_seconds=claimx_eventhouse.query_timeout_seconds,
         proxy_url=proxy_url,
+        ssl_verify=ssl_verify,
     )
 
     local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
