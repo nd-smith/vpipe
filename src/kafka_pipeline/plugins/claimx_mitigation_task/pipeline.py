@@ -115,12 +115,15 @@ class MitigationTaskPipeline:
         # Fetch task assignment data
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
 
+        # Get media IDs affiliated with this task
+        task_media_ids = task_data.get("claimMediaIds", [])
+
         # Fetch project export data
         project_id = int(event.project_id)
         project_data = await self._fetch_project_export(project_id)
 
-        # Fetch all project media
-        media_list = await self._fetch_project_media(project_id)
+        # Fetch all project media, then filter to task's media IDs
+        media_list = await self._fetch_project_media(project_id, task_media_ids)
 
         # Parse submission with all enriched data
         submission = self._parse_submission(task_data, event, project_data, media_list)
@@ -129,6 +132,7 @@ class MitigationTaskPipeline:
             "Task enriched successfully",
             extra={
                 'assignment_id': event.assignment_id,
+                'task_media_ids_count': len(task_media_ids),
                 'media_count': len(media_list),
             }
         )
@@ -177,8 +181,16 @@ class MitigationTaskPipeline:
 
         return response
 
-    async def _fetch_project_media(self, project_id: int) -> list[dict]:
-        """Fetch all project media from ClaimX API."""
+    async def _fetch_project_media(
+        self,
+        project_id: int,
+        task_media_ids: list[int],
+    ) -> list[dict]:
+        """Fetch project media and filter to task's media IDs only."""
+        if not task_media_ids:
+            logger.info("No task media IDs to fetch", extra={'project_id': project_id})
+            return []
+
         endpoint = f"/export/project/{project_id}/media"
 
         logger.debug("Fetching project media from ClaimX", extra={'project_id': project_id})
@@ -199,26 +211,34 @@ class MitigationTaskPipeline:
 
         # Handle different response formats
         if isinstance(response, list):
-            media_list = response
+            all_media = response
         elif isinstance(response, dict):
             if "data" in response:
-                media_list = response["data"]
+                all_media = response["data"]
             elif "media" in response:
-                media_list = response["media"]
+                all_media = response["media"]
             else:
-                media_list = []
+                all_media = []
         else:
-            media_list = []
+            all_media = []
+
+        # Filter to only media IDs affiliated with this task
+        task_media_ids_set = set(task_media_ids)
+        filtered_media = [
+            media for media in all_media
+            if media.get("mediaID") in task_media_ids_set
+        ]
 
         logger.info(
-            "Fetched project media",
+            "Fetched and filtered project media",
             extra={
                 'project_id': project_id,
-                'media_count': len(media_list),
+                'total_project_media': len(all_media),
+                'task_media_count': len(filtered_media),
             }
         )
 
-        return media_list
+        return filtered_media
 
     def _parse_submission(
         self,
