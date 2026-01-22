@@ -263,12 +263,29 @@ class KQLClient:
                 )
                 auth_mode = "default"
 
+            # Configure proxy BEFORE creating client to ensure it's used for auth requests
+            if self.config.proxy_url:
+                # Set env vars so requests library picks them up during session creation
+                os.environ["HTTP_PROXY"] = self.config.proxy_url
+                os.environ["HTTPS_PROXY"] = self.config.proxy_url
+                logger.debug(
+                    "Set proxy environment variables for requests library",
+                    extra={"proxy_url": self.config.proxy_url},
+                )
+
             # Create client (sync client, will execute in thread pool)
             self._client = KustoClient(kcsb)
 
-            # Configure proxy if specified
+            # Configure proxy if specified (belt and suspenders)
             if self.config.proxy_url:
                 self._client.set_proxy(self.config.proxy_url)
+                # Also ensure the session trusts env vars and has proxy set directly
+                if hasattr(self._client, "_session"):
+                    self._client._session.trust_env = True
+                    self._client._session.proxies = {
+                        "http": self.config.proxy_url,
+                        "https": self.config.proxy_url,
+                    }
                 logger.info(
                     "Configured proxy for Eventhouse",
                     extra={"proxy_url": self.config.proxy_url},
