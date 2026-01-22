@@ -17,6 +17,7 @@ Contains all runner functions for XACT pipeline workers:
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from kafka_pipeline.runners.common import (
@@ -63,10 +64,18 @@ async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event):
     if not eventhouse_source:
         raise ValueError("Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse")
 
+    # Get proxy URL from environment (same priority as EventhouseConfig.load_config)
+    proxy_url = (
+        os.getenv("EVENTHOUSE_PROXY_URL")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("HTTP_PROXY")
+    )
+
     eventhouse_config = EventhouseConfig(
         cluster_url=eventhouse_source.cluster_url,
         database=eventhouse_source.database,
         query_timeout_seconds=eventhouse_source.query_timeout_seconds,
+        proxy_url=proxy_url,
     )
 
     poller_config = PollerConfig(
