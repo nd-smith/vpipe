@@ -17,9 +17,11 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import requests
 import yaml
 from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
@@ -40,6 +42,39 @@ DEFAULT_CONFIG_PATH = Path(__file__).parent.parent.parent / "config.yaml"
 
 # Kusto/Fabric resource for token acquisition
 KUSTO_RESOURCE = "https://kusto.kusto.windows.net"
+
+# Global flag to track if we've patched requests
+_requests_patched = False
+
+
+def _patch_requests_for_proxy(proxy_url: str) -> None:
+    """Patch requests.Session to always use the specified proxy.
+
+    This ensures that ALL HTTP requests made by any library using requests
+    (including MSAL/AAD authentication) will go through the proxy.
+    """
+    global _requests_patched
+    if _requests_patched:
+        return
+
+    original_init = requests.Session.__init__
+
+    @wraps(original_init)
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        # Force proxy configuration on every new session
+        self.trust_env = True
+        self.proxies = {
+            "http": proxy_url,
+            "https": proxy_url,
+        }
+
+    requests.Session.__init__ = patched_init
+    _requests_patched = True
+    logger.info(
+        "Patched requests.Session to use proxy globally",
+        extra={"proxy_url": proxy_url},
+    )
 
 
 @dataclass
@@ -196,6 +231,11 @@ class KQLClient:
             # Also set lowercase variants for libraries that check these
             os.environ["http_proxy"] = self.config.proxy_url
             os.environ["https_proxy"] = self.config.proxy_url
+
+            # Patch requests.Session globally to ensure ALL HTTP requests
+            # (including MSAL/AAD internal requests) use the proxy
+            _patch_requests_for_proxy(self.config.proxy_url)
+
             logger.info(
                 "Set proxy environment variables for Azure/Kusto SDK auth requests",
                 extra={"proxy_url": self.config.proxy_url},
