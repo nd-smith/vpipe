@@ -197,6 +197,18 @@ class StorageErrorClassifier:
                 context=error_context,
             )
 
+        # Connection/network errors (check exception type and error string)
+        error_type = type(error).__name__
+        if "KustoNetworkError" in error_type or any(
+            marker in error_str
+            for marker in ("connection", "network", "dns", "socket")
+        ):
+            return ConnectionError(
+                f"Kusto connection error: {error}",
+                cause=error,
+                context=error_context,
+            )
+
         # Service errors (transient)
         if any(
             marker in error_str
