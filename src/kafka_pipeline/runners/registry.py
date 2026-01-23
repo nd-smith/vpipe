@@ -33,6 +33,25 @@ def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwa
     }
 
 
+def build_xact_json_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwargs):
+    """Build arguments for xact-json-poller worker.
+
+    Environment variables:
+        JSON_OUTPUT_PATH: Output file path (default: output/xact_events.jsonl)
+        JSON_ROTATE_SIZE_MB: File rotation size in MB (default: 100)
+        JSON_PRETTY_PRINT: Format with indentation (default: false)
+        JSON_INCLUDE_METADATA: Include _key, _timestamp, _headers (default: true)
+    """
+    return {
+        "pipeline_config": pipeline_config,
+        "shutdown_event": shutdown_event,
+        "output_path": os.getenv("JSON_OUTPUT_PATH", "output/xact_events.jsonl"),
+        "rotate_size_mb": float(os.getenv("JSON_ROTATE_SIZE_MB", "100")),
+        "pretty_print": os.getenv("JSON_PRETTY_PRINT", "false").lower() == "true",
+        "include_metadata": os.getenv("JSON_INCLUDE_METADATA", "true").lower() == "true",
+    }
+
+
 def build_xact_event_ingester_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
@@ -205,6 +224,11 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
     "xact-poller": {
         "runner": xact_runners.run_eventhouse_poller,
         "args_builder": build_xact_poller_args,
+        "requires_eventhouse": True,
+    },
+    "xact-json-poller": {
+        "runner": xact_runners.run_eventhouse_json_poller,
+        "args_builder": build_xact_json_poller_args,
         "requires_eventhouse": True,
     },
     "xact-event-ingester": {

@@ -8,7 +8,7 @@
 KQL Event Poller for polling events from Microsoft Fabric Eventhouse.
 
 Polls Eventhouse at configurable intervals, applies deduplication,
-and produces events to Kafka for processing by download workers.
+and writes events to a configurable sink (Kafka, JSON file, etc.).
 """
 
 import asyncio
@@ -18,7 +18,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Set, Type
+from typing import Any, Callable, Dict, Optional, Set, Type, Union
 
 import yaml
 
@@ -29,8 +29,15 @@ from kafka_pipeline.common.eventhouse.kql_client import (
     KQLClient,
     KQLQueryResult,
 )
+from kafka_pipeline.common.eventhouse.sinks import (
+    EventSink,
+    KafkaSink,
+    KafkaSinkConfig,
+    JsonFileSink,
+    JsonFileSinkConfig,
+    create_kafka_sink,
+)
 from config.config import KafkaConfig, load_config as load_kafka_config
-from kafka_pipeline.common.producer import BaseKafkaProducer
 
 logger = get_logger(__name__)
 
@@ -114,7 +121,7 @@ class PollerCheckpoint:
 class PollerConfig:
     """Configuration for KQL Event Poller."""
     eventhouse: EventhouseConfig
-    kafka: KafkaConfig
+    kafka: Optional[KafkaConfig] = None  # Optional when using custom sink
     event_schema_class: Optional[Type] = None
     domain: str = "xact"
     poll_interval_seconds: int = 30
@@ -131,11 +138,18 @@ class PollerConfig:
     # If set, use this column name instead of ingestion_time() function
     # e.g., "IngestionTime" for claimx which has an actual column
     ingestion_time_column: Optional[str] = None
+    # Optional custom sink - if not provided, uses KafkaSink with kafka config
+    sink: Optional[EventSink] = None
 
 
 class KQLEventPoller:
     """
-    Polls Eventhouse for new events and produces them to Kafka.
+    Polls Eventhouse for new events and writes them to a configurable sink.
+
+    Supports multiple output sinks via dependency injection:
+    - KafkaSink: Write to Kafka topics (default, for pipeline integration)
+    - JsonFileSink: Write to JSON Lines files (for debugging/testing)
+    - Custom sinks: Implement the EventSink protocol
     """
 
     def __init__(self, config: PollerConfig):
@@ -151,7 +165,8 @@ class KQLEventPoller:
             self._event_schema_class = config.event_schema_class
 
         self._kql_client: Optional[KQLClient] = None
-        self._producer: Optional[BaseKafkaProducer] = None
+        self._sink: Optional[EventSink] = config.sink
+        self._owns_sink = config.sink is None  # Track if we created the sink
         self._last_poll_time: Optional[datetime] = None
         self._consecutive_empty_polls = 0
         self._total_events_fetched = 0
@@ -219,13 +234,23 @@ class KQLEventPoller:
         self._kql_client = KQLClient(self.config.eventhouse)
         await self._kql_client.connect()
 
-        self._producer = BaseKafkaProducer(
-            config=self.config.kafka,
-            domain=self.config.domain,
-            worker_name="eventhouse_poller",
-        )
-        await self._producer.start()
+        # Use provided sink or create default KafkaSink
+        if self._sink is None:
+            if self.config.kafka is None:
+                raise ValueError("Either sink or kafka config must be provided")
+            self._sink = create_kafka_sink(
+                kafka_config=self.config.kafka,
+                domain=self.config.domain,
+                worker_name="eventhouse_poller",
+            )
+            self._owns_sink = True
+
+        await self._sink.start()
         self._running = True
+        logger.info(
+            "KQLEventPoller started",
+            extra={"sink_type": type(self._sink).__name__}
+        )
 
     # FIXED: Restored Asynchronous Context Manager Protocol
     async def __aenter__(self) -> "KQLEventPoller":
@@ -242,9 +267,10 @@ class KQLEventPoller:
         logger.info("Stopping KQLEventPoller")
         self._running = False
         self._shutdown_event.set()
-        
-        if self._producer:
-            await self._producer.stop()
+
+        # Only stop sink if we created it (owns_sink=True)
+        if self._sink and self._owns_sink:
+            await self._sink.stop()
         if self._kql_client:
             await self._kql_client.close()
 
@@ -384,7 +410,7 @@ class KQLEventPoller:
         return f"{table} {where} | where {ing_expr} < datetime({t_str}) {extend_clause} | {order_clause} | take {limit}"
 
     async def _process_filtered_results(self, rows: list[dict]) -> int:
-        """Processes rows and sends to Kafka."""
+        """Processes rows and writes to configured sink."""
         for row in rows:
             event = self._event_schema_class.from_eventhouse_row(row)
             # Use configured column if available, otherwise rely on schema generation
@@ -395,12 +421,8 @@ class KQLEventPoller:
                 # Note: use 'or' to handle None values since getattr returns None
                 # when the attribute exists but has value None
                 eid = getattr(event, 'event_id', None) or getattr(event, 'trace_id', None) or str(hash(str(event)))
-            
-            await self._producer.send(
-                topic=self.config.kafka.get_topic(self.config.domain, "events"),
-                key=eid,
-                value=event
-            )
+
+            await self._sink.write(key=eid, event=event)
         return len(rows)
 
     @property
