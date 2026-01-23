@@ -89,6 +89,72 @@ async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event):
     )
 
 
+async def run_eventhouse_json_poller(
+    pipeline_config,
+    shutdown_event: asyncio.Event,
+    output_path: str = "output/xact_events.jsonl",
+    rotate_size_mb: float = 100.0,
+    pretty_print: bool = False,
+    include_metadata: bool = True,
+):
+    """Polls Microsoft Fabric Eventhouse for events and writes to JSON file.
+
+    This is a Kafka-free version of the poller for debugging, testing, or
+    exporting events to JSON format for external processing.
+
+    Args:
+        pipeline_config: Pipeline configuration with eventhouse settings
+        shutdown_event: Shutdown event for graceful shutdown
+        output_path: Path to output JSON Lines file (default: output/xact_events.jsonl)
+        rotate_size_mb: Rotate file when it reaches this size in MB (default: 100)
+        pretty_print: Format JSON with indentation (default: False)
+        include_metadata: Include _key, _timestamp, _headers in output (default: True)
+    """
+    from pathlib import Path
+
+    from kafka_pipeline.common.eventhouse.kql_client import EventhouseConfig
+    from kafka_pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
+    from kafka_pipeline.common.eventhouse.sinks import create_json_sink
+
+    eventhouse_source = pipeline_config.xact_eventhouse
+    if not eventhouse_source:
+        raise ValueError("Xact Eventhouse configuration required")
+
+    eventhouse_config = EventhouseConfig(
+        cluster_url=eventhouse_source.cluster_url,
+        database=eventhouse_source.database,
+        query_timeout_seconds=eventhouse_source.query_timeout_seconds,
+    )
+
+    # Create JSON sink
+    json_sink = create_json_sink(
+        output_path=output_path,
+        rotate_size_mb=rotate_size_mb,
+        pretty_print=pretty_print,
+        include_metadata=include_metadata,
+    )
+
+    poller_config = PollerConfig(
+        eventhouse=eventhouse_config,
+        kafka=None,  # Not using Kafka
+        sink=json_sink,  # Use JSON file sink
+        poll_interval_seconds=eventhouse_source.poll_interval_seconds,
+        batch_size=eventhouse_source.batch_size,
+        source_table=eventhouse_source.source_table,
+        events_table_path=eventhouse_source.xact_events_table_path,
+        backfill_start_stamp=eventhouse_source.backfill_start_stamp,
+        backfill_stop_stamp=eventhouse_source.backfill_stop_stamp,
+        bulk_backfill=eventhouse_source.bulk_backfill,
+    )
+
+    await execute_poller_with_shutdown(
+        KQLEventPoller,
+        poller_config,
+        stage_name="xact-json-poller",
+        shutdown_event=shutdown_event,
+    )
+
+
 async def run_delta_events_worker(
     kafka_config,
     events_table_path: str,
