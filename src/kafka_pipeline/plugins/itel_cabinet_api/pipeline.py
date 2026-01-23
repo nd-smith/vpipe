@@ -240,6 +240,30 @@ class ItelCabinetPipeline:
 
         return resolved_media_url_map
 
+    def _is_s3_url(self, url: str) -> bool:
+        """
+        Check if URL is already an S3 URL.
+
+        S3 URLs can have various formats:
+        - https://s3.amazonaws.com/bucket/key
+        - https://bucket.s3.amazonaws.com/key
+        - https://bucket.s3.region.amazonaws.com/key
+
+        Args:
+            url: URL to check
+
+        Returns:
+            True if URL is an S3 URL, False otherwise
+        """
+        if not url:
+            return False
+
+        url_lower = url.lower()
+        return (
+            's3.amazonaws.com' in url_lower or
+            's3-' in url_lower  # Handles s3-region.amazonaws.com patterns
+        )
+
     async def _resolve_redirect_url(self, claimx_url: str) -> str:
         """
         Follow 302 redirect from ClaimX URL to get S3 pre-signed URL.
@@ -247,12 +271,23 @@ class ItelCabinetPipeline:
         ClaimX media URLs require auth and redirect to S3 - we need the final S3 URL
         since receivers won't have ClaimX auth.
 
+        Some files (large mp4/mov) already link directly to S3, so we skip redirect
+        resolution for those.
+
         Args:
-            claimx_url: ClaimX media download URL
+            claimx_url: ClaimX media download URL or direct S3 URL
 
         Returns:
-            S3 pre-signed URL from Location header, or original URL if redirect fails
+            S3 pre-signed URL from Location header, or original URL if already S3 or redirect fails
         """
+        # Check if URL is already an S3 URL (edge case for large media files)
+        if self._is_s3_url(claimx_url):
+            logger.debug(
+                f"URL is already S3, skipping redirect resolution",
+                extra={'url_prefix': claimx_url[:80]}
+            )
+            return claimx_url
+
         try:
             # Get connection config for auth
             config = self.connections.get_connection(self.claimx_connection)
