@@ -11,7 +11,9 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from kafka_pipeline.plugins.shared.connections import ConnectionManager
+import aiohttp
+
+from kafka_pipeline.plugins.shared.connections import ConnectionManager, AuthType
 
 from .models import TaskEvent, CabinetSubmission, CabinetAttachment, ProcessedTask
 from .parsers import parse_cabinet_form, parse_cabinet_attachments, get_readable_report
@@ -225,7 +227,76 @@ class ItelCabinetPipeline:
             }
         )
 
-        return media_url_map
+        # Resolve ClaimX URLs to S3 pre-signed URLs
+        resolved_media_url_map = {}
+        for media_id, claimx_url in media_url_map.items():
+            s3_url = await self._resolve_redirect_url(claimx_url)
+            resolved_media_url_map[media_id] = s3_url
+
+        logger.info(
+            f"Resolved {len(resolved_media_url_map)} media URLs to S3",
+            extra={'project_id': project_id}
+        )
+
+        return resolved_media_url_map
+
+    async def _resolve_redirect_url(self, claimx_url: str) -> str:
+        """
+        Follow 302 redirect from ClaimX URL to get S3 pre-signed URL.
+
+        ClaimX media URLs require auth and redirect to S3 - we need the final S3 URL
+        since receivers won't have ClaimX auth.
+
+        Args:
+            claimx_url: ClaimX media download URL
+
+        Returns:
+            S3 pre-signed URL from Location header, or original URL if redirect fails
+        """
+        try:
+            # Get connection config for auth
+            config = self.connections.get_connection(self.claimx_connection)
+
+            # Build auth headers
+            headers = {**config.headers}
+            if config.auth_type == AuthType.BEARER and config.auth_token:
+                headers[config.auth_header] = f"Bearer {config.auth_token}"
+            elif config.auth_type == AuthType.API_KEY and config.auth_token:
+                headers[config.auth_header] = config.auth_token
+
+            # Make HEAD request with no redirects to capture 302 Location header
+            async with self.connections._session.head(
+                claimx_url,
+                headers=headers,
+                allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                # Check for redirect status (first redirect only)
+                if response.status in (301, 302, 303, 307, 308):
+                    location = response.headers.get('Location')
+                    if location:
+                        logger.debug(
+                            f"Resolved ClaimX URL to S3",
+                            extra={
+                                'status': response.status,
+                                'claimx_url_prefix': claimx_url[:80],
+                                's3_url_prefix': location[:80],
+                            }
+                        )
+                        return location
+
+                logger.warning(
+                    f"No redirect found for ClaimX URL (status {response.status})",
+                    extra={'url_prefix': claimx_url[:80], 'status': response.status}
+                )
+                return claimx_url  # Fall back to original URL
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to resolve redirect URL: {e}",
+                extra={'url_prefix': claimx_url[:80]}
+            )
+            return claimx_url  # Fall back to original URL
 
     async def _write_to_delta(
         self,
