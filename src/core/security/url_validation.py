@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -17,7 +17,6 @@ import re
 from typing import Optional, Set, Tuple
 from urllib.parse import urlparse, urlunparse
 
-
 # Allowed schemes for attachment downloads
 ALLOWED_SCHEMES: Set[str] = {"https", "http"}
 
@@ -30,12 +29,13 @@ DEFAULT_ALLOWED_DOMAINS: Set[str] = {
     "www.claimxperience.com",
     "claimxperience.com",
     "xactware-claimx-us-prod.s3.us-west-1.amazonaws.com",
-    "localhost",  # For local testing with dummy source
 }
 
 # Hosts to block (metadata endpoints, localhost, etc.)
+# NOTE: localhost/127.0.0.1 blocked by default for security
+# Use allow_localhost parameter in simulation mode to permit local testing
 BLOCKED_HOSTS: Set[str] = {
-    #"localhost",
+    "localhost",
     "127.0.0.1",
     "0.0.0.0",
     "metadata.google.internal",
@@ -72,21 +72,31 @@ def get_allowed_domains() -> Set[str]:
 
 
 def validate_download_url(
-    url: str, allowed_domains: Optional[Set[str]] = None
+    url: str,
+    allowed_domains: Optional[Set[str]] = None,
+    allow_localhost: bool = False,
 ) -> Tuple[bool, str]:
     """
-    Validate URL against domain allowlist (strict mode).
+    Validate URL against domain allowlist with optional localhost support.
 
     Use this for attachment downloads where source domains are known.
     Enforces HTTPS-only and domain allowlist to prevent SSRF attacks.
 
     Security considerations:
-    - HTTPS required (no HTTP allowed)
+    - HTTPS required (except localhost when allow_localhost=True)
     - Domain must be in allowlist (case-insensitive)
     - Hostname must be present and valid
-    - Handles URL parsing errors safely
+    - Localhost URLs ONLY allowed when allow_localhost=True AND not in production
+    - Path traversal and credential injection blocked even for localhost
 
-    Returns (is_valid, error_message):
+    Args:
+        url: URL to validate
+        allowed_domains: Set of allowed domain names (None = use default allowlist)
+        allow_localhost: If True, allow localhost URLs for simulation mode.
+                        CRITICAL: Automatically blocked in production regardless of this flag.
+
+    Returns:
+        Tuple of (is_valid, error_message):
         - (True, "") if valid
         - (False, "error description") if invalid
 
@@ -95,10 +105,16 @@ def validate_download_url(
         (False, "Domain not in allowlist: example.s3.amazonaws.com")
 
         >>> validate_download_url("http://claimxperience.com/file.pdf")
-        (False, "Must be HTTPS, got http")
+        (False, "Must be HTTPS for non-localhost, got http")
 
         >>> validate_download_url("https://claimxperience.com/file.pdf")
         (True, "")
+
+        >>> validate_download_url("http://localhost:8765/file.jpg", allow_localhost=True)
+        (True, "")  # In development/testing
+
+        >>> validate_download_url("http://localhost:8765/file.jpg", allow_localhost=False)
+        (False, "Domain not in allowlist: localhost")
     """
     if not url:
         return False, "Empty URL"
@@ -109,12 +125,6 @@ def validate_download_url(
     except Exception as e:
         return False, f"Invalid URL format: {e}"
 
-    # Get allowed domains
-    if allowed_domains is None:
-        allowed_domains = get_allowed_domains()
-    else:
-        allowed_domains = {d.lower() for d in allowed_domains}
-
     # Extract hostname
     hostname = parsed.hostname
     if not hostname:
@@ -123,14 +133,190 @@ def validate_download_url(
     # Normalize hostname to lowercase for comparison
     hostname_lower = hostname.lower()
 
-    # Require HTTPS (except for localhost in testing)
+    # CRITICAL SECURITY CHECK: Never allow localhost in production
+    # This check happens BEFORE any other validation to ensure safety
+    if allow_localhost and _is_production_environment():
+        from core.logging.setup import get_logger
+
+        logger = get_logger(__name__)
+        logger.error(
+            "SECURITY: Attempted to allow localhost URLs in production environment",
+            extra={
+                "url_hostname": hostname_lower,
+                "environment": os.getenv("ENVIRONMENT", "unknown"),
+            },
+        )
+        return False, (
+            "Localhost URLs are not allowed in production. "
+            "This indicates a configuration error - simulation mode should not be enabled in production."
+        )
+
+    # Check if this is a localhost or simulation internal hostname URL
+    is_localhost = hostname_lower in ("localhost", "127.0.0.1")
+    # In simulation mode, also treat Docker internal hostnames as localhost
+    is_simulation_internal = allow_localhost and (
+        hostname_lower.endswith("-simulation") or hostname_lower.startswith("vpipe_")
+    )
+
+    # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
+    if (is_localhost or is_simulation_internal) and allow_localhost:
+        return _validate_localhost_url(url, parsed)
+
+    # For non-localhost or localhost when not allowed, use production validation
+    return _validate_production_url(url, parsed, hostname, hostname_lower, allowed_domains)
+
+
+def _is_production_environment() -> bool:
+    """
+    Check if running in production environment.
+
+    Returns True if any environment variable indicates production.
+    Used to enforce security restrictions on localhost URLs.
+    """
+    environment = os.getenv("ENVIRONMENT", "").lower()
+    deployment_env = os.getenv("DEPLOYMENT_ENV", "").lower()
+    app_env = os.getenv("APP_ENV", "").lower()
+
+    production_indicators = ["production", "prod", "live"]
+
+    for value in [environment, deployment_env, app_env]:
+        if any(indicator in value for indicator in production_indicators):
+            return True
+
+    return False
+
+
+def _validate_localhost_url(url: str, parsed) -> Tuple[bool, str]:
+    """
+    Validate localhost URL structure for simulation mode.
+
+    Allows URLs like:
+    - http://localhost:8765/files/...
+    - http://127.0.0.1:8765/files/...
+
+    Blocks:
+    - URLs with ../ (path traversal)
+    - URLs with @ (credential injection)
+    - Non-http schemes
+    - URLs with fragments that could be malicious
+
+    Args:
+        url: Original URL string
+        parsed: Already-parsed URL object from urlparse()
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    from core.logging.setup import get_logger
+
+    logger = get_logger(__name__)
+
+    # Must be http (not https - no need for TLS on localhost)
+    # We allow https too for flexibility, but http is typical for local servers
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        return False, f"Localhost URLs must use http or https scheme, got: {scheme}"
+
+    # Verify hostname is actually localhost, 127.0.0.1, or simulation internal hostname
+    hostname_lower = (parsed.hostname or "").lower()
+    is_valid_internal = (
+        hostname_lower in ("localhost", "127.0.0.1")
+        or hostname_lower.endswith("-simulation")
+        or hostname_lower.startswith("vpipe_")
+    )
+    if not is_valid_internal:
+        return False, f"Invalid localhost/internal hostname: {hostname_lower}"
+
+    # Check for path traversal attempts
+    if ".." in parsed.path:
+        logger.warning(
+            "Blocked localhost URL with path traversal attempt",
+            extra={"url_path": parsed.path},
+        )
+        return False, "Path traversal detected in URL"
+
+    # Check for credential injection (user:pass@localhost)
+    if "@" in url and parsed.username:
+        logger.warning(
+            "Blocked localhost URL with credential injection attempt",
+            extra={"url_username": parsed.username},
+        )
+        return False, "Credential injection detected in URL"
+
+    # Check for suspicious query parameters (common in SSRF attacks)
+    if parsed.query:
+        query_lower = parsed.query.lower()
+        # Block common SSRF payloads in query params
+        suspicious_patterns = ["file://", "dict://", "gopher://", "ftp://", "tftp://"]
+        for pattern in suspicious_patterns:
+            if pattern in query_lower:
+                logger.warning(
+                    "Blocked localhost URL with suspicious query parameter",
+                    extra={"query_pattern": pattern},
+                )
+                return False, f"Suspicious query parameter detected: {pattern}"
+
+    # Log localhost URL access for audit trail
+    logger.debug(
+        "Allowed localhost URL in simulation mode",
+        extra={
+            "url_scheme": scheme,
+            "url_hostname": hostname_lower,
+            "url_port": parsed.port,
+            "url_path": parsed.path[:100],  # Truncate for logging
+        },
+    )
+
+    return True, ""
+
+
+def _validate_production_url(
+    url: str,
+    parsed,
+    hostname: str,
+    hostname_lower: str,
+    allowed_domains: Optional[Set[str]],
+) -> Tuple[bool, str]:
+    """
+    Validate URL for production use (standard SSRF protection).
+
+    Enforces:
+    - HTTPS only (no HTTP)
+    - Domain allowlist
+    - No private IPs or metadata endpoints
+
+    Args:
+        url: Original URL string
+        parsed: Already-parsed URL object from urlparse()
+        hostname: Original hostname (preserves case)
+        hostname_lower: Lowercase hostname for comparison
+        allowed_domains: Set of allowed domains (None = use defaults)
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # Get allowed domains
+    if allowed_domains is None:
+        allowed_domains = get_allowed_domains()
+    else:
+        allowed_domains = {d.lower() for d in allowed_domains}
+
+    # Require HTTPS for production URLs
     scheme = parsed.scheme.lower()
     if scheme not in ALLOWED_SCHEMES:
         return False, f"Invalid scheme: {scheme}"
-    if scheme == "http" and hostname_lower != "localhost":
-        return False, f"Must be HTTPS for non-localhost, got {scheme}"
+    if scheme != "https":
+        return False, f"Must be HTTPS, got {scheme}"
 
-    # Check allowlist
+    # Block localhost/127.0.0.1 and other blocked hosts
+    if hostname_lower in BLOCKED_HOSTS:
+        return False, f"Blocked host: {hostname}"
+
+    # Block private IPs
+    if is_private_ip(hostname):
+        return False, f"Private IP address not allowed: {hostname}"
+
+    # Check domain allowlist
     if hostname_lower not in allowed_domains:
         return False, f"Domain not in allowlist: {hostname}"
 

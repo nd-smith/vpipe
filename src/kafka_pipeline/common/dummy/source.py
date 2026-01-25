@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -32,6 +32,7 @@ logger = get_logger(__name__)
 @dataclass
 class DummySourceConfig:
     """Configuration for the dummy data source."""
+
     kafka: KafkaConfig
     generator: GeneratorConfig = field(default_factory=GeneratorConfig)
     file_server: FileServerConfig = field(default_factory=FileServerConfig)
@@ -52,6 +53,10 @@ class DummySourceConfig:
     # Runtime limits
     max_events: Optional[int] = None  # Stop after N events (None = unlimited)
     max_runtime_seconds: Optional[int] = None  # Stop after N seconds
+
+    # External file server (when running in Docker with separate file server)
+    skip_embedded_file_server: bool = False  # Skip starting embedded file server
+    external_file_server_url: Optional[str] = None  # URL of external file server
 
 
 class DummyDataSource:
@@ -92,17 +97,29 @@ class DummyDataSource:
             f"{total_events_per_min}/min total across {len(self.config.domains)} domains"
         )
 
-        # Start file server
-        self._file_server = DummyFileServer(self.config.file_server)
-        await self._file_server.start()
-
-        # Update generator base URL to match file server
-        self._generator.config.base_url = (
-            f"http://{self.config.file_server.host}:{self.config.file_server.port}"
-        )
-        # Use localhost for local testing
-        if self.config.file_server.host == "0.0.0.0":
-            self._generator.config.base_url = f"http://localhost:{self.config.file_server.port}"
+        # Start file server (or use external one)
+        if self.config.skip_embedded_file_server:
+            if self.config.external_file_server_url:
+                logger.info(f"Using external file server at {self.config.external_file_server_url}")
+                self._generator.config.base_url = self.config.external_file_server_url
+            else:
+                logger.warning(
+                    "skip_embedded_file_server=True but no external_file_server_url provided"
+                )
+                # Use default localhost URL anyway
+                self._generator.config.base_url = (
+                    f"http://{self.config.file_server.host}:{self.config.file_server.port}"
+                )
+        else:
+            self._file_server = DummyFileServer(self.config.file_server)
+            await self._file_server.start()
+            # Update generator base URL to match file server
+            self._generator.config.base_url = (
+                f"http://{self.config.file_server.host}:{self.config.file_server.port}"
+            )
+            # Use localhost for local testing with embedded file server
+            if self.config.file_server.host == "0.0.0.0":
+                self._generator.config.base_url = f"http://localhost:{self.config.file_server.port}"
 
         # Create producers for each domain
         for domain in self.config.domains:
@@ -266,6 +283,7 @@ class DummyDataSource:
             event_data = self._generator.generate_xact_event()
             # Import schema class
             from kafka_pipeline.xact.schemas.events import EventMessage
+
             event = EventMessage(**event_data)
             key = event_data["traceId"]
             topic = self.config.kafka.get_topic(domain, "events")
@@ -302,6 +320,7 @@ class DummyDataSource:
 
             # Import schema class
             from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
+
             event = ClaimXEventMessage(**event_data)
             key = event_data["event_id"]
             topic = self.config.kafka.get_topic(domain, "events")
