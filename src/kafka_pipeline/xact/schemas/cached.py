@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -59,81 +59,52 @@ class CachedDownloadMessage(BaseModel):
         ... )
     """
 
-    trace_id: str = Field(
-        ...,
-        description="Unique event identifier for correlation",
-        min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier for correlation", min_length=1)
     media_id: str = Field(
-        ...,
-        description="Unique deterministic ID for the attachment",
-        min_length=1
+        ..., description="Unique deterministic ID for the attachment", min_length=1
     )
     attachment_url: str = Field(
-        ...,
-        description="Original URL the file was downloaded from",
-        min_length=1
+        ..., description="Original URL the file was downloaded from", min_length=1
     )
     destination_path: str = Field(
-        ...,
-        description="Target path in OneLake (relative to base path)",
-        min_length=1
+        ..., description="Target path in OneLake (relative to base path)", min_length=1
     )
     local_cache_path: str = Field(
-        ...,
-        description="Absolute path to cached file on local filesystem",
-        min_length=1
+        ..., description="Absolute path to cached file on local filesystem", min_length=1
     )
-    bytes_downloaded: int = Field(
-        ...,
-        description="Size of the downloaded file in bytes",
-        ge=0
-    )
+    bytes_downloaded: int = Field(..., description="Size of the downloaded file in bytes", ge=0)
     content_type: Optional[str] = Field(
-        default=None,
-        description="MIME type of the downloaded file (if available)"
+        default=None, description="MIME type of the downloaded file (if available)"
     )
-    event_type: str = Field(
-        ...,
-        description="Type of the originating event",
-        min_length=1
-    )
-    event_subtype: str = Field(
-        ...,
-        description="Subtype of the originating event",
-        min_length=1
-    )
+    event_type: str = Field(..., description="Type of the originating event", min_length=1)
+    event_subtype: str = Field(..., description="Subtype of the originating event", min_length=1)
     status_subtype: str = Field(
-        ...,
-        description="Event status subtype (e.g., 'documentsReceived')",
-        min_length=1
+        ..., description="Event status subtype (e.g., 'documentsReceived')", min_length=1
     )
     file_type: str = Field(
-        ...,
-        description="File type extracted from URL extension (e.g., 'pdf', 'esx')",
-        min_length=1
+        ..., description="File type extracted from URL extension (e.g., 'pdf', 'esx')", min_length=1
     )
-    assignment_id: str = Field(
-        ...,
-        description="Assignment ID from event payload",
-        min_length=1
-    )
-    original_timestamp: datetime = Field(
-        ...,
-        description="Timestamp from the original event"
-    )
+    assignment_id: str = Field(..., description="Assignment ID from event payload", min_length=1)
+    original_timestamp: datetime = Field(..., description="Timestamp from the original event")
     downloaded_at: datetime = Field(
-        ...,
-        description="Timestamp when the file was downloaded to cache"
+        ..., description="Timestamp when the file was downloaded to cache"
     )
     metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional context passed through from original task"
+        default_factory=dict, description="Additional context passed through from original task"
     )
 
-    @field_validator('trace_id', 'media_id', 'attachment_url', 'destination_path',
-                     'local_cache_path', 'event_type', 'event_subtype',
-                     'status_subtype', 'file_type', 'assignment_id')
+    @field_validator(
+        "trace_id",
+        "media_id",
+        "attachment_url",
+        "destination_path",
+        "local_cache_path",
+        "event_type",
+        "event_subtype",
+        "status_subtype",
+        "file_type",
+        "assignment_id",
+    )
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -141,31 +112,29 @@ class CachedDownloadMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    @field_serializer('original_timestamp', 'downloaded_at')
+    @field_serializer("original_timestamp", "downloaded_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:
         """Serialize datetime to ISO 8601 format."""
         return timestamp.isoformat()
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'trace_id': 'evt-2024-001',
-                    'attachment_url': 'https://storage.example.com/claims/C-12345/document.pdf',
-                    'destination_path': 'claims/C-12345/document.pdf',
-                    'local_cache_path': '/tmp/kafka_pipeline_cache/evt-2024-001/document.pdf',
-                    'bytes_downloaded': 2048576,
-                    'content_type': 'application/pdf',
-                    'event_type': 'claim',
-                    'event_subtype': 'created',
-                    'status_subtype': 'documentsReceived',
-                    'file_type': 'pdf',
-                    'assignment_id': 'A-789',
-                    'original_timestamp': '2024-12-25T10:30:00Z',
-                    'downloaded_at': '2024-12-25T10:30:05Z',
-                    'metadata': {
-                        'source_partition': 3
-                    }
+                    "trace_id": "evt-2024-001",
+                    "attachment_url": "https://storage.example.com/claims/C-12345/document.pdf",
+                    "destination_path": "claims/C-12345/document.pdf",
+                    "local_cache_path": "/tmp/kafka_pipeline_cache/evt-2024-001/document.pdf",
+                    "bytes_downloaded": 2048576,
+                    "content_type": "application/pdf",
+                    "event_type": "claim",
+                    "event_subtype": "created",
+                    "status_subtype": "documentsReceived",
+                    "file_type": "pdf",
+                    "assignment_id": "A-789",
+                    "original_timestamp": "2024-12-25T10:30:00Z",
+                    "downloaded_at": "2024-12-25T10:30:05Z",
+                    "metadata": {"source_partition": 3},
                 }
             ]
         }

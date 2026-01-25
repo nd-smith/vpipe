@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -215,13 +215,15 @@ class EventIngesterWorker:
         tracer = get_tracer(__name__)
         try:
             with tracer.start_active_span("event.parse") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "internal")
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = EventMessage.from_eventhouse_row(message_data)
                 span.set_tag("event.type", event.type)
                 span.set_tag("event.status_subtype", event.status_subtype)
-                span.set_tag("event.attachment_count", len(event.attachments) if event.attachments else 0)
+                span.set_tag(
+                    "event.attachment_count", len(event.attachments) if event.attachments else 0
+                )
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse EventMessage",
@@ -280,7 +282,7 @@ class EventIngesterWorker:
             record_processing_error(
                 topic=self.producer_config.get_topic(self.domain, "events_ingested"),
                 consumer_group=f"{self.domain}-event-ingester",
-                error_type="SEND_FAILED"
+                error_type="SEND_FAILED",
             )
 
             logger.error(
@@ -347,16 +349,14 @@ class EventIngesterWorker:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("event.create_enrichment") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "internal")
             span.set_tag("trace_id", event.trace_id)
             span.set_tag("event_id", event_id)
             span.set_tag("attachment_count", len(event.attachments) if event.attachments else 0)
 
             # Parse original timestamp from event
-            original_timestamp = datetime.fromisoformat(
-                event.utc_datetime.replace("Z", "+00:00")
-            )
+            original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
 
             # Create enrichment task with all event data
             enrichment_task = XACTEnrichmentTask(
@@ -406,7 +406,7 @@ class EventIngesterWorker:
                 record_processing_error(
                     topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
                     consumer_group=f"{self.domain}-event-ingester",
-                    error_type="SEND_FAILED"
+                    error_type="SEND_FAILED",
                 )
 
                 span.set_tag("task.created", False)
@@ -492,9 +492,7 @@ class EventIngesterWorker:
         # If cache is full, evict oldest entries (simple LRU)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
             # Sort by timestamp and remove oldest 10%
-            sorted_items = sorted(
-                self._dedup_cache_timestamps.items(), key=lambda x: x[1]
-            )
+            sorted_items = sorted(self._dedup_cache_timestamps.items(), key=lambda x: x[1])
             evict_count = self._dedup_cache_max_size // 10
             for trace_id_to_evict, _ in sorted_items[:evict_count]:
                 self._dedup_cache.pop(trace_id_to_evict, None)

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord
@@ -93,7 +93,13 @@ class ClaimXUploadWorker:
 
     WORKER_NAME = "upload_worker"
 
-    def __init__(self, config: KafkaConfig, domain: str = "claimx", instance_id: Optional[str] = None):
+    def __init__(
+        self,
+        config: KafkaConfig,
+        domain: str = "claimx",
+        instance_id: Optional[str] = None,
+        storage_client: Optional[Any] = None,
+    ):
         self.config = config
         self.domain = domain
         self.instance_id = instance_id
@@ -104,8 +110,21 @@ class ClaimXUploadWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Validate OneLake configuration for claimx domain
-        if not config.onelake_domain_paths and not config.onelake_base_path:
+        # Store injected storage client (for simulation mode)
+        self._injected_storage_client = storage_client
+
+        if storage_client is not None:
+            logger.info(
+                "Using injected storage client (simulation mode)",
+                extra={"storage_type": type(storage_client).__name__},
+            )
+
+        # Validate OneLake configuration for claimx domain (only if not using injected client)
+        if (
+            storage_client is None
+            and not config.onelake_domain_paths
+            and not config.onelake_base_path
+        ):
             raise ValueError(
                 "OneLake path configuration required. Set either:\n"
                 "  - onelake_domain_paths in config.yaml (preferred), or\n"
@@ -131,7 +150,7 @@ class ClaimXUploadWorker:
         self._in_flight_tasks: Set[str] = set()  # Track by media_id
         self._in_flight_lock = asyncio.Lock()
         self._shutdown_event: Optional[asyncio.Event] = None
-        
+
         # Cycle output tracking
         self._records_processed = 0
         self._records_succeeded = 0
@@ -210,41 +229,58 @@ class ClaimXUploadWorker:
         # Start producer
         await self.producer.start()
 
-        # Initialize OneLake client for claimx domain with proper error handling
-        onelake_path = self.config.onelake_domain_paths.get(self.domain)
-        if not onelake_path:
-            # Fall back to base path
-            onelake_path = self.config.onelake_base_path
-            if not onelake_path:
-                raise ValueError(
-                    f"No OneLake path configured for domain '{self.domain}' and no fallback base path configured"
-                )
-            logger.warning(
-                "Using fallback OneLake base path for claimx domain",
-                extra={"onelake_base_path": onelake_path},
-            )
+        # Initialize storage client (use injected client or create OneLake client)
+        if self._injected_storage_client is not None:
+            # Use injected storage client (simulation mode)
+            self.onelake_client = self._injected_storage_client
 
-        # Use proper error handling with cleanup on failure
-        try:
-            self.onelake_client = OneLakeClient(onelake_path)
-            await self.onelake_client.__aenter__()
+            # If the injected client is an async context manager, enter it
+            if hasattr(self.onelake_client, "__aenter__"):
+                await self.onelake_client.__aenter__()
+
             logger.info(
-                "Initialized OneLake client for claimx domain",
+                "Using injected storage client for claimx domain",
                 extra={
                     "domain": self.domain,
-                    "onelake_path": onelake_path,
+                    "storage_type": type(self.onelake_client).__name__,
                 },
             )
-        except Exception as e:
-            logger.error(
-                "Failed to initialize OneLake client",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
-            # Clean up producer and health server since we're failing after they started
-            await self.producer.stop()
-            await self.health_server.stop()
-            raise
+        else:
+            # Initialize OneLake client for claimx domain with proper error handling
+            onelake_path = self.config.onelake_domain_paths.get(self.domain)
+            if not onelake_path:
+                # Fall back to base path
+                onelake_path = self.config.onelake_base_path
+                if not onelake_path:
+                    raise ValueError(
+                        f"No OneLake path configured for domain '{self.domain}' and no fallback base path configured"
+                    )
+                logger.warning(
+                    "Using fallback OneLake base path for claimx domain",
+                    extra={"onelake_base_path": onelake_path},
+                )
+
+            # Use proper error handling with cleanup on failure
+            try:
+                self.onelake_client = OneLakeClient(onelake_path)
+                await self.onelake_client.__aenter__()
+                logger.info(
+                    "Initialized OneLake client for claimx domain",
+                    extra={
+                        "domain": self.domain,
+                        "onelake_path": onelake_path,
+                    },
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to initialize OneLake client",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+                # Clean up producer and health server since we're failing after they started
+                await self.producer.stop()
+                await self.health_server.stop()
+                raise
 
         # Create Kafka consumer with cleanup on failure
         try:
@@ -260,7 +296,9 @@ class ClaimXUploadWorker:
                 try:
                     await self.onelake_client.close()
                 except Exception as cleanup_error:
-                    logger.warning("Error cleaning up OneLake client", extra={"error": str(cleanup_error)})
+                    logger.warning(
+                        "Error cleaning up OneLake client", extra={"error": str(cleanup_error)}
+                    )
                 finally:
                     self.onelake_client = None
             await self.producer.stop()
@@ -305,9 +343,7 @@ class ClaimXUploadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -342,7 +378,7 @@ class ClaimXUploadWorker:
         if self._in_flight_tasks:
             logger.info(
                 "Waiting for in-flight uploads to complete",
-                extra={"in_flight_count": len(self._in_flight_tasks)}
+                extra={"in_flight_count": len(self._in_flight_tasks)},
             )
             wait_start = time.time()
             while self._in_flight_tasks and (time.time() - wait_start) < 30:
@@ -351,7 +387,7 @@ class ClaimXUploadWorker:
             if self._in_flight_tasks:
                 logger.warning(
                     "Forcing shutdown with uploads still in progress",
-                    extra={"in_flight_count": len(self._in_flight_tasks)}
+                    extra={"in_flight_count": len(self._in_flight_tasks)},
                 )
 
         # Stop consumer
@@ -384,12 +420,18 @@ class ClaimXUploadWorker:
 
     async def _create_consumer(self) -> None:
         # Get worker-specific consumer config (merged with defaults)
-        consumer_config_dict = self.config.get_worker_config(self.domain, self.WORKER_NAME, "consumer")
-        
+        consumer_config_dict = self.config.get_worker_config(
+            self.domain, self.WORKER_NAME, "consumer"
+        )
+
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}",
+            "client_id": (
+                f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
+            ),
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "enable_auto_commit": False,
             "max_poll_records": self.batch_size,
@@ -462,9 +504,7 @@ class ClaimXUploadWorker:
 
                 # Log when we first receive partition assignment
                 if not _logged_assignment_received:
-                    partition_info = [
-                        f"{tp.topic}:{tp.partition}" for tp in assignment
-                    ]
+                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
                     logger.info(
                         "Partition assignment received, starting message consumption",
                         extra={
@@ -516,10 +556,7 @@ class ClaimXUploadWorker:
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
-        tasks = [
-            asyncio.create_task(self._process_single_with_semaphore(msg))
-            for msg in messages
-        ]
+        tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
 
         results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -530,7 +567,9 @@ class ClaimXUploadWorker:
 
         for upload_result in results:
             if isinstance(upload_result, Exception):
-                logger.error("Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True)
+                logger.error(
+                    "Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True
+                )
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
                 exception_count += 1
             elif isinstance(upload_result, UploadResult):
@@ -539,7 +578,9 @@ class ClaimXUploadWorker:
                 else:
                     failed_count += 1
             else:
-                logger.warning("Unexpected result type", extra={"result_type": str(type(upload_result))})
+                logger.warning(
+                    "Unexpected result type", extra={"result_type": str(type(upload_result))}
+                )
                 exception_count += 1
 
         # Only commit offsets if ALL uploads in batch succeeded
@@ -587,9 +628,7 @@ class ClaimXUploadWorker:
                 self._in_flight_tasks.add(media_id)
 
             consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-            record_message_consumed(
-                self.topic, consumer_group, len(message.value), success=True
-            )
+            record_message_consumed(self.topic, consumer_group, len(message.value), success=True)
 
             # Track records processed
             self._records_processed += 1
@@ -605,7 +644,7 @@ class ClaimXUploadWorker:
 
             tracer = get_tracer(__name__)
             with tracer.start_active_span("onelake.upload") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("media.id", media_id)
                 span.set_tag("project.id", cached_message.project_id)
@@ -673,7 +712,7 @@ class ClaimXUploadWorker:
             # Extract event_id and project_id if cached_message was parsed
             event_id = None
             project_id = None
-            if 'cached_message' in locals() and cached_message is not None:
+            if "cached_message" in locals() and cached_message is not None:
                 event_id = cached_message.source_event_id
                 project_id = cached_message.project_id
 
@@ -696,7 +735,7 @@ class ClaimXUploadWorker:
             # The file stays in cache for manual review/retry
             try:
                 # Re-parse message in case it wasn't parsed yet
-                if 'cached_message' not in locals() or cached_message is None:
+                if "cached_message" not in locals() or cached_message is None:
                     cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
 
                 result_message = ClaimXUploadResultMessage(
@@ -720,11 +759,13 @@ class ClaimXUploadWorker:
                     value=result_message,
                 )
             except Exception as produce_error:
-                logger.error("Failed to produce failure result", extra={"error": str(produce_error)})
+                logger.error(
+                    "Failed to produce failure result", extra={"error": str(produce_error)}
+                )
 
             return UploadResult(
                 message=message,
-                cached_message=cached_message if 'cached_message' in locals() else None,
+                cached_message=cached_message if "cached_message" in locals() else None,
                 processing_time_ms=processing_time_ms,
                 success=False,
                 error=e,
@@ -765,7 +806,7 @@ class ClaimXUploadWorker:
                     self._last_cycle_log = time.monotonic()
 
                     async with self._in_flight_lock:
-                         in_flight = len(self._in_flight_tasks)
+                        in_flight = len(self._in_flight_tasks)
 
                     # Calculate cycle-specific deltas
                     processed_cycle = self._records_processed - self._last_cycle_processed
@@ -817,4 +858,7 @@ class ClaimXUploadWorker:
             logger.debug("Cleaned up cache file", extra={"cache_path": str(cache_path)})
 
         except Exception as e:
-            logger.warning("Failed to clean up cache file", extra={"cache_path": str(cache_path), "error": str(e)})
+            logger.warning(
+                "Failed to clean up cache file",
+                extra={"cache_path": str(cache_path), "error": str(e)},
+            )

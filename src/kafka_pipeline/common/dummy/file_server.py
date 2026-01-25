@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -9,11 +9,19 @@ Dummy file server for serving test attachments.
 
 Provides a simple HTTP server that generates realistic-looking files
 based on the requested path and file type.
+
+Supports controlled failure injection for testing retry logic via environment variables:
+- FAILURE_RATE: Percentage of requests that fail (0-100, default 0)
+- FAILURE_DURATION_SEC: How long failures last before recovering (default 0 = permanent)
+- FAILURE_STATUS: HTTP status code to return on failure (default 500)
 """
 
 import asyncio
 import hashlib
+import os
+import random
 import struct
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -27,10 +35,15 @@ logger = get_logger(__name__)
 @dataclass
 class FileServerConfig:
     """Configuration for the dummy file server."""
+
     host: str = "0.0.0.0"
     port: int = 8765
     default_file_size: int = 100_000  # 100KB default
     max_file_size: int = 10_000_000  # 10MB max
+    # Failure injection settings
+    failure_rate: float = 0.0  # Percentage of requests that fail (0-100)
+    failure_duration_sec: int = 0  # How long failures last (0 = until manually disabled)
+    failure_status: int = 500  # HTTP status code for failures
 
 
 def generate_dummy_jpeg(size_bytes: int, seed: str) -> bytes:
@@ -41,53 +54,115 @@ def generate_dummy_jpeg(size_bytes: int, seed: str) -> bytes:
     The content is deterministic based on the seed.
     """
     # JPEG header (SOI + APP0 JFIF marker)
-    header = bytes([
-        0xFF, 0xD8,  # SOI (Start of Image)
-        0xFF, 0xE0,  # APP0 marker
-        0x00, 0x10,  # Length of APP0 segment (16 bytes)
-        0x4A, 0x46, 0x49, 0x46, 0x00,  # "JFIF\0"
-        0x01, 0x01,  # Version 1.1
-        0x00,  # Aspect ratio units (0 = no units)
-        0x00, 0x01,  # X density
-        0x00, 0x01,  # Y density
-        0x00, 0x00,  # No thumbnail
-    ])
+    header = bytes(
+        [
+            0xFF,
+            0xD8,  # SOI (Start of Image)
+            0xFF,
+            0xE0,  # APP0 marker
+            0x00,
+            0x10,  # Length of APP0 segment (16 bytes)
+            0x4A,
+            0x46,
+            0x49,
+            0x46,
+            0x00,  # "JFIF\0"
+            0x01,
+            0x01,  # Version 1.1
+            0x00,  # Aspect ratio units (0 = no units)
+            0x00,
+            0x01,  # X density
+            0x00,
+            0x01,  # Y density
+            0x00,
+            0x00,  # No thumbnail
+        ]
+    )
 
     # Minimal quantization table (required)
     quant_table = bytes([0xFF, 0xDB, 0x00, 0x43, 0x00]) + bytes([8] * 64)
 
     # Minimal Huffman table (required)
-    huffman_dc = bytes([
-        0xFF, 0xC4, 0x00, 0x1F, 0x00,
-        0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
-    ])
+    huffman_dc = bytes(
+        [
+            0xFF,
+            0xC4,
+            0x00,
+            0x1F,
+            0x00,
+            0x00,
+            0x01,
+            0x05,
+            0x01,
+            0x01,
+            0x01,
+            0x01,
+            0x01,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x02,
+            0x03,
+            0x04,
+            0x05,
+            0x06,
+            0x07,
+            0x08,
+            0x09,
+            0x0A,
+            0x0B,
+        ]
+    )
 
     # SOF0 (Start of Frame) - defines a 16x16 image
-    sof = bytes([
-        0xFF, 0xC0,  # SOF0 marker
-        0x00, 0x0B,  # Length
-        0x08,  # Precision (8 bits)
-        0x00, 0x10,  # Height (16)
-        0x00, 0x10,  # Width (16)
-        0x01,  # Number of components
-        0x01, 0x11, 0x00,  # Component 1: Y, sampling 1x1, quant table 0
-    ])
+    sof = bytes(
+        [
+            0xFF,
+            0xC0,  # SOF0 marker
+            0x00,
+            0x0B,  # Length
+            0x08,  # Precision (8 bits)
+            0x00,
+            0x10,  # Height (16)
+            0x00,
+            0x10,  # Width (16)
+            0x01,  # Number of components
+            0x01,
+            0x11,
+            0x00,  # Component 1: Y, sampling 1x1, quant table 0
+        ]
+    )
 
     # SOS (Start of Scan) marker
-    sos = bytes([
-        0xFF, 0xDA,  # SOS marker
-        0x00, 0x08,  # Length
-        0x01,  # Number of components
-        0x01, 0x00,  # Component 1, DC/AC table 0/0
-        0x00, 0x3F, 0x00,  # Spectral selection
-    ])
+    sos = bytes(
+        [
+            0xFF,
+            0xDA,  # SOS marker
+            0x00,
+            0x08,  # Length
+            0x01,  # Number of components
+            0x01,
+            0x00,  # Component 1, DC/AC table 0/0
+            0x00,
+            0x3F,
+            0x00,  # Spectral selection
+        ]
+    )
 
     # EOI (End of Image)
     footer = bytes([0xFF, 0xD9])
 
     # Calculate padding needed
-    fixed_size = len(header) + len(quant_table) + len(huffman_dc) + len(sof) + len(sos) + len(footer)
+    fixed_size = (
+        len(header) + len(quant_table) + len(huffman_dc) + len(sof) + len(sos) + len(footer)
+    )
     padding_size = max(0, size_bytes - fixed_size - 4)  # 4 bytes for comment marker
 
     # Generate deterministic padding based on seed
@@ -97,7 +172,9 @@ def generate_dummy_jpeg(size_bytes: int, seed: str) -> bytes:
     # Wrap padding in a comment marker (COM)
     if padding_size > 0:
         comment_length = min(padding_size + 2, 65535)
-        comment = bytes([0xFF, 0xFE]) + struct.pack(">H", comment_length) + padding[:comment_length - 2]
+        comment = (
+            bytes([0xFF, 0xFE]) + struct.pack(">H", comment_length) + padding[: comment_length - 2]
+        )
     else:
         comment = b""
 
@@ -174,32 +251,91 @@ def generate_dummy_file(file_type: str, size_bytes: int, seed: str) -> tuple[byt
         return generate_dummy_pdf(size_bytes, seed), "application/pdf"
     elif file_type == "png":
         # Minimal valid PNG (1x1 transparent pixel)
-        png_header = bytes([
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  # PNG signature
-        ])
+        png_header = bytes(
+            [
+                0x89,
+                0x50,
+                0x4E,
+                0x47,
+                0x0D,
+                0x0A,
+                0x1A,
+                0x0A,  # PNG signature
+            ]
+        )
         # IHDR chunk
-        ihdr = bytes([
-            0x00, 0x00, 0x00, 0x0D,  # Length
-            0x49, 0x48, 0x44, 0x52,  # "IHDR"
-            0x00, 0x00, 0x00, 0x01,  # Width: 1
-            0x00, 0x00, 0x00, 0x01,  # Height: 1
-            0x08, 0x06,  # 8-bit RGBA
-            0x00, 0x00, 0x00,  # Compression, filter, interlace
-            0x1F, 0x15, 0xC4, 0x89,  # CRC
-        ])
+        ihdr = bytes(
+            [
+                0x00,
+                0x00,
+                0x00,
+                0x0D,  # Length
+                0x49,
+                0x48,
+                0x44,
+                0x52,  # "IHDR"
+                0x00,
+                0x00,
+                0x00,
+                0x01,  # Width: 1
+                0x00,
+                0x00,
+                0x00,
+                0x01,  # Height: 1
+                0x08,
+                0x06,  # 8-bit RGBA
+                0x00,
+                0x00,
+                0x00,  # Compression, filter, interlace
+                0x1F,
+                0x15,
+                0xC4,
+                0x89,  # CRC
+            ]
+        )
         # Minimal IDAT
-        idat = bytes([
-            0x00, 0x00, 0x00, 0x0A,  # Length
-            0x49, 0x44, 0x41, 0x54,  # "IDAT"
-            0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,  # Compressed data
-            0x00, 0x05, 0xFE, 0x02,  # CRC (placeholder)
-        ])
+        idat = bytes(
+            [
+                0x00,
+                0x00,
+                0x00,
+                0x0A,  # Length
+                0x49,
+                0x44,
+                0x41,
+                0x54,  # "IDAT"
+                0x78,
+                0x9C,
+                0x62,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+                0x00,
+                0x01,  # Compressed data
+                0x00,
+                0x05,
+                0xFE,
+                0x02,  # CRC (placeholder)
+            ]
+        )
         # IEND
-        iend = bytes([
-            0x00, 0x00, 0x00, 0x00,
-            0x49, 0x45, 0x4E, 0x44,
-            0xAE, 0x42, 0x60, 0x82,
-        ])
+        iend = bytes(
+            [
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x49,
+                0x45,
+                0x4E,
+                0x44,
+                0xAE,
+                0x42,
+                0x60,
+                0x82,
+            ]
+        )
         base = png_header + ihdr + idat + iend
         # Pad with text chunks if needed
         padding_needed = max(0, size_bytes - len(base))
@@ -229,11 +365,16 @@ class DummyFileServer:
         self._app: Optional[web.Application] = None
         self._runner: Optional[web.AppRunner] = None
         self._site: Optional[web.TCPSite] = None
+        self._failure_start_time: Optional[float] = None
+        self._total_requests = 0
+        self._failed_requests = 0
 
     async def start(self) -> None:
         """Start the HTTP server."""
         self._app = web.Application()
-        self._app.router.add_get("/files/{project_id}/{media_id}/{filename}", self._handle_file_download)
+        self._app.router.add_get(
+            "/files/{project_id}/{media_id}/{filename}", self._handle_file_download
+        )
         self._app.router.add_get("/health", self._handle_health)
 
         self._runner = web.AppRunner(self._app)
@@ -266,8 +407,45 @@ class DummyFileServer:
         """Async context manager exit."""
         await self.stop()
 
+    def _should_fail_request(self) -> bool:
+        """Determine if this request should fail based on configuration."""
+        if self.config.failure_rate <= 0:
+            return False
+
+        # Check if we're within the failure duration window
+        if self.config.failure_duration_sec > 0:
+            if self._failure_start_time is None:
+                self._failure_start_time = time.time()
+
+            elapsed = time.time() - self._failure_start_time
+            if elapsed > self.config.failure_duration_sec:
+                # Recovery period - stop failing
+                return False
+
+        # Random failure based on configured rate
+        return random.random() * 100 < self.config.failure_rate
+
     async def _handle_file_download(self, request: web.Request) -> web.Response:
         """Handle file download requests."""
+        self._total_requests += 1
+
+        # Failure injection
+        if self._should_fail_request():
+            self._failed_requests += 1
+            logger.warning(
+                "Injecting simulated failure",
+                extra={
+                    "status": self.config.failure_status,
+                    "failure_rate": self.config.failure_rate,
+                    "total_requests": self._total_requests,
+                    "failed_requests": self._failed_requests,
+                },
+            )
+            return web.Response(
+                status=self.config.failure_status,
+                text=f"Simulated failure (rate: {self.config.failure_rate}%)",
+            )
+
         project_id = request.match_info["project_id"]
         media_id = request.match_info["media_id"]
         filename = request.match_info["filename"]
@@ -315,6 +493,24 @@ class DummyFileServer:
 
 async def run_file_server(config: Optional[FileServerConfig] = None) -> None:
     """Run the file server as a standalone service."""
+    if config is None:
+        # Load configuration from environment variables
+        config = FileServerConfig(
+            failure_rate=float(os.getenv("FAILURE_RATE", "0")),
+            failure_duration_sec=int(os.getenv("FAILURE_DURATION_SEC", "0")),
+            failure_status=int(os.getenv("FAILURE_STATUS", "500")),
+        )
+
+        if config.failure_rate > 0:
+            logger.warning(
+                "File server failure injection enabled",
+                extra={
+                    "failure_rate": config.failure_rate,
+                    "failure_duration_sec": config.failure_duration_sec,
+                    "failure_status": config.failure_status,
+                },
+            )
+
     async with DummyFileServer(config) as server:
         # Run until interrupted
         try:
@@ -322,3 +518,27 @@ async def run_file_server(config: Optional[FileServerConfig] = None) -> None:
                 await asyncio.sleep(3600)
         except asyncio.CancelledError:
             pass
+
+
+if __name__ == "__main__":
+    import sys
+
+    # Parse command line arguments for port override
+    config = FileServerConfig()
+    if len(sys.argv) > 1:
+        try:
+            config.port = int(sys.argv[1])
+        except ValueError:
+            print(
+                f"Usage: python -m kafka_pipeline.common.dummy.file_server [PORT]", file=sys.stderr
+            )
+            print(f"Invalid port: {sys.argv[1]}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"Starting dummy file server on {config.host}:{config.port}")
+    print("Press Ctrl+C to stop")
+
+    try:
+        asyncio.run(run_file_server(config))
+    except KeyboardInterrupt:
+        print("\nFile server stopped")

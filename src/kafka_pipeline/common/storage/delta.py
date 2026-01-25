@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -53,6 +53,7 @@ def write_deltalake(*args: Any, **kwargs: Any) -> None:
         kwargs.pop("schema_mode")
     return _write_deltalake(*args, **kwargs)
 
+
 # Retry config for Delta operations
 DELTA_RETRY_CONFIG = RetryConfig(
     max_attempts=3,
@@ -81,6 +82,7 @@ def get_open_file_descriptors() -> int:
 
         # Fallback: try to count via resource module (less accurate but portable)
         import resource
+
         soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
         # We can't easily count open FDs on all platforms, return -1 to indicate unknown
         return -1
@@ -99,9 +101,7 @@ class DeltaTableReader(LoggedClass):
         df = reader.read(columns=["trace_id", "ingested_at"])
     """
 
-    def __init__(
-        self, table_path: str, storage_options: Optional[Dict[str, str]] = None
-    ):
+    def __init__(self, table_path: str, storage_options: Optional[Dict[str, str]] = None):
         self.table_path = table_path
         self.storage_options = storage_options
         self._delta_table: Optional[DeltaTable] = None
@@ -260,9 +260,7 @@ class DeltaTableReader(LoggedClass):
                         col_expr = col_expr.cast(pl.Int64, strict=False).fill_null(0)
                     elif isinstance(value, float):
                         # Cast to float, fill nulls with 0.0
-                        col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(
-                            0.0
-                        )
+                        col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(0.0)
 
                     if op == "=":
                         lf = lf.filter(col_expr == value)
@@ -386,9 +384,7 @@ class DeltaTableWriter(LoggedClass):
         except Exception:
             return False
 
-    def _align_schema_with_target(
-        self, df: pl.DataFrame, opts: Dict[str, str]
-    ) -> pl.DataFrame:
+    def _align_schema_with_target(self, df: pl.DataFrame, opts: Dict[str, str]) -> pl.DataFrame:
         """Aligns DataFrame schema with target table to prevent type coercion errors during merge."""
         try:
             dt = DeltaTable(self.table_path, storage_options=opts)
@@ -421,22 +417,17 @@ class DeltaTableWriter(LoggedClass):
                             cast_exprs.append(pl.col(col))
                         elif source_dtype == pl.Null:
                             # NULL-typed columns must be cast to target type for delta-rs CASE WHEN
-                            mismatches.append(
-                                f"{col}: Null -> {polars_type}"
-                            )
+                            mismatches.append(f"{col}: Null -> {polars_type}")
                             # Cast existing column (not literal) to preserve DataFrame structure
                             cast_exprs.append(
                                 pl.col(col).cast(polars_type, strict=False).alias(col)
                             )
                         elif source_dtype != polars_type:
-                            mismatches.append(
-                                f"{col}: {source_dtype} -> {polars_type}"
-                            )
+                            mismatches.append(f"{col}: {source_dtype} -> {polars_type}")
                             # Special handling for datetime timezone conversions
                             # Polars cast() doesn't handle timezone conversion properly
-                            if (
-                                isinstance(source_dtype, pl.Datetime)
-                                and isinstance(polars_type, pl.Datetime)
+                            if isinstance(source_dtype, pl.Datetime) and isinstance(
+                                polars_type, pl.Datetime
                             ):
                                 # Handle timezone differences
                                 source_tz = source_dtype.time_zone
@@ -445,23 +436,17 @@ class DeltaTableWriter(LoggedClass):
                                     if target_tz is None:
                                         # Remove timezone
                                         cast_exprs.append(
-                                            pl.col(col)
-                                            .dt.replace_time_zone(None)
-                                            .alias(col)
+                                            pl.col(col).dt.replace_time_zone(None).alias(col)
                                         )
                                     elif source_tz is None:
                                         # Add timezone
                                         cast_exprs.append(
-                                            pl.col(col)
-                                            .dt.replace_time_zone(target_tz)
-                                            .alias(col)
+                                            pl.col(col).dt.replace_time_zone(target_tz).alias(col)
                                         )
                                     else:
                                         # Convert between timezones
                                         cast_exprs.append(
-                                            pl.col(col)
-                                            .dt.convert_time_zone(target_tz)
-                                            .alias(col)
+                                            pl.col(col).dt.convert_time_zone(target_tz).alias(col)
                                         )
                                 else:
                                     cast_exprs.append(
@@ -475,9 +460,7 @@ class DeltaTableWriter(LoggedClass):
                             cast_exprs.append(pl.col(col))
                     except Exception as e:
                         # If cast fails, keep original column
-                        mismatches.append(
-                            f"{col}: cast failed ({e})"
-                        )
+                        mismatches.append(f"{col}: cast failed ({e})")
                         cast_exprs.append(pl.col(col))
 
             # Add any extra source columns not in target (at the end)
@@ -779,9 +762,7 @@ class DeltaTableWriter(LoggedClass):
         predicate = " AND ".join(f"target.{k} = source.{k}" for k in merge_keys)
 
         # Build update dict - all columns except merge keys and preserved
-        update_cols = [
-            c for c in df.columns if c not in merge_keys and c not in preserve_columns
-        ]
+        update_cols = [c for c in df.columns if c not in merge_keys and c not in preserve_columns]
         update_dict = {c: f"source.{c}" for c in update_cols}
 
         # Build insert dict - all columns
@@ -883,9 +864,7 @@ class DeltaTableWriter(LoggedClass):
         )
 
         rows_merged = 0
-        for batch_num, batch_start in enumerate(
-            range(0, total_rows, batch_size), start=1
-        ):
+        for batch_num, batch_start in enumerate(range(0, total_rows, batch_size), start=1):
             batch_end = min(batch_start + batch_size, total_rows)
             batch_df = df.slice(batch_start, batch_end - batch_start)
 
@@ -959,9 +938,7 @@ class EventsTableReader(DeltaTableReader):
     def __init__(self, table_path: str):
         super().__init__(table_path)
 
-    def get_max_timestamp(
-        self, timestamp_col: str = "ingested_at"
-    ) -> Optional[datetime]:
+    def get_max_timestamp(self, timestamp_col: str = "ingested_at") -> Optional[datetime]:
         """Get maximum timestamp from table."""
         try:
             df: pl.DataFrame = self.read(columns=[timestamp_col])  # type: ignore[assignment]
@@ -1081,9 +1058,7 @@ class EventsTableReader(DeltaTableReader):
         # Optional attachments filter - push into query instead of post-filtering
         if require_attachments:
             row_filter = (
-                row_filter
-                & pl.col("attachments").is_not_null()
-                & (pl.col("attachments") != "")
+                row_filter & pl.col("attachments").is_not_null() & (pl.col("attachments") != "")
             )
 
         # Apply filters - partition filter first for better optimization hints

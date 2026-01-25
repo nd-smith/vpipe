@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -202,7 +202,6 @@ class DeltaRetryHandler:
             "column not found",
             "column does not exist",
             "unknown column",
-
             # Constraint violations
             "constraint",
             "primary key",
@@ -210,7 +209,6 @@ class DeltaRetryHandler:
             "not null",
             "check constraint",
             "foreign key",
-
             # Permission and auth errors (permanent until manual intervention)
             "permission denied",
             "access denied",
@@ -218,7 +216,6 @@ class DeltaRetryHandler:
             "403",
             "insufficient permissions",
             "authorization failed",
-
             # Configuration errors
             "table not found",
             "invalid path",
@@ -226,7 +223,6 @@ class DeltaRetryHandler:
             "malformed",
             "does not exist",
             "no such file",
-
             # Validation errors
             "validation error",
             "invalid argument",
@@ -250,7 +246,6 @@ class DeltaRetryHandler:
             "timed out",
             "time out",
             "deadline exceeded",
-
             # Connection errors
             "connection",
             "network",
@@ -259,7 +254,6 @@ class DeltaRetryHandler:
             "connection refused",
             "connection reset",
             "broken pipe",
-
             # Throttling errors
             "429",
             "throttl",
@@ -267,7 +261,6 @@ class DeltaRetryHandler:
             "too many requests",
             "server busy",
             "serverbusy",
-
             # Service errors (transient)
             "503",
             "502",
@@ -277,7 +270,6 @@ class DeltaRetryHandler:
             "gateway timeout",
             "internal error",
             "temporary error",
-
             # Delta-specific transient errors
             "deadlock",
             "lock",
@@ -595,7 +587,6 @@ class DeltaRetryHandler:
                 "dlq_topic": self._dlq_topic,
             },
         )
-
 
 
 __all__ = ["DeltaRetryHandler"]

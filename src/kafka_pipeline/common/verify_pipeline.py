@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -135,36 +135,34 @@ class PipelineVerifier:
 
                 # Analyze temporal pattern of duplicates
                 duplicated_trace_ids = set(duplicate_analysis["trace_id"].to_list())
-                duplicate_df = df.filter(
-                    pl.col("trace_id").is_in(list(duplicated_trace_ids)[:100])
-                )
+                duplicate_df = df.filter(pl.col("trace_id").is_in(list(duplicated_trace_ids)[:100]))
 
                 # Check if duplicates have different ingested_at times
                 if len(duplicate_df) > 0:
                     temporal_analysis = (
                         duplicate_df.group_by("trace_id")
-                        .agg([
-                            pl.col("ingested_at").min().alias("first_ingested"),
-                            pl.col("ingested_at").max().alias("last_ingested"),
-                            pl.count().alias("count"),
-                        ])
-                        .with_columns([
-                            (pl.col("last_ingested") - pl.col("first_ingested"))
-                            .dt.total_seconds()
-                            .alias("time_span_seconds"),
-                        ])
+                        .agg(
+                            [
+                                pl.col("ingested_at").min().alias("first_ingested"),
+                                pl.col("ingested_at").max().alias("last_ingested"),
+                                pl.count().alias("count"),
+                            ]
+                        )
+                        .with_columns(
+                            [
+                                (pl.col("last_ingested") - pl.col("first_ingested"))
+                                .dt.total_seconds()
+                                .alias("time_span_seconds"),
+                            ]
+                        )
                     )
 
                     avg_time_span = temporal_analysis["time_span_seconds"].mean()
                     max_time_span = temporal_analysis["time_span_seconds"].max()
 
                     results["temporal_analysis"] = {
-                        "avg_time_span_between_duplicates_seconds": round(
-                            avg_time_span or 0, 2
-                        ),
-                        "max_time_span_between_duplicates_seconds": round(
-                            max_time_span or 0, 2
-                        ),
+                        "avg_time_span_between_duplicates_seconds": round(avg_time_span or 0, 2),
+                        "max_time_span_between_duplicates_seconds": round(max_time_span or 0, 2),
                     }
 
             # Event type distribution
@@ -180,18 +178,16 @@ class PipelineVerifier:
             # Check for events with/without attachments
             # Note: attachment_count might be a different column name
             if "attachment_count" in df.columns:
-                events_with_attachments = (
-                    df.filter(pl.col("attachment_count") > 0).shape[0]
-                )
-                events_without_attachments = (
-                    df.filter(pl.col("attachment_count") == 0).shape[0]
-                )
+                events_with_attachments = df.filter(pl.col("attachment_count") > 0).shape[0]
+                events_without_attachments = df.filter(pl.col("attachment_count") == 0).shape[0]
                 results["attachment_analysis"] = {
                     "events_with_attachments": events_with_attachments,
                     "events_without_attachments": events_without_attachments,
                 }
 
-            logger.info(f"Analysis complete: {unique_trace_ids} unique events, {duplicate_count} duplicates")
+            logger.info(
+                f"Analysis complete: {unique_trace_ids} unique events, {duplicate_count} duplicates"
+            )
             return results
 
         except FileNotFoundError:
@@ -230,14 +226,18 @@ class PipelineVerifier:
                 .filter(pl.col("event_date") <= until_date)
                 .filter(pl.col("ingested_at") >= since)
                 .filter(pl.col("ingested_at") <= until)
-                .with_columns([
-                    pl.col("ingested_at").dt.truncate("1h").alias("hour"),
-                ])
+                .with_columns(
+                    [
+                        pl.col("ingested_at").dt.truncate("1h").alias("hour"),
+                    ]
+                )
                 .group_by("hour")
-                .agg([
-                    pl.count().alias("total_rows"),
-                    pl.col("trace_id").n_unique().alias("unique_events"),
-                ])
+                .agg(
+                    [
+                        pl.count().alias("total_rows"),
+                        pl.col("trace_id").n_unique().alias("unique_events"),
+                    ]
+                )
                 .sort("hour")
                 .collect()
             )
@@ -279,19 +279,27 @@ def print_report(results: dict) -> None:
     if "temporal_analysis" in results:
         print("\n--- Temporal Pattern ---")
         temporal_analysis = results["temporal_analysis"]
-        print(f"Avg time between duplicates:   {temporal_analysis['avg_time_span_between_duplicates_seconds']}s")
-        print(f"Max time between duplicates:   {temporal_analysis['max_time_span_between_duplicates_seconds']}s")
+        print(
+            f"Avg time between duplicates:   {temporal_analysis['avg_time_span_between_duplicates_seconds']}s"
+        )
+        print(
+            f"Max time between duplicates:   {temporal_analysis['max_time_span_between_duplicates_seconds']}s"
+        )
 
     if "attachment_analysis" in results:
         print("\n--- Attachment Analysis ---")
         attachment_analysis = results["attachment_analysis"]
         print(f"Events WITH attachments:       {attachment_analysis['events_with_attachments']:,}")
-        print(f"Events WITHOUT attachments:    {attachment_analysis['events_without_attachments']:,}")
+        print(
+            f"Events WITHOUT attachments:    {attachment_analysis['events_without_attachments']:,}"
+        )
 
     if "event_type_distribution" in results:
         print("\n--- Event Type Distribution (top 10) ---")
         for event_type_stat in results["event_type_distribution"]:
-            print(f"  {event_type_stat.get('status_subtype', 'unknown')}: {event_type_stat['count']:,}")
+            print(
+                f"  {event_type_stat.get('status_subtype', 'unknown')}: {event_type_stat['count']:,}"
+            )
 
     print("\n" + "=" * 80)
 
@@ -378,7 +386,11 @@ def main():
         print("\n--- Hourly Event Distribution ---")
         hourly = verifier.get_hourly_distribution(since=since, until=until)
         for hourly_stat in hourly:
-            hour_str = hourly_stat["hour"].strftime("%Y-%m-%d %H:00") if hourly_stat.get("hour") else "unknown"
+            hour_str = (
+                hourly_stat["hour"].strftime("%Y-%m-%d %H:00")
+                if hourly_stat.get("hour")
+                else "unknown"
+            )
             total = hourly_stat.get("total_rows", 0)
             unique = hourly_stat.get("unique_events", 0)
             dup = total - unique

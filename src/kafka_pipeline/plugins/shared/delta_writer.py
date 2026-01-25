@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -22,7 +22,11 @@ from delta import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.types import StructType
 
-from kafka_pipeline.plugins.shared.enrichment import EnrichmentContext, EnrichmentHandler, EnrichmentResult
+from kafka_pipeline.plugins.shared.enrichment import (
+    EnrichmentContext,
+    EnrichmentHandler,
+    EnrichmentResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +60,7 @@ class DeltaTableWriter(EnrichmentHandler):
     """
 
     def __init__(self, config: Optional[dict[str, Any]] = None):
-        """Initialize Delta table writer.
-
-
-        """
+        """Initialize Delta table writer."""
         super().__init__(config)
         self.spark: Optional[SparkSession] = None
         self.table_name = self.config.get("table_name")
@@ -92,8 +93,7 @@ class DeltaTableWriter(EnrichmentHandler):
             raise
 
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
-        """Write enriched data to Delta table.
-        """
+        """Write enriched data to Delta table."""
         try:
             # Prepare data for writing
             record = self._prepare_record(context.data)
@@ -116,8 +116,7 @@ class DeltaTableWriter(EnrichmentHandler):
             return EnrichmentResult.failed(error_msg)
 
     def _prepare_record(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Prepare record for writing using column mapping.
-        """
+        """Prepare record for writing using column mapping."""
         if not self.column_mapping:
             # No mapping - use data as-is
             return data
@@ -136,8 +135,7 @@ class DeltaTableWriter(EnrichmentHandler):
         return record
 
     def _add_partition_columns(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Extract partition columns from event_timestamp.
-        """
+        """Extract partition columns from event_timestamp."""
         timestamp_field = record.get("event_timestamp")
         if not timestamp_field:
             logger.warning("No event_timestamp found for partitioning")
@@ -146,7 +144,7 @@ class DeltaTableWriter(EnrichmentHandler):
         try:
             # Parse timestamp (supports ISO 8601 format)
             if isinstance(timestamp_field, str):
-                dt = datetime.fromisoformat(timestamp_field.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(timestamp_field.replace("Z", "+00:00"))
             elif isinstance(timestamp_field, datetime):
                 dt = timestamp_field
             else:
@@ -168,7 +166,7 @@ class DeltaTableWriter(EnrichmentHandler):
 
     def _write_to_delta(self, df: DataFrame) -> None:
         """Write DataFrame to Delta table.
-            Exception: If write fails
+        Exception: If write fails
         """
         writer = df.write.format("delta").mode(self.mode)
         if self.schema_evolution:
@@ -188,8 +186,7 @@ class DeltaTableWriter(EnrichmentHandler):
         )
 
     def _table_exists(self) -> bool:
-        """Check if Delta table exists.
-        """
+        """Check if Delta table exists."""
         try:
             self.spark.table(self.table_name)
             return True
@@ -228,10 +225,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
     """
 
     def __init__(self, config: Optional[dict[str, Any]] = None):
-        """Initialize batch Delta table writer.
-
-
-        """
+        """Initialize batch Delta table writer."""
         super().__init__(config)
         self.batch_size = self.config.get("batch_size", 100)
         self.batch_timeout = self.config.get("batch_timeout_seconds", 60.0)
@@ -239,8 +233,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
         self._last_flush = None
 
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
-        """Add record to batch and write when batch is full.
-        """
+        """Add record to batch and write when batch is full."""
         import time
 
         try:
@@ -257,8 +250,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
             current_time = time.time()
             time_since_flush = current_time - self._last_flush
             should_flush = (
-                len(self._batch) >= self.batch_size
-                or time_since_flush >= self.batch_timeout
+                len(self._batch) >= self.batch_size or time_since_flush >= self.batch_timeout
             )
 
             if should_flush:

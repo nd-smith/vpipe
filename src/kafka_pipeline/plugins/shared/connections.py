@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -156,8 +156,7 @@ class ConnectionManager:
         """
         if name not in self._connections:
             raise KeyError(
-                f"Connection '{name}' not found. "
-                f"Available: {list(self._connections.keys())}"
+                f"Connection '{name}' not found. " f"Available: {list(self._connections.keys())}"
             )
         return self._connections[name]
 
@@ -183,9 +182,7 @@ class ConnectionManager:
         )
 
         self._started = True
-        logger.info(
-            f"ConnectionManager started with {len(self._connections)} connections"
-        )
+        logger.info(f"ConnectionManager started with {len(self._connections)} connections")
 
     async def close(self) -> None:
         """Close HTTP client session and cleanup resources."""

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -119,7 +119,9 @@ class ClaimXDeltaEventsWorker:
 
         # Retry configuration from worker processing settings
         self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
-        self._retry_topic_prefix = processing_config.get("retry_topic_prefix", "claimx-delta-events.retry")
+        self._retry_topic_prefix = processing_config.get(
+            "retry_topic_prefix", "claimx-delta-events.retry"
+        )
         self._dlq_topic = processing_config.get("dlq_topic", "claimx-delta-events.dlq")
 
         # Batch state
@@ -293,16 +295,14 @@ class ClaimXDeltaEventsWorker:
         tracer = get_tracer(__name__)
         try:
             with tracer.start_active_span("delta.write") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("batch.size", len(batch_to_write))
                 span.set_tag("table.name", "claimx_events")
                 success = await self.delta_writer.write_events(batch_to_write)
 
             record_delta_write(
-                table="claimx_events",
-                event_count=len(batch_to_write),
-                success=success
+                table="claimx_events", event_count=len(batch_to_write), success=success
             )
 
             if success:
@@ -355,13 +355,13 @@ class ClaimXDeltaEventsWorker:
             )
 
             # Send to DLQ via retry handler
-            if hasattr(self, 'retry_handler'):
+            if hasattr(self, "retry_handler"):
                 await self.retry_handler.handle_batch_failure(
                     batch=batch,
                     error=error,
                     retry_count=0,
                     error_category=error_category.value,
-                    batch_id=uuid.uuid4().hex[:8]
+                    batch_id=uuid.uuid4().hex[:8],
                 )
 
             # Clear batch after routing to DLQ since this error won't succeed on retry
@@ -378,13 +378,13 @@ class ClaimXDeltaEventsWorker:
             },
         )
 
-        if hasattr(self, 'retry_handler'):
+        if hasattr(self, "retry_handler"):
             await self.retry_handler.handle_batch_failure(
                 batch=batch,
                 error=error,
                 retry_count=0,
                 error_category=error_category.value,
-                batch_id=uuid.uuid4().hex[:8]
+                batch_id=uuid.uuid4().hex[:8],
             )
 
         # Keep batch intact for TRANSIENT errors - don't clear
@@ -500,5 +500,6 @@ class ClaimXDeltaEventsWorker:
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")
             raise
+
 
 __all__ = ["ClaimXDeltaEventsWorker"]

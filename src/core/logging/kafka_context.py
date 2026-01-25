@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -8,7 +8,6 @@
 
 from contextvars import ContextVar
 from typing import Dict, Optional
-
 
 # Kafka-specific context variables
 _kafka_topic: ContextVar[str] = ContextVar("kafka_topic", default="")

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -49,15 +49,14 @@ def _load_config_data(config_path: Path) -> Dict[str, Any]:
     """
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n"
-            f"Expected file: config/config.yaml"
+            f"Configuration file not found: {config_path}\n" f"Expected file: config/config.yaml"
         )
 
     # Load from single file
     from config.config import load_yaml, _expand_env_vars
+
     config_data = load_yaml(config_path)
     return _expand_env_vars(config_data)
-
 
 
 class EventSourceType(str, Enum):
@@ -125,7 +124,9 @@ class EventHubConfig:
             "topics": {
                 "events": self.events_topic,
             },
-            "consumer_group_prefix": self.consumer_group.rsplit("-", 1)[0] if "-" in self.consumer_group else "xact",
+            "consumer_group_prefix": (
+                self.consumer_group.rsplit("-", 1)[0] if "-" in self.consumer_group else "xact"
+            ),
             "event_ingester": {
                 "consumer": {
                     "group_id": self.consumer_group,
@@ -156,6 +157,8 @@ class LocalKafkaConfig:
     bootstrap_servers: str = "localhost:9092"
     security_protocol: str = "PLAINTEXT"
     sasl_mechanism: str = ""  # Not used for PLAINTEXT
+    sasl_plain_username: str = ""  # For SASL authentication (e.g., Event Hub)
+    sasl_plain_password: str = ""  # For SASL authentication (e.g., Event Hub)
 
     # Topics for internal pipeline
     events_topic: str = "xact.events.raw"  # Raw events from source
@@ -223,11 +226,10 @@ class LocalKafkaConfig:
         claimx_config = kafka_data.get("claimx", {})
         claimx_root = yaml_data.get("claimx", {})
         claimx_api_data = claimx_root.get("api", {})
-        retry_delays_default = xact_config.get("retry_delays", kafka_data.get("retry_delays", [300, 600, 1200, 2400]))
-        retry_delays_str = os.getenv(
-            "RETRY_DELAYS",
-            ",".join(str(d) for d in retry_delays_default)
+        retry_delays_default = xact_config.get(
+            "retry_delays", kafka_data.get("retry_delays", [300, 600, 1200, 2400])
         )
+        retry_delays_str = os.getenv("RETRY_DELAYS", ",".join(str(d) for d in retry_delays_default))
         retry_delays = [int(d.strip()) for d in retry_delays_str.split(",")]
 
         # Build storage config from multiple locations (matching config.py logic)
@@ -259,78 +261,96 @@ class LocalKafkaConfig:
         return cls(
             bootstrap_servers=os.getenv(
                 "LOCAL_KAFKA_BOOTSTRAP_SERVERS",
-                connection_data.get("bootstrap_servers", "localhost:9092")
+                connection_data.get("bootstrap_servers", "localhost:9092"),
             ),
             security_protocol=os.getenv(
                 "LOCAL_KAFKA_SECURITY_PROTOCOL",
-                connection_data.get("security_protocol", "PLAINTEXT")
+                connection_data.get("security_protocol", "PLAINTEXT"),
+            ),
+            sasl_mechanism=os.getenv(
+                "LOCAL_KAFKA_SASL_MECHANISM", connection_data.get("sasl_mechanism", "")
+            ),
+            sasl_plain_username=os.getenv(
+                "LOCAL_KAFKA_SASL_USERNAME", connection_data.get("sasl_plain_username", "")
+            ),
+            sasl_plain_password=os.getenv(
+                "LOCAL_KAFKA_SASL_PASSWORD", connection_data.get("sasl_plain_password", "")
             ),
             # Topics: check nested kafka.xact.topics first, then flat kafka.*, then defaults
             events_topic=os.getenv(
                 "KAFKA_EVENTS_TOPIC",
-                topics_data.get("events", kafka_data.get("events_topic", "xact.events.raw"))
+                topics_data.get("events", kafka_data.get("events_topic", "xact.events.raw")),
             ),
             events_ingested_topic=os.getenv(
                 "KAFKA_EVENTS_INGESTED_TOPIC",
-                topics_data.get("events_ingested", kafka_data.get("events_ingested_topic", "xact.events.ingested"))
+                topics_data.get(
+                    "events_ingested",
+                    kafka_data.get("events_ingested_topic", "xact.events.ingested"),
+                ),
             ),
             downloads_pending_topic=os.getenv(
                 "KAFKA_DOWNLOADS_PENDING_TOPIC",
-                topics_data.get("downloads_pending", kafka_data.get("downloads_pending_topic", "xact.downloads.pending"))
+                topics_data.get(
+                    "downloads_pending",
+                    kafka_data.get("downloads_pending_topic", "xact.downloads.pending"),
+                ),
             ),
             downloads_cached_topic=os.getenv(
                 "KAFKA_DOWNLOADS_CACHED_TOPIC",
-                topics_data.get("downloads_cached", kafka_data.get("downloads_cached_topic", "xact.downloads.cached"))
+                topics_data.get(
+                    "downloads_cached",
+                    kafka_data.get("downloads_cached_topic", "xact.downloads.cached"),
+                ),
             ),
             downloads_results_topic=os.getenv(
                 "KAFKA_DOWNLOADS_RESULTS_TOPIC",
-                topics_data.get("downloads_results", kafka_data.get("downloads_results_topic", "xact.downloads.results"))
+                topics_data.get(
+                    "downloads_results",
+                    kafka_data.get("downloads_results_topic", "xact.downloads.results"),
+                ),
             ),
             dlq_topic=os.getenv(
                 "KAFKA_DLQ_TOPIC",
-                topics_data.get("dlq", kafka_data.get("dlq_topic", "xact.downloads.dlq"))
+                topics_data.get("dlq", kafka_data.get("dlq_topic", "xact.downloads.dlq")),
             ),
             consumer_group_prefix=os.getenv(
                 "KAFKA_CONSUMER_GROUP_PREFIX",
-                xact_config.get("consumer_group_prefix", kafka_data.get("consumer_group_prefix", "xact"))
+                xact_config.get(
+                    "consumer_group_prefix", kafka_data.get("consumer_group_prefix", "xact")
+                ),
             ),
             retry_delays=retry_delays,
-            max_retries=int(os.getenv(
-                "MAX_RETRIES",
-                str(xact_config.get("max_retries", kafka_data.get("max_retries", 4)))
-            )),
+            max_retries=int(
+                os.getenv(
+                    "MAX_RETRIES",
+                    str(xact_config.get("max_retries", kafka_data.get("max_retries", 4))),
+                )
+            ),
             onelake_base_path=os.getenv(
-                "ONELAKE_BASE_PATH",
-                storage_data.get("onelake_base_path", "")
+                "ONELAKE_BASE_PATH", storage_data.get("onelake_base_path", "")
             ),
             onelake_domain_paths=onelake_domain_paths,
             cache_dir=os.getenv(
-                "CACHE_DIR",
-                storage_data.get("cache_dir", "/tmp/kafka_pipeline_cache")
+                "CACHE_DIR", storage_data.get("cache_dir", "/tmp/kafka_pipeline_cache")
             ),
-            delta_events_batch_size=int(os.getenv(
-                "DELTA_EVENTS_BATCH_SIZE",
-                str(kafka_data.get("delta_events_batch_size", 1000))
-            )),
+            delta_events_batch_size=int(
+                os.getenv(
+                    "DELTA_EVENTS_BATCH_SIZE", str(kafka_data.get("delta_events_batch_size", 1000))
+                )
+            ),
             claimx_config=claimx_config,
             xact_config=xact_config,
             # ClaimX API settings (loaded from root claimx.api section)
-            claimx_api_url=os.getenv(
-                "CLAIMX_API_URL",
-                claimx_api_data.get("base_url", "")
+            claimx_api_url=os.getenv("CLAIMX_API_URL", claimx_api_data.get("base_url", "")),
+            claimx_api_token=os.getenv("CLAIMX_API_TOKEN", claimx_api_data.get("token", "")),
+            claimx_api_timeout_seconds=int(
+                os.getenv(
+                    "CLAIMX_API_TIMEOUT_SECONDS", str(claimx_api_data.get("timeout_seconds", 30))
+                )
             ),
-            claimx_api_token=os.getenv(
-                "CLAIMX_API_TOKEN",
-                claimx_api_data.get("token", "")
+            claimx_api_concurrency=int(
+                os.getenv("CLAIMX_API_CONCURRENCY", str(claimx_api_data.get("max_concurrent", 20)))
             ),
-            claimx_api_timeout_seconds=int(os.getenv(
-                "CLAIMX_API_TIMEOUT_SECONDS",
-                str(claimx_api_data.get("timeout_seconds", 30))
-            )),
-            claimx_api_concurrency=int(os.getenv(
-                "CLAIMX_API_CONCURRENCY",
-                str(claimx_api_data.get("max_concurrent", 20))
-            )),
         )
 
     def to_kafka_config(self) -> KafkaConfig:
@@ -375,6 +395,8 @@ class LocalKafkaConfig:
             bootstrap_servers=self.bootstrap_servers,
             security_protocol=self.security_protocol,
             sasl_mechanism=self.sasl_mechanism,
+            sasl_plain_username=self.sasl_plain_username,
+            sasl_plain_password=self.sasl_plain_password,
             xact=xact_config,
             claimx=self.claimx_config,
             onelake_base_path=self.onelake_base_path,
@@ -451,11 +473,11 @@ class EventhouseSourceConfig:
 
         cluster_url = os.getenv(
             "XACT_EVENTHOUSE_CLUSTER_URL",
-            os.getenv("EVENTHOUSE_CLUSTER_URL", eventhouse_data.get("cluster_url", ""))
+            os.getenv("EVENTHOUSE_CLUSTER_URL", eventhouse_data.get("cluster_url", "")),
         )
         database = os.getenv(
             "XACT_EVENTHOUSE_DATABASE",
-            os.getenv("EVENTHOUSE_DATABASE", eventhouse_data.get("database", ""))
+            os.getenv("EVENTHOUSE_DATABASE", eventhouse_data.get("database", "")),
         )
 
         if not cluster_url:
@@ -473,8 +495,7 @@ class EventhouseSourceConfig:
 
         # Parse bulk_backfill boolean
         bulk_backfill_str = os.getenv(
-            "DEDUP_BULK_BACKFILL",
-            str(poller_data.get("bulk_backfill", False))
+            "DEDUP_BULK_BACKFILL", str(poller_data.get("bulk_backfill", False))
         ).lower()
         bulk_backfill = bulk_backfill_str in ("true", "1", "yes")
 
@@ -482,51 +503,49 @@ class EventhouseSourceConfig:
             cluster_url=cluster_url,
             database=database,
             source_table=os.getenv(
-                "EVENTHOUSE_SOURCE_TABLE",
-                poller_data.get("source_table", "Events")
+                "EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")
             ),
-            poll_interval_seconds=int(os.getenv(
-                "POLL_INTERVAL_SECONDS",
-                str(poller_data.get("poll_interval_seconds", 30))
-            )),
-            batch_size=int(os.getenv(
-                "POLL_BATCH_SIZE",
-                str(poller_data.get("batch_size", 1000))
-            )),
-            query_timeout_seconds=int(os.getenv(
-                "EVENTHOUSE_QUERY_TIMEOUT",
-                str(eventhouse_data.get("query_timeout_seconds", 120))
-            )),
+            poll_interval_seconds=int(
+                os.getenv(
+                    "POLL_INTERVAL_SECONDS", str(poller_data.get("poll_interval_seconds", 30))
+                )
+            ),
+            batch_size=int(os.getenv("POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))),
+            query_timeout_seconds=int(
+                os.getenv(
+                    "EVENTHOUSE_QUERY_TIMEOUT",
+                    str(eventhouse_data.get("query_timeout_seconds", 120)),
+                )
+            ),
             xact_events_table_path=os.getenv(
-                "XACT_EVENTS_TABLE_PATH",
-                poller_data.get("events_table_path", "")
+                "XACT_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
             ),
-            xact_events_window_hours=int(os.getenv(
-                "DEDUP_XACT_EVENTS_WINDOW_HOURS",
-                str(dedup_data.get("xact_events_window_hours", 24))
-            )),
-            eventhouse_query_window_hours=int(os.getenv(
-                "DEDUP_EVENTHOUSE_WINDOW_HOURS",
-                str(dedup_data.get("eventhouse_query_window_hours", 1))
-            )),
-            overlap_minutes=int(os.getenv(
-                "DEDUP_OVERLAP_MINUTES",
-                str(dedup_data.get("overlap_minutes", 5))
-            )),
+            xact_events_window_hours=int(
+                os.getenv(
+                    "DEDUP_XACT_EVENTS_WINDOW_HOURS",
+                    str(dedup_data.get("xact_events_window_hours", 24)),
+                )
+            ),
+            eventhouse_query_window_hours=int(
+                os.getenv(
+                    "DEDUP_EVENTHOUSE_WINDOW_HOURS",
+                    str(dedup_data.get("eventhouse_query_window_hours", 1)),
+                )
+            ),
+            overlap_minutes=int(
+                os.getenv("DEDUP_OVERLAP_MINUTES", str(dedup_data.get("overlap_minutes", 5)))
+            ),
             # Backfill configuration
             backfill_start_stamp=os.getenv(
-                "DEDUP_BACKFILL_START_TIMESTAMP",
-                poller_data.get("backfill_start_stamp")
+                "DEDUP_BACKFILL_START_TIMESTAMP", poller_data.get("backfill_start_stamp")
             ),
             backfill_stop_stamp=os.getenv(
-                "DEDUP_BACKFILL_STOP_TIMESTAMP",
-                poller_data.get("backfill_stop_stamp")
+                "DEDUP_BACKFILL_STOP_TIMESTAMP", poller_data.get("backfill_stop_stamp")
             ),
             bulk_backfill=bulk_backfill,
             # KQL start stamp for real-time mode
             kql_start_stamp=os.getenv(
-                "DEDUP_KQL_START_TIMESTAMP",
-                dedup_data.get("kql_start_stamp")
+                "DEDUP_KQL_START_TIMESTAMP", dedup_data.get("kql_start_stamp")
             ),
         )
 
@@ -599,11 +618,10 @@ class ClaimXEventhouseSourceConfig:
         # Priority: CLAIMX_EVENTHOUSE_CLUSTER_URL > EVENTHOUSE_CLUSTER_URL > YAML value
         cluster_url = os.getenv(
             "CLAIMX_EVENTHOUSE_CLUSTER_URL",
-            os.getenv("EVENTHOUSE_CLUSTER_URL", claimx_eventhouse_data.get("cluster_url", ""))
+            os.getenv("EVENTHOUSE_CLUSTER_URL", claimx_eventhouse_data.get("cluster_url", "")),
         )
         database = os.getenv(
-            "CLAIMX_EVENTHOUSE_DATABASE",
-            claimx_eventhouse_data.get("database", "")
+            "CLAIMX_EVENTHOUSE_DATABASE", claimx_eventhouse_data.get("database", "")
         )
 
         if not cluster_url:
@@ -620,8 +638,7 @@ class ClaimXEventhouseSourceConfig:
 
         # Parse bulk_backfill boolean
         bulk_backfill_str = os.getenv(
-            "CLAIMX_DEDUP_BULK_BACKFILL",
-            str(poller_data.get("bulk_backfill", False))
+            "CLAIMX_DEDUP_BULK_BACKFILL", str(poller_data.get("bulk_backfill", False))
         ).lower()
         bulk_backfill = bulk_backfill_str in ("true", "1", "yes")
 
@@ -629,55 +646,55 @@ class ClaimXEventhouseSourceConfig:
             cluster_url=cluster_url,
             database=database,
             source_table=os.getenv(
-                "CLAIMX_EVENTHOUSE_SOURCE_TABLE",
-                poller_data.get("source_table", "ClaimXEvents")
+                "CLAIMX_EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "ClaimXEvents")
             ),
-            poll_interval_seconds=int(os.getenv(
-                "CLAIMX_POLL_INTERVAL_SECONDS",
-                str(poller_data.get("poll_interval_seconds", 30))
-            )),
-            batch_size=int(os.getenv(
-                "CLAIMX_POLL_BATCH_SIZE",
-                str(poller_data.get("batch_size", 1000))
-            )),
-            query_timeout_seconds=int(os.getenv(
-                "CLAIMX_EVENTHOUSE_QUERY_TIMEOUT",
-                str(claimx_eventhouse_data.get("query_timeout_seconds", 120))
-            )),
+            poll_interval_seconds=int(
+                os.getenv(
+                    "CLAIMX_POLL_INTERVAL_SECONDS",
+                    str(poller_data.get("poll_interval_seconds", 30)),
+                )
+            ),
+            batch_size=int(
+                os.getenv("CLAIMX_POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))
+            ),
+            query_timeout_seconds=int(
+                os.getenv(
+                    "CLAIMX_EVENTHOUSE_QUERY_TIMEOUT",
+                    str(claimx_eventhouse_data.get("query_timeout_seconds", 120)),
+                )
+            ),
             claimx_events_table_path=os.getenv(
-                "CLAIMX_EVENTS_TABLE_PATH",
-                poller_data.get("events_table_path", "")
+                "CLAIMX_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
             ),
-            claimx_events_window_hours=int(os.getenv(
-                "CLAIMX_DEDUP_EVENTS_WINDOW_HOURS",
-                str(dedup_data.get("claimx_events_window_hours", 24))
-            )),
-            eventhouse_query_window_hours=int(os.getenv(
-                "CLAIMX_DEDUP_EVENTHOUSE_WINDOW_HOURS",
-                str(dedup_data.get("eventhouse_query_window_hours", 1))
-            )),
-            overlap_minutes=int(os.getenv(
-                "CLAIMX_DEDUP_OVERLAP_MINUTES",
-                str(dedup_data.get("overlap_minutes", 5))
-            )),
+            claimx_events_window_hours=int(
+                os.getenv(
+                    "CLAIMX_DEDUP_EVENTS_WINDOW_HOURS",
+                    str(dedup_data.get("claimx_events_window_hours", 24)),
+                )
+            ),
+            eventhouse_query_window_hours=int(
+                os.getenv(
+                    "CLAIMX_DEDUP_EVENTHOUSE_WINDOW_HOURS",
+                    str(dedup_data.get("eventhouse_query_window_hours", 1)),
+                )
+            ),
+            overlap_minutes=int(
+                os.getenv("CLAIMX_DEDUP_OVERLAP_MINUTES", str(dedup_data.get("overlap_minutes", 5)))
+            ),
             events_topic=os.getenv(
-                "CLAIMX_EVENTS_TOPIC",
-                poller_data.get("events_topic", "claimx.events.raw")
+                "CLAIMX_EVENTS_TOPIC", poller_data.get("events_topic", "claimx.events.raw")
             ),
             # Backfill configuration
             backfill_start_stamp=os.getenv(
-                "CLAIMX_DEDUP_BACKFILL_START_TIMESTAMP",
-                poller_data.get("backfill_start_stamp")
+                "CLAIMX_DEDUP_BACKFILL_START_TIMESTAMP", poller_data.get("backfill_start_stamp")
             ),
             backfill_stop_stamp=os.getenv(
-                "CLAIMX_DEDUP_BACKFILL_STOP_TIMESTAMP",
-                poller_data.get("backfill_stop_stamp")
+                "CLAIMX_DEDUP_BACKFILL_STOP_TIMESTAMP", poller_data.get("backfill_stop_stamp")
             ),
             bulk_backfill=bulk_backfill,
             # KQL start stamp for real-time mode
             kql_start_stamp=os.getenv(
-                "CLAIMX_DEDUP_KQL_START_TIMESTAMP",
-                dedup_data.get("kql_start_stamp")
+                "CLAIMX_DEDUP_KQL_START_TIMESTAMP", dedup_data.get("kql_start_stamp")
             ),
         )
 
@@ -724,6 +741,9 @@ class PipelineConfig:
     claimx_external_links_table_path: str = ""
     claimx_video_collab_table_path: str = ""
 
+    # Simulation mode configuration (optional, None if not configured)
+    simulation: Optional["SimulationConfig"] = None
+
     @classmethod
     def load_config(cls, config_path: Optional[Path] = None) -> "PipelineConfig":
         """Load complete pipeline configuration from config directory and environment.
@@ -745,10 +765,7 @@ class PipelineConfig:
         yaml_data = _load_config_data(resolved_path)
 
         # Get event source from config files first, then env var override
-        source_str = os.getenv(
-            "EVENT_SOURCE",
-            yaml_data.get("event_source", "eventhub")
-        ).lower()
+        source_str = os.getenv("EVENT_SOURCE", yaml_data.get("event_source", "eventhub")).lower()
 
         try:
             event_source = EventSourceType(source_str)
@@ -771,9 +788,9 @@ class PipelineConfig:
         # Optionally load ClaimX Eventhouse config if configured
         # Check for config section or env vars
         has_claimx_config = (
-            "claimx_eventhouse" in yaml_data or
-            os.getenv("CLAIMX_EVENTHOUSE_CLUSTER_URL") or
-            os.getenv("CLAIMX_EVENTS_TABLE_PATH")
+            "claimx_eventhouse" in yaml_data
+            or os.getenv("CLAIMX_EVENTHOUSE_CLUSTER_URL")
+            or os.getenv("CLAIMX_EVENTS_TABLE_PATH")
         )
         if has_claimx_config:
             try:
@@ -794,6 +811,17 @@ class PipelineConfig:
         else:
             enable_delta_writes = delta_config.get("enable_writes", True)
 
+        # Load simulation configuration if present
+        simulation_config = None
+        if "simulation" in yaml_data or os.getenv("SIMULATION_MODE"):
+            try:
+                from kafka_pipeline.simulation import SimulationConfig
+
+                simulation_config = SimulationConfig.from_config_file(resolved_path)
+            except ImportError:
+                # Simulation module not available, skip
+                pass
+
         return cls(
             event_source=event_source,
             eventhub=eventhub_config,
@@ -803,26 +831,37 @@ class PipelineConfig:
             domain=domain,
             enable_delta_writes=enable_delta_writes,
             events_table_path=os.getenv(
-                "DELTA_EVENTS_TABLE_PATH",
-                domain_delta_config.get("events_table_path", "")
+                "DELTA_EVENTS_TABLE_PATH", domain_delta_config.get("events_table_path", "")
             ),
             inventory_table_path=os.getenv(
-                "DELTA_INVENTORY_TABLE_PATH",
-                domain_delta_config.get("inventory_table_path", "")
+                "DELTA_INVENTORY_TABLE_PATH", domain_delta_config.get("inventory_table_path", "")
             ),
             failed_table_path=os.getenv(
-                "DELTA_FAILED_TABLE_PATH",
-                domain_delta_config.get("failed_table_path", "")
+                "DELTA_FAILED_TABLE_PATH", domain_delta_config.get("failed_table_path", "")
             ),
             # Load ClaimX table paths (only populated if domain is claimx or paths are explicitly set)
-            claimx_projects_table_path=delta_config.get("claimx", {}).get("projects_table_path", ""),
-            claimx_contacts_table_path=delta_config.get("claimx", {}).get("contacts_table_path", ""),
-            claimx_inventory_table_path=delta_config.get("claimx", {}).get("inventory_table_path", ""),
+            claimx_projects_table_path=delta_config.get("claimx", {}).get(
+                "projects_table_path", ""
+            ),
+            claimx_contacts_table_path=delta_config.get("claimx", {}).get(
+                "contacts_table_path", ""
+            ),
+            claimx_inventory_table_path=delta_config.get("claimx", {}).get(
+                "inventory_table_path", ""
+            ),
             claimx_media_table_path=delta_config.get("claimx", {}).get("media_table_path", ""),
             claimx_tasks_table_path=delta_config.get("claimx", {}).get("tasks_table_path", ""),
-            claimx_task_templates_table_path=delta_config.get("claimx", {}).get("task_templates_table_path", ""),
-            claimx_external_links_table_path=delta_config.get("claimx", {}).get("external_links_table_path", ""),
-            claimx_video_collab_table_path=delta_config.get("claimx", {}).get("video_collab_table_path", ""),
+            claimx_task_templates_table_path=delta_config.get("claimx", {}).get(
+                "task_templates_table_path", ""
+            ),
+            claimx_external_links_table_path=delta_config.get("claimx", {}).get(
+                "external_links_table_path", ""
+            ),
+            claimx_video_collab_table_path=delta_config.get("claimx", {}).get(
+                "video_collab_table_path", ""
+            ),
+            # Simulation configuration
+            simulation=simulation_config,
         )
 
     @property

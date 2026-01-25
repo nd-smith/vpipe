@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -135,7 +135,7 @@ def truncate_error_message(error: Exception, max_length: int = 500) -> str:
     """
     error_message = str(error)
     if len(error_message) > max_length:
-        return error_message[:max_length - 3] + "..."
+        return error_message[: max_length - 3] + "..."
     return error_message
 
 

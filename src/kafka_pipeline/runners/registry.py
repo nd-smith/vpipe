@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -17,8 +17,6 @@ import asyncio
 import logging
 import os
 from typing import Any, Callable, Dict, Optional
-
-import yaml
 
 from kafka_pipeline.runners import claimx_runners, xact_runners
 
@@ -85,11 +83,14 @@ def build_xact_delta_writer_args(
     """Build arguments for xact-delta-writer worker."""
     from config.pipeline_config import EventSourceType
 
-    events_table_path = pipeline_config.events_table_path
-    if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-        events_table_path = (
-            pipeline_config.xact_eventhouse.xact_events_table_path or events_table_path
-        )
+    # Check environment variable first (like ClaimX does)
+    events_table_path = os.getenv("DELTA_EVENTS_TABLE_PATH", "")
+    if not events_table_path:
+        events_table_path = pipeline_config.events_table_path
+        if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
+            events_table_path = (
+                pipeline_config.xact_eventhouse.xact_events_table_path or events_table_path
+            )
 
     if not events_table_path:
         raise ValueError("DELTA_EVENTS_TABLE_PATH is required for xact-delta-writer")
@@ -126,9 +127,7 @@ def build_claimx_delta_writer_args(
     """Build arguments for claimx-delta-writer worker."""
     claimx_events_table_path = os.getenv("CLAIMX_EVENTS_TABLE_PATH", "")
     if not claimx_events_table_path and pipeline_config.claimx_eventhouse:
-        claimx_events_table_path = (
-            pipeline_config.claimx_eventhouse.claimx_events_table_path
-        )
+        claimx_events_table_path = pipeline_config.claimx_eventhouse.claimx_events_table_path
 
     if not claimx_events_table_path:
         raise ValueError("CLAIMX_EVENTS_TABLE_PATH is required for claimx-delta-writer")
@@ -144,6 +143,7 @@ def build_claimx_enricher_args(
     pipeline_config,
     shutdown_event: asyncio.Event,
     local_kafka_config=None,
+    simulation_mode: bool = False,
     **kwargs,
 ):
     """Build arguments for claimx-enricher worker."""
@@ -151,6 +151,7 @@ def build_claimx_enricher_args(
         "kafka_config": local_kafka_config,
         "pipeline_config": pipeline_config,
         "shutdown_event": shutdown_event,
+        "simulation_mode": simulation_mode,
     }
 
 
@@ -178,42 +179,6 @@ def build_claimx_entity_writer_args(
     return {
         "kafka_config": local_kafka_config,
         "pipeline_config": pipeline_config,
-        "shutdown_event": shutdown_event,
-    }
-
-
-def build_dummy_source_args(
-    pipeline_config,
-    shutdown_event: asyncio.Event,
-    local_kafka_config=None,
-    **kwargs,
-):
-    """Build arguments for dummy-source worker."""
-    from config.config import DEFAULT_CONFIG_FILE
-
-    dummy_config = {}
-    if DEFAULT_CONFIG_FILE.exists():
-        with open(DEFAULT_CONFIG_FILE) as f:
-            full_config = yaml.safe_load(f)
-            dummy_config = full_config.get("dummy", {})
-        logger.info(
-            "Loaded dummy source config",
-            extra={
-                "config_file": str(DEFAULT_CONFIG_FILE),
-                "domains": dummy_config.get("domains", ["xact", "claimx"]),
-                "events_per_minute": dummy_config.get("events_per_minute", 10.0),
-                "burst_mode": dummy_config.get("burst_mode", False),
-            },
-        )
-    else:
-        logger.warning(
-            "Config file not found, using defaults (10 events/min)",
-            extra={"config_file": str(DEFAULT_CONFIG_FILE)},
-        )
-
-    return {
-        "kafka_config": local_kafka_config,
-        "dummy_config": dummy_config,
         "shutdown_event": shutdown_event,
     }
 
@@ -263,6 +228,7 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "args_builder": lambda pc, se, **kw: {
             "kafka_config": kw.get("local_kafka_config"),
             "shutdown_event": se,
+            "simulation_mode": kw.get("simulation_mode", False),
         },
     },
     "xact-download": {
@@ -277,6 +243,7 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "args_builder": lambda pc, se, **kw: {
             "kafka_config": kw.get("local_kafka_config"),
             "shutdown_event": se,
+            "simulation_mode": kw.get("simulation_mode", False),
         },
     },
     "xact-result-processor": {
@@ -314,6 +281,7 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "args_builder": lambda pc, se, **kw: {
             "kafka_config": kw.get("local_kafka_config"),
             "shutdown_event": se,
+            "simulation_mode": kw.get("simulation_mode", False),
         },
     },
     "claimx-result-processor": {
@@ -335,11 +303,11 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "runner": claimx_runners.run_claimx_entity_delta_worker,
         "args_builder": build_claimx_entity_writer_args,
     },
-    # Dummy source for testing
-    "dummy-source": {
-        "runner": xact_runners.run_dummy_source,
-        "args_builder": build_dummy_source_args,
-    },
+    # NOTE: Dummy data producer has been moved to simulation module.
+    # It is now a simulation-only tool and cannot be run in production.
+    # Use: SIMULATION_MODE=true python -m kafka_pipeline.simulation.dummy_producer
+    # Or: ./scripts/generate_test_data.sh
+    # See: kafka_pipeline/simulation/README.md
 }
 
 
@@ -351,6 +319,7 @@ async def run_worker_from_registry(
     eventhub_config=None,
     local_kafka_config=None,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
     """Run a worker by looking it up in the registry.
 
@@ -362,6 +331,7 @@ async def run_worker_from_registry(
         eventhub_config: Event Hub configuration (optional)
         local_kafka_config: Local Kafka configuration (optional)
         instance_id: Instance identifier for multi-instance deployments (optional)
+        simulation_mode: Enable simulation mode with mock dependencies (optional)
 
     Raises:
         ValueError: If worker not found in registry or requirements not met
@@ -386,6 +356,7 @@ async def run_worker_from_registry(
         enable_delta_writes=enable_delta_writes,
         eventhub_config=eventhub_config,
         local_kafka_config=local_kafka_config,
+        simulation_mode=simulation_mode,
     )
 
     # Add instance_id if provided

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -40,21 +40,25 @@ def load_yaml(path: Path) -> Dict[str, Any]:
     """Load YAML file and return dict."""
     if not path.exists():
         return {}
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         return yaml.safe_load(f) or {}
 
 
 def _expand_env_vars(data: Any) -> Any:
-    """Recursively expand ${VAR_NAME} environment variables in config data."""
+    """Recursively expand ${VAR_NAME} and ${VAR_NAME:-default} environment variables in config data."""
     if isinstance(data, dict):
         return {key: _expand_env_vars(value) for key, value in data.items()}
     elif isinstance(data, list):
         return [_expand_env_vars(item) for item in data]
     elif isinstance(data, str):
-        pattern = r'\$\{([^}]+)\}'
+        # Support both ${VAR} and ${VAR:-default} syntax
+        pattern = r"\$\{([^}:]+)(?::-(([^}]*))?)?\}"
+
         def replacer(match):
             var_name = match.group(1)
-            return os.getenv(var_name, match.group(0))
+            default_value = match.group(2) if match.group(2) is not None else match.group(0)
+            return os.getenv(var_name, default_value)
+
         return re.sub(pattern, replacer, data)
     else:
         return data
@@ -230,25 +234,27 @@ class KafkaConfig:
                 continue
 
             for worker_name, worker_config in domain_config.items():
-                if worker_name in ["topics", "consumer_group_prefix", "retry_delays", "max_retries"]:
+                if worker_name in [
+                    "topics",
+                    "consumer_group_prefix",
+                    "retry_delays",
+                    "max_retries",
+                ]:
                     continue
 
                 if "consumer" in worker_config:
                     self._validate_consumer_settings(
-                        worker_config["consumer"],
-                        f"{domain_name}.{worker_name}.consumer"
+                        worker_config["consumer"], f"{domain_name}.{worker_name}.consumer"
                     )
 
                 if "producer" in worker_config:
                     self._validate_producer_settings(
-                        worker_config["producer"],
-                        f"{domain_name}.{worker_name}.producer"
+                        worker_config["producer"], f"{domain_name}.{worker_name}.producer"
                     )
 
                 if "processing" in worker_config:
                     self._validate_processing_settings(
-                        worker_config["processing"],
-                        f"{domain_name}.{worker_name}.processing"
+                        worker_config["processing"], f"{domain_name}.{worker_name}.processing"
                     )
 
     def _validate_consumer_settings(self, settings: Dict[str, Any], context: str) -> None:
@@ -311,19 +317,13 @@ class KafkaConfig:
                 )
 
         if "retries" in settings and settings["retries"] < 0:
-            raise ValueError(
-                f"{context}: retries must be >= 0, got {settings['retries']}"
-            )
+            raise ValueError(f"{context}: retries must be >= 0, got {settings['retries']}")
 
         if "batch_size" in settings and settings["batch_size"] < 0:
-            raise ValueError(
-                f"{context}: batch_size must be >= 0, got {settings['batch_size']}"
-            )
+            raise ValueError(f"{context}: batch_size must be >= 0, got {settings['batch_size']}")
 
         if "linger_ms" in settings and settings["linger_ms"] < 0:
-            raise ValueError(
-                f"{context}: linger_ms must be >= 0, got {settings['linger_ms']}"
-            )
+            raise ValueError(f"{context}: linger_ms must be >= 0, got {settings['linger_ms']}")
 
     def _validate_processing_settings(self, settings: Dict[str, Any], context: str) -> None:
         if "concurrency" in settings:
@@ -378,8 +378,7 @@ def load_config(
 
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n"
-            f"Expected file: config/config.yaml"
+            f"Configuration file not found: {config_path}\n" f"Expected file: config/config.yaml"
         )
 
     logger.info(f"Loading configuration from file: {config_path}")

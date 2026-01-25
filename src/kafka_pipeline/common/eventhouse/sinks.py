@@ -45,7 +45,9 @@ class EventSink(Protocol):
         """Gracefully shutdown the sink (flush buffers, close connections)."""
         ...
 
-    async def write(self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None) -> None:
+    async def write(
+        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None
+    ) -> None:
         """
         Write a single event to the sink.
 
@@ -64,6 +66,7 @@ class EventSink(Protocol):
 @dataclass
 class KafkaSinkConfig:
     """Configuration for Kafka sink."""
+
     kafka_config: Any  # KafkaConfig
     domain: str
     worker_name: str = "eventhouse_poller"
@@ -94,10 +97,7 @@ class KafkaSink:
 
         # Resolve topic name
         self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
-        logger.info(
-            "KafkaSink started",
-            extra={"domain": self.config.domain, "topic": self._topic}
-        )
+        logger.info("KafkaSink started", extra={"domain": self.config.domain, "topic": self._topic})
 
     async def stop(self) -> None:
         """Shutdown Kafka producer."""
@@ -105,7 +105,9 @@ class KafkaSink:
             await self._producer.stop()
             logger.info("KafkaSink stopped")
 
-    async def write(self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None) -> None:
+    async def write(
+        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None
+    ) -> None:
         """Write event to Kafka topic."""
         if not self._producer or not self._topic:
             raise RuntimeError("KafkaSink not started. Call start() first.")
@@ -126,6 +128,7 @@ class KafkaSink:
 @dataclass
 class JsonFileSinkConfig:
     """Configuration for JSON file sink."""
+
     output_path: Path
     rotate_size_bytes: int = 100 * 1024 * 1024  # 100 MB default
     pretty_print: bool = False
@@ -180,7 +183,7 @@ class JsonFileSink:
             extra={
                 "output_path": str(self._current_path),
                 "rotate_size_mb": self.config.rotate_size_bytes / (1024 * 1024),
-            }
+            },
         )
 
     async def stop(self) -> None:
@@ -208,10 +211,12 @@ class JsonFileSink:
             extra={
                 "events_written": self._events_written,
                 "output_path": str(self._current_path),
-            }
+            },
         )
 
-    async def write(self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None) -> None:
+    async def write(
+        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None
+    ) -> None:
         """Buffer event for writing."""
         record = self._format_record(key, event, headers)
 
@@ -260,7 +265,7 @@ class JsonFileSink:
                 "events_flushed": len(self._buffer),
                 "bytes_written": bytes_written,
                 "total_events": self._events_written,
-            }
+            },
         )
 
         self._buffer.clear()
@@ -280,7 +285,7 @@ class JsonFileSink:
             extra={
                 "new_path": str(self._current_path),
                 "file_index": self._file_index,
-            }
+            },
         )
 
     async def _periodic_flush(self) -> None:
@@ -307,7 +312,9 @@ class JsonFileSink:
         suffix = base_path.suffix
         return base_path.parent / f"{stem}.{self._file_index:03d}{suffix}"
 
-    def _format_record(self, key: str, event: BaseModel, headers: Optional[Dict[str, str]]) -> Dict[str, Any]:
+    def _format_record(
+        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]]
+    ) -> Dict[str, Any]:
         """Format event as output record."""
         # Get event data
         event_data = event.model_dump()
@@ -334,7 +341,9 @@ class JsonFileSink:
         }
 
 
-def create_kafka_sink(kafka_config: Any, domain: str, worker_name: str = "eventhouse_poller") -> KafkaSink:
+def create_kafka_sink(
+    kafka_config: Any, domain: str, worker_name: str = "eventhouse_poller"
+) -> KafkaSink:
     """Factory function to create a KafkaSink."""
     config = KafkaSinkConfig(
         kafka_config=kafka_config,

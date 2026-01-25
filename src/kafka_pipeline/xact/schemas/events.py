@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -67,34 +67,19 @@ class EventMessage(BaseModel):
     type: str = Field(
         ...,
         description="Full event type string (e.g., 'verisk.claims.property.xn.documentsReceived')",
-        min_length=1
-    )
-    version: Union[int, str] = Field(
-        ...,
-        description="Event version (integer preferred)"
-    )
-    utc_datetime: str = Field(
-        ...,
-        description="Event timestamp as ISO string",
-        alias="utcDateTime"
-    )
-    trace_id: str = Field(
-        ...,
-        description="Unique event identifier (from traceId)",
         min_length=1,
-        alias="traceId"
+    )
+    version: Union[int, str] = Field(..., description="Event version (integer preferred)")
+    utc_datetime: str = Field(..., description="Event timestamp as ISO string", alias="utcDateTime")
+    trace_id: str = Field(
+        ..., description="Unique event identifier (from traceId)", min_length=1, alias="traceId"
     )
     event_id: Optional[str] = Field(
-        default=None,
-        description="Unique event ID generated during ingestion",
-        alias="eventId"
+        default=None, description="Unique event ID generated during ingestion", alias="eventId"
     )
-    data: str = Field(
-        ...,
-        description="Raw JSON string with nested event data"
-    )
+    data: str = Field(..., description="Raw JSON string with nested event data")
 
-    @field_serializer('data')
+    @field_serializer("data")
     def serialize_data_as_object(self, v: str) -> Dict[str, Any]:
         """Serialize data field as JSON object instead of string."""
         if not v:
@@ -152,7 +137,7 @@ class EventMessage(BaseModel):
             return data.get("estimateVersion")
         return None
 
-    @field_validator('type', 'trace_id')
+    @field_validator("type", "trace_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -231,14 +216,17 @@ class EventMessage(BaseModel):
         - Serialize data as object (via field_serializer)
         """
         # Set defaults for Kafka-compatible output
-        kwargs.setdefault('by_alias', True)
-        kwargs.setdefault('exclude', {
-            'status_subtype',
-            'data_dict',
-            'attachments',
-            'assignment_id',
-            'estimate_version',
-        })
+        kwargs.setdefault("by_alias", True)
+        kwargs.setdefault(
+            "exclude",
+            {
+                "status_subtype",
+                "data_dict",
+                "attachments",
+                "assignment_id",
+                "estimate_version",
+            },
+        )
         return super().model_dump_json(**kwargs)
 
     def model_dump(self, **kwargs) -> Dict[str, Any]:
@@ -250,34 +238,45 @@ class EventMessage(BaseModel):
         - Serialize data as object (via field_serializer)
         """
         # Set defaults for Kafka-compatible output
-        kwargs.setdefault('by_alias', True)
-        kwargs.setdefault('exclude', {
-            'status_subtype',
-            'data_dict',
-            'attachments',
-            'assignment_id',
-            'estimate_version',
-        })
+        kwargs.setdefault("by_alias", True)
+        kwargs.setdefault(
+            "exclude",
+            {
+                "status_subtype",
+                "data_dict",
+                "attachments",
+                "assignment_id",
+                "estimate_version",
+            },
+        )
         return super().model_dump(**kwargs)
 
     model_config = {
-        'populate_by_name': True,  # Allow both alias and field name
-        'json_schema_extra': {
-            'examples': [
+        "populate_by_name": True,  # Allow both alias and field name
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'type': 'verisk.claims.property.xn.documentsReceived',
-                    'version': 1,
-                    'utcDateTime': '2024-12-25T10:30:00Z',
-                    'traceId': 'abc123-def456-ghi789',
-                    'data': {"assignmentId": "A12345", "description": "Documents received", "attachments": ["https://xactware.com/docs/estimate.pdf"]}
+                    "type": "verisk.claims.property.xn.documentsReceived",
+                    "version": 1,
+                    "utcDateTime": "2024-12-25T10:30:00Z",
+                    "traceId": "abc123-def456-ghi789",
+                    "data": {
+                        "assignmentId": "A12345",
+                        "description": "Documents received",
+                        "attachments": ["https://xactware.com/docs/estimate.pdf"],
+                    },
                 },
                 {
-                    'type': 'verisk.claims.property.xn.estimateCreated',
-                    'version': 2,
-                    'utcDateTime': '2024-12-25T11:00:00Z',
-                    'traceId': 'xyz789-abc123',
-                    'data': {"assignmentId": "B67890", "estimateVersion": "1.0", "note": "Initial estimate"}
-                }
+                    "type": "verisk.claims.property.xn.estimateCreated",
+                    "version": 2,
+                    "utcDateTime": "2024-12-25T11:00:00Z",
+                    "traceId": "xyz789-abc123",
+                    "data": {
+                        "assignmentId": "B67890",
+                        "estimateVersion": "1.0",
+                        "note": "Initial estimate",
+                    },
+                },
             ]
-        }
+        },
     }

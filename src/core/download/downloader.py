@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -137,7 +137,9 @@ class AttachmentDownloader:
         # Step 1: Validate URL
         if task.validate_url:
             is_valid, error = validate_download_url(
-                task.url, allowed_domains=task.allowed_domains
+                task.url,
+                allowed_domains=task.allowed_domains,
+                allow_localhost=task.allow_localhost,
             )
             if not is_valid:
                 return DownloadOutcome.validation_failure(
@@ -155,7 +157,11 @@ class AttachmentDownloader:
 
                 # Sanity check: expiration should always be after signing
                 # If not, there's a parsing bug we need to investigate
-                if url_info.signed_at and url_info.expires_at and url_info.expires_at < url_info.signed_at:
+                if (
+                    url_info.signed_at
+                    and url_info.expires_at
+                    and url_info.expires_at < url_info.signed_at
+                ):
                     logger.error(
                         "CRITICAL: Impossible expiration date detected - expires_at before signed_at. "
                         "This indicates a parsing bug.",
@@ -210,9 +216,7 @@ class AttachmentDownloader:
 
             # HEAD request to check Content-Length for streaming decision
             # (Optional optimization - could also just try streaming)
-            content_length = await self._get_content_length(
-                task.url, session, task.timeout
-            )
+            content_length = await self._get_content_length(task.url, session, task.timeout)
 
             # Check max size if specified
             if task.max_size and content_length and content_length > task.max_size:
@@ -310,9 +314,7 @@ class AttachmentDownloader:
         try:
             # Use asyncio.to_thread for mkdir to ensure proper synchronization
             # on Windows, where synchronous mkdir may not be immediately visible
-            await asyncio.to_thread(
-                task.destination.parent.mkdir, parents=True, exist_ok=True
-            )
+            await asyncio.to_thread(task.destination.parent.mkdir, parents=True, exist_ok=True)
             await asyncio.to_thread(task.destination.write_bytes, response.content)
 
             return DownloadOutcome.success_outcome(
@@ -329,9 +331,7 @@ class AttachmentDownloader:
             permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
             is_permanent = e.errno in permanent_errnos
 
-            error_category = (
-                ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
-            )
+            error_category = ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
             return DownloadOutcome.download_failure(
                 error_message=f"File write error: {str(e)}",
                 error_category=error_category,
@@ -344,9 +344,7 @@ class AttachmentDownloader:
         # Ensure parent directory exists
         # Use asyncio.to_thread for mkdir to ensure proper synchronization
         # on Windows, where synchronous mkdir may not be immediately visible
-        await asyncio.to_thread(
-            task.destination.parent.mkdir, parents=True, exist_ok=True
-        )
+        await asyncio.to_thread(task.destination.parent.mkdir, parents=True, exist_ok=True)
 
         result, error = await download_to_file(
             url=task.url,

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -24,7 +24,6 @@ import polars as pl
 
 from kafka_pipeline.common.writers.base import BaseDeltaWriter
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
-
 
 # Schema for xact_attachments inventory table
 INVENTORY_SCHEMA = {
@@ -171,19 +170,21 @@ class DeltaInventoryWriter(BaseDeltaWriter):
 
         rows = []
         for download_result in results:
-            rows.append({
-                "media_id": download_result.media_id,
-                "trace_id": download_result.trace_id,
-                "attachment_url": download_result.attachment_url,
-                "blob_path": download_result.blob_path,
-                "file_type": download_result.file_type,
-                "status_subtype": download_result.status_subtype,
-                "assignment_id": download_result.assignment_id,
-                "bytes_downloaded": download_result.bytes_downloaded,
-                "downloaded_at": download_result.created_at,
-                "created_at": now,
-                "event_date": today,
-            })
+            rows.append(
+                {
+                    "media_id": download_result.media_id,
+                    "trace_id": download_result.trace_id,
+                    "attachment_url": download_result.attachment_url,
+                    "blob_path": download_result.blob_path,
+                    "file_type": download_result.file_type,
+                    "status_subtype": download_result.status_subtype,
+                    "assignment_id": download_result.assignment_id,
+                    "bytes_downloaded": download_result.bytes_downloaded,
+                    "downloaded_at": download_result.created_at,
+                    "created_at": now,
+                    "event_date": today,
+                }
+            )
 
         # Create DataFrame with explicit schema
         df = pl.DataFrame(rows, schema=INVENTORY_SCHEMA)

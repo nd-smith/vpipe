@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -102,18 +102,14 @@ class EnrichmentHandler(LoggedClass, ABC):
     """
 
     def __init__(self, config: Optional[dict[str, Any]] = None):
-        """Initialize handler with configuration.
-
-
-        """
+        """Initialize handler with configuration."""
         self.config = config or {}
         self.name = self.__class__.__name__
         super().__init__()  # Initialize LoggedClass
 
     @abstractmethod
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
-        """Enrich the message data.
-        """
+        """Enrich the message data."""
         pass
 
     async def initialize(self) -> None:
@@ -177,8 +173,7 @@ class TransformHandler(EnrichmentHandler):
         return EnrichmentResult.ok(context.data)
 
     def _get_nested(self, obj: dict, path: str) -> Any:
-        """Get nested field using dot notation.
-        """
+        """Get nested field using dot notation."""
         parts = path.split(".")
         current = obj
 
@@ -230,16 +225,12 @@ class ValidationHandler(EnrichmentHandler):
             value = self._get_value(context, field)
 
             if value == expected:
-                return EnrichmentResult.skip_message(
-                    f"Field '{field}' equals '{expected}'"
-                )
+                return EnrichmentResult.skip_message(f"Field '{field}' equals '{expected}'")
         required_fields = self.config.get("required_fields", [])
         for field in required_fields:
             value = self._get_value(context, field)
             if value is None:
-                return EnrichmentResult.failed(
-                    f"Required field '{field}' is missing"
-                )
+                return EnrichmentResult.failed(f"Required field '{field}' is missing")
         field_rules = self.config.get("field_rules", {})
         for field, rules in field_rules.items():
             value = self._get_value(context, field)
@@ -419,9 +410,7 @@ class BatchingHandler(EnrichmentHandler):
             time_since_last_flush = current_time - self._last_flush
 
             # Check if we should flush
-            should_flush = (
-                len(self._batch) >= batch_size or time_since_last_flush >= batch_timeout
-            )
+            should_flush = len(self._batch) >= batch_size or time_since_last_flush >= batch_timeout
 
             if should_flush:
                 batch_field = self.config.get("batch_field", "items")
@@ -443,8 +432,7 @@ class BatchingHandler(EnrichmentHandler):
                 )
 
     async def flush(self) -> Optional[dict[str, Any]]:
-        """Force flush current batch.
-        """
+        """Force flush current batch."""
         async with self._batch_lock:
             if not self._batch:
                 return None
@@ -470,8 +458,7 @@ BUILTIN_HANDLERS = {
 
 
 def create_handler_from_config(config: dict[str, Any]) -> EnrichmentHandler:
-    """Create enrichment handler from configuration.
-    """
+    """Create enrichment handler from configuration."""
     handler_type = config.get("type")
     if not handler_type:
         raise ValueError("Handler config missing 'type' field")
@@ -496,8 +483,7 @@ def create_handler_from_config(config: dict[str, Any]) -> EnrichmentHandler:
             raise ValueError(f"Failed to load handler '{handler_type}': {e}")
 
     raise ValueError(
-        f"Unknown handler type '{handler_type}'. "
-        f"Available: {list(BUILTIN_HANDLERS.keys())}"
+        f"Unknown handler type '{handler_type}'. " f"Available: {list(BUILTIN_HANDLERS.keys())}"
     )
 
 
@@ -505,17 +491,13 @@ class EnrichmentPipeline:
     """Chain of enrichment handlers executed in sequence."""
 
     def __init__(self, handlers: list[EnrichmentHandler]):
-        """Initialize pipeline with handlers.
-
-
-        """
+        """Initialize pipeline with handlers."""
         self.handlers = handlers
 
     async def execute(
         self, message: dict[str, Any], connection_manager: Optional[ConnectionManager] = None
     ) -> EnrichmentResult:
-        """Execute all handlers in sequence.
-        """
+        """Execute all handlers in sequence."""
         context = EnrichmentContext(
             message=message,
             data=message.copy(),  # Start with message as initial data

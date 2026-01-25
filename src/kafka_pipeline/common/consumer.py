@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -58,7 +58,9 @@ class BaseKafkaConsumer:
         self.message_handler = message_handler
         self._consumer: Optional[AIOKafkaConsumer] = None
         self._running = False
-        self._dlq_producer: Optional[AIOKafkaProducer] = None  # Lazy-initialized for DLQ routing (WP-211)
+        self._dlq_producer: Optional[AIOKafkaProducer] = (
+            None  # Lazy-initialized for DLQ routing (WP-211)
+        )
 
         self.consumer_config = config.get_worker_config(domain, worker_name, "consumer")
         self.group_id = config.get_consumer_group(domain, worker_name)
@@ -99,32 +101,49 @@ class BaseKafkaConsumer:
         kafka_consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.group_id,
-            "client_id": f"{self.domain}-{self.worker_name}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.worker_name}",
+            "client_id": (
+                f"{self.domain}-{self.worker_name}-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-{self.worker_name}"
+            ),
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
             "connections_max_idle_ms": self.config.connections_max_idle_ms,
         }
 
-        kafka_consumer_config.update({
-            "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
-            "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
-            "max_poll_records": self.consumer_config.get("max_poll_records", 100),
-            "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
-            "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
-        })
+        kafka_consumer_config.update(
+            {
+                "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
+                "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
+                "max_poll_records": self.consumer_config.get("max_poll_records", 100),
+                "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
+                "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
+            }
+        )
 
         if "heartbeat_interval_ms" in self.consumer_config:
-            kafka_consumer_config["heartbeat_interval_ms"] = self.consumer_config["heartbeat_interval_ms"]
+            kafka_consumer_config["heartbeat_interval_ms"] = self.consumer_config[
+                "heartbeat_interval_ms"
+            ]
         if "fetch_min_bytes" in self.consumer_config:
             kafka_consumer_config["fetch_min_bytes"] = self.consumer_config["fetch_min_bytes"]
         if "fetch_max_wait_ms" in self.consumer_config:
             kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config["fetch_max_wait_ms"]
         if "partition_assignment_strategy" in self.consumer_config:
-            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config["partition_assignment_strategy"]
+            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config[
+                "partition_assignment_strategy"
+            ]
 
         if self.config.security_protocol != "PLAINTEXT":
             kafka_consumer_config["security_protocol"] = self.config.security_protocol
             kafka_consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
+
+            # Create SSL context for SSL/SASL_SSL connections
+            if "SSL" in self.config.security_protocol:
+                import ssl
+
+                ssl_context = ssl.create_default_context()
+                kafka_consumer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
                 oauth_callback = create_kafka_oauth_callback()
@@ -261,9 +280,7 @@ class BaseKafkaConsumer:
                     continue
 
                 if not _logged_assignment_received:
-                    partition_info = [
-                        f"{tp.topic}:{tp.partition}" for tp in assignment
-                    ]
+                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
                     log_with_context(
                         logger,
                         logging.INFO,
@@ -307,6 +324,7 @@ class BaseKafkaConsumer:
         parent_context = None
         try:
             import opentracing
+
             carrier = {}
             if message.headers:
                 for key, value in message.headers:
@@ -314,20 +332,22 @@ class BaseKafkaConsumer:
                     v = value.decode("utf-8") if isinstance(value, bytes) else value
                     carrier[k] = v
             tracer = get_tracer(__name__)
-            if hasattr(tracer, 'extract'):
+            if hasattr(tracer, "extract"):
                 parent_context = tracer.extract(opentracing.Format.TEXT_MAP, carrier)
         except Exception:
             pass  # Tracing not available
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("kafka.message.process", child_of=parent_context) as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("messaging.system", "kafka")
             span.set_tag("messaging.destination", message.topic)
             span.set_tag("messaging.kafka.partition", message.partition)
             span.set_tag("messaging.kafka.offset", message.offset)
             span.set_tag("messaging.kafka.consumer_group", self.group_id)
-            span.set_tag("messaging.message.id", message.key.decode("utf-8") if message.key else None)
+            span.set_tag(
+                "messaging.message.id", message.key.decode("utf-8") if message.key else None
+            )
             span.set_tag("span.kind", "consumer")
 
             with KafkaLogContext(
@@ -480,18 +500,14 @@ class BaseKafkaConsumer:
             return
 
         try:
-            update_consumer_offset(
-                message.topic, message.partition, self.group_id, message.offset
-            )
+            update_consumer_offset(message.topic, message.partition, self.group_id, message.offset)
 
             tp = TopicPartition(message.topic, message.partition)
             partition_metadata = self._consumer.highwater(tp)
 
             if partition_metadata is not None:
                 lag = partition_metadata - (message.offset + 1)
-                update_consumer_lag(
-                    message.topic, message.partition, self.group_id, lag
-                )
+                update_consumer_lag(message.topic, message.partition, self.group_id, lag)
 
         except Exception as e:
             log_with_context(
@@ -530,6 +546,13 @@ class BaseKafkaConsumer:
         if self.config.security_protocol != "PLAINTEXT":
             dlq_producer_config["security_protocol"] = self.config.security_protocol
             dlq_producer_config["sasl_mechanism"] = self.config.sasl_mechanism
+
+            # Create SSL context for SSL/SASL_SSL connections
+            if "SSL" in self.config.security_protocol:
+                import ssl
+
+                ssl_context = ssl.create_default_context()
+                dlq_producer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
                 oauth_callback = create_kafka_oauth_callback()

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -202,9 +202,7 @@ class FileBackedTokenCredential:
         self._cached_token = token
         self._token_acquired_at = datetime.now(timezone.utc)
 
-        self._logger.debug(
-            "FileBackedTokenCredential refreshed token for %s", self._resource
-        )
+        self._logger.debug("FileBackedTokenCredential refreshed token for %s", self._resource)
         return token
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
@@ -212,13 +210,9 @@ class FileBackedTokenCredential:
             self._fetch_token()
 
         if self._token_acquired_at:
-            expires_on = int(
-                (self._token_acquired_at + timedelta(hours=1)).timestamp()
-            )
+            expires_on = int((self._token_acquired_at + timedelta(hours=1)).timestamp())
         else:
-            expires_on = int(
-                (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()
-            )
+            expires_on = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
 
         return AccessToken(self._cached_token, expires_on)
 
@@ -279,9 +273,7 @@ class OneLakeClient(LoggedClass):
         self._connection_timeout = connection_timeout
         self._request_timeout = request_timeout
 
-        self.account_host, self.container, self.base_directory = parse_abfss_path(
-            base_path
-        )
+        self.account_host, self.container, self.base_directory = parse_abfss_path(base_path)
 
         self._service_client: Optional[DataLakeServiceClient] = None
         self._file_system_client = None
@@ -324,9 +316,7 @@ class OneLakeClient(LoggedClass):
 
         if auth.token_file:
             try:
-                credential = FileBackedTokenCredential(
-                    resource=auth.STORAGE_RESOURCE
-                )
+                credential = FileBackedTokenCredential(resource=auth.STORAGE_RESOURCE)
                 self._file_credential = credential
                 auth_mode = "file"
                 self._log(
@@ -399,9 +389,7 @@ class OneLakeClient(LoggedClass):
             transport=transport,
             connection_timeout=self._connection_timeout,
         )
-        self._file_system_client = self._service_client.get_file_system_client(
-            self.container
-        )
+        self._file_system_client = self._service_client.get_file_system_client(self.container)
 
         self._session = session
 
@@ -428,12 +416,14 @@ class OneLakeClient(LoggedClass):
     async def __aenter__(self):
         """Async context manager entry - create and initialize client."""
         import asyncio
+
         await asyncio.to_thread(self._create_clients, max_pool_size=self._max_pool_size)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit - close client."""
         import asyncio
+
         await asyncio.to_thread(self.close)
         return False
 
@@ -467,7 +457,7 @@ class OneLakeClient(LoggedClass):
         For FileBackedTokenCredential: forces immediate re-read from token file.
         For other auth modes: clears token cache.
         """
-        if hasattr(self, '_file_credential') and self._file_credential is not None:
+        if hasattr(self, "_file_credential") and self._file_credential is not None:
             try:
                 self._file_credential.force_refresh()
                 self._log(
@@ -856,6 +846,7 @@ class OneLakeClient(LoggedClass):
             Exception: On upload failures (auth, network, etc.)
         """
         import asyncio
+
         return await asyncio.to_thread(
             self.upload_bytes,
             relative_path,
@@ -874,6 +865,7 @@ class OneLakeClient(LoggedClass):
             True if file exists, False otherwise
         """
         import asyncio
+
         return await asyncio.to_thread(
             self.exists,
             relative_path,
@@ -890,6 +882,7 @@ class OneLakeClient(LoggedClass):
             True if deleted, False if didn't exist
         """
         import asyncio
+
         return await asyncio.to_thread(
             self.delete,
             relative_path,

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -101,12 +101,12 @@ class XACTStatusTriggerPlugin(Plugin):
                 self.triggers_by_status[status] = trigger
                 logger.info(
                     f"Registered XACT status trigger: {status}",
-                    extra={"plugin": self.name, "status": status}
+                    extra={"plugin": self.name, "status": status},
                 )
 
         logger.info(
             f"XACTStatusTriggerPlugin initialized with {len(self.triggers_by_status)} trigger(s)",
-            extra={"plugin": self.name, "trigger_count": len(self.triggers_by_status)}
+            extra={"plugin": self.name, "trigger_count": len(self.triggers_by_status)},
         )
 
     async def execute(self, context: PluginContext) -> PluginResult:
@@ -125,7 +125,7 @@ class XACTStatusTriggerPlugin(Plugin):
         if not status_subtype:
             logger.debug(
                 "No status_subtype in context, skipping",
-                extra={"plugin": self.name, "event_id": context.event_id}
+                extra={"plugin": self.name, "event_id": context.event_id},
             )
             return PluginResult(success=True, actions=[])
 
@@ -135,11 +135,7 @@ class XACTStatusTriggerPlugin(Plugin):
         if not trigger_config:
             logger.debug(
                 f"No trigger configured for status: {status_subtype}",
-                extra={
-                    "plugin": self.name,
-                    "event_id": context.event_id,
-                    "status": status_subtype
-                }
+                extra={"plugin": self.name, "event_id": context.event_id, "status": status_subtype},
             )
             return PluginResult(success=True, actions=[])
 
@@ -155,13 +151,11 @@ class XACTStatusTriggerPlugin(Plugin):
                 "trace_id": context.data.get("trace_id"),
                 "assignment_id": context.data.get("assignment_id"),
                 "action_count": len(actions),
-            }
+            },
         )
 
         return PluginResult(
-            success=True,
-            actions=actions,
-            message=f"Triggered actions for status {status_subtype}"
+            success=True, actions=actions, message=f"Triggered actions for status {status_subtype}"
         )
 
     def _build_actions(
@@ -192,19 +186,21 @@ class XACTStatusTriggerPlugin(Plugin):
         # 1. Kafka Topic Publishing
         if "publish_to_topic" in trigger_config:
             topic = trigger_config["publish_to_topic"]
-            actions.append(PluginAction(
-                action_type=ActionType.PUBLISH_TO_TOPIC,
-                params={
-                    "topic": topic,
-                    "key": context.event_id,
-                    "payload": payload,
-                    "headers": {
-                        "x-plugin-name": self.name,
-                        "x-status": context.data.get("status_subtype", ""),
-                        "x-event-type": context.event_type or "",
+            actions.append(
+                PluginAction(
+                    action_type=ActionType.PUBLISH_TO_TOPIC,
+                    params={
+                        "topic": topic,
+                        "key": context.event_id,
+                        "payload": payload,
+                        "headers": {
+                            "x-plugin-name": self.name,
+                            "x-status": context.data.get("status_subtype", ""),
+                            "x-event-type": context.event_type or "",
+                        },
                     },
-                }
-            ))
+                )
+            )
             logger.debug(f"Added Kafka publish action: {topic}")
 
         # 2. HTTP Webhook
@@ -215,16 +211,18 @@ class XACTStatusTriggerPlugin(Plugin):
             if isinstance(webhook_config, str):
                 webhook_config = {"url": webhook_config}
 
-            actions.append(PluginAction(
-                action_type=ActionType.HTTP_WEBHOOK,
-                params={
-                    "url": webhook_config.get("url"),
-                    "method": webhook_config.get("method", "POST"),
-                    "body": payload,
-                    "headers": webhook_config.get("headers", {}),
-                    "timeout": webhook_config.get("timeout", 30),
-                }
-            ))
+            actions.append(
+                PluginAction(
+                    action_type=ActionType.HTTP_WEBHOOK,
+                    params={
+                        "url": webhook_config.get("url"),
+                        "method": webhook_config.get("method", "POST"),
+                        "body": payload,
+                        "headers": webhook_config.get("headers", {}),
+                        "timeout": webhook_config.get("timeout", 30),
+                    },
+                )
+            )
             logger.debug(f"Added webhook action: {webhook_config.get('url')}")
 
         # 3. Log Action
@@ -245,13 +243,15 @@ class XACTStatusTriggerPlugin(Plugin):
                 task_status=context.data.get("status_subtype"),
             )
 
-            actions.append(PluginAction(
-                action_type=ActionType.LOG,
-                params={
-                    "level": log_config.get("level", "info"),
-                    "message": message,
-                }
-            ))
+            actions.append(
+                PluginAction(
+                    action_type=ActionType.LOG,
+                    params={
+                        "level": log_config.get("level", "info"),
+                        "message": message,
+                    },
+                )
+            )
             logger.debug(f"Added log action: {message[:50]}")
 
         return actions
@@ -281,7 +281,7 @@ class XACTStatusTriggerPlugin(Plugin):
                 "plugin_name": self.name,
                 "plugin_version": self.version,
                 "triggered_at": datetime.utcnow().isoformat(),
-            }
+            },
         }
 
     def should_run(self, context: PluginContext) -> bool:
@@ -303,10 +303,7 @@ class XACTStatusTriggerPlugin(Plugin):
 
         # Only run if we have at least one trigger configured
         if not self.triggers_by_status:
-            logger.debug(
-                "No triggers configured, plugin will not run",
-                extra={"plugin": self.name}
-            )
+            logger.debug("No triggers configured, plugin will not run", extra={"plugin": self.name})
             return False
 
         return True

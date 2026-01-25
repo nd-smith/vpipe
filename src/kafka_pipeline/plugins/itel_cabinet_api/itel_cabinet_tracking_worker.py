@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -104,12 +104,12 @@ class ItelCabinetTrackingWorker:
 
         # Create Kafka consumer
         self.consumer = AIOKafkaConsumer(
-            self.kafka_config['input_topic'],
-            bootstrap_servers=self.kafka_config['bootstrap_servers'],
-            group_id=self.kafka_config['consumer_group'],
-            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+            self.kafka_config["input_topic"],
+            bootstrap_servers=self.kafka_config["bootstrap_servers"],
+            group_id=self.kafka_config["consumer_group"],
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
             enable_auto_commit=False,  # Manual commit for exactly-once
-            auto_offset_reset='earliest',  # Process existing messages when no committed offset
+            auto_offset_reset="earliest",  # Process existing messages when no committed offset
             metadata_max_age_ms=30000,  # Refresh metadata every 30s (helps with topic discovery)
         )
 
@@ -117,9 +117,9 @@ class ItelCabinetTrackingWorker:
         logger.info(
             "Consumer started",
             extra={
-                'topic': self.kafka_config['input_topic'],
-                'group': self.kafka_config['consumer_group'],
-            }
+                "topic": self.kafka_config["input_topic"],
+                "group": self.kafka_config["consumer_group"],
+            },
         )
 
         self.running = True
@@ -153,25 +153,21 @@ class ItelCabinetTrackingWorker:
                     logger.info(
                         "Message processed successfully",
                         extra={
-                            'event_id': result.event.event_id,
-                            'assignment_id': result.event.assignment_id,
-                            'was_enriched': result.was_enriched(),
-                        }
+                            "event_id": result.event.event_id,
+                            "assignment_id": result.event.assignment_id,
+                            "was_enriched": result.was_enriched(),
+                        },
                     )
 
                 except ValueError as e:
                     # Validation error - log and skip message
-                    logger.error(
-                        f"Validation error: {e}",
-                        extra={'offset': message.offset}
-                    )
+                    logger.error(f"Validation error: {e}", extra={"offset": message.offset})
                     await self.consumer.commit()  # Skip bad message
 
                 except Exception as e:
                     # Processing error - log, commit to skip, and continue
                     logger.exception(
-                        f"Failed to process message: {e}",
-                        extra={'offset': message.offset}
+                        f"Failed to process message: {e}", extra={"offset": message.offset}
                     )
                     # Commit to skip failed message and continue polling
                     # Without this, consumer stays stuck on the same message
@@ -215,9 +211,7 @@ def load_worker_config() -> dict:
     workers = config_data.get("workers", {})
 
     if "itel_cabinet_tracking" not in workers:
-        raise ValueError(
-            f"Worker 'itel_cabinet_tracking' not found in {WORKERS_CONFIG_PATH}"
-        )
+        raise ValueError(f"Worker 'itel_cabinet_tracking' not found in {WORKERS_CONFIG_PATH}")
 
     return workers["itel_cabinet_tracking"]
 
@@ -296,9 +290,9 @@ async def main():
     # Setup Kafka configuration
     kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
     kafka_config = {
-        'bootstrap_servers': kafka_servers,
-        'input_topic': worker_config['kafka']['input_topic'],
-        'consumer_group': worker_config['kafka']['consumer_group'],
+        "bootstrap_servers": kafka_servers,
+        "input_topic": worker_config["kafka"]["input_topic"],
+        "consumer_group": worker_config["kafka"]["consumer_group"],
     }
 
     # Log startup with Kafka config (helps debug bootstrap server mismatches)
@@ -306,9 +300,9 @@ async def main():
         logger=logger,
         worker_name="iTel Cabinet Tracking Worker",
         kafka_bootstrap_servers=kafka_servers,
-        input_topic=kafka_config['input_topic'],
-        output_topic=worker_config.get('pipeline', {}).get('output_topic'),
-        consumer_group=kafka_config['consumer_group'],
+        input_topic=kafka_config["input_topic"],
+        output_topic=worker_config.get("pipeline", {}).get("output_topic"),
+        consumer_group=kafka_config["consumer_group"],
     )
 
     # Setup connection manager
@@ -347,7 +341,7 @@ async def main():
         connection_manager=connection_manager,
         delta_writer=delta_writer,
         kafka_producer=producer,
-        config=worker_config.get('pipeline', {}),
+        config=worker_config.get("pipeline", {}),
     )
 
     # Create and run worker
@@ -362,10 +356,7 @@ async def main():
     try:
         # Unix signal handling
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(
-                sig,
-                lambda: asyncio.create_task(worker.stop())
-            )
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
     except NotImplementedError:
         # Windows doesn't support add_signal_handler
         # Use signal.signal instead (less graceful but works)

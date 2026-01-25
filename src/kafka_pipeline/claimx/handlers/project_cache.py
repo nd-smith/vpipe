@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -75,10 +75,7 @@ class ProjectCache:
         self._hits = 0
         self._misses = 0
         self._expirations = 0
-        logger.debug(
-            "ProjectCache initialized",
-            extra={"ttl_seconds": self._ttl_seconds}
-        )
+        logger.debug("ProjectCache initialized", extra={"ttl_seconds": self._ttl_seconds})
 
     def has(self, project_id: str) -> bool:
         """
@@ -107,7 +104,7 @@ class ProjectCache:
                     extra={
                         "project_id": project_id,
                         "ttl_seconds": self._ttl_seconds,
-                    }
+                    },
                 )
                 return False
 
@@ -129,7 +126,7 @@ class ProjectCache:
                 extra={
                     "project_id": project_id,
                     "cache_size": len(self._projects),
-                }
+                },
             )
 
     def load_from_ids(self, project_ids: List[str]) -> int:
@@ -160,7 +157,7 @@ class ProjectCache:
                 "total_provided": len(project_ids),
                 "cache_size": len(self._projects),
                 "ttl_seconds": self._ttl_seconds,
-            }
+            },
         )
         return loaded_count
 
@@ -172,10 +169,7 @@ class ProjectCache:
         """Clear all cached project IDs."""
         count = len(self._projects)
         self._projects.clear()
-        logger.debug(
-            "Cleared project cache",
-            extra={"cleared_count": count}
-        )
+        logger.debug("Cleared project cache", extra={"cleared_count": count})
 
     def get_stats(self) -> Dict[str, int]:
         """
@@ -189,9 +183,11 @@ class ProjectCache:
             "misses": self._misses,
             "expirations": self._expirations,
             "size": len(self._projects),
-            "hit_rate_pct": round(
-                self._hits / (self._hits + self._misses) * 100, 1
-            ) if (self._hits + self._misses) > 0 else 0.0,
+            "hit_rate_pct": (
+                round(self._hits / (self._hits + self._misses) * 100, 1)
+                if (self._hits + self._misses) > 0
+                else 0.0
+            ),
         }
 
     def reset_stats(self) -> None:

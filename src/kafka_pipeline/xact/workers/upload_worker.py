@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord
@@ -98,19 +98,40 @@ class UploadWorker:
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
-    def __init__(self, config: KafkaConfig, domain: str = "xact", instance_id: Optional[str] = None):
+    def __init__(
+        self,
+        config: KafkaConfig,
+        domain: str = "xact",
+        instance_id: Optional[str] = None,
+        storage_client: Optional[Any] = None,
+    ):
         self.config = config
         self.domain = domain
         self.instance_id = instance_id
 
         # Create worker_id with instance suffix (coolname) if provided
         if instance_id:
-            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "upload_worker-happy-tiger"
+            self.worker_id = (
+                f"{self.WORKER_NAME}-{instance_id}"  # e.g., "upload_worker-happy-tiger"
+            )
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Validate OneLake configuration - need either domain paths or base path
-        if not config.onelake_domain_paths and not config.onelake_base_path:
+        # Store injected storage client (for simulation mode)
+        self._injected_storage_client = storage_client
+
+        if storage_client is not None:
+            logger.info(
+                "Using injected storage client (simulation mode)",
+                extra={"storage_type": type(storage_client).__name__},
+            )
+
+        # Validate OneLake configuration - need either domain paths or base path (only if not using injected client)
+        if (
+            storage_client is None
+            and not config.onelake_domain_paths
+            and not config.onelake_base_path
+        ):
             raise ValueError(
                 "OneLake path configuration required. Set either:\n"
                 "  - onelake_domain_paths in config.yaml (preferred), or\n"
@@ -212,28 +233,46 @@ class UploadWorker:
         # Start producer
         await self.producer.start()
 
-        # Initialize OneLake clients for each configured domain
-        for domain, path in self.config.onelake_domain_paths.items():
-            client = OneLakeClient(path)
-            await client.__aenter__()
-            self.onelake_clients[domain] = client
+        # Initialize storage clients (use injected client or create OneLake clients)
+        if self._injected_storage_client is not None:
+            # Use injected storage client for this domain (simulation mode)
+            # The XACT worker supports multi-domain routing, so we need to set it as the domain client
+            self.onelake_clients[self.domain] = self._injected_storage_client
+
+            # If the injected client is an async context manager, enter it
+            if hasattr(self._injected_storage_client, "__aenter__"):
+                await self._injected_storage_client.__aenter__()
+
             logger.info(
-                "Initialized OneLake client for domain",
+                "Using injected storage client for domain",
                 extra={
-                    "domain": domain,
-                    "onelake_base_path": path,
+                    "domain": self.domain,
+                    "storage_type": type(self._injected_storage_client).__name__,
                 },
             )
+        else:
+            # Initialize OneLake clients for each configured domain
+            for domain, path in self.config.onelake_domain_paths.items():
+                client = OneLakeClient(path)
+                await client.__aenter__()
+                self.onelake_clients[domain] = client
+                logger.info(
+                    "Initialized OneLake client for domain",
+                    extra={
+                        "domain": domain,
+                        "onelake_base_path": path,
+                    },
+                )
 
-        # Initialize fallback client if base_path is configured
-        if self.config.onelake_base_path:
-            fallback_client = OneLakeClient(self.config.onelake_base_path)
-            await fallback_client.__aenter__()
-            self.onelake_clients["_fallback"] = fallback_client
-            logger.info(
-                "Initialized fallback OneLake client",
-                extra={"onelake_base_path": self.config.onelake_base_path},
-            )
+            # Initialize fallback client if base_path is configured
+            if self.config.onelake_base_path:
+                fallback_client = OneLakeClient(self.config.onelake_base_path)
+                await fallback_client.__aenter__()
+                self.onelake_clients["_fallback"] = fallback_client
+                logger.info(
+                    "Initialized fallback OneLake client",
+                    extra={"onelake_base_path": self.config.onelake_base_path},
+                )
 
         # Create Kafka consumer
         await self._create_consumer()
@@ -273,9 +312,7 @@ class UploadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -302,7 +339,7 @@ class UploadWorker:
         if self._in_flight_tasks:
             logger.info(
                 "Waiting for in-flight uploads to complete",
-                extra={"in_flight_count": len(self._in_flight_tasks)}
+                extra={"in_flight_count": len(self._in_flight_tasks)},
             )
             wait_start = time.time()
             while self._in_flight_tasks and (time.time() - wait_start) < 30:
@@ -311,7 +348,7 @@ class UploadWorker:
             if self._in_flight_tasks:
                 logger.warning(
                     "Forcing shutdown with uploads still in progress",
-                    extra={"in_flight_count": len(self._in_flight_tasks)}
+                    extra={"in_flight_count": len(self._in_flight_tasks)},
                 )
 
         # Stop consumer
@@ -328,7 +365,9 @@ class UploadWorker:
                 await client.close()
                 logger.debug("Closed OneLake client", extra={"domain": domain})
             except Exception as e:
-                logger.warning("Error closing OneLake client", extra={"domain": domain, "error": str(e)})
+                logger.warning(
+                    "Error closing OneLake client", extra={"domain": domain, "error": str(e)}
+                )
         self.onelake_clients.clear()
 
         # Stop health check server
@@ -343,12 +382,18 @@ class UploadWorker:
 
     async def _create_consumer(self) -> None:
         # Get worker-specific consumer config (merged with defaults)
-        consumer_config_dict = self.config.get_worker_config(self.domain, self.WORKER_NAME, "consumer")
-        
+        consumer_config_dict = self.config.get_worker_config(
+            self.domain, self.WORKER_NAME, "consumer"
+        )
+
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": f"{self.domain}-upload-{self.instance_id}" if self.instance_id else f"{self.domain}-upload",
+            "client_id": (
+                f"{self.domain}-upload-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-upload"
+            ),
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "enable_auto_commit": False,
             "max_poll_records": self.batch_size,
@@ -434,9 +479,7 @@ class UploadWorker:
 
                 # Log when we first receive partition assignment
                 if not _logged_assignment_received:
-                    partition_info = [
-                        f"{tp.topic}:{tp.partition}" for tp in assignment
-                    ]
+                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
                     logger.info(
                         "Partition assignment received, starting message consumption",
                         extra={
@@ -508,17 +551,16 @@ class UploadWorker:
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
-        tasks = [
-            asyncio.create_task(self._process_single_with_semaphore(msg))
-            for msg in messages
-        ]
+        tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
 
         results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Handle any exceptions
         for upload_result in results:
             if isinstance(upload_result, Exception):
-                logger.error("Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True)
+                logger.error(
+                    "Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True
+                )
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
 
         # Commit offsets after batch
@@ -554,9 +596,7 @@ class UploadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.add(trace_id)
 
-            record_message_consumed(
-                self.topic, consumer_group, len(message.value), success=True
-            )
+            record_message_consumed(self.topic, consumer_group, len(message.value), success=True)
 
             # Verify cached file exists
             cache_path = Path(cached_message.local_cache_path)
@@ -608,7 +648,7 @@ class UploadWorker:
 
             tracer = get_tracer(__name__)
             with tracer.start_active_span("onelake.upload") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("trace_id", trace_id)
                 span.set_tag("media_id", cached_message.media_id)
@@ -761,4 +801,7 @@ class UploadWorker:
             logger.debug("Cleaned up cache file", extra={"cache_path": str(cache_path)})
 
         except Exception as e:
-            logger.warning("Failed to clean up cache file", extra={"cache_path": str(cache_path), "error": str(e)})
+            logger.warning(
+                "Failed to clean up cache file",
+                extra={"cache_path": str(cache_path), "error": str(e)},
+            )

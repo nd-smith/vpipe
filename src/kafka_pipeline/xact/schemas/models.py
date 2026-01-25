@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -12,7 +12,6 @@ Contains core models used for event processing and download task management.
 
 from dataclasses import dataclass
 from typing import Optional
-
 
 # XACT tracking table configuration
 XACT_PRIMARY_KEYS = ["trace_id", "attachment_url"]

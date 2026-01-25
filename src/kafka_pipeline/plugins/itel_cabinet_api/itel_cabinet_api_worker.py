@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -94,12 +94,32 @@ class ItelCabinetApiWorker:
         self.running = False
         self._shutdown_event = asyncio.Event()
 
+        # Detect simulation mode
+        from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
+
+        self.simulation_mode = is_simulation_mode()
+        if self.simulation_mode:
+            self.simulation_config = get_simulation_config()
+            self.output_dir = self.simulation_config.local_storage_path / "itel_submissions"
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "iTel Cabinet worker running in simulation mode",
+                extra={
+                    "output_dir": str(self.output_dir),
+                    "api_calls_disabled": True,
+                    "simulation_mode": True,
+                },
+            )
+        else:
+            self.output_dir = None
+
         logger.info(
             "ItelCabinetApiWorker initialized",
             extra={
-                'test_mode': api_config.get('test_mode', False),
-                'endpoint': api_config.get('endpoint'),
-            }
+                "test_mode": api_config.get("test_mode", False),
+                "simulation_mode": self.simulation_mode,
+                "endpoint": api_config.get("endpoint"),
+            },
         )
 
     async def start(self):
@@ -116,24 +136,24 @@ class ItelCabinetApiWorker:
         )
 
         self.consumer = AIOKafkaConsumer(
-            self.kafka_config['input_topic'],
-            bootstrap_servers=self.kafka_config['bootstrap_servers'],
-            group_id=self.kafka_config['consumer_group'],
-            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+            self.kafka_config["input_topic"],
+            bootstrap_servers=self.kafka_config["bootstrap_servers"],
+            group_id=self.kafka_config["consumer_group"],
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
             enable_auto_commit=False,
             # Consumer group membership timeout settings
-            session_timeout_ms=self.kafka_config.get('session_timeout_ms', 45000),
-            max_poll_interval_ms=self.kafka_config.get('max_poll_interval_ms', 600000),
-            heartbeat_interval_ms=self.kafka_config.get('heartbeat_interval_ms', 15000),
+            session_timeout_ms=self.kafka_config.get("session_timeout_ms", 45000),
+            max_poll_interval_ms=self.kafka_config.get("max_poll_interval_ms", 600000),
+            heartbeat_interval_ms=self.kafka_config.get("heartbeat_interval_ms", 15000),
         )
 
         await self.consumer.start()
         logger.info(
             "Consumer started",
             extra={
-                'topic': self.kafka_config['input_topic'],
-                'group': self.kafka_config['consumer_group'],
-            }
+                "topic": self.kafka_config["input_topic"],
+                "group": self.kafka_config["consumer_group"],
+            },
         )
 
         self.running = True
@@ -163,7 +183,9 @@ class ItelCabinetApiWorker:
                     api_payload = self._transform_to_api_format(payload)
 
                     # Send to API or write to file
-                    if self.api_config.get('test_mode', False):
+                    if self.simulation_mode:
+                        await self._write_simulation_payload(api_payload, payload)
+                    elif self.api_config.get("test_mode", False):
                         await self._write_test_payload(api_payload, payload)
                     else:
                         await self._send_to_api(api_payload)
@@ -174,15 +196,15 @@ class ItelCabinetApiWorker:
                     logger.info(
                         "Message processed successfully",
                         extra={
-                            'assignment_id': payload.get('assignment_id'),
-                            'test_mode': self.api_config.get('test_mode', False),
-                        }
+                            "assignment_id": payload.get("assignment_id"),
+                            "simulation_mode": self.simulation_mode,
+                            "test_mode": self.api_config.get("test_mode", False),
+                        },
                     )
 
                 except Exception as e:
                     logger.exception(
-                        f"Failed to process message: {e}",
-                        extra={'offset': message.offset}
+                        f"Failed to process message: {e}", extra={"offset": message.offset}
                     )
                     # Don't commit - will retry
 
@@ -203,16 +225,16 @@ class ItelCabinetApiWorker:
         Returns:
             iTel API formatted payload
         """
-        submission = payload.get('submission', {})
-        attachments = payload.get('attachments', [])
-        readable_report = payload.get('readable_report', {})
+        submission = payload.get("submission", {})
+        attachments = payload.get("attachments", [])
+        readable_report = payload.get("readable_report", {})
 
         logger.info(
             f"Processing payload with readable_report",
             extra={
-                'assignment_id': submission.get('assignment_id'),
-                'topics_count': len(readable_report.get('topics', {})),
-            }
+                "assignment_id": submission.get("assignment_id"),
+                "topics_count": len(readable_report.get("topics", {})),
+            },
         )
 
         # Build iTel API payload using readable_report
@@ -220,13 +242,10 @@ class ItelCabinetApiWorker:
         api_payload = {
             # Traceability
             "traceId": payload.get("event_id"),  # For end-to-end tracing
-
             # Metadata from readable_report.meta
             "meta": readable_report.get("meta", {}),
-
             # Topic-organized data from readable_report.topics
             "data": readable_report.get("topics", {}),
-
             # Customer info from submission
             "customer": {
                 "firstName": submission.get("customer_first_name"),
@@ -243,9 +262,9 @@ class ItelCabinetApiWorker:
         logger.info(
             "Sending to iTel API",
             extra={
-                'endpoint': self.api_config['endpoint'],
-                'assignment_id': api_payload.get('assignmentId'),
-            }
+                "endpoint": self.api_config["endpoint"],
+                "assignment_id": api_payload.get("assignmentId"),
+            },
         )
 
         # Send to API with tracing span
@@ -253,23 +272,25 @@ class ItelCabinetApiWorker:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("itel.api.submit") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "client")
             # Set span attributes
-            span.set_tag("http.method", self.api_config.get('method', 'POST'))
-            span.set_tag("http.url", self.api_config['endpoint'])
-            assignment_id = api_payload.get('meta', {}).get('assignmentId') or api_payload.get('assignmentId')
+            span.set_tag("http.method", self.api_config.get("method", "POST"))
+            span.set_tag("http.url", self.api_config["endpoint"])
+            assignment_id = api_payload.get("meta", {}).get("assignmentId") or api_payload.get(
+                "assignmentId"
+            )
             if assignment_id:
                 span.set_tag("assignment_id", assignment_id)
 
-            trace_id = api_payload.get('traceId')
+            trace_id = api_payload.get("traceId")
             if trace_id:
                 span.set_tag("trace_id", trace_id)
 
             status, response = await self.connections.request_json(
-                connection_name=self.api_config['connection'],
-                method=self.api_config.get('method', 'POST'),
-                path=self.api_config['endpoint'],
+                connection_name=self.api_config["connection"],
+                method=self.api_config.get("method", "POST"),
+                path=self.api_config["endpoint"],
                 json=api_payload,
             )
 
@@ -283,52 +304,109 @@ class ItelCabinetApiWorker:
         logger.info(
             "iTel API request successful",
             extra={
-                'status': status,
-                'assignment_id': assignment_id,
-            }
+                "status": status,
+                "assignment_id": assignment_id,
+            },
         )
 
     async def _write_test_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to file instead of sending to API (test mode)."""
-        output_dir = Path(self.api_config.get('test_output_dir', 'test_output'))
+        output_dir = Path(self.api_config.get("test_output_dir", "test_output"))
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        assignment_id = api_payload.get('assignmentId', 'unknown')
+        assignment_id = api_payload.get("assignmentId", "unknown")
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
         # Write the transformed API payload
         api_filename = f"payload_{assignment_id}_{timestamp}.json"
         api_output_path = output_dir / api_filename
 
-        with open(api_output_path, 'w') as f:
+        with open(api_output_path, "w") as f:
             json.dump(api_payload, f, indent=2, default=str)
 
         # Also write the original Kafka payload for debugging
         original_filename = f"original_{assignment_id}_{timestamp}.json"
         original_output_path = output_dir / original_filename
 
-        with open(original_output_path, 'w') as f:
+        with open(original_output_path, "w") as f:
             json.dump(original_payload, f, indent=2, default=str)
 
         # Log details about attachments for debugging
-        attachments = original_payload.get('attachments', [])
+        attachments = original_payload.get("attachments", [])
         if attachments:
             sample_att = attachments[0]
             logger.info(
                 f"[TEST MODE] Sample attachment keys: {list(sample_att.keys()) if isinstance(sample_att, dict) else 'not a dict'}",
                 extra={
-                    'sample_attachment': sample_att,
-                    'total_attachments': len(attachments),
-                }
+                    "sample_attachment": sample_att,
+                    "total_attachments": len(attachments),
+                },
             )
 
         logger.info(
             "[TEST MODE] Payloads written to files",
             extra={
-                'assignment_id': assignment_id,
-                'api_payload_file': str(api_output_path),
-                'original_payload_file': str(original_output_path),
-            }
+                "assignment_id": assignment_id,
+                "api_payload_file": str(api_output_path),
+                "original_payload_file": str(original_output_path),
+            },
+        )
+
+    async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
+        """Write payload to simulation directory (simulation mode).
+
+        In simulation mode, submissions are written to /tmp/vpipe_simulation/itel_submissions/
+        instead of being sent to the real iTel API. This enables end-to-end testing
+        without external dependencies.
+
+        Args:
+            api_payload: Transformed payload for iTel API
+            original_payload: Original Kafka message payload
+        """
+        # Extract assignment_id from meta or fall back to submission
+        meta = api_payload.get("meta", {})
+        assignment_id = meta.get("assignmentId") or original_payload.get("submission", {}).get(
+            "assignment_id", "unknown"
+        )
+
+        # Create filename with timestamp for uniqueness
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"itel_submission_{assignment_id}_{timestamp}.json"
+        filepath = self.output_dir / filename
+
+        # Build submission data matching API payload format
+        submission_data = {
+            "assignment_id": assignment_id,
+            "project_id": meta.get("projectId"),
+            "task_id": meta.get("taskId"),
+            "task_name": meta.get("taskName"),
+            "status": meta.get("status"),
+            "trace_id": api_payload.get("traceId"),
+            # Customer information
+            "customer": api_payload.get("customer", {}),
+            # Cabinet damage data (organized by topic from readable_report)
+            "data": api_payload.get("data", {}),
+            # Metadata
+            "meta": meta,
+            # Submission metadata
+            "submitted_at": datetime.utcnow().isoformat(),
+            "simulation_mode": True,
+            "source": "itel_cabinet_api_worker",
+        }
+
+        # Write to file
+        filepath.write_text(json.dumps(submission_data, indent=2, default=str))
+
+        logger.info(
+            "[SIMULATION MODE] iTel submission written to file",
+            extra={
+                "assignment_id": assignment_id,
+                "filepath": str(filepath),
+                "project_id": meta.get("projectId"),
+                "task_id": meta.get("taskId"),
+                "data_topics": list(api_payload.get("data", {}).keys()),
+                "simulation_mode": True,
+            },
         )
 
     async def stop(self):
@@ -358,9 +436,7 @@ def load_worker_config() -> dict:
     workers = config_data.get("workers", {})
 
     if "itel_cabinet_api" not in workers:
-        raise ValueError(
-            f"Worker 'itel_cabinet_api' not found in {WORKERS_CONFIG_PATH}"
-        )
+        raise ValueError(f"Worker 'itel_cabinet_api' not found in {WORKERS_CONFIG_PATH}")
 
     return workers["itel_cabinet_api"]
 
@@ -423,7 +499,7 @@ async def main():
     parser.add_argument(
         "--dev",
         action="store_true",
-        help="Enable dev mode (writes API payloads to test directory instead of sending)"
+        help="Enable dev mode (writes API payloads to test directory instead of sending)",
     )
     args = parser.parse_args()
 
@@ -454,7 +530,7 @@ async def main():
 
     # Override test mode if --dev flag
     if args.dev:
-        worker_config['api']['test_mode'] = True
+        worker_config["api"]["test_mode"] = True
 
     # Setup connection manager
     connection_manager = ConnectionManager()
@@ -464,9 +540,9 @@ async def main():
     # Kafka configuration
     kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
     kafka_config = {
-        'bootstrap_servers': kafka_servers,
-        'input_topic': worker_config['kafka']['input_topic'],
-        'consumer_group': worker_config['kafka']['consumer_group'],
+        "bootstrap_servers": kafka_servers,
+        "input_topic": worker_config["kafka"]["input_topic"],
+        "consumer_group": worker_config["kafka"]["consumer_group"],
     }
 
     logger.info(f"Kafka bootstrap servers: {kafka_servers}")
@@ -476,7 +552,7 @@ async def main():
     # Create and run worker
     worker = ItelCabinetApiWorker(
         kafka_config=kafka_config,
-        api_config=worker_config['api'],
+        api_config=worker_config["api"],
         connection_manager=connection_manager,
     )
 
@@ -485,10 +561,7 @@ async def main():
     try:
         # Unix signal handling
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(
-                sig,
-                lambda: asyncio.create_task(worker.stop())
-            )
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
     except NotImplementedError:
         # Windows doesn't support add_signal_handler
         # Use signal.signal instead (less graceful but works)

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -40,6 +40,7 @@ DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"
 @dataclass
 class TopicStats:
     """Statistics for a single Kafka topic."""
+
     name: str
     partitions: int = 0
     total_lag: int = 0
@@ -50,6 +51,7 @@ class TopicStats:
 @dataclass
 class WorkerStats:
     """Statistics for a worker type."""
+
     name: str
     connected: bool = False
     in_flight: int = 0
@@ -60,6 +62,7 @@ class WorkerStats:
 @dataclass
 class DashboardData:
     """Aggregated dashboard data."""
+
     topics: Dict[str, TopicStats] = field(default_factory=dict)
     workers: Dict[str, WorkerStats] = field(default_factory=dict)
     timestamp: str = ""
@@ -71,9 +74,7 @@ class MetricsParser:
     """Parse Prometheus metrics text format."""
 
     # Patterns for metric lines
-    METRIC_PATTERN = re.compile(
-        r'^(\w+)(?:\{([^}]*)\})?\s+([\d.eE+-]+|NaN|Inf|-Inf)$'
-    )
+    METRIC_PATTERN = re.compile(r"^(\w+)(?:\{([^}]*)\})?\s+([\d.eE+-]+|NaN|Inf|-Inf)$")
     LABEL_PATTERN = re.compile(r'(\w+)="([^"]*)"')
 
     def parse(self, text: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -84,9 +85,9 @@ class MetricsParser:
         """
         metrics: Dict[str, List[Dict[str, Any]]] = {}
 
-        for line in text.split('\n'):
+        for line in text.split("\n"):
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
             match = self.METRIC_PATTERN.match(line)
@@ -104,7 +105,7 @@ class MetricsParser:
 
             # Parse value
             try:
-                if value_str in ('NaN', 'Inf', '-Inf'):
+                if value_str in ("NaN", "Inf", "-Inf"):
                     value = float(value_str)
                 else:
                     value = float(value_str)
@@ -113,7 +114,7 @@ class MetricsParser:
 
             if name not in metrics:
                 metrics[name] = []
-            metrics[name].append({'labels': labels, 'value': value})
+            metrics[name].append({"labels": labels, "value": value})
 
         return metrics
 
@@ -182,15 +183,15 @@ class MonitoringServer:
 
         # Consumer lag per topic
         for entry in metrics.get("kafka_consumer_lag", []):
-            topic = entry['labels'].get('topic', '')
+            topic = entry["labels"].get("topic", "")
             if topic in data.topics:
-                data.topics[topic].total_lag += int(entry['value'])
+                data.topics[topic].total_lag += int(entry["value"])
 
         # Partition count from lag metrics (count unique partitions)
         partition_counts: Dict[str, set] = {t: set() for t in topic_names}
         for entry in metrics.get("kafka_consumer_lag", []):
-            topic = entry['labels'].get('topic', '')
-            partition = entry['labels'].get('partition', '')
+            topic = entry["labels"].get("topic", "")
+            partition = entry["labels"].get("partition", "")
             if topic in partition_counts:
                 partition_counts[topic].add(partition)
 
@@ -200,15 +201,15 @@ class MonitoringServer:
 
         # Messages consumed (total counter)
         for entry in metrics.get("kafka_messages_consumed_total", []):
-            topic = entry['labels'].get('topic', '')
+            topic = entry["labels"].get("topic", "")
             if topic in data.topics:
-                data.topics[topic].messages_consumed += int(entry['value'])
+                data.topics[topic].messages_consumed += int(entry["value"])
 
         # Messages produced (total counter)
         for entry in metrics.get("kafka_messages_produced_total", []):
-            topic = entry['labels'].get('topic', '')
+            topic = entry["labels"].get("topic", "")
             if topic in data.topics:
-                data.topics[topic].messages_produced += int(entry['value'])
+                data.topics[topic].messages_produced += int(entry["value"])
 
     def _extract_worker_stats(
         self, metrics: Dict[str, List[Dict[str, Any]]], data: DashboardData
@@ -222,8 +223,8 @@ class MonitoringServer:
 
         # Connection status
         for entry in metrics.get("kafka_connection_status", []):
-            component = entry['labels'].get('component', '')
-            connected = entry['value'] == 1.0
+            component = entry["labels"].get("component", "")
+            connected = entry["value"] == 1.0
             # Map component to worker
             if component == "consumer":
                 for w in ["download_worker", "upload_worker", "result_processor", "event_ingester"]:
@@ -235,25 +236,25 @@ class MonitoringServer:
 
         # Concurrent downloads
         for entry in metrics.get("kafka_downloads_concurrent", []):
-            worker = entry['labels'].get('worker', '')
+            worker = entry["labels"].get("worker", "")
             if worker in data.workers:
-                data.workers[worker].in_flight = int(entry['value'])
+                data.workers[worker].in_flight = int(entry["value"])
 
         # Processing errors
         for entry in metrics.get("kafka_processing_errors_total", []):
             # Sum all errors - metrics don't have worker label, use topic to infer
-            topic = entry['labels'].get('topic', '')
-            if 'pending' in topic or 'retry' in topic:
-                data.workers.get("download_worker", WorkerStats("")).errors += int(entry['value'])
-            elif 'cached' in topic:
-                data.workers.get("upload_worker", WorkerStats("")).errors += int(entry['value'])
-            elif 'results' in topic:
-                data.workers.get("result_processor", WorkerStats("")).errors += int(entry['value'])
+            topic = entry["labels"].get("topic", "")
+            if "pending" in topic or "retry" in topic:
+                data.workers.get("download_worker", WorkerStats("")).errors += int(entry["value"])
+            elif "cached" in topic:
+                data.workers.get("upload_worker", WorkerStats("")).errors += int(entry["value"])
+            elif "results" in topic:
+                data.workers.get("result_processor", WorkerStats("")).errors += int(entry["value"])
 
         # Circuit breaker state
         for entry in metrics.get("kafka_circuit_breaker_state", []):
-            component = entry['labels'].get('component', '')
-            state_val = int(entry['value'])
+            component = entry["labels"].get("component", "")
+            state_val = int(entry["value"])
             state = {0: "closed", 1: "open", 2: "half-open"}.get(state_val, "unknown")
             if component in data.workers:
                 data.workers[component].circuit_breaker = state
@@ -263,8 +264,10 @@ class MonitoringServer:
         # Build topic rows
         topic_rows = ""
         for topic in data.topics.values():
-            lag_class = "text-success" if topic.total_lag == 0 else (
-                "text-warning" if topic.total_lag < 100 else "text-danger"
+            lag_class = (
+                "text-success"
+                if topic.total_lag == 0
+                else ("text-warning" if topic.total_lag < 100 else "text-danger")
             )
             topic_rows += f"""
                 <tr>
@@ -280,7 +283,8 @@ class MonitoringServer:
         worker_rows = ""
         for worker in data.workers.values():
             status_badge = (
-                '<span class="badge bg-success">Connected</span>' if worker.connected
+                '<span class="badge bg-success">Connected</span>'
+                if worker.connected
                 else '<span class="badge bg-danger">Disconnected</span>'
             )
             cb_badge = {
@@ -433,15 +437,17 @@ class MonitoringServer:
     async def handle_api_stats(self, request: web.Request) -> web.Response:
         """Handle GET /api/stats - return JSON stats."""
         data = await self.get_dashboard_data()
-        return web.json_response({
-            "timestamp": data.timestamp,
-            "topics": {k: vars(v) for k, v in data.topics.items()},
-            "workers": {k: vars(v) for k, v in data.workers.items()},
-            "errors": {
-                "metrics": data.metrics_error,
-                "kafka": data.kafka_error,
-            },
-        })
+        return web.json_response(
+            {
+                "timestamp": data.timestamp,
+                "topics": {k: vars(v) for k, v in data.topics.items()},
+                "workers": {k: vars(v) for k, v in data.workers.items()},
+                "errors": {
+                    "metrics": data.metrics_error,
+                    "kafka": data.kafka_error,
+                },
+            }
+        )
 
     def create_app(self) -> web.Application:
         """Create aiohttp application."""
@@ -468,32 +474,29 @@ class MonitoringServer:
 
 async def main() -> None:
     """Main entry point for standalone monitoring server."""
-    parser = argparse.ArgumentParser(
-        description="Kafka Pipeline Monitoring Dashboard"
+    parser = argparse.ArgumentParser(description="Kafka Pipeline Monitoring Dashboard")
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help=f"HTTP server port (default: {DEFAULT_PORT})"
     )
     parser.add_argument(
-        "--port", type=int, default=DEFAULT_PORT,
-        help=f"HTTP server port (default: {DEFAULT_PORT})"
+        "--metrics-url",
+        type=str,
+        default=DEFAULT_METRICS_URL,
+        help=f"Prometheus metrics URL (default: {DEFAULT_METRICS_URL})",
     )
     parser.add_argument(
-        "--metrics-url", type=str, default=DEFAULT_METRICS_URL,
-        help=f"Prometheus metrics URL (default: {DEFAULT_METRICS_URL})"
-    )
-    parser.add_argument(
-        "--bootstrap-servers", type=str,
+        "--bootstrap-servers",
+        type=str,
         default=os.getenv("KAFKA_BOOTSTRAP_SERVERS", DEFAULT_BOOTSTRAP_SERVERS),
-        help="Kafka bootstrap servers"
+        help="Kafka bootstrap servers",
     )
-    parser.add_argument(
-        "--debug", action="store_true",
-        help="Enable debug logging"
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
     # Configure logging
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     server = MonitoringServer(

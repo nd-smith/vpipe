@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -45,6 +45,7 @@ from kafka_pipeline.common.metrics import (
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.simulation.config import is_simulation_mode, get_simulation_config
 from kafka_pipeline.xact.retry import DownloadRetryHandler
 from kafka_pipeline.xact.schemas.tasks import (
     XACTEnrichmentTask,
@@ -99,7 +100,9 @@ class XACTEnrichmentWorker:
 
         # Create worker_id with instance suffix (coolname) if provided
         if instance_id:
-            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "enrichment_worker-happy-tiger"
+            self.worker_id = (
+                f"{self.WORKER_NAME}-{instance_id}"  # e.g., "enrichment_worker-happy-tiger"
+            )
         else:
             self.worker_id = self.WORKER_NAME
 
@@ -151,6 +154,26 @@ class XACTEnrichmentWorker:
         # UUID namespace for deterministic media_id generation
         self.MEDIA_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "http://xactPipeline/media_id")
 
+        # Check if simulation mode is enabled for localhost URL support
+        self._simulation_mode_enabled = is_simulation_mode()
+        if self._simulation_mode_enabled:
+            try:
+                self._simulation_config = get_simulation_config()
+                logger.info(
+                    "Simulation mode enabled - localhost URLs will be allowed",
+                    extra={
+                        "allow_localhost_urls": self._simulation_config.allow_localhost_urls,
+                    },
+                )
+            except RuntimeError:
+                # Simulation mode check indicated true but config failed to load
+                # Fall back to disabled for safety
+                self._simulation_mode_enabled = False
+                self._simulation_config = None
+                logger.warning("Simulation mode check failed, localhost URLs will be blocked")
+        else:
+            self._simulation_config = None
+
         logger.info(
             "Initialized XACTEnrichmentWorker",
             extra={
@@ -165,6 +188,7 @@ class XACTEnrichmentWorker:
                 "max_poll_records": self.max_poll_records,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
+                "simulation_mode": self._simulation_mode_enabled,
             },
         )
 
@@ -195,12 +219,10 @@ class XACTEnrichmentWorker:
         )
         await self.producer.start()
 
-        plugins_dir = self.processing_config.get(
-            "plugins_dir",
-            "config/plugins"
-        )
+        plugins_dir = self.processing_config.get("plugins_dir", "config/plugins")
         try:
             import os
+
             if os.path.exists(plugins_dir):
                 loaded_plugins = load_plugins_from_directory(plugins_dir)
                 logger.info(
@@ -270,7 +292,9 @@ class XACTEnrichmentWorker:
         try:
             self.consumer = self._create_consumer()
             await self.consumer.start()
-            update_connection_status(True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
+            update_connection_status(
+                True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+            )
 
             self.health_server.set_ready(kafka_connected=True)
 
@@ -313,7 +337,9 @@ class XACTEnrichmentWorker:
 
         if self.consumer:
             await self.consumer.stop()
-            update_connection_status(False, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
+            update_connection_status(
+                False, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+            )
 
         if self.producer:
             await self.producer.stop()
@@ -336,7 +362,11 @@ class XACTEnrichmentWorker:
         common_args = {
             "bootstrap_servers": self.consumer_config.bootstrap_servers,
             "group_id": group_id,
-            "client_id": f"{self.domain}-enrichment-{self.instance_id}" if self.instance_id else f"{self.domain}-enrichment",
+            "client_id": (
+                f"{self.domain}-enrichment-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-enrichment"
+            ),
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "metadata_max_age_ms": 30000,
@@ -356,10 +386,7 @@ class XACTEnrichmentWorker:
             if self.consumer_config.sasl_mechanism == "OAUTHBEARER":
                 common_args["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
 
-        return AIOKafkaConsumer(
-            *self.topics,
-            **common_args
-        )
+        return AIOKafkaConsumer(*self.topics, **common_args)
 
     async def _consume_loop(self) -> None:
         """
@@ -370,8 +397,7 @@ class XACTEnrichmentWorker:
         try:
             while self._running:
                 msg_dict = await self.consumer.getmany(
-                    timeout_ms=1000,
-                    max_records=self.max_poll_records
+                    timeout_ms=1000, max_records=self.max_poll_records
                 )
 
                 if not msg_dict:
@@ -392,11 +418,7 @@ class XACTEnrichmentWorker:
             logger.debug("Consumption loop cancelled")
             raise
         except Exception as e:
-            logger.error(
-                "Error in consumption loop",
-                extra={"error": str(e)},
-                exc_info=True
-            )
+            logger.error("Error in consumption loop", extra={"error": str(e)}, exc_info=True)
             raise
         finally:
             logger.info("Consumption loop ended")
@@ -558,7 +580,7 @@ class XACTEnrichmentWorker:
 
             tracer = get_tracer(__name__)
             with tracer.start_active_span("xact.enrich") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("event.id", task.event_id)
                 span.set_tag("event.type", task.event_type)
@@ -663,8 +685,16 @@ class XACTEnrichmentWorker:
 
         for attachment_url in task.attachments:
             try:
+                # Determine if localhost URLs should be allowed based on simulation config
+                allow_localhost = False
+                if self._simulation_mode_enabled and self._simulation_config:
+                    allow_localhost = self._simulation_config.allow_localhost_urls
+
                 # Validate attachment URL
-                is_valid, error_message = validate_download_url(attachment_url)
+                is_valid, error_message = validate_download_url(
+                    attachment_url,
+                    allow_localhost=allow_localhost,
+                )
                 if not is_valid:
                     logger.warning(
                         "Invalid attachment URL, skipping",
@@ -673,6 +703,7 @@ class XACTEnrichmentWorker:
                             "trace_id": task.trace_id,
                             "url": sanitize_url(attachment_url),
                             "validation_error": error_message,
+                            "allow_localhost": allow_localhost,
                         },
                     )
                     continue
@@ -687,7 +718,9 @@ class XACTEnrichmentWorker:
                 )
 
                 # Generate deterministic media_id
-                media_id = str(uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}"))
+                media_id = str(
+                    uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}")
+                )
 
                 # Create download task
                 download_task = DownloadTaskMessage(
@@ -817,7 +850,6 @@ class XACTEnrichmentWorker:
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")
             raise
-
 
     async def _handle_enrichment_failure(
         self,

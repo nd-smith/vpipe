@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -452,7 +452,7 @@ class DeltaEventsWorker:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("delta.write") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "client")
             span.set_tag("batch_id", batch_id)
             span.set_tag("batch_size", batch_size)

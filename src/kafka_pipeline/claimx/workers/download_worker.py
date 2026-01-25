@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -54,15 +54,12 @@ from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.retry import DownloadRetryHandler
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
+from kafka_pipeline.simulation.config import is_simulation_mode, get_simulation_config
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
     update_connection_status,
     update_assigned_partitions,
-    update_downloads_batch_size,
-    message_processing_duration_seconds,
-    claim_processing_seconds,
-    claim_media_bytes_total,
 )
 
 logger = get_logger(__name__)
@@ -115,7 +112,13 @@ class ClaimXDownloadWorker:
 
     WORKER_NAME = "download_worker"
 
-    def __init__(self, config: KafkaConfig, domain: str = "claimx", temp_dir: Optional[Path] = None, instance_id: Optional[str] = None):
+    def __init__(
+        self,
+        config: KafkaConfig,
+        domain: str = "claimx",
+        temp_dir: Optional[Path] = None,
+        instance_id: Optional[str] = None,
+    ):
         self.config = config
         self.domain = domain
         self.instance_id = instance_id
@@ -171,6 +174,26 @@ class ClaimXDownloadWorker:
         self.downloader = AttachmentDownloader()
         self.api_client: Optional[ClaimXApiClient] = None
         self.retry_handler: Optional[DownloadRetryHandler] = None
+
+        # Check if simulation mode is enabled for localhost URL support
+        self._simulation_mode_enabled = is_simulation_mode()
+        if self._simulation_mode_enabled:
+            try:
+                self._simulation_config = get_simulation_config()
+                logger.info(
+                    "Simulation mode enabled - localhost URLs will be allowed",
+                    extra={
+                        "allow_localhost_urls": self._simulation_config.allow_localhost_urls,
+                    },
+                )
+            except RuntimeError:
+                # Simulation mode check indicated true but config failed to load
+                # Fall back to disabled for safety
+                self._simulation_mode_enabled = False
+                self._simulation_config = None
+                logger.warning("Simulation mode check failed, localhost URLs will be blocked")
+        else:
+            self._simulation_config = None
 
         health_port = processing_config.get("health_port", 8082)
         self.health_server = HealthCheckServer(
@@ -232,12 +255,19 @@ class ClaimXDownloadWorker:
 
         await self.producer.start()
 
-        self.api_client = ClaimXApiClient(
-            base_url=self.config.claimx_api_url or "https://api.test.claimxperience.com",
-            token=self.config.claimx_api_token,
-            timeout_seconds=self.config.claimx_api_timeout_seconds,
-            max_concurrent=self.config.claimx_api_concurrency,
-        )
+        if self._simulation_mode_enabled:
+            # In simulation mode, use mock API client (doesn't need real credentials)
+            from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
+
+            self.api_client = MockClaimXAPIClient(fixtures_dir=self._simulation_config.fixtures_dir)
+            logger.info("Using MockClaimXAPIClient for simulation mode")
+        else:
+            self.api_client = ClaimXApiClient(
+                base_url=self.config.claimx_api_url or "https://api.test.claimxperience.com",
+                token=self.config.claimx_api_token,
+                timeout_seconds=self.config.claimx_api_timeout_seconds,
+                max_concurrent=self.config.claimx_api_concurrency,
+            )
 
         self.retry_handler = DownloadRetryHandler(
             config=self.config,
@@ -287,12 +317,18 @@ class ClaimXDownloadWorker:
             self._running = False
 
     async def _create_consumer(self) -> None:
-        consumer_config_dict = self.config.get_worker_config(self.domain, self.WORKER_NAME, "consumer")
-        
+        consumer_config_dict = self.config.get_worker_config(
+            self.domain, self.WORKER_NAME, "consumer"
+        )
+
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}",
+            "client_id": (
+                f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
+            ),
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "max_poll_records": self.batch_size,
@@ -330,9 +366,7 @@ class ClaimXDownloadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -386,7 +420,7 @@ class ClaimXDownloadWorker:
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(consumer_group, 0)
-        update_downloads_batch_size(self.WORKER_NAME, 0)
+        # Note: update_downloads_batch_size metric not implemented
 
         logger.info("ClaimX download worker stopped successfully")
 
@@ -445,9 +479,7 @@ class ClaimXDownloadWorker:
                     continue
 
                 if not _logged_assignment_received:
-                    partition_info = [
-                        f"{tp.topic}:{tp.partition}" for tp in assignment
-                    ]
+                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
                     logger.info(
                         "Partition assignment received, starting message consumption",
                         extra={
@@ -474,7 +506,7 @@ class ClaimXDownloadWorker:
                 if not messages:
                     continue
 
-                update_downloads_batch_size(self.WORKER_NAME, len(messages))
+                # Note: update_downloads_batch_size metric not implemented
 
                 logger.debug(
                     "Processing message batch",
@@ -495,7 +527,7 @@ class ClaimXDownloadWorker:
                         extra={"batch_size": len(messages)},
                     )
 
-                update_downloads_batch_size(self.WORKER_NAME, 0)
+                # Note: update_downloads_batch_size metric not implemented
 
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")
@@ -550,7 +582,7 @@ class ClaimXDownloadWorker:
 
         self._records_succeeded += succeeded
         self._records_failed += failed
-        self._records_failed += errors # Count errors as failed too
+        self._records_failed += errors  # Count errors as failed too
 
         return [r for r in processed_results if r is not None]
 
@@ -610,7 +642,7 @@ class ClaimXDownloadWorker:
 
             tracer = get_tracer(__name__)
             with tracer.start_active_span("download.execute") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("media.id", task_message.media_id)
                 span.set_tag("project.id", task_message.project_id)
@@ -621,11 +653,8 @@ class ClaimXDownloadWorker:
 
             consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
             duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(
-                topic=message.topic, consumer_group=consumer_group
-            ).observe(duration)
-
-            claim_processing_seconds.labels(step="download").observe(duration)
+            # Note: message_processing_duration_seconds metric not implemented
+            # Note: claim_processing_seconds metric not implemented
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
@@ -654,7 +683,11 @@ class ClaimXDownloadWorker:
                     outcome=outcome,
                     processing_time_ms=processing_time_ms,
                     success=False,
-                    error=CircuitOpenError("claimx_download_worker", 60.0) if is_circuit_error else None,
+                    error=(
+                        CircuitOpenError("claimx_download_worker", 60.0)
+                        if is_circuit_error
+                        else None
+                    ),
                 )
 
         finally:
@@ -679,12 +712,18 @@ class ClaimXDownloadWorker:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.media_id / destination_filename
 
+        # Determine if localhost URLs should be allowed based on simulation config
+        allow_localhost = False
+        if self._simulation_mode_enabled and self._simulation_config:
+            allow_localhost = self._simulation_config.allow_localhost_urls
+
         return DownloadTask(
             url=task_message.download_url,
             destination=temp_file,
             timeout=60,
             validate_url=True,
             validate_file_type=True,
+            allow_localhost=allow_localhost,
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,
@@ -794,9 +833,17 @@ class ClaimXDownloadWorker:
             media_type = "unknown"
             if task_message.file_type:
                 file_type_lower = task_message.file_type.lower()
-                if "image" in file_type_lower or "jpg" in file_type_lower or "png" in file_type_lower:
+                if (
+                    "image" in file_type_lower
+                    or "jpg" in file_type_lower
+                    or "png" in file_type_lower
+                ):
                     media_type = "image"
-                elif "video" in file_type_lower or "mp4" in file_type_lower or "mov" in file_type_lower:
+                elif (
+                    "video" in file_type_lower
+                    or "mp4" in file_type_lower
+                    or "mov" in file_type_lower
+                ):
                     media_type = "video"
                 elif "pdf" in file_type_lower or "doc" in file_type_lower:
                     media_type = "document"
@@ -809,7 +856,7 @@ class ClaimXDownloadWorker:
                 elif "pdf" in content_type_lower or "document" in content_type_lower:
                     media_type = "document"
 
-            claim_media_bytes_total.labels(type=media_type).inc(outcome.bytes_downloaded)
+            # Note: claim_media_bytes_total metric not implemented
 
         try:
             if outcome.file_path.parent.exists():
@@ -926,6 +973,7 @@ class ClaimXDownloadWorker:
 
     async def _cleanup_temp_file(self, file_path: Path) -> None:
         try:
+
             def _delete():
                 if file_path.exists():
                     file_path.unlink()
@@ -956,6 +1004,7 @@ class ClaimXDownloadWorker:
     async def _cleanup_empty_temp_dir(self, dir_path: Path) -> None:
         """Clean up empty temp directory created before failed download."""
         try:
+
             def _delete_if_empty():
                 if dir_path.exists() and dir_path.is_dir():
                     if not any(dir_path.iterdir()):

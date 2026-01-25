@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -58,57 +58,33 @@ class ClaimXUploadResultMessage(BaseModel):
         ... )
     """
 
-    media_id: str = Field(
-        ...,
-        description="Media file identifier from ClaimX",
-        min_length=1
-    )
-    project_id: str = Field(
-        ...,
-        description="ClaimX project ID",
-        min_length=1
-    )
+    media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
+    project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     download_url: str = Field(
-        ...,
-        description="Original S3 presigned URL the file was downloaded from",
-        min_length=1
+        ..., description="Original S3 presigned URL the file was downloaded from", min_length=1
     )
     blob_path: str = Field(
-        ...,
-        description="Target path in OneLake (relative to base path)",
-        min_length=1
+        ..., description="Target path in OneLake (relative to base path)", min_length=1
     )
     file_type: str = Field(
-        default="",
-        description="File type/extension (e.g., 'pdf', 'jpg', 'mp4')"
+        default="", description="File type/extension (e.g., 'pdf', 'jpg', 'mp4')"
     )
-    file_name: str = Field(
-        default="",
-        description="Original file name"
-    )
+    file_name: str = Field(default="", description="Original file name")
     source_event_id: str = Field(
-        default="",
-        description="ID of the event that triggered this download"
+        default="", description="ID of the event that triggered this download"
     )
     status: Literal["completed", "failed", "failed_permanent"] = Field(
-        ...,
-        description="Outcome status: completed, failed (transient), or failed_permanent"
+        ..., description="Outcome status: completed, failed (transient), or failed_permanent"
     )
     bytes_uploaded: int = Field(
-        default=0,
-        description="Number of bytes uploaded (0 if failed)",
-        ge=0
+        default=0, description="Number of bytes uploaded (0 if failed)", ge=0
     )
     error_message: Optional[str] = Field(
-        default=None,
-        description="Error description if failed (truncated to 500 chars)"
+        default=None, description="Error description if failed (truncated to 500 chars)"
     )
-    created_at: datetime = Field(
-        ...,
-        description="Timestamp when result was created"
-    )
+    created_at: datetime = Field(..., description="Timestamp when result was created")
 
-    @field_validator('media_id', 'project_id', 'download_url', 'blob_path')
+    @field_validator("media_id", "project_id", "download_url", "blob_path")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure required string fields are not empty or whitespace-only."""
@@ -116,39 +92,39 @@ class ClaimXUploadResultMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    @field_serializer('created_at')
+    @field_serializer("created_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:
         """Serialize datetime to ISO 8601 format."""
         return timestamp.isoformat()
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'media_id': 'media_111',
-                    'project_id': 'proj_67890',
-                    'download_url': 'https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?signature=...',
-                    'blob_path': 'claimx/proj_67890/media/photo.jpg',
-                    'file_type': 'jpg',
-                    'file_name': 'photo.jpg',
-                    'source_event_id': 'evt_12345',
-                    'status': 'completed',
-                    'bytes_uploaded': 2048576,
-                    'created_at': '2024-12-25T10:30:10Z'
+                    "media_id": "media_111",
+                    "project_id": "proj_67890",
+                    "download_url": "https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?signature=...",
+                    "blob_path": "claimx/proj_67890/media/photo.jpg",
+                    "file_type": "jpg",
+                    "file_name": "photo.jpg",
+                    "source_event_id": "evt_12345",
+                    "status": "completed",
+                    "bytes_uploaded": 2048576,
+                    "created_at": "2024-12-25T10:30:10Z",
                 },
                 {
-                    'media_id': 'media_222',
-                    'project_id': 'proj_12345',
-                    'download_url': 'https://s3.amazonaws.com/claimx-media/presigned/video.mp4?signature=...',
-                    'blob_path': 'claimx/proj_12345/media/video.mp4',
-                    'file_type': 'mp4',
-                    'file_name': 'damage_video.mp4',
-                    'source_event_id': 'evt_67890',
-                    'status': 'failed_permanent',
-                    'bytes_uploaded': 0,
-                    'error_message': 'OneLake upload failed: Connection timeout',
-                    'created_at': '2024-12-25T11:15:30Z'
-                }
+                    "media_id": "media_222",
+                    "project_id": "proj_12345",
+                    "download_url": "https://s3.amazonaws.com/claimx-media/presigned/video.mp4?signature=...",
+                    "blob_path": "claimx/proj_12345/media/video.mp4",
+                    "file_type": "mp4",
+                    "file_name": "damage_video.mp4",
+                    "source_event_id": "evt_67890",
+                    "status": "failed_permanent",
+                    "bytes_uploaded": 0,
+                    "error_message": "OneLake upload failed: Connection timeout",
+                    "created_at": "2024-12-25T11:15:30Z",
+                },
             ]
         }
     }
@@ -191,44 +167,26 @@ class FailedEnrichmentMessage(BaseModel):
     """
 
     event_id: str = Field(
-        ...,
-        description="Unique event identifier from source event",
-        min_length=1
+        ..., description="Unique event identifier from source event", min_length=1
     )
     event_type: str = Field(
-        ...,
-        description="Type of event (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
-        min_length=1
+        ..., description="Type of event (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)", min_length=1
     )
-    project_id: str = Field(
-        ...,
-        description="ClaimX project ID",
-        min_length=1
-    )
+    project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     original_task: ClaimXEnrichmentTask = Field(
-        ...,
-        description="Complete original enrichment task for replay capability"
+        ..., description="Complete original enrichment task for replay capability"
     )
     final_error: str = Field(
-        ...,
-        description="Error message truncated to 500 chars",
-        max_length=500
+        ..., description="Error message truncated to 500 chars", max_length=500
     )
     error_category: str = Field(
         ...,
-        description="Classification of error (transient, permanent, auth, circuit_open, unknown)"
+        description="Classification of error (transient, permanent, auth, circuit_open, unknown)",
     )
-    retry_count: int = Field(
-        ...,
-        description="Number of retry attempts before reaching DLQ",
-        ge=0
-    )
-    failed_at: datetime = Field(
-        ...,
-        description="Timestamp when task was moved to DLQ"
-    )
+    retry_count: int = Field(..., description="Number of retry attempts before reaching DLQ", ge=0)
+    failed_at: datetime = Field(..., description="Timestamp when task was moved to DLQ")
 
-    @field_validator('event_id', 'event_type', 'project_id')
+    @field_validator("event_id", "event_type", "project_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -236,47 +194,47 @@ class FailedEnrichmentMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    @field_serializer('failed_at')
+    @field_serializer("failed_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:
         """Serialize datetime to ISO 8601 format."""
         return timestamp.isoformat()
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'event_id': 'evt_12345',
-                    'event_type': 'PROJECT_CREATED',
-                    'project_id': 'proj_67890',
-                    'original_task': {
-                        'event_id': 'evt_12345',
-                        'event_type': 'PROJECT_CREATED',
-                        'project_id': 'proj_67890',
-                        'retry_count': 4,
-                        'created_at': '2024-12-25T10:00:00Z'
+                    "event_id": "evt_12345",
+                    "event_type": "PROJECT_CREATED",
+                    "project_id": "proj_67890",
+                    "original_task": {
+                        "event_id": "evt_12345",
+                        "event_type": "PROJECT_CREATED",
+                        "project_id": "proj_67890",
+                        "retry_count": 4,
+                        "created_at": "2024-12-25T10:00:00Z",
                     },
-                    'final_error': 'ClaimX API returned 404: Project not found. URL: https://api.claimx.com/projects/proj_67890',
-                    'error_category': 'permanent',
-                    'retry_count': 4,
-                    'failed_at': '2024-12-25T12:30:45Z'
+                    "final_error": "ClaimX API returned 404: Project not found. URL: https://api.claimx.com/projects/proj_67890",
+                    "error_category": "permanent",
+                    "retry_count": 4,
+                    "failed_at": "2024-12-25T12:30:45Z",
                 },
                 {
-                    'event_id': 'evt_67890',
-                    'event_type': 'PROJECT_FILE_ADDED',
-                    'project_id': 'proj_12345',
-                    'original_task': {
-                        'event_id': 'evt_67890',
-                        'event_type': 'PROJECT_FILE_ADDED',
-                        'project_id': 'proj_12345',
-                        'media_id': 'media_111',
-                        'retry_count': 4,
-                        'created_at': '2024-12-25T11:00:00Z'
+                    "event_id": "evt_67890",
+                    "event_type": "PROJECT_FILE_ADDED",
+                    "project_id": "proj_12345",
+                    "original_task": {
+                        "event_id": "evt_67890",
+                        "event_type": "PROJECT_FILE_ADDED",
+                        "project_id": "proj_12345",
+                        "media_id": "media_111",
+                        "retry_count": 4,
+                        "created_at": "2024-12-25T11:00:00Z",
                     },
-                    'final_error': 'Delta write failed after 4 retries: Connection to OneLake timed out',
-                    'error_category': 'transient',
-                    'retry_count': 4,
-                    'failed_at': '2024-12-25T13:15:30Z'
-                }
+                    "final_error": "Delta write failed after 4 retries: Connection to OneLake timed out",
+                    "error_category": "transient",
+                    "retry_count": 4,
+                    "failed_at": "2024-12-25T13:15:30Z",
+                },
             ]
         }
     }
@@ -298,40 +256,19 @@ class FailedDownloadMessage(BaseModel):
         failed_at: Timestamp when task was moved to DLQ
     """
 
-    media_id: str = Field(
-        ...,
-        description="Media file identifier from ClaimX",
-        min_length=1
-    )
-    project_id: str = Field(
-        ...,
-        description="ClaimX project ID",
-        min_length=1
-    )
-    download_url: str = Field(
-        ...,
-        description="Original S3 presigned URL",
-        min_length=1
-    )
+    media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
+    project_id: str = Field(..., description="ClaimX project ID", min_length=1)
+    download_url: str = Field(..., description="Original S3 presigned URL", min_length=1)
     original_task: ClaimXDownloadTask = Field(
-        ...,
-        description="Complete original download task for replay capability"
+        ..., description="Complete original download task for replay capability"
     )
     error_category: str = Field(
-        ...,
-        description="Classification of error (transient, permanent, auth, etc.)"
+        ..., description="Classification of error (transient, permanent, auth, etc.)"
     )
-    retry_count: int = Field(
-        ...,
-        description="Number of retry attempts before reaching DLQ",
-        ge=0
-    )
-    failed_at: datetime = Field(
-        ...,
-        description="Timestamp when task was moved to DLQ"
-    )
+    retry_count: int = Field(..., description="Number of retry attempts before reaching DLQ", ge=0)
+    failed_at: datetime = Field(..., description="Timestamp when task was moved to DLQ")
 
-    @field_validator('media_id', 'project_id', 'download_url')
+    @field_validator("media_id", "project_id", "download_url")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -339,58 +276,58 @@ class FailedDownloadMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    @field_serializer('failed_at')
+    @field_serializer("failed_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:
         """Serialize datetime to ISO 8601 format."""
         return timestamp.isoformat()
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'media_id': 'media_111',
-                    'project_id': 'proj_67890',
-                    'download_url': 'https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?expired=1',
-                    'blob_path': 'claimx/proj_67890/media/photo.jpg',
-                    'original_task': {
-                        'media_id': 'media_111',
-                        'project_id': 'proj_67890',
-                        'download_url': 'https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?expired=1',
-                        'blob_path': 'claimx/proj_67890/media/photo.jpg',
-                        'file_type': 'jpg',
-                        'file_name': 'photo.jpg',
-                        'source_event_id': 'evt_12345',
-                        'retry_count': 4,
-                        'created_at': '2024-12-25T10:00:00Z'
+                    "media_id": "media_111",
+                    "project_id": "proj_67890",
+                    "download_url": "https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?expired=1",
+                    "blob_path": "claimx/proj_67890/media/photo.jpg",
+                    "original_task": {
+                        "media_id": "media_111",
+                        "project_id": "proj_67890",
+                        "download_url": "https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?expired=1",
+                        "blob_path": "claimx/proj_67890/media/photo.jpg",
+                        "file_type": "jpg",
+                        "file_name": "photo.jpg",
+                        "source_event_id": "evt_12345",
+                        "retry_count": 4,
+                        "created_at": "2024-12-25T10:00:00Z",
                     },
-                    'final_error': '403 Forbidden: Presigned URL has expired',
-                    'error_category': 'transient',
-                    'retry_count': 4,
-                    'url_refresh_attempted': True,
-                    'failed_at': '2024-12-25T12:30:45Z'
+                    "final_error": "403 Forbidden: Presigned URL has expired",
+                    "error_category": "transient",
+                    "retry_count": 4,
+                    "url_refresh_attempted": True,
+                    "failed_at": "2024-12-25T12:30:45Z",
                 },
                 {
-                    'media_id': 'media_222',
-                    'project_id': 'proj_12345',
-                    'download_url': 'https://s3.amazonaws.com/claimx-media/missing.pdf',
-                    'blob_path': 'claimx/proj_12345/media/document.pdf',
-                    'original_task': {
-                        'media_id': 'media_222',
-                        'project_id': 'proj_12345',
-                        'download_url': 'https://s3.amazonaws.com/claimx-media/missing.pdf',
-                        'blob_path': 'claimx/proj_12345/media/document.pdf',
-                        'file_type': 'pdf',
-                        'file_name': 'document.pdf',
-                        'source_event_id': 'evt_67890',
-                        'retry_count': 0,
-                        'created_at': '2024-12-25T11:00:00Z'
+                    "media_id": "media_222",
+                    "project_id": "proj_12345",
+                    "download_url": "https://s3.amazonaws.com/claimx-media/missing.pdf",
+                    "blob_path": "claimx/proj_12345/media/document.pdf",
+                    "original_task": {
+                        "media_id": "media_222",
+                        "project_id": "proj_12345",
+                        "download_url": "https://s3.amazonaws.com/claimx-media/missing.pdf",
+                        "blob_path": "claimx/proj_12345/media/document.pdf",
+                        "file_type": "pdf",
+                        "file_name": "document.pdf",
+                        "source_event_id": "evt_67890",
+                        "retry_count": 0,
+                        "created_at": "2024-12-25T11:00:00Z",
                     },
-                    'final_error': '404 Not Found: Media file does not exist',
-                    'error_category': 'permanent',
-                    'retry_count': 0,
-                    'url_refresh_attempted': False,
-                    'failed_at': '2024-12-25T11:05:15Z'
-                }
+                    "final_error": "404 Not Found: Media file does not exist",
+                    "error_category": "permanent",
+                    "retry_count": 0,
+                    "url_refresh_attempted": False,
+                    "failed_at": "2024-12-25T11:05:15Z",
+                },
             ]
         }
     }

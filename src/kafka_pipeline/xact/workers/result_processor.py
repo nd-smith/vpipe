@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -362,7 +362,7 @@ class ResultProcessor:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("result.process") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "internal")
             span.set_tag("trace_id", result.trace_id)
             span.set_tag("media_id", result.media_id)
@@ -407,13 +407,20 @@ class ResultProcessor:
                 # Skip transient failures (still retrying) or permanent without writer
                 self._records_skipped += 1
                 span.set_tag("routing", "skipped")
-                span.set_tag("skip_reason", "transient" if result.status == "failed_transient" else "no_failed_writer")
+                span.set_tag(
+                    "skip_reason",
+                    "transient" if result.status == "failed_transient" else "no_failed_writer",
+                )
                 logger.debug(
                     "Skipping result",
                     extra={
                         "trace_id": result.trace_id,
                         "status": result.status,
-                        "reason": "transient" if result.status == "failed_transient" else "no_failed_writer",
+                        "reason": (
+                            "transient"
+                            if result.status == "failed_transient"
+                            else "no_failed_writer"
+                        ),
                         "attachment_url": result.attachment_url[:100],  # truncate for logging
                     },
                 )

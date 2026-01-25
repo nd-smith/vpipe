@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -61,7 +61,17 @@ class ArchivingTimedRotatingFileHandler(TimedRotatingFileHandler):
     If archive_dir is provided, rotated files are moved there instead.
     """
 
-    def __init__(self, filename, when="midnight", interval=1, backupCount=0, encoding=None, delay=False, utc=False, archive_dir=None):
+    def __init__(
+        self,
+        filename,
+        when="midnight",
+        interval=1,
+        backupCount=0,
+        encoding=None,
+        delay=False,
+        utc=False,
+        archive_dir=None,
+    ):
         super().__init__(filename, when, interval, backupCount, encoding, delay, utc)
         if archive_dir:
             self.archive_dir = Path(archive_dir)
@@ -222,9 +232,7 @@ def setup_logging(
     instance_id = coolname.generate_slug(2) if use_instance_id else None
 
     # Build log file path with subfolders
-    log_file = get_log_file_path(
-        log_dir, domain=domain, stage=stage, instance_id=instance_id
-    )
+    log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
 
     # Ensure directory exists
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -262,9 +270,7 @@ def setup_logging(
 
     # Console handler
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace"
-        )
+        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -362,9 +368,7 @@ def setup_multi_worker_logging(
 
     # Add console handler (receives all logs)
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace"
-        )
+        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -374,9 +378,7 @@ def setup_multi_worker_logging(
 
     # Add per-worker file handlers with auto-archiving
     for worker in workers:
-        log_file = get_log_file_path(
-            log_dir, domain=domain, stage=worker, instance_id=instance_id
-        )
+        log_file = get_log_file_path(log_dir, domain=domain, stage=worker, instance_id=instance_id)
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         try:

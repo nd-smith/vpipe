@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -42,15 +42,15 @@ class MitigationTaskPipeline:
         self.connections = connection_manager
         self.kafka = kafka_producer
         self.config = config
-        self.claimx_connection = config.get('claimx_connection', 'claimx_api')
-        self.output_topic = config.get('output_topic', 'claimx.mitigation.task.success')
+        self.claimx_connection = config.get("claimx_connection", "claimx_api")
+        self.output_topic = config.get("output_topic", "claimx.mitigation.task.success")
 
         logger.info(
             "MitigationTaskPipeline initialized",
             extra={
-                'claimx_connection': self.claimx_connection,
-                'output_topic': self.output_topic,
-            }
+                "claimx_connection": self.claimx_connection,
+                "output_topic": self.output_topic,
+            },
         )
 
     async def process(self, raw_message: dict) -> ProcessedMitigationTask:
@@ -63,11 +63,11 @@ class MitigationTaskPipeline:
         logger.info(
             "Processing mitigation task event",
             extra={
-                'event_id': event.event_id,
-                'assignment_id': event.assignment_id,
-                'task_id': event.task_id,
-                'task_status': event.task_status,
-            }
+                "event_id": event.event_id,
+                "assignment_id": event.assignment_id,
+                "task_id": event.task_id,
+                "task_status": event.task_status,
+            },
         )
 
         self._validate_event(event)
@@ -90,15 +90,11 @@ class MitigationTaskPipeline:
         """
         if event.task_id not in VALID_TASK_IDS:
             raise ValueError(
-                f"Invalid task_id: {event.task_id}. "
-                f"Expected one of: {VALID_TASK_IDS}"
+                f"Invalid task_id: {event.task_id}. " f"Expected one of: {VALID_TASK_IDS}"
             )
 
-        if event.task_status != 'COMPLETED':
-            raise ValueError(
-                f"Invalid task_status: {event.task_status}. "
-                f"Expected: COMPLETED"
-            )
+        if event.task_status != "COMPLETED":
+            raise ValueError(f"Invalid task_status: {event.task_status}. " f"Expected: COMPLETED")
 
         logger.debug("Event validation passed")
 
@@ -113,10 +109,7 @@ class MitigationTaskPipeline:
         3. Fetch project media and filter to claim_media_ids
         4. Parse into flat submission structure
         """
-        logger.info(
-            "Enriching mitigation task",
-            extra={'assignment_id': event.assignment_id}
-        )
+        logger.info("Enriching mitigation task", extra={"assignment_id": event.assignment_id})
 
         # Fetch task assignment data
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
@@ -137,10 +130,10 @@ class MitigationTaskPipeline:
         logger.info(
             "Task enriched successfully",
             extra={
-                'assignment_id': event.assignment_id,
-                'task_media_ids_count': len(task_media_ids),
-                'media_count': len(media_list),
-            }
+                "assignment_id": event.assignment_id,
+                "task_media_ids_count": len(task_media_ids),
+                "media_count": len(media_list),
+            },
         )
 
         return submission
@@ -165,7 +158,7 @@ class MitigationTaskPipeline:
 
         logger.info(
             "Extracted claimMediaIds from task response",
-            extra={'media_ids_count': len(media_ids), 'media_ids': media_ids}
+            extra={"media_ids_count": len(media_ids), "media_ids": media_ids},
         )
 
         return media_ids
@@ -174,19 +167,17 @@ class MitigationTaskPipeline:
         """Fetch assignment data from ClaimX API."""
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
-        logger.debug(f"Fetching assignment from ClaimX", extra={'assignment_id': assignment_id})
+        logger.debug(f"Fetching assignment from ClaimX", extra={"assignment_id": assignment_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
-            method='GET',
+            method="GET",
             path=endpoint,
-            params={'full': 'true'},
+            params={"full": "true"},
         )
 
         if status < 200 or status >= 300:
-            raise Exception(
-                f"ClaimX API returned error status {status}: {response}"
-            )
+            raise Exception(f"ClaimX API returned error status {status}: {response}")
 
         return response
 
@@ -194,11 +185,11 @@ class MitigationTaskPipeline:
         """Fetch project export data from ClaimX API."""
         endpoint = f"/export/project/{project_id}"
 
-        logger.debug("Fetching project export from ClaimX", extra={'project_id': project_id})
+        logger.debug("Fetching project export from ClaimX", extra={"project_id": project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
-            method='GET',
+            method="GET",
             path=endpoint,
             params={},
         )
@@ -206,7 +197,7 @@ class MitigationTaskPipeline:
         if status < 200 or status >= 300:
             logger.warning(
                 f"Failed to fetch project export: HTTP {status}",
-                extra={'project_id': project_id, 'status': status}
+                extra={"project_id": project_id, "status": status},
             )
             return {}
 
@@ -229,11 +220,11 @@ class MitigationTaskPipeline:
         """
         endpoint = f"/export/project/{project_id}/media"
 
-        logger.debug("Fetching project media from ClaimX", extra={'project_id': project_id})
+        logger.debug("Fetching project media from ClaimX", extra={"project_id": project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
-            method='GET',
+            method="GET",
             path=endpoint,
             params={},
         )
@@ -241,7 +232,7 @@ class MitigationTaskPipeline:
         if status < 200 or status >= 300:
             logger.warning(
                 f"Failed to fetch project media: HTTP {status}",
-                extra={'project_id': project_id, 'status': status}
+                extra={"project_id": project_id, "status": status},
             )
             return []
 
@@ -280,10 +271,10 @@ class MitigationTaskPipeline:
         logger.info(
             "Fetched and filtered project media",
             extra={
-                'project_id': project_id,
-                'total_project_media': len(all_media),
-                'task_media_count': len(filtered_media),
-            }
+                "project_id": project_id,
+                "total_project_media": len(all_media),
+                "task_media_count": len(filtered_media),
+            },
         )
 
         return filtered_media
@@ -332,23 +323,23 @@ class MitigationTaskPipeline:
         logger.info(
             "Publishing to success topic",
             extra={
-                'assignment_id': submission.assignment_id,
-                'topic': self.output_topic,
-            }
+                "assignment_id": submission.assignment_id,
+                "topic": self.output_topic,
+            },
         )
 
         # Flat structure - all fields at top level
         payload = submission.to_flat_dict()
-        payload['published_at'] = datetime.utcnow().isoformat()
-        payload['source'] = 'mitigation_tracking_worker'
+        payload["published_at"] = datetime.utcnow().isoformat()
+        payload["source"] = "mitigation_tracking_worker"
 
         await self.kafka.send(
             topic=self.output_topic,
-            value=json.dumps(payload).encode('utf-8'),
-            key=submission.event_id.encode('utf-8'),
+            value=json.dumps(payload).encode("utf-8"),
+            key=submission.event_id.encode("utf-8"),
         )
 
         logger.info(
             "Published to success topic successfully",
-            extra={'assignment_id': submission.assignment_id}
+            extra={"assignment_id": submission.assignment_id},
         )

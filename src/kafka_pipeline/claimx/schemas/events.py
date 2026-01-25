@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -71,47 +71,29 @@ class ClaimXEventMessage(BaseModel):
         'PROJECT_FILE_ADDED'
     """
 
-    event_id: str = Field(
-        ...,
-        description="Unique event identifier",
-        min_length=1
-    )
+    event_id: str = Field(..., description="Unique event identifier", min_length=1)
     event_type: str = Field(
-        ...,
-        description="Event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
-        min_length=1
+        ..., description="Event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)", min_length=1
     )
-    project_id: str = Field(
-        ...,
-        description="ClaimX project ID",
-        min_length=1
-    )
-    ingested_at: datetime = Field(
-        ...,
-        description="Timestamp when event was ingested from webhook"
-    )
+    project_id: str = Field(..., description="ClaimX project ID", min_length=1)
+    ingested_at: datetime = Field(..., description="Timestamp when event was ingested from webhook")
     media_id: Optional[str] = Field(
-        default=None,
-        description="Media file ID (for file-related events)"
+        default=None, description="Media file ID (for file-related events)"
     )
     task_assignment_id: Optional[str] = Field(
-        default=None,
-        description="Task assignment ID (for task events)"
+        default=None, description="Task assignment ID (for task events)"
     )
     video_collaboration_id: Optional[str] = Field(
-        default=None,
-        description="Video collaboration ID (for video events)"
+        default=None, description="Video collaboration ID (for video events)"
     )
     master_file_name: Optional[str] = Field(
-        default=None,
-        description="Master file name (for MFN events)"
+        default=None, description="Master file name (for MFN events)"
     )
     raw_data: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Raw event payload for handler-specific parsing"
+        default=None, description="Raw event payload for handler-specific parsing"
     )
 
-    @field_validator('event_id', 'event_type', 'project_id')
+    @field_validator("event_id", "event_type", "project_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -143,7 +125,9 @@ class ClaimXEventMessage(BaseModel):
             # Create a stable composite key from immutable Eventhouse fields
             # DO NOT use ingested_at (poller timestamp) - use ingestion_time from Eventhouse
             # Get stable Eventhouse ingestion timestamp from raw data
-            ingestion_time = row.get("ingestion_time") or row.get("$IngestionTime") or row.get("IngestionTime")
+            ingestion_time = (
+                row.get("ingestion_time") or row.get("$IngestionTime") or row.get("IngestionTime")
+            )
 
             composite_parts = [project_id, event_type]
 
@@ -180,37 +164,38 @@ class ClaimXEventMessage(BaseModel):
             ingested_at=ingested_at,
             media_id=row.get("media_id") or row.get("mediaId"),
             task_assignment_id=row.get("task_assignment_id") or row.get("taskAssignmentId"),
-            video_collaboration_id=row.get("video_collaboration_id") or row.get("videoCollaborationId"),
+            video_collaboration_id=row.get("video_collaboration_id")
+            or row.get("videoCollaborationId"),
             master_file_name=row.get("master_file_name") or row.get("masterFileName"),
             raw_data=row,
         )
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'event_id': 'evt_12345',
-                    'event_type': 'PROJECT_FILE_ADDED',
-                    'project_id': 'proj_67890',
-                    'ingested_at': '2024-12-25T10:30:00Z',
-                    'media_id': 'media_111',
-                    'raw_data': {'fileName': 'photo.jpg', 'fileSize': 1024}
+                    "event_id": "evt_12345",
+                    "event_type": "PROJECT_FILE_ADDED",
+                    "project_id": "proj_67890",
+                    "ingested_at": "2024-12-25T10:30:00Z",
+                    "media_id": "media_111",
+                    "raw_data": {"fileName": "photo.jpg", "fileSize": 1024},
                 },
                 {
-                    'event_id': 'evt_67890',
-                    'event_type': 'PROJECT_CREATED',
-                    'project_id': 'proj_12345',
-                    'ingested_at': '2024-12-25T09:00:00Z',
-                    'raw_data': {'projectName': 'Insurance Claim 2024'}
+                    "event_id": "evt_67890",
+                    "event_type": "PROJECT_CREATED",
+                    "project_id": "proj_12345",
+                    "ingested_at": "2024-12-25T09:00:00Z",
+                    "raw_data": {"projectName": "Insurance Claim 2024"},
                 },
                 {
-                    'event_id': 'evt_11111',
-                    'event_type': 'CUSTOM_TASK_ASSIGNED',
-                    'project_id': 'proj_22222',
-                    'ingested_at': '2024-12-25T14:15:00Z',
-                    'task_assignment_id': 'task_33333',
-                    'raw_data': {'taskName': 'Review photos', 'assignee': 'adjuster@insurance.com'}
-                }
+                    "event_id": "evt_11111",
+                    "event_type": "CUSTOM_TASK_ASSIGNED",
+                    "project_id": "proj_22222",
+                    "ingested_at": "2024-12-25T14:15:00Z",
+                    "task_assignment_id": "task_33333",
+                    "raw_data": {"taskName": "Review photos", "assignee": "adjuster@insurance.com"},
+                },
             ]
         }
     }

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -29,10 +29,11 @@ logger = logging.getLogger(__name__)
 # UTILITY FUNCTIONS
 # ==========================================
 
+
 def camel_to_snake(name: str) -> str:
     """Convert camelCase to snake_case."""
-    name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
+    name = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", name).lower()
 
 
 def parse_date(date_str: str) -> Optional[datetime]:
@@ -40,7 +41,7 @@ def parse_date(date_str: str) -> Optional[datetime]:
     if not date_str or not isinstance(date_str, str):
         return None
     try:
-        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
     except ValueError:
         return None
 
@@ -59,8 +60,8 @@ def from_dict(data_class, data):
             snake_key = camel_to_snake(key)
             if snake_key in field_types:
                 field_type = field_types[snake_key]
-                origin = getattr(field_type, '__origin__', None)
-                args = getattr(field_type, '__args__', [])
+                origin = getattr(field_type, "__origin__", None)
+                args = getattr(field_type, "__args__", [])
                 if origin is list:
                     item_type = args[0]
                     kwargs[snake_key] = [from_dict(item_type, item) for item in value]
@@ -77,6 +78,7 @@ def from_dict(data_class, data):
 
 class DateTimeEncoder(json.JSONEncoder):
     """JSON encoder that handles datetime objects."""
+
     def default(self, o):
         if isinstance(o, datetime):
             return o.isoformat()
@@ -100,8 +102,8 @@ def parse_url_expiration(url: str) -> dict:
         return {}
     try:
         params = parse_qs(urlparse(url).query)
-        system_date_list = params.get('systemDate', [])
-        expires_list = params.get('expires', [])
+        system_date_list = params.get("systemDate", [])
+        expires_list = params.get("expires", [])
 
         if not system_date_list or not expires_list:
             return {}
@@ -112,10 +114,7 @@ def parse_url_expiration(url: str) -> dict:
         if system_date and expires_ms:
             expires_at_ms = system_date + expires_ms
             expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
-            return {
-                "expires_at": expires_at.isoformat(),
-                "ttl_seconds": expires_ms // 1000
-            }
+            return {"expires_at": expires_at.isoformat(), "ttl_seconds": expires_ms // 1000}
     except (ValueError, IndexError, TypeError) as e:
         logger.debug(f"Could not parse URL expiration: {e}")
     return {}
@@ -124,6 +123,7 @@ def parse_url_expiration(url: str) -> dict:
 # ==========================================
 # SCHEMA CLASSES (from parse.py)
 # ==========================================
+
 
 @dataclass
 class OptionAnswer:
@@ -207,53 +207,103 @@ COLUMN_MAP = {
     ("Linear Feet Capture", "Upper Cabinets (linear feet)"): "upper_cabinets_lf",
     ("Linear Feet Capture", "Full-Height Cabinets (linear feet)"): "full_height_cabinets_lf",
     ("Linear Feet Capture", "Island Cabinets (linear feet)"): "island_cabinets_lf",
-
     # Lower Cabinets
     ("Cabinet Types Damaged", "Lower Cabinets Damaged?"): "lower_cabinets_damaged",
     ("Lower Cabinets", "Enter Number of Damaged Lower Boxes"): "num_damaged_lower_boxes",
     ("Lower Cabinets", "Are The Lower Cabinets Detached?"): "lower_cabinets_detached",
-    ("Lower Cabinets", "Are All The Face Frames, Doors, And Drawers Available?"): "lower_face_frames_doors_drawers_available",
-    ("Lower Cabinets", "Are All The Face Frames, Doors, And Drawer Fronts Damaged?"): "lower_face_frames_doors_drawers_damaged",
-    ("Lower Cabinets", "Are The Lower Finished End Panels Damaged?"): "lower_finished_end_panels_damaged",
-    ("Capture Lower End Panel", "Is there lower cabinet end panel damage?"): "lower_end_panel_damage_present",
+    (
+        "Lower Cabinets",
+        "Are All The Face Frames, Doors, And Drawers Available?",
+    ): "lower_face_frames_doors_drawers_available",
+    (
+        "Lower Cabinets",
+        "Are All The Face Frames, Doors, And Drawer Fronts Damaged?",
+    ): "lower_face_frames_doors_drawers_damaged",
+    (
+        "Lower Cabinets",
+        "Are The Lower Finished End Panels Damaged?",
+    ): "lower_finished_end_panels_damaged",
+    (
+        "Capture Lower End Panel",
+        "Is there lower cabinet end panel damage?",
+    ): "lower_end_panel_damage_present",
     ("Lower Cabinet Counter Type", "Select Lower Cabinet Counter Type"): "lower_counter_type",
-
     # Upper Cabinets
     ("Cabinet Types Damaged", "Upper Cabinets Damaged?"): "upper_cabinets_damaged",
     ("Upper Cabinets", "Enter Number of Damaged Upper Boxes"): "num_damaged_upper_boxes",
     ("Upper Cabinets", "Are The Upper Cabinets Detached?"): "upper_cabinets_detached",
-    ("Upper Cabinets", "Are All The Face Frames, Doors, And Drawers Available?"): "upper_face_frames_doors_drawers_available",
-    ("Upper Cabinets", "Are All The Face Frames, Doors, And Drawer Fronts Damaged?"): "upper_face_frames_doors_drawers_damaged",
-    ("Upper Cabinets", "Are The Upper Finished End Panels Damaged?"): "upper_finished_end_panels_damaged",
-    ("Capture Upper End Panel", "Is there upper cabinet end panel damage?"): "upper_end_panel_damage_present",
-
+    (
+        "Upper Cabinets",
+        "Are All The Face Frames, Doors, And Drawers Available?",
+    ): "upper_face_frames_doors_drawers_available",
+    (
+        "Upper Cabinets",
+        "Are All The Face Frames, Doors, And Drawer Fronts Damaged?",
+    ): "upper_face_frames_doors_drawers_damaged",
+    (
+        "Upper Cabinets",
+        "Are The Upper Finished End Panels Damaged?",
+    ): "upper_finished_end_panels_damaged",
+    (
+        "Capture Upper End Panel",
+        "Is there upper cabinet end panel damage?",
+    ): "upper_end_panel_damage_present",
     # Full Height
     ("Cabinet Types Damaged", "Full Height Cabinets Damaged?"): "full_height_cabinets_damaged",
-    ("Full Height/Pantry Cabinets", "Enter Number of Damaged Full Height Boxes"): "num_damaged_full_height_boxes",
-    ("Full Height/Pantry Cabinets", "Are The Full Height Cabinets Detached?"): "full_height_cabinets_detached",
-    ("Full Height/Pantry Cabinets", "Are All The Face Frames, Doors, And Drawers Available?"): "full_height_face_frames_doors_drawers_available",
-    ("Full Height/Pantry Cabinets", "Are All The Face Frames, Doors, And Drawer Fronts Damaged?"): "full_height_face_frames_doors_drawers_damaged",
-    ("Full Height/Pantry Cabinets", "Are the Full Height Finished End Panels Damaged?"): "full_height_finished_end_panels_damaged",
-
+    (
+        "Full Height/Pantry Cabinets",
+        "Enter Number of Damaged Full Height Boxes",
+    ): "num_damaged_full_height_boxes",
+    (
+        "Full Height/Pantry Cabinets",
+        "Are The Full Height Cabinets Detached?",
+    ): "full_height_cabinets_detached",
+    (
+        "Full Height/Pantry Cabinets",
+        "Are All The Face Frames, Doors, And Drawers Available?",
+    ): "full_height_face_frames_doors_drawers_available",
+    (
+        "Full Height/Pantry Cabinets",
+        "Are All The Face Frames, Doors, And Drawer Fronts Damaged?",
+    ): "full_height_face_frames_doors_drawers_damaged",
+    (
+        "Full Height/Pantry Cabinets",
+        "Are the Full Height Finished End Panels Damaged?",
+    ): "full_height_finished_end_panels_damaged",
     # Island
     ("Cabinet Types Damaged", "Island Cabinets Damaged?"): "island_cabinets_damaged",
     ("Island Cabinets", "Enter Number of Damaged Island Boxes"): "num_damaged_island_boxes",
     ("Island Cabinets", "Are The Island Cabinets Detached?"): "island_cabinets_detached",
-    ("Island Cabinets", "Are All The Face Frames, Doors, And Drawers Available?"): "island_face_frames_doors_drawers_available",
-    ("Island Cabinets", "Are All The Face Frames, Doors, And Drawer Fronts Damaged?"): "island_face_frames_doors_drawers_damaged",
-    ("Island Cabinets", "Are the Island Finished End Panels Damaged?"): "island_finished_end_panels_damaged",
-    ("Capture Island End Panel", "Is there island cabinet end panel damage?"): "island_end_panel_damage_present",
+    (
+        "Island Cabinets",
+        "Are All The Face Frames, Doors, And Drawers Available?",
+    ): "island_face_frames_doors_drawers_available",
+    (
+        "Island Cabinets",
+        "Are All The Face Frames, Doors, And Drawer Fronts Damaged?",
+    ): "island_face_frames_doors_drawers_damaged",
+    (
+        "Island Cabinets",
+        "Are the Island Finished End Panels Damaged?",
+    ): "island_finished_end_panels_damaged",
+    (
+        "Capture Island End Panel",
+        "Is there island cabinet end panel damage?",
+    ): "island_end_panel_damage_present",
     ("Island Cabinet Counter Type", "Select Island Cabinet Counter Type"): "island_counter_type",
-
     # General
     ("Damage Description", "Enter Damaged Description"): "damage_description",
-    ("Other Details and Information", "Now that you have been through the process, please provide any other details that you think would be relevant to the cabinet damage"): "additional_notes"
+    (
+        "Other Details and Information",
+        "Now that you have been through the process, please provide any other details that you think would be relevant to the cabinet damage",
+    ): "additional_notes",
 }
 
 
 # ==========================================
 # DATA BUILDER
 # ==========================================
+
 
 class DataBuilder:
     """
@@ -271,13 +321,13 @@ class DataBuilder:
             return None
 
         val = None
-        if export_data.type == 'text':
+        if export_data.type == "text":
             val = export_data.text
-        elif export_data.type == 'number':
+        elif export_data.type == "number":
             val = export_data.number_answer.value if export_data.number_answer else None
-        elif export_data.type == 'option':
+        elif export_data.type == "option":
             val = export_data.option_answer.name if export_data.option_answer else None
-        elif export_data.type == 'image':
+        elif export_data.type == "image":
             return export_data.claim_media_ids if export_data.claim_media_ids else []
 
         # Normalize Boolean
@@ -298,20 +348,22 @@ class DataBuilder:
     def get_topic_category(group_name: str, question_text: str) -> str:
         """Determine topic category for organizing attachments and readable reports."""
         text = (group_name + " " + question_text).lower()
-        if 'island' in text:
-            return 'Island Cabinets'
-        if 'lower' in text:
-            return 'Lower Cabinets'
-        if 'upper' in text:
-            return 'Upper Cabinets'
-        if 'full height' in text or 'pantry' in text:
-            return 'Full Height / Pantry'
-        if 'countertop' in text:
-            return 'Countertops'
-        return 'General'
+        if "island" in text:
+            return "Island Cabinets"
+        if "lower" in text:
+            return "Lower Cabinets"
+        if "upper" in text:
+            return "Upper Cabinets"
+        if "full height" in text or "pantry" in text:
+            return "Full Height / Pantry"
+        if "countertop" in text:
+            return "Countertops"
+        return "General"
 
     @staticmethod
-    def process(api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None) -> tuple[dict, list[dict], dict]:
+    def process(
+        api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None
+    ) -> tuple[dict, list[dict], dict]:
         """
         Main processing method - transforms API response into three outputs.
 
@@ -346,12 +398,22 @@ class DataBuilder:
             "date_completed": api_obj.date_completed,
             "ingested_at": now,
             "assignor_email": api_obj.assignor_email,
-            "external_link_url": api_obj.external_link_data.url if api_obj.external_link_data else None,
-            "customer_first_name": api_obj.external_link_data.first_name if api_obj.external_link_data else None,
-            "customer_last_name": api_obj.external_link_data.last_name if api_obj.external_link_data else None,
-            "customer_email": api_obj.external_link_data.email if api_obj.external_link_data else None,
-            "customer_phone": api_obj.external_link_data.phone if api_obj.external_link_data else None,
-            **{v: None for v in COLUMN_MAP.values()}  # Init mapped cols with None
+            "external_link_url": (
+                api_obj.external_link_data.url if api_obj.external_link_data else None
+            ),
+            "customer_first_name": (
+                api_obj.external_link_data.first_name if api_obj.external_link_data else None
+            ),
+            "customer_last_name": (
+                api_obj.external_link_data.last_name if api_obj.external_link_data else None
+            ),
+            "customer_email": (
+                api_obj.external_link_data.email if api_obj.external_link_data else None
+            ),
+            "customer_phone": (
+                api_obj.external_link_data.phone if api_obj.external_link_data else None
+            ),
+            **{v: None for v in COLUMN_MAP.values()},  # Init mapped cols with None
         }
 
         attachments_rows = []
@@ -364,11 +426,15 @@ class DataBuilder:
                 "project_id": str(api_obj.project_id),
                 "status": api_obj.status,
                 "dates": {
-                    "assigned": api_obj.date_assigned.isoformat() if api_obj.date_assigned else None,
-                    "completed": api_obj.date_completed.isoformat() if api_obj.date_completed else None
-                }
+                    "assigned": (
+                        api_obj.date_assigned.isoformat() if api_obj.date_assigned else None
+                    ),
+                    "completed": (
+                        api_obj.date_completed.isoformat() if api_obj.date_completed else None
+                    ),
+                },
             },
-            "topics": defaultdict(list)
+            "topics": defaultdict(list),
         }
 
         # Extract media URL expiration from first available URL
@@ -400,27 +466,29 @@ class DataBuilder:
 
                     # 2. Map to Attachments Table
                     topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
-                    if qa.response_answer_export.type == 'image' and isinstance(answer_val, list):
+                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
                         for idx, media_id in enumerate(answer_val):
-                            attachments_rows.append({
-                                "assignment_id": api_obj.assignment_id,
-                                "project_id": api_obj.project_id,
-                                "event_id": event_id,
-                                "control_id": qa.form_control.id,
-                                "question_key": _get_question_key(clean_question_text),
-                                "question_text": clean_question_text,
-                                "topic_category": topic,
-                                "media_id": media_id,
-                                "display_order": idx + 1,
-                                "created_at": now,
-                                "is_active": True,
-                                "media_type": "image/jpeg",  # Default assumption
-                                "url": media_url_map.get(media_id)  # Download URL from ClaimX
-                            })
+                            attachments_rows.append(
+                                {
+                                    "assignment_id": api_obj.assignment_id,
+                                    "project_id": api_obj.project_id,
+                                    "event_id": event_id,
+                                    "control_id": qa.form_control.id,
+                                    "question_key": _get_question_key(clean_question_text),
+                                    "question_text": clean_question_text,
+                                    "topic_category": topic,
+                                    "media_id": media_id,
+                                    "display_order": idx + 1,
+                                    "created_at": now,
+                                    "is_active": True,
+                                    "media_type": "image/jpeg",  # Default assumption
+                                    "url": media_url_map.get(media_id),  # Download URL from ClaimX
+                                }
+                            )
 
                     # 3. Populate Readable Report (Categorized)
                     # For image type, transform answer from list of IDs to list of objects with media_id and url
-                    if qa.response_answer_export.type == 'image' and isinstance(answer_val, list):
+                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
                         enriched_answer = [
                             {"media_id": media_id, "url": media_url_map.get(media_id)}
                             for media_id in answer_val
@@ -432,16 +500,14 @@ class DataBuilder:
                         "question": clean_question_text,
                         "answer": enriched_answer,
                         "type": qa.response_answer_export.type,
-                        "control_id": qa.form_control.id
+                        "control_id": qa.form_control.id,
                     }
                     readable_report["topics"][topic].append(readable_item)
 
                     # 4. Populate Raw Data Blob (Grouped by original section)
-                    raw_data_flat[clean_group_name].append({
-                        "q": clean_question_text,
-                        "a": answer_val,
-                        "id": qa.form_control.id
-                    })
+                    raw_data_flat[clean_group_name].append(
+                        {"q": clean_question_text, "a": answer_val, "id": qa.form_control.id}
+                    )
 
         # Finalize Form Row with raw_data blob
         form_row["raw_data"] = json.dumps(dict(raw_data_flat), cls=DateTimeEncoder)
@@ -455,6 +521,7 @@ class DataBuilder:
 # ==========================================
 # HELPER FUNCTIONS
 # ==========================================
+
 
 def _get_question_key(question_text: str) -> str:
     """
@@ -490,6 +557,7 @@ def _get_question_key(question_text: str) -> str:
 # PUBLIC API FUNCTIONS
 # ==========================================
 
+
 def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
     """
     Parse ClaimX task response into CabinetSubmission.
@@ -522,16 +590,13 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         form_response_id=form_row["form_response_id"],
         status=form_row["status"],
         event_id=form_row["event_id"],
-
         # Task metadata
         task_id=form_row.get("task_id"),
         task_name=form_row.get("task_name"),
-
         # Dates
         date_assigned=form_row.get("date_assigned"),
         date_completed=form_row.get("date_completed"),
         ingested_at=form_row.get("ingested_at"),
-
         # Customer information
         customer_first_name=form_row.get("customer_first_name"),
         customer_last_name=form_row.get("customer_last_name"),
@@ -539,56 +604,67 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         customer_phone=form_row.get("customer_phone"),
         assignor_email=form_row.get("assignor_email"),
         external_link_url=form_row.get("external_link_url"),
-
         # General damage information
         damage_description=form_row.get("damage_description"),
         additional_notes=form_row.get("additional_notes"),
         countertops_lf=form_row.get("countertops_lf"),
-
         # Raw data
         raw_data=form_row.get("raw_data"),
-
         # Lower cabinets
         lower_cabinets_damaged=form_row.get("lower_cabinets_damaged"),
         lower_cabinets_lf=form_row.get("lower_cabinets_lf"),
         num_damaged_lower_boxes=form_row.get("num_damaged_lower_boxes"),
         lower_cabinets_detached=form_row.get("lower_cabinets_detached"),
-        lower_face_frames_doors_drawers_available=form_row.get("lower_face_frames_doors_drawers_available"),
-        lower_face_frames_doors_drawers_damaged=form_row.get("lower_face_frames_doors_drawers_damaged"),
+        lower_face_frames_doors_drawers_available=form_row.get(
+            "lower_face_frames_doors_drawers_available"
+        ),
+        lower_face_frames_doors_drawers_damaged=form_row.get(
+            "lower_face_frames_doors_drawers_damaged"
+        ),
         lower_finished_end_panels_damaged=form_row.get("lower_finished_end_panels_damaged"),
         lower_end_panel_damage_present=form_row.get("lower_end_panel_damage_present"),
         lower_counter_type=form_row.get("lower_counter_type"),
-
         # Upper cabinets
         upper_cabinets_damaged=form_row.get("upper_cabinets_damaged"),
         upper_cabinets_lf=form_row.get("upper_cabinets_lf"),
         num_damaged_upper_boxes=form_row.get("num_damaged_upper_boxes"),
         upper_cabinets_detached=form_row.get("upper_cabinets_detached"),
-        upper_face_frames_doors_drawers_available=form_row.get("upper_face_frames_doors_drawers_available"),
-        upper_face_frames_doors_drawers_damaged=form_row.get("upper_face_frames_doors_drawers_damaged"),
+        upper_face_frames_doors_drawers_available=form_row.get(
+            "upper_face_frames_doors_drawers_available"
+        ),
+        upper_face_frames_doors_drawers_damaged=form_row.get(
+            "upper_face_frames_doors_drawers_damaged"
+        ),
         upper_finished_end_panels_damaged=form_row.get("upper_finished_end_panels_damaged"),
         upper_end_panel_damage_present=form_row.get("upper_end_panel_damage_present"),
-
         # Full height cabinets
         full_height_cabinets_damaged=form_row.get("full_height_cabinets_damaged"),
         full_height_cabinets_lf=form_row.get("full_height_cabinets_lf"),
         num_damaged_full_height_boxes=form_row.get("num_damaged_full_height_boxes"),
         full_height_cabinets_detached=form_row.get("full_height_cabinets_detached"),
-        full_height_face_frames_doors_drawers_available=form_row.get("full_height_face_frames_doors_drawers_available"),
-        full_height_face_frames_doors_drawers_damaged=form_row.get("full_height_face_frames_doors_drawers_damaged"),
-        full_height_finished_end_panels_damaged=form_row.get("full_height_finished_end_panels_damaged"),
-
+        full_height_face_frames_doors_drawers_available=form_row.get(
+            "full_height_face_frames_doors_drawers_available"
+        ),
+        full_height_face_frames_doors_drawers_damaged=form_row.get(
+            "full_height_face_frames_doors_drawers_damaged"
+        ),
+        full_height_finished_end_panels_damaged=form_row.get(
+            "full_height_finished_end_panels_damaged"
+        ),
         # Island cabinets
         island_cabinets_damaged=form_row.get("island_cabinets_damaged"),
         island_cabinets_lf=form_row.get("island_cabinets_lf"),
         num_damaged_island_boxes=form_row.get("num_damaged_island_boxes"),
         island_cabinets_detached=form_row.get("island_cabinets_detached"),
-        island_face_frames_doors_drawers_available=form_row.get("island_face_frames_doors_drawers_available"),
-        island_face_frames_doors_drawers_damaged=form_row.get("island_face_frames_doors_drawers_damaged"),
+        island_face_frames_doors_drawers_available=form_row.get(
+            "island_face_frames_doors_drawers_available"
+        ),
+        island_face_frames_doors_drawers_damaged=form_row.get(
+            "island_face_frames_doors_drawers_damaged"
+        ),
         island_finished_end_panels_damaged=form_row.get("island_finished_end_panels_damaged"),
         island_end_panel_damage_present=form_row.get("island_end_panel_damage_present"),
         island_counter_type=form_row.get("island_counter_type"),
-
         # Metadata - use existing timestamps from form_row
         created_at=form_row.get("ingested_at"),
         updated_at=form_row.get("ingested_at"),
@@ -626,27 +702,31 @@ def parse_cabinet_attachments(
     # Convert to CabinetAttachment models
     attachments = []
     for att_row in attachments_rows:
-        attachments.append(CabinetAttachment(
-            assignment_id=att_row["assignment_id"],
-            project_id=att_row["project_id"],
-            event_id=att_row["event_id"],
-            control_id=att_row["control_id"],
-            question_key=att_row["question_key"],
-            question_text=att_row["question_text"],
-            topic_category=att_row["topic_category"],
-            media_id=att_row["media_id"],
-            url=att_row["url"],  # Download URL from ClaimX
-            display_order=att_row["display_order"],
-            created_at=att_row["created_at"],
-            is_active=att_row["is_active"],
-            media_type=att_row["media_type"],
-        ))
+        attachments.append(
+            CabinetAttachment(
+                assignment_id=att_row["assignment_id"],
+                project_id=att_row["project_id"],
+                event_id=att_row["event_id"],
+                control_id=att_row["control_id"],
+                question_key=att_row["question_key"],
+                question_text=att_row["question_text"],
+                topic_category=att_row["topic_category"],
+                media_id=att_row["media_id"],
+                url=att_row["url"],  # Download URL from ClaimX
+                display_order=att_row["display_order"],
+                created_at=att_row["created_at"],
+                is_active=att_row["is_active"],
+                media_type=att_row["media_type"],
+            )
+        )
 
     logger.debug(f"Parsed {len(attachments)} attachments")
     return attachments
 
 
-def get_readable_report(task_data: dict, event_id: str, media_url_map: dict[int, str] = None) -> dict:
+def get_readable_report(
+    task_data: dict, event_id: str, media_url_map: dict[int, str] = None
+) -> dict:
     """
     Generate readable report for API consumption.
 

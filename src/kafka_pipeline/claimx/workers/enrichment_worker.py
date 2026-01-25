@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -98,6 +98,7 @@ class ClaimXEnrichmentWorker:
         producer_config: Optional[KafkaConfig] = None,
         projects_table_path: str = "",
         instance_id: Optional[str] = None,
+        api_client: Optional[Any] = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -113,7 +114,7 @@ class ClaimXEnrichmentWorker:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:
             self.worker_id = self.WORKER_NAME
-        
+
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
         self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
         self.max_poll_records = self.processing_config.get("max_poll_records", 100)
@@ -127,7 +128,8 @@ class ClaimXEnrichmentWorker:
 
         self.producer: Optional[BaseKafkaProducer] = None
         self.consumer: Optional[AIOKafkaConsumer] = None
-        self.api_client: Optional[ClaimXApiClient] = None
+        self.api_client: Optional[Any] = None
+        self._injected_api_client = api_client
         self.retry_handler: Optional[EnrichmentRetryHandler] = None
 
         self.handler_registry: HandlerRegistry = get_handler_registry()
@@ -187,15 +189,14 @@ class ClaimXEnrichmentWorker:
                 "max_retries": self._max_retries,
                 "project_cache_ttl": cache_ttl,
                 "project_cache_preload": self._preload_cache_from_delta,
+                "api_client_injected": api_client is not None,
             },
         )
 
     async def _preload_project_cache(self) -> None:
         """Preload project cache with existing project IDs from Delta table to reduce API calls."""
         if not self._projects_table_path:
-            logger.warning(
-                "Cannot preload project cache - projects_table_path not configured"
-            )
+            logger.warning("Cannot preload project cache - projects_table_path not configured")
             return
 
         try:
@@ -257,12 +258,24 @@ class ClaimXEnrichmentWorker:
 
         await self.health_server.start()
 
-        self.api_client = ClaimXApiClient(
-            base_url=self.consumer_config.claimx_api_url,
-            token=self.consumer_config.claimx_api_token,
-            timeout_seconds=self.consumer_config.claimx_api_timeout_seconds,
-            max_concurrent=self.consumer_config.claimx_api_concurrency,
-        )
+        # Use injected API client if provided (simulation mode), otherwise create production client
+        if self._injected_api_client is not None:
+            self.api_client = self._injected_api_client
+            logger.info(
+                "Using injected API client (simulation mode)",
+                extra={
+                    "api_client_type": type(self.api_client).__name__,
+                    "worker_id": self.worker_id,
+                },
+            )
+        else:
+            self.api_client = ClaimXApiClient(
+                base_url=self.consumer_config.claimx_api_url,
+                token=self.consumer_config.claimx_api_token,
+                timeout_seconds=self.consumer_config.claimx_api_timeout_seconds,
+                max_concurrent=self.consumer_config.claimx_api_concurrency,
+            )
+
         await self.api_client._ensure_session()
 
         api_reachable = not self.api_client.is_circuit_open
@@ -278,12 +291,10 @@ class ClaimXEnrichmentWorker:
         )
         await self.producer.start()
 
-        plugins_dir = self.processing_config.get(
-            "plugins_dir",
-            "config/plugins"
-        )
+        plugins_dir = self.processing_config.get("plugins_dir", "config/plugins")
         try:
             import os
+
             if os.path.exists(plugins_dir):
                 loaded_plugins = load_plugins_from_directory(plugins_dir)
                 logger.info(
@@ -356,7 +367,9 @@ class ClaimXEnrichmentWorker:
         try:
             self.consumer = self._create_consumer()
             await self.consumer.start()
-            update_connection_status(True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
+            update_connection_status(
+                True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+            )
 
             self.health_server.set_ready(
                 kafka_connected=True,
@@ -366,7 +379,7 @@ class ClaimXEnrichmentWorker:
 
             self._consume_task = asyncio.create_task(self._consume_loop())
             await self._consume_task
-            
+
         except asyncio.CancelledError:
             logger.info("Worker cancelled during startup/run")
             raise
@@ -403,7 +416,9 @@ class ClaimXEnrichmentWorker:
 
         if self.consumer:
             await self.consumer.stop()
-            update_connection_status(False, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker"))
+            update_connection_status(
+                False, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+            )
 
         if self.producer:
             await self.producer.stop()
@@ -429,7 +444,11 @@ class ClaimXEnrichmentWorker:
         common_args = {
             "bootstrap_servers": self.consumer_config.bootstrap_servers,
             "group_id": group_id,
-            "client_id": f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}-{self.instance_id}" if self.instance_id else f"{self.domain}-{self.WORKER_NAME.replace("_", "-")}",
+            "client_id": (
+                f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
+            ),
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "metadata_max_age_ms": 30000,
@@ -449,10 +468,7 @@ class ClaimXEnrichmentWorker:
             if self.consumer_config.sasl_mechanism == "OAUTHBEARER":
                 common_args["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
 
-        return AIOKafkaConsumer(
-            *self.topics,
-            **common_args
-        )
+        return AIOKafkaConsumer(*self.topics, **common_args)
 
     async def _consume_loop(self) -> None:
         """
@@ -467,8 +483,7 @@ class ClaimXEnrichmentWorker:
         try:
             while self._running:
                 msg_dict = await self.consumer.getmany(
-                    timeout_ms=1000,
-                    max_records=self.max_poll_records
+                    timeout_ms=1000, max_records=self.max_poll_records
                 )
 
                 if not msg_dict:
@@ -490,15 +505,10 @@ class ClaimXEnrichmentWorker:
             logger.debug("Consumption loop cancelled")
             raise
         except Exception as e:
-            logger.error(
-                "Error in consumption loop",
-                extra={"error": str(e)},
-                exc_info=True
-            )
+            logger.error("Error in consumption loop", extra={"error": str(e)}, exc_info=True)
             raise
         finally:
             logger.info("Consumption loop ended")
-
 
     def _create_tracked_task(
         self,
@@ -669,7 +679,7 @@ class ClaimXEnrichmentWorker:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("claimx.api.enrich") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "client")
             span.set_tag("event.id", task.event_id)
             span.set_tag("event.type", task.event_type)
@@ -841,6 +851,39 @@ class ClaimXEnrichmentWorker:
         try:
             # Step 4: Execute handler to enrich event with API data
             handler_result = await self._execute_handler(handler, event, task)
+
+            # Check if handler succeeded - HandlerResult has succeeded/failed counts, not a success boolean
+            if handler_result.failed > 0:
+                # Handler returned failure - route to retry/DLQ
+                # Extract error info from handler result
+                error_msg = (
+                    handler_result.errors[0]
+                    if handler_result.errors
+                    else "Handler returned failure"
+                )
+                error = Exception(error_msg)
+
+                # Default to TRANSIENT unless it's a permanent failure
+                if handler_result.failed_permanent > 0:
+                    error_category = ErrorCategory.PERMANENT
+                else:
+                    error_category = ErrorCategory.TRANSIENT
+
+                log_worker_error(
+                    logger,
+                    "Handler returned failure result",
+                    event_id=task.event_id,
+                    error_category=error_category.value,
+                    handler=handler_class.__name__,
+                    error_detail=error_msg[:200],
+                    succeeded=handler_result.succeeded,
+                    failed=handler_result.failed,
+                    failed_permanent=handler_result.failed_permanent,
+                )
+
+                await self._handle_enrichment_failure(task, error, error_category)
+                return
+
             entity_rows = handler_result.rows
             self._records_succeeded += 1
 
@@ -1012,7 +1055,6 @@ class ClaimXEnrichmentWorker:
         batch_id = uuid.uuid4().hex[:8]
         event_ids = [task.event_id for task in tasks[:5]]
 
-
         try:
             event_id = tasks[0].event_id if tasks else batch_id
             await self.producer.send(
@@ -1092,7 +1134,6 @@ class ClaimXEnrichmentWorker:
                     },
                     exc_info=True,
                 )
-
 
     async def _handle_enrichment_failure(
         self,

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -108,7 +108,6 @@ class ClaimXResultProcessor:
         # Batching configuration
         self.batch_size = batch_size or self.BATCH_SIZE
         self.batch_timeout_seconds = batch_timeout_seconds or self.BATCH_TIMEOUT_SECONDS
-
 
         # Get topic from hierarchical config or use provided/default
         self.results_topic = results_topic or config.get_topic(self.domain, "downloads_results")
@@ -271,7 +270,7 @@ class ClaimXResultProcessor:
     async def request_shutdown(self) -> None:
         """
         Request graceful shutdown.
-        
+
         This method is compatible with the shutdown pattern used in other workers.
         For BaseKafkaConsumer-based workers, stop() handles the graceful shutdown
         logic (flushing batches), but this method allows for a consistent interface.
@@ -298,7 +297,7 @@ class ClaimXResultProcessor:
         tracer = get_tracer(__name__)
         try:
             with tracer.start_active_span("result.process") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "internal")
                 message_data = json.loads(record.value.decode("utf-8"))
                 result = ClaimXUploadResultMessage.model_validate(message_data)
@@ -327,7 +326,7 @@ class ClaimXResultProcessor:
 
         if result.status == "completed":
             self._records_succeeded += 1
-            
+
             # Log success (sampled or debug to reduce noise)
             logger.debug(
                 "Upload completed successfully",
@@ -341,7 +340,7 @@ class ClaimXResultProcessor:
             if self.inventory_writer:
                 async with self._batch_lock:
                     self._batch.append(result)
-                    
+
                     # Check if flush needed (size-based)
                     if len(self._batch) >= self.batch_size:
                         await self._flush_batch()
@@ -382,7 +381,7 @@ class ClaimXResultProcessor:
         """
         while self._running:
             await asyncio.sleep(1)
-            
+
             async with self._batch_lock:
                 elapsed = time.monotonic() - self._last_flush
                 if self._batch and elapsed >= self.batch_timeout_seconds:
@@ -395,7 +394,7 @@ class ClaimXResultProcessor:
     async def _flush_batch(self) -> None:
         """
         Flush current batch to Delta Lake.
-        
+
         Assumes lock is held by caller.
         """
         if not self._batch or not self.inventory_writer:
@@ -405,26 +404,28 @@ class ClaimXResultProcessor:
         batch_size = len(batch)
         self._batch = []
         self._last_flush = time.monotonic()
-        
+
         batch_id = uuid.uuid4().hex[:8]
-        
+
         try:
             # Convert batch to Polars DataFrame for efficient merge
             now = datetime.now(timezone.utc)
             rows = []
 
             for upload_result in batch:
-                rows.append({
-                    "media_id": upload_result.media_id,
-                    "project_id": upload_result.project_id,
-                    "file_name": upload_result.file_name,
-                    "file_type": upload_result.file_type,
-                    "blob_path": upload_result.blob_path,
-                    "bytes": upload_result.bytes_uploaded,
-                    "source_event_id": upload_result.source_event_id,
-                    "created_at": now,
-                    "updated_at": now,
-                })
+                rows.append(
+                    {
+                        "media_id": upload_result.media_id,
+                        "project_id": upload_result.project_id,
+                        "file_name": upload_result.file_name,
+                        "file_type": upload_result.file_type,
+                        "blob_path": upload_result.blob_path,
+                        "bytes": upload_result.bytes_uploaded,
+                        "source_event_id": upload_result.source_event_id,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                )
 
             df = pl.DataFrame(rows)
 
@@ -447,8 +448,8 @@ class ClaimXResultProcessor:
                 extra={
                     "batch_id": batch_id,
                     "batch_size": batch_size,
-                    "batches_written": self._batches_written
-                }
+                    "batches_written": self._batches_written,
+                },
             )
 
         except Exception as e:
@@ -538,4 +539,3 @@ class ClaimXResultProcessor:
 
 
 __all__ = ["ClaimXResultProcessor"]
-

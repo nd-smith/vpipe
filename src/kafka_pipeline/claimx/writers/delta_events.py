@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -23,7 +23,6 @@ from typing import Any, Dict, List
 import polars as pl
 
 from kafka_pipeline.common.writers.base import BaseDeltaWriter
-
 
 # Explicit schema for claimx_events table matching actual Delta table schema
 # This ensures type compatibility and prevents inference issues
@@ -164,7 +163,8 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
 
             # Filter out events with null event_id or event_type before creating DataFrame
             valid_events = [
-                event for event in processed_events
+                event
+                for event in processed_events
                 if event.get("event_id") is not None and event.get("event_type") is not None
             ]
 

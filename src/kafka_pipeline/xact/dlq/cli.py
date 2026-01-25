@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 from config.config import KafkaConfig
 from kafka_pipeline.xact.dlq.handler import DLQHandler
 from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -54,6 +55,7 @@ class CLITaskManager:
                     loop.call_soon_threadsafe(self._shutdown_event.set)
                 except RuntimeError:
                     pass
+
         for sig in (signal.SIGTERM, signal.SIGINT):
             self._original_handlers[sig] = signal.signal(sig, signal_handler)
 
@@ -85,8 +87,7 @@ class CLITaskManager:
                 task.cancel()
         try:
             await asyncio.wait_for(
-                asyncio.gather(*self.tasks, return_exceptions=True),
-                timeout=timeout
+                asyncio.gather(*self.tasks, return_exceptions=True), timeout=timeout
             )
         except asyncio.TimeoutError:
             logger.warning(f"Task shutdown timed out after {timeout}s")
@@ -102,8 +103,7 @@ class CLITaskManager:
         try:
             if timeout:
                 return await asyncio.wait_for(
-                    asyncio.gather(*self.tasks, return_exceptions=True),
-                    timeout=timeout
+                    asyncio.gather(*self.tasks, return_exceptions=True), timeout=timeout
                 )
             else:
                 return await asyncio.gather(*self.tasks, return_exceptions=True)
@@ -133,7 +133,9 @@ class DLQCLIManager:
         logger.info("Stopping XACT DLQ CLI manager")
         await self.handler.stop()
 
-    async def fetch_messages(self, limit: int = 100, timeout_ms: int = 5000) -> List[ConsumerRecord]:
+    async def fetch_messages(
+        self, limit: int = 100, timeout_ms: int = 5000
+    ) -> List[ConsumerRecord]:
         if not self.handler._consumer or not self.handler._consumer._consumer:
             raise RuntimeError("DLQ handler not started. Call start() first.")
 
@@ -159,13 +161,19 @@ class DLQCLIManager:
         print(f"\n{'='*100}")
         print(f"DLQ Messages ({len(self._messages)} total)")
         print(f"{'='*100}\n")
-        print(f"{'Offset':<8} {'Trace ID':<20} {'Retry Count':<12} {'Error Category':<15} {'URL':<45}")
+        print(
+            f"{'Offset':<8} {'Trace ID':<20} {'Retry Count':<12} {'Error Category':<15} {'URL':<45}"
+        )
         print(f"{'-'*100}")
 
         for record in self._messages:
             try:
                 dlq_msg = self.handler.parse_dlq_message(record)
-                url_display = dlq_msg.attachment_url[:42] + "..." if len(dlq_msg.attachment_url) > 45 else dlq_msg.attachment_url
+                url_display = (
+                    dlq_msg.attachment_url[:42] + "..."
+                    if len(dlq_msg.attachment_url) > 45
+                    else dlq_msg.attachment_url
+                )
                 print(
                     f"{record.offset:<8} {dlq_msg.trace_id:<20} {dlq_msg.retry_count:<12} "
                     f"{dlq_msg.error_category:<15} {url_display:<45}"
@@ -289,6 +297,7 @@ class DLQCLIManager:
 
 async def main_list(args):
     from config.config import load_config
+
     config = load_config()
     domain = "xact"
     manager = DLQCLIManager(config)
@@ -298,6 +307,7 @@ async def main_list(args):
         try:
             await manager.handler._producer.start() if not manager.handler._producer else None
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
+
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
                 domain=domain,
@@ -306,8 +316,7 @@ async def main_list(args):
                 message_handler=lambda r: asyncio.sleep(0),
             )
             consumer_task = task_manager.create_task(
-                manager.handler._consumer.start(),
-                name="dlq_consumer"
+                manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
             await manager.fetch_messages(limit=args.limit, timeout_ms=args.timeout)
@@ -327,6 +336,7 @@ async def main_list(args):
 
 async def main_view(args):
     from config.config import load_config
+
     config = load_config()
     domain = "xact"
     manager = DLQCLIManager(config)
@@ -337,6 +347,7 @@ async def main_view(args):
             await manager.handler._producer.start() if not manager.handler._producer else None
 
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
+
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
                 domain=domain,
@@ -346,8 +357,7 @@ async def main_view(args):
             )
 
             consumer_task = task_manager.create_task(
-                manager.handler._consumer.start(),
-                name="dlq_consumer"
+                manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
 
@@ -368,6 +378,7 @@ async def main_view(args):
 
 async def main_replay(args):
     from config.config import load_config
+
     config = load_config()
     domain = "xact"
     manager = DLQCLIManager(config)
@@ -376,6 +387,7 @@ async def main_replay(args):
         try:
             manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
             from kafka_pipeline.common.producer import BaseKafkaProducer
+
             manager.handler._producer = BaseKafkaProducer(
                 config=config,
                 domain=domain,
@@ -383,6 +395,7 @@ async def main_replay(args):
             )
             await manager.handler._producer.start()
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
+
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
                 domain=domain,
@@ -392,8 +405,7 @@ async def main_replay(args):
             )
 
             consumer_task = task_manager.create_task(
-                manager.handler._consumer.start(),
-                name="dlq_consumer"
+                manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
 
@@ -415,6 +427,7 @@ async def main_replay(args):
 
 async def main_resolve(args):
     from config.config import load_config
+
     config = load_config()
     domain = "xact"
     manager = DLQCLIManager(config)
@@ -423,6 +436,7 @@ async def main_resolve(args):
         try:
             manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
             from kafka_pipeline.common.producer import BaseKafkaProducer
+
             manager.handler._producer = BaseKafkaProducer(
                 config=config,
                 domain=domain,
@@ -430,6 +444,7 @@ async def main_resolve(args):
             )
             await manager.handler._producer.start()
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
+
             manager.handler._consumer = BaseKafkaConsumer(
                 config=config,
                 domain=domain,
@@ -439,8 +454,7 @@ async def main_resolve(args):
             )
 
             consumer_task = task_manager.create_task(
-                manager.handler._consumer.start(),
-                name="dlq_consumer"
+                manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
 

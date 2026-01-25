@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -282,9 +282,7 @@ class KQLClient:
                     "error": str(e)[:200],
                 },
             )
-            raise StorageErrorClassifier.classify_kusto_error(
-                e, {"operation": "connect"}
-            ) from e
+            raise StorageErrorClassifier.classify_kusto_error(e, {"operation": "connect"}) from e
 
     async def close(self) -> None:
         """Close connection and cleanup resources."""
@@ -309,8 +307,7 @@ class KQLClient:
         database: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
     ) -> KQLQueryResult:
-        """Execute a KQL query with retry logic.
-        """
+        """Execute a KQL query with retry logic."""
         if self._client is None:
             await self.connect()
 
@@ -404,8 +401,7 @@ class KQLClient:
         database: str,
         timeout_seconds: int,
     ) -> KQLQueryResult:
-        """Execute query implementation (runs in thread pool).
-        """
+        """Execute query implementation (runs in thread pool)."""
         start_time = time.perf_counter()
 
         try:
@@ -470,12 +466,14 @@ class KQLClient:
             error_details = {}
             try:
                 # Try to get structured error info if available
-                if hasattr(e, 'get_api_errors'):
+                if hasattr(e, "get_api_errors"):
                     api_errors = e.get_api_errors()
                     if api_errors:
                         error_details["api_errors"] = str(api_errors)[:500]
-                if hasattr(e, 'http_response') and e.http_response:
-                    error_details["http_status"] = getattr(e.http_response, 'status_code', None) or getattr(e.http_response, 'status', None)
+                if hasattr(e, "http_response") and e.http_response:
+                    error_details["http_status"] = getattr(
+                        e.http_response, "status_code", None
+                    ) or getattr(e.http_response, "status", None)
             except Exception:
                 pass  # Don't fail on error introspection
 

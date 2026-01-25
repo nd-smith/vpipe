@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -84,10 +84,7 @@ def load_plugins_from_directory(
     config_files.extend(plugins_path.rglob("plugin.yaml"))
 
     # Skip shared/connections directory (contains connection configs, not plugins)
-    config_files = [
-        f for f in config_files
-        if "connections" not in f.parts
-    ]
+    config_files = [f for f in config_files if "connections" not in f.parts]
 
     if not config_files:
         log_with_context(
@@ -351,11 +348,13 @@ def _create_task_trigger_from_config(config: Dict[str, Any]) -> Optional[TaskTri
                 "on_any": trigger.get("on_any"),
             }
 
-    plugin = TaskTriggerPlugin(config={
-        "triggers": triggers_dict,
-        "include_task_data": config.get("include_task_data", True),
-        "include_project_data": config.get("include_project_data", False),
-    })
+    plugin = TaskTriggerPlugin(
+        config={
+            "triggers": triggers_dict,
+            "include_task_data": config.get("include_task_data", True),
+            "include_project_data": config.get("include_project_data", False),
+        }
+    )
 
     # Override metadata
     plugin.name = name

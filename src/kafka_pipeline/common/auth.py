@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -60,17 +60,13 @@ class TokenCache:
 
     def set(self, resource: str, token: str) -> None:
         """Cache a token."""
-        self._tokens[resource] = CachedToken(
-            value=token, acquired_at=datetime.now(timezone.utc)
-        )
+        self._tokens[resource] = CachedToken(value=token, acquired_at=datetime.now(timezone.utc))
 
     def clear(self, resource: Optional[str] = None) -> None:
         """Clear one or all cached tokens."""
         if resource:
             self._tokens.pop(resource, None)
-            log_with_context(
-                logger, logging.DEBUG, "Cleared token cache", resource=resource
-            )
+            log_with_context(logger, logging.DEBUG, "Cleared token cache", resource=resource)
         else:
             self._tokens.clear()
             log_with_context(logger, logging.DEBUG, "Cleared all token caches")
@@ -227,9 +223,7 @@ class AzureAuth:
         """Fetch fresh token from Azure CLI."""
         az_path = shutil.which("az")
         if not az_path:
-            raise AzureAuthError(
-                "Azure CLI not found. Ensure 'az' is installed and in PATH."
-            )
+            raise AzureAuthError("Azure CLI not found. Ensure 'az' is installed and in PATH.")
 
         cmd = [az_path, "account", "get-access-token", "--resource", resource]
         if self.tenant_id:

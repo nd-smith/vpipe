@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -120,6 +120,7 @@ class PollerCheckpoint:
 @dataclass
 class PollerConfig:
     """Configuration for KQL Event Poller."""
+
     eventhouse: EventhouseConfig
     kafka: Optional[KafkaConfig] = None  # Optional when using custom sink
     event_schema_class: Optional[Type] = None
@@ -160,6 +161,7 @@ class KQLEventPoller:
 
         if config.event_schema_class is None:
             from kafka_pipeline.xact.schemas.events import EventMessage
+
             self._event_schema_class = EventMessage
         else:
             self._event_schema_class = config.event_schema_class
@@ -195,7 +197,7 @@ class KQLEventPoller:
         """Get the KQL column name for the unique ID (default: traceId). Returns None if disabled."""
         col = self.config.column_mapping.get("trace_id")
         if col == "None" or col is None:
-             return None
+            return None
         return col
 
     def _parse_timestamp(self, ts_str: str) -> datetime:
@@ -218,7 +220,7 @@ class KQLEventPoller:
         """Saves current progress to disk."""
         if ingestion_time.tzinfo is None:
             ingestion_time = ingestion_time.replace(tzinfo=timezone.utc)
-        
+
         checkpoint = PollerCheckpoint(
             last_ingestion_time=ingestion_time.isoformat(),
             last_trace_id=trace_id,
@@ -247,10 +249,7 @@ class KQLEventPoller:
 
         await self._sink.start()
         self._running = True
-        logger.info(
-            "KQLEventPoller started",
-            extra={"sink_type": type(self._sink).__name__}
-        )
+        logger.info("KQLEventPoller started", extra={"sink_type": type(self._sink).__name__})
 
     # FIXED: Restored Asynchronous Context Manager Protocol
     async def __aenter__(self) -> "KQLEventPoller":
@@ -284,8 +283,7 @@ class KQLEventPoller:
             try:
                 await self._poll_cycle()
                 await asyncio.wait_for(
-                    self._shutdown_event.wait(),
-                    timeout=self.config.poll_interval_seconds
+                    self._shutdown_event.wait(), timeout=self.config.poll_interval_seconds
                 )
             except asyncio.TimeoutError:
                 pass
@@ -316,23 +314,27 @@ class KQLEventPoller:
                 order_clause += f", {trace_id_col} asc"
 
             query = f"{self.config.source_table} {where} | where ingestion_time() < datetime({stop_str}) | extend ingestion_time = ingestion_time() | {order_clause} | take {self.config.batch_size}"
-            
+
             result = await self._kql_client.execute_query(query)
             if not result.rows:
                 break
 
             await self._process_filtered_results(result.rows)
-            
+
             last = result.rows[-1]
             l_time_raw = last.get("ingestion_time", last.get("$IngestionTime"))
-            l_time = l_time_raw if isinstance(l_time_raw, datetime) else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
+            l_time = (
+                l_time_raw
+                if isinstance(l_time_raw, datetime)
+                else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
+            )
             if l_time.tzinfo is None:
                 l_time = l_time.replace(tzinfo=timezone.utc)
-            
+
             l_tid = str(last.get(trace_id_col)) if trace_id_col else ""
             self._save_checkpoint(l_time, l_tid)
             start = l_time
-            
+
             if len(result.rows) < self.config.batch_size:
                 break
 
@@ -340,8 +342,10 @@ class KQLEventPoller:
         """Execute single poll cycle."""
         now = datetime.now(timezone.utc)
         poll_from = self._last_ingestion_time or (now - timedelta(hours=1))
-        
-        query = self._build_query(self.config.source_table, poll_from, now, self.config.batch_size, self._last_trace_id)
+
+        query = self._build_query(
+            self.config.source_table, poll_from, now, self.config.batch_size, self._last_trace_id
+        )
         result = await self._kql_client.execute_query(query)
         if not result.rows:
             return
@@ -351,10 +355,14 @@ class KQLEventPoller:
 
         last = result.rows[-1]
         l_time_raw = last.get("ingestion_time", last.get("$IngestionTime"))
-        l_time = l_time_raw if isinstance(l_time_raw, datetime) else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
+        l_time = (
+            l_time_raw
+            if isinstance(l_time_raw, datetime)
+            else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
+        )
         if l_time.tzinfo is None:
             l_time = l_time.replace(tzinfo=timezone.utc)
-        
+
         l_tid = str(last.get(self._trace_id_col)) if self._trace_id_col else ""
         self._save_checkpoint(l_time, l_tid)
 
@@ -362,14 +370,18 @@ class KQLEventPoller:
         """Ensures UTC-aware comparisons to avoid TypeError."""
         if not self._last_ingestion_time:
             return rows
-        
+
         cp_time = self._last_ingestion_time
         cp_tid = self._last_trace_id
         filtered = []
 
         for r in rows:
             t_raw = r.get("ingestion_time", r.get("$IngestionTime"))
-            r_time = t_raw if isinstance(t_raw, datetime) else datetime.fromisoformat(str(t_raw).replace("Z", "+00:00"))
+            r_time = (
+                t_raw
+                if isinstance(t_raw, datetime)
+                else datetime.fromisoformat(str(t_raw).replace("Z", "+00:00"))
+            )
             if r_time.tzinfo is None:
                 r_time = r_time.replace(tzinfo=timezone.utc)
 
@@ -379,7 +391,7 @@ class KQLEventPoller:
                 continue
             if self._trace_id_col and r_time == cp_time and cp_tid and r_tid <= cp_tid:
                 continue
-            
+
             filtered.append(r)
         return filtered
 
@@ -405,7 +417,11 @@ class KQLEventPoller:
             order_clause += f", {trace_id_col} asc"
 
         # Extend to normalize column name for downstream processing
-        extend_clause = f"| extend ingestion_time = {ing_expr}" if ing_col else "| extend ingestion_time = ingestion_time()"
+        extend_clause = (
+            f"| extend ingestion_time = {ing_expr}"
+            if ing_col
+            else "| extend ingestion_time = ingestion_time()"
+        )
 
         return f"{table} {where} | where {ing_expr} < datetime({t_str}) {extend_clause} | {order_clause} | take {limit}"
 
@@ -420,7 +436,11 @@ class KQLEventPoller:
                 # Use schema-generated or default ID
                 # Note: use 'or' to handle None values since getattr returns None
                 # when the attribute exists but has value None
-                eid = getattr(event, 'event_id', None) or getattr(event, 'trace_id', None) or str(hash(str(event)))
+                eid = (
+                    getattr(event, "event_id", None)
+                    or getattr(event, "trace_id", None)
+                    or str(hash(str(event)))
+                )
 
             await self._sink.write(key=eid, event=event)
         return len(rows)

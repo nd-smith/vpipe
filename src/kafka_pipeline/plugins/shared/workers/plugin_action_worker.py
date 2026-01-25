@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -307,7 +307,9 @@ class PluginActionWorker:
             await self._handle_error(message.value, str(e))
             self.messages_failed += 1
 
-    async def _send_to_api(self, enriched_data: dict[str, Any], original_message: dict[str, Any]) -> None:
+    async def _send_to_api(
+        self, enriched_data: dict[str, Any], original_message: dict[str, Any]
+    ) -> None:
         """Send enriched data to destination API.
 
         Args:
@@ -327,9 +329,7 @@ class PluginActionWorker:
             response_body = await response.text()
 
             if status >= 400:
-                logger.error(
-                    f"API request failed with status {status}: {response_body[:200]}"
-                )
+                logger.error(f"API request failed with status {status}: {response_body[:200]}")
                 await self._handle_error(
                     original_message,
                     f"API error {status}: {response_body[:200]}",

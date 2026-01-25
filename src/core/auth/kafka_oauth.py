@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -44,7 +44,6 @@ from typing import Callable, Optional
 
 from core.auth.credentials import AzureCredentialProvider, AzureAuthError
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -60,6 +59,7 @@ class KafkaOAuthError(Exception):
     This exception indicates authentication issues specific to Kafka/EventHub
     that may require reconfiguration or credential refresh.
     """
+
     pass
 
 
@@ -104,12 +104,12 @@ def create_kafka_oauth_callback(
         provider = AzureCredentialProvider()
         logger.info(
             "Created Kafka OAuth callback with environment-based auth",
-            extra={"auth_mode": provider.auth_mode}
+            extra={"auth_mode": provider.auth_mode},
         )
     else:
         logger.info(
             "Created Kafka OAuth callback with provided credential provider",
-            extra={"auth_mode": provider.auth_mode}
+            extra={"auth_mode": provider.auth_mode},
         )
 
     def oauth_callback() -> str:
@@ -130,10 +130,7 @@ def create_kafka_oauth_callback(
 
             logger.debug(
                 "Successfully acquired Kafka OAuth token",
-                extra={
-                    "resource": EVENTHUB_RESOURCE,
-                    "auth_mode": provider.auth_mode
-                }
+                extra={"resource": EVENTHUB_RESOURCE, "auth_mode": provider.auth_mode},
             )
 
             return token
@@ -144,8 +141,8 @@ def create_kafka_oauth_callback(
                 extra={
                     "resource": EVENTHUB_RESOURCE,
                     "auth_mode": provider.auth_mode,
-                    "error": str(e)
-                }
+                    "error": str(e),
+                },
             )
             raise KafkaOAuthError(
                 f"Failed to acquire OAuth token for Kafka/EventHub\n"
@@ -154,20 +151,15 @@ def create_kafka_oauth_callback(
             ) from e
         except Exception as e:
             logger.error(
-                "Unexpected error in Kafka OAuth callback",
-                extra={"error": str(e)},
-                exc_info=True
+                "Unexpected error in Kafka OAuth callback", extra={"error": str(e)}, exc_info=True
             )
-            raise KafkaOAuthError(
-                f"Unexpected error acquiring Kafka OAuth token: {str(e)}"
-            ) from e
+            raise KafkaOAuthError(f"Unexpected error acquiring Kafka OAuth token: {str(e)}") from e
 
     return oauth_callback
 
 
 def get_kafka_oauth_token(
-    provider: Optional[AzureCredentialProvider] = None,
-    force_refresh: bool = False
+    provider: Optional[AzureCredentialProvider] = None, force_refresh: bool = False
 ) -> str:
     """
     Get EventHub OAuth token directly (non-callback usage).
@@ -196,9 +188,7 @@ def get_kafka_oauth_token(
     try:
         return provider.get_token_for_resource(EVENTHUB_RESOURCE, force_refresh)
     except AzureAuthError as e:
-        raise KafkaOAuthError(
-            f"Failed to get Kafka OAuth token: {str(e)}"
-        ) from e
+        raise KafkaOAuthError(f"Failed to get Kafka OAuth token: {str(e)}") from e
 
 
 __all__ = [

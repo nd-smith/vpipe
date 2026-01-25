@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -116,17 +116,44 @@ async def run_claimx_enrichment_worker(
     pipeline_config,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
-    """ClaimX enrichment worker with entity extraction."""
-    from kafka_pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
+    """ClaimX enrichment worker with entity extraction.
 
-    worker = ClaimXEnrichmentWorker(
-        config=kafka_config,
-        domain="claimx",
-        enable_delta_writes=pipeline_config.enable_delta_writes,
-        projects_table_path=pipeline_config.claimx_projects_table_path,
-        instance_id=instance_id,
-    )
+    Args:
+        kafka_config: Kafka configuration
+        pipeline_config: Pipeline configuration
+        shutdown_event: Shutdown event for graceful shutdown
+        instance_id: Optional instance ID for parallel workers
+        simulation_mode: Enable simulation mode with mock API client
+    """
+    if simulation_mode:
+        from kafka_pipeline.simulation import create_simulation_enrichment_worker, SimulationConfig
+
+        # Load simulation config
+        simulation_config = SimulationConfig.from_env(enabled=True)
+        simulation_config.ensure_directories()
+
+        logger.info("Starting ClaimX enrichment worker in SIMULATION MODE")
+        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+
+        # Use factory to create worker with mock dependencies
+        worker = create_simulation_enrichment_worker(
+            config=kafka_config,
+            simulation_config=simulation_config,
+            domain="claimx",
+        )
+    else:
+        from kafka_pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
+
+        worker = ClaimXEnrichmentWorker(
+            config=kafka_config,
+            domain="claimx",
+            enable_delta_writes=pipeline_config.enable_delta_writes,
+            projects_table_path=pipeline_config.claimx_projects_table_path,
+            instance_id=instance_id,
+        )
+
     await execute_worker_with_shutdown(
         worker,
         stage_name="claimx-enricher",
@@ -140,8 +167,18 @@ async def run_claimx_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
-    """ClaimX download worker."""
+    """ClaimX download worker.
+
+    Note: Worker auto-detects simulation mode via environment variable.
+
+    Args:
+        kafka_config: Kafka configuration
+        shutdown_event: Shutdown event for graceful shutdown
+        instance_id: Optional instance ID for parallel workers
+        simulation_mode: Ignored - worker auto-detects simulation mode
+    """
     from kafka_pipeline.claimx.workers.download_worker import ClaimXDownloadWorker
 
     worker = ClaimXDownloadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
@@ -157,11 +194,37 @@ async def run_claimx_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
-    """ClaimX upload worker."""
-    from kafka_pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
+    """ClaimX upload worker.
 
-    worker = ClaimXUploadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
+    Args:
+        kafka_config: Kafka configuration
+        shutdown_event: Shutdown event for graceful shutdown
+        instance_id: Optional instance ID for parallel workers
+        simulation_mode: Enable simulation mode with local storage
+    """
+    if simulation_mode:
+        from kafka_pipeline.simulation import create_simulation_upload_worker, SimulationConfig
+
+        # Load simulation config
+        simulation_config = SimulationConfig.from_env(enabled=True)
+        simulation_config.ensure_directories()
+
+        logger.info("Starting ClaimX upload worker in SIMULATION MODE")
+        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+
+        # Use factory to create worker with local storage
+        worker = create_simulation_upload_worker(
+            config=kafka_config,
+            simulation_config=simulation_config,
+            domain="claimx",
+        )
+    else:
+        from kafka_pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
+
+        worker = ClaimXUploadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
+
     await execute_worker_with_shutdown(
         worker,
         stage_name="claimx-uploader",

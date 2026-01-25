@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -88,7 +88,7 @@ class ClaimXEntityDeltaWorker:
         self.producer: Optional[BaseKafkaProducer] = None
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
-        
+
         # Initialize entity writer
         self.entity_writer = ClaimXEntityWriter(
             projects_table_path=projects_table_path,
@@ -99,16 +99,18 @@ class ClaimXEntityDeltaWorker:
             external_links_table_path=external_links_table_path,
             video_collab_table_path=video_collab_table_path,
         )
-        
+
         # Get processing config
         processing_config = config.get_worker_config(domain, "entity_delta_writer", "processing")
         self.batch_size = processing_config.get("batch_size", 100)
         self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 30.0)
         self.max_retries = processing_config.get("max_retries", 3)
-        
+
         # Retry config
         self._retry_delays = processing_config.get("retry_delays", [60, 300, 900])
-        self._retry_topic_prefix = processing_config.get("retry_topic_prefix", f"{entity_rows_topic}.retry")
+        self._retry_topic_prefix = processing_config.get(
+            "retry_topic_prefix", f"{entity_rows_topic}.retry"
+        )
         self._dlq_topic = processing_config.get("dlq_topic", f"{entity_rows_topic}.dlq")
 
         # Batch state
@@ -178,7 +180,7 @@ class ClaimXEntityDeltaWorker:
         self.retry_handler = DeltaRetryHandler(
             config=self.producer_config,
             producer=self.producer,
-            table_path="claimx_entities", # logical name for retry context
+            table_path="claimx_entities",  # logical name for retry context
             retry_delays=self._retry_delays,
             retry_topic_prefix=self._retry_topic_prefix,
             dlq_topic=self._dlq_topic,
@@ -262,7 +264,7 @@ class ClaimXEntityDeltaWorker:
             )
             # Cannot retry parse errors, strict schema
             self._records_failed += 1
-            
+
     async def _flush_batch(self) -> None:
         """Write accumulated batch to Delta Lake."""
         batch_size = 0
@@ -277,7 +279,7 @@ class ClaimXEntityDeltaWorker:
             for msg in self._batch:
                 merged_rows.merge(msg)
 
-            batch_to_proces = self._batch.copy() # Keep for error handling if needed
+            batch_to_proces = self._batch.copy()  # Keep for error handling if needed
             self._batch.clear()
 
         if merged_rows.is_empty():
@@ -303,7 +305,7 @@ class ClaimXEntityDeltaWorker:
 
             tracer = get_tracer(__name__)
             with tracer.start_active_span("delta.write") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("batch.size", batch_size)
                 span.set_tag("entity.row_count", merged_rows.row_count())
@@ -329,16 +331,18 @@ class ClaimXEntityDeltaWorker:
             # Metrics
             for table_name, row_count in counts.items():
                 record_delta_write(
-                    table=f"claimx_{table_name}",
-                    event_count=row_count,
-                    success=True
+                    table=f"claimx_{table_name}", event_count=row_count, success=True
                 )
-                
+
         except Exception as e:
             self._records_failed += merged_rows.row_count()
 
             # Classify error using DeltaRetryHandler for proper DLQ routing
-            error_category = self.retry_handler.classify_delta_error(e) if self.retry_handler else ErrorCategory.UNKNOWN
+            error_category = (
+                self.retry_handler.classify_delta_error(e)
+                if self.retry_handler
+                else ErrorCategory.UNKNOWN
+            )
 
             # Use standardized error logging
             log_worker_error(
@@ -354,17 +358,26 @@ class ClaimXEntityDeltaWorker:
             if self.retry_handler:
                 # Extract event data for retry context
                 events = []
-                for entity_type in ["projects", "contacts", "media", "tasks",
-                                    "task_templates", "external_links", "video_collab"]:
+                for entity_type in [
+                    "projects",
+                    "contacts",
+                    "media",
+                    "tasks",
+                    "task_templates",
+                    "external_links",
+                    "video_collab",
+                ]:
                     entity_list = getattr(merged_rows, entity_type, [])
                     for entity in entity_list:
-                        events.append({
-                            "entity_type": entity_type,
-                            "event_id": merged_rows.event_id,
-                            "event_type": merged_rows.event_type,
-                            "project_id": merged_rows.project_id,
-                            **entity,
-                        })
+                        events.append(
+                            {
+                                "entity_type": entity_type,
+                                "event_id": merged_rows.event_id,
+                                "event_type": merged_rows.event_type,
+                                "project_id": merged_rows.project_id,
+                                **entity,
+                            }
+                        )
 
                 if events:
                     try:
@@ -446,6 +459,7 @@ class ClaimXEntityDeltaWorker:
         Background task for periodic cycle logging.
         """
         import time as time_module
+
         # Initial cycle output
         logger.info(format_cycle_output(0, 0, 0, 0, 0, 0, 0))
         self._last_cycle_log = time_module.monotonic()
@@ -497,4 +511,3 @@ class ClaimXEntityDeltaWorker:
         except asyncio.CancelledError:
             logger.debug("Periodic cycle output task cancelled")
             raise
-

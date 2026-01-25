@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -289,7 +289,7 @@ class ClaimXEventIngesterWorker:
         tracer = get_tracer(__name__)
         try:
             with tracer.start_active_span("event.parse") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "internal")
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = ClaimXEventMessage.from_eventhouse_row(message_data)

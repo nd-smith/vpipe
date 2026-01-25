@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -48,6 +48,7 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.simulation.config import is_simulation_mode, get_simulation_config
 from kafka_pipeline.xact.retry.download_handler import RetryHandler
 from kafka_pipeline.xact.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
@@ -113,14 +114,22 @@ class DownloadWorker:
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = 30
 
-    def __init__(self, config: KafkaConfig, domain: str = "xact", temp_dir: Optional[Path] = None, instance_id: Optional[str] = None):
+    def __init__(
+        self,
+        config: KafkaConfig,
+        domain: str = "xact",
+        temp_dir: Optional[Path] = None,
+        instance_id: Optional[str] = None,
+    ):
         self.config = config
         self.domain = domain
         self.instance_id = instance_id
 
         # Create worker_id with instance suffix (coolname) if provided
         if instance_id:
-            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
+            self.worker_id = (
+                f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
+            )
         else:
             self.worker_id = self.WORKER_NAME
 
@@ -165,6 +174,26 @@ class DownloadWorker:
         self.downloader = AttachmentDownloader()
 
         self.retry_handler: Optional[RetryHandler] = None
+
+        # Check if simulation mode is enabled for localhost URL support
+        self._simulation_mode_enabled = is_simulation_mode()
+        if self._simulation_mode_enabled:
+            try:
+                self._simulation_config = get_simulation_config()
+                logger.info(
+                    "Simulation mode enabled - localhost URLs will be allowed",
+                    extra={
+                        "allow_localhost_urls": self._simulation_config.allow_localhost_urls,
+                    },
+                )
+            except RuntimeError:
+                # Simulation mode check indicated true but config failed to load
+                # Fall back to disabled for safety
+                self._simulation_mode_enabled = False
+                self._simulation_config = None
+                logger.warning("Simulation mode check failed, localhost URLs will be blocked")
+        else:
+            self._simulation_config = None
 
         # Health check server
         health_port = processing_config.get("health_port", 8090)
@@ -293,12 +322,18 @@ class DownloadWorker:
             self._running = False
 
     async def _create_consumer(self) -> None:
-        consumer_config_dict = self.config.get_worker_config(self.domain, self.WORKER_NAME, "consumer")
+        consumer_config_dict = self.config.get_worker_config(
+            self.domain, self.WORKER_NAME, "consumer"
+        )
 
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": f"{self.domain}-download-{self.instance_id}" if self.instance_id else f"{self.domain}-download",
+            "client_id": (
+                f"{self.domain}-download-{self.instance_id}"
+                if self.instance_id
+                else f"{self.domain}-download"
+            ),
             "enable_auto_commit": False,
             "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
             "max_poll_records": self.batch_size,
@@ -338,9 +373,7 @@ class DownloadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -389,7 +422,8 @@ class DownloadWorker:
 
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)
-        update_assigned_partitions(self.CONSUMER_GROUP, 0)
+        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+        update_assigned_partitions(consumer_group, 0)
 
         logger.info("Download worker stopped successfully")
 
@@ -447,9 +481,7 @@ class DownloadWorker:
                     continue
 
                 if not _logged_assignment_received:
-                    partition_info = [
-                        f"{tp.topic}:{tp.partition}" for tp in assignment
-                    ]
+                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
                     logger.info(
                         "Partition assignment received, starting message consumption",
                         extra={
@@ -476,7 +508,6 @@ class DownloadWorker:
                 if not messages:
                     continue
 
-
                 logger.info(
                     "Processing message batch",
                     extra={
@@ -497,7 +528,6 @@ class DownloadWorker:
                     )
 
                 self._cleanup_dedup_cache()
-
 
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")
@@ -629,7 +659,7 @@ class DownloadWorker:
 
             tracer = get_tracer(__name__)
             with tracer.start_active_span("download.execute") as scope:
-                span = scope.span if hasattr(scope, 'span') else scope
+                span = scope.span if hasattr(scope, "span") else scope
                 span.set_tag("span.kind", "client")
                 span.set_tag("http.url", task_message.attachment_url)
                 span.set_tag("http.method", "GET")
@@ -643,15 +673,19 @@ class DownloadWorker:
                 span.set_tag("download.success", outcome.success)
                 span.set_tag("download.bytes", outcome.bytes_downloaded or 0)
                 if not outcome.success:
-                    span.set_tag("error.category", outcome.error_category.value if outcome.error_category else "unknown")
+                    span.set_tag(
+                        "error.category",
+                        outcome.error_category.value if outcome.error_category else "unknown",
+                    )
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
                 self._mark_processed(task_message.media_id)
+                consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
                 record_message_consumed(
-                    message.topic, self.CONSUMER_GROUP, len(message.value), success=True
+                    message.topic, consumer_group, len(message.value), success=True
                 )
 
                 self._records_succeeded += 1
@@ -666,8 +700,9 @@ class DownloadWorker:
                 )
             else:
                 await self._handle_failure(task_message, outcome, processing_time_ms)
+                consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
                 record_message_consumed(
-                    message.topic, self.CONSUMER_GROUP, len(message.value), success=False
+                    message.topic, consumer_group, len(message.value), success=False
                 )
 
                 await self._cleanup_empty_temp_dir(download_task.destination.parent)
@@ -706,6 +741,11 @@ class DownloadWorker:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.trace_id / destination_filename
 
+        # Determine if localhost URLs should be allowed based on simulation config
+        allow_localhost = False
+        if self._simulation_mode_enabled and self._simulation_config:
+            allow_localhost = self._simulation_config.allow_localhost_urls
+
         return DownloadTask(
             url=task_message.attachment_url,
             destination=temp_file,
@@ -713,6 +753,7 @@ class DownloadWorker:
             validate_url=True,
             validate_file_type=True,
             check_expiration=True,  # Xact S3 URLs cannot be refreshed
+            allow_localhost=allow_localhost,
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,
@@ -811,11 +852,10 @@ class DownloadWorker:
 
         log_worker_error(
             logger,
-            "Download failed",
+            outcome.error_message or "Download failed",
             error_category=error_category.value,
             trace_id=task_message.trace_id,
             attachment_url=task_message.attachment_url,
-            error_message=outcome.error_message,
             status_code=outcome.status_code,
             processing_time_ms=processing_time_ms,
             retry_count=task_message.retry_count,
@@ -908,6 +948,7 @@ class DownloadWorker:
 
     async def _cleanup_temp_file(self, file_path: Path) -> None:
         try:
+
             def _delete():
                 if file_path.exists():
                     file_path.unlink()
@@ -937,6 +978,7 @@ class DownloadWorker:
 
     async def _cleanup_empty_temp_dir(self, dir_path: Path) -> None:
         try:
+
             def _delete_if_empty():
                 if dir_path.exists() and dir_path.is_dir():
                     if not any(dir_path.iterdir()):

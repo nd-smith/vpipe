@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -378,9 +378,7 @@ class MonitoringService:
 
 async def main():
     """Run the monitoring service."""
-    parser = argparse.ArgumentParser(
-        description="Monitoring aggregator service for Kafka pipeline"
-    )
+    parser = argparse.ArgumentParser(description="Monitoring aggregator service for Kafka pipeline")
     parser.add_argument(
         "--prometheus-url",
         default="http://localhost:9090",

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -63,9 +63,7 @@ def logged_operation(
 
             @functools.wraps(func)
             async def async_wrapper(self, *args, **kwargs):
-                _logger = getattr(self, "_logger", None) or get_logger(
-                    self.__class__.__module__
-                )
+                _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
                 op_name = operation_name or func.__name__
                 full_op = f"{self.__class__.__name__}.{op_name}"
 
@@ -85,9 +83,7 @@ def logged_operation(
 
             @functools.wraps(func)
             def sync_wrapper(self, *args, **kwargs):
-                _logger = getattr(self, "_logger", None) or get_logger(
-                    self.__class__.__module__
-                )
+                _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
                 op_name = operation_name or func.__name__
                 full_op = f"{self.__class__.__name__}.{op_name}"
 
@@ -258,9 +254,7 @@ def with_api_error_handling(func: F) -> F:
 
         @functools.wraps(func)
         async def async_wrapper(self, *args, **kwargs):
-            _logger = getattr(self, "_logger", None) or get_logger(
-                self.__class__.__module__
-            )
+            _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
             try:
                 return await func(self, *args, **kwargs)
             except Exception as e:
@@ -272,9 +266,7 @@ def with_api_error_handling(func: F) -> F:
 
         @functools.wraps(func)
         def sync_wrapper(self, *args, **kwargs):
-            _logger = getattr(self, "_logger", None) or get_logger(
-                self.__class__.__module__
-            )
+            _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
             try:
                 return func(self, *args, **kwargs)
             except Exception as e:

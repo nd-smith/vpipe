@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -25,7 +25,6 @@ from core.errors.exceptions import (
     TransientError,
     classify_http_status,
 )
-
 
 # Download configuration constants
 CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks for streaming
@@ -267,19 +266,20 @@ async def download_to_file(
         # Ensure parent directory exists right before opening file
         # This handles potential timing issues on Windows where mkdir may not
         # be immediately visible to subsequent file operations
-        await asyncio.to_thread(
-            Path(output_path).parent.mkdir, parents=True, exist_ok=True
-        )
+        await asyncio.to_thread(Path(output_path).parent.mkdir, parents=True, exist_ok=True)
         with open(output_path, "wb") as f:
             async for chunk in chunk_iterator:
                 # Use asyncio.to_thread for disk I/O to avoid blocking event loop
                 await asyncio.to_thread(f.write, chunk)
                 bytes_written += len(chunk)
 
-        return DownloadToFileResult(
-            bytes_written=bytes_written,
-            content_type=response.content_type,
-        ), None
+        return (
+            DownloadToFileResult(
+                bytes_written=bytes_written,
+                content_type=response.content_type,
+            ),
+            None,
+        )
 
     except OSError as e:
         # Classify OSError - be conservative: only mark as PERMANENT if we're
@@ -288,9 +288,7 @@ async def download_to_file(
         permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
         is_permanent = e.errno in permanent_errnos
 
-        error_category = (
-            ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
-        )
+        error_category = ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
         return None, StreamDownloadError(
             status_code=None,
             error_message=f"File write error: {str(e)}",

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -9,14 +9,33 @@
 import logging
 from typing import Any, Optional
 
-
 # Reserved LogRecord attribute names that cannot be used in extra dict
-_RESERVED_LOG_KEYS = frozenset({
-    "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
-    "module", "lineno", "funcName", "created", "asctime", "msecs",
-    "relativeCreated", "thread", "threadName", "processName", "process",
-    "message", "exc_info", "exc_text", "stack_info",
-})
+_RESERVED_LOG_KEYS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "lineno",
+        "funcName",
+        "created",
+        "asctime",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+    }
+)
 
 
 def log_with_context(

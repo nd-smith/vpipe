@@ -59,6 +59,7 @@ tokens.json
 .env
 .env.local
 .env.*.local
+.env.simulation
 /docs
 
 # Local config overrides (for multi-file config system)

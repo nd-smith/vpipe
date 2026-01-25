@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -179,6 +179,7 @@ def initialize_telemetry(
     try:
         if enable_metrics:
             import prometheus_client
+
             _prometheus_registry = prometheus_client.CollectorRegistry()
             _telemetry_available = True
             logger.info("Prometheus client loaded successfully")
@@ -189,20 +190,23 @@ def initialize_telemetry(
     try:
         if enable_traces:
             from jaeger_client import Config
+
             _telemetry_available = True
 
             # Initialize Jaeger tracer with 100% sampling
             config = Config(
                 config={
-                    'sampler': {
-                        'type': 'const',
-                        'param': 1,  # 100% sampling (ALWAYS_ON)
+                    "sampler": {
+                        "type": "const",
+                        "param": 1,  # 100% sampling (ALWAYS_ON)
                     },
-                    'local_agent': {
-                        'reporting_host': jaeger_endpoint.split(':')[0],
-                        'reporting_port': int(jaeger_endpoint.split(':')[1]) if ':' in jaeger_endpoint else 6831,
+                    "local_agent": {
+                        "reporting_host": jaeger_endpoint.split(":")[0],
+                        "reporting_port": (
+                            int(jaeger_endpoint.split(":")[1]) if ":" in jaeger_endpoint else 6831
+                        ),
                     },
-                    'logging': True,
+                    "logging": True,
                 },
                 service_name=service_name,
                 validate=True,

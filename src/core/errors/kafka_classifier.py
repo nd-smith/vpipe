@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -23,7 +23,6 @@ from core.errors.exceptions import (
     TransientError,
     wrap_exception,
 )
-
 
 # Kafka error classifications based on aiokafka exception types
 KAFKA_ERROR_MAPPINGS = {
@@ -94,9 +93,7 @@ class KafkaErrorClassifier:
     """
 
     @staticmethod
-    def classify_consumer_error(
-        error: Exception, context: Optional[dict] = None
-    ) -> PipelineError:
+    def classify_consumer_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
         """
         Classify a Kafka consumer error into appropriate exception type.
 
@@ -182,8 +179,7 @@ class KafkaErrorClassifier:
 
         # String-based fallback classification
         if any(
-            marker in error_str
-            for marker in ("unauthorized", "authentication", "authorization")
+            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
         ):
             return AuthError(
                 f"Kafka consumer auth error: {error}",
@@ -199,8 +195,7 @@ class KafkaErrorClassifier:
             )
 
         if any(
-            marker in error_str
-            for marker in ("connection", "broker", "network", "node not ready")
+            marker in error_str for marker in ("connection", "broker", "network", "node not ready")
         ):
             return ConnectionError(
                 f"Kafka consumer connection error: {error}",
@@ -216,9 +211,7 @@ class KafkaErrorClassifier:
         )
 
     @staticmethod
-    def classify_producer_error(
-        error: Exception, context: Optional[dict] = None
-    ) -> PipelineError:
+    def classify_producer_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
         """
         Classify a Kafka producer error into appropriate exception type.
 
@@ -304,8 +297,7 @@ class KafkaErrorClassifier:
 
         # String-based fallback classification
         if any(
-            marker in error_str
-            for marker in ("unauthorized", "authentication", "authorization")
+            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
         ):
             return AuthError(
                 f"Kafka producer auth error: {error}",
@@ -320,10 +312,7 @@ class KafkaErrorClassifier:
                 context=error_context,
             )
 
-        if any(
-            marker in error_str
-            for marker in ("connection", "broker", "network", "leader")
-        ):
+        if any(marker in error_str for marker in ("connection", "broker", "network", "leader")):
             return ConnectionError(
                 f"Kafka producer connection error: {error}",
                 cause=error,

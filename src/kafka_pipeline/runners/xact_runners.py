@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -205,15 +205,41 @@ async def run_xact_enrichment_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
-    """Run XACT enrichment worker with plugin-based enrichment."""
-    from kafka_pipeline.xact.workers.enrichment_worker import XACTEnrichmentWorker
+    """Run XACT enrichment worker with plugin-based enrichment.
 
-    worker = XACTEnrichmentWorker(
-        config=kafka_config,
-        domain="xact",
-        instance_id=instance_id,
-    )
+    Args:
+        kafka_config: Kafka configuration
+        shutdown_event: Shutdown event for graceful shutdown
+        instance_id: Optional instance ID for parallel workers
+        simulation_mode: Enable simulation mode with mock dependencies
+    """
+    if simulation_mode:
+        from kafka_pipeline.simulation import create_simulation_enrichment_worker, SimulationConfig
+
+        # Load simulation config
+        simulation_config = SimulationConfig.from_env(enabled=True)
+        simulation_config.ensure_directories()
+
+        logger.info("Starting XACT enrichment worker in SIMULATION MODE")
+        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+
+        # Use factory to create worker with mock dependencies
+        worker = create_simulation_enrichment_worker(
+            config=kafka_config,
+            simulation_config=simulation_config,
+            domain="xact",
+        )
+    else:
+        from kafka_pipeline.xact.workers.enrichment_worker import XACTEnrichmentWorker
+
+        worker = XACTEnrichmentWorker(
+            config=kafka_config,
+            domain="xact",
+            instance_id=instance_id,
+        )
+
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-enricher",
@@ -227,8 +253,18 @@ async def run_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
-    """Download files from external sources."""
+    """Download files from external sources.
+
+    Note: Worker auto-detects simulation mode via environment variable.
+
+    Args:
+        kafka_config: Kafka configuration
+        shutdown_event: Shutdown event for graceful shutdown
+        instance_id: Optional instance ID for parallel workers
+        simulation_mode: Ignored - worker auto-detects simulation mode
+    """
     from kafka_pipeline.xact.workers.download_worker import DownloadWorker
 
     worker = DownloadWorker(config=kafka_config, domain="xact", instance_id=instance_id)
@@ -245,11 +281,37 @@ async def run_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
+    simulation_mode: bool = False,
 ):
-    """Upload cached files to storage."""
-    from kafka_pipeline.xact.workers.upload_worker import UploadWorker
+    """Upload cached files to storage.
 
-    worker = UploadWorker(config=kafka_config, domain="xact", instance_id=instance_id)
+    Args:
+        kafka_config: Kafka configuration
+        shutdown_event: Shutdown event for graceful shutdown
+        instance_id: Optional instance ID for parallel workers
+        simulation_mode: Enable simulation mode with local storage
+    """
+    if simulation_mode:
+        from kafka_pipeline.simulation import create_simulation_upload_worker, SimulationConfig
+
+        # Load simulation config
+        simulation_config = SimulationConfig.from_env(enabled=True)
+        simulation_config.ensure_directories()
+
+        logger.info("Starting XACT upload worker in SIMULATION MODE")
+        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+
+        # Use factory to create worker with local storage
+        worker = create_simulation_upload_worker(
+            config=kafka_config,
+            simulation_config=simulation_config,
+            domain="xact",
+        )
+    else:
+        from kafka_pipeline.xact.workers.upload_worker import UploadWorker
+
+        worker = UploadWorker(config=kafka_config, domain="xact", instance_id=instance_id)
+
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-upload",
@@ -294,7 +356,9 @@ async def run_result_processor(
         shutdown_event=shutdown_event,
         worker_kwargs={
             "inventory_table_path": inventory_table_path if enable_delta_writes else None,
-            "failed_table_path": failed_table_path if enable_delta_writes and failed_table_path else None,
+            "failed_table_path": (
+                failed_table_path if enable_delta_writes and failed_table_path else None
+            ),
             "batch_size": 2000,
             "batch_timeout_seconds": 5.0,
         },
@@ -332,7 +396,8 @@ async def run_dummy_source(
     shutdown_event: asyncio.Event,
 ):
     """Generates synthetic insurance claim data for testing.
-    Includes file server, realistic data generators for XACT/ClaimX, and configurable event rates."""
+    Includes file server, realistic data generators for XACT/ClaimX, and configurable event rates.
+    """
     from kafka_pipeline.common.dummy.source import DummyDataSource, load_dummy_source_config
     from core.logging.context import set_log_context
 

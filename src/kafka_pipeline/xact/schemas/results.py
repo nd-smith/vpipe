@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -46,77 +46,47 @@ class DownloadResultMessage(BaseModel):
     Matches verisk_pipeline Task.to_tracking_row() output for xact_attachments table.
     """
 
-    trace_id: str = Field(
-        ...,
-        description="Unique event identifier for correlation",
-        min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier for correlation", min_length=1)
     media_id: str = Field(
-        ...,
-        description="Unique deterministic ID for the attachment",
-        min_length=1
+        ..., description="Unique deterministic ID for the attachment", min_length=1
     )
     attachment_url: str = Field(
-        ...,
-        description="URL of the attachment that was processed",
-        min_length=1
+        ..., description="URL of the attachment that was processed", min_length=1
     )
-    blob_path: str = Field(
-        ...,
-        description="Target path in OneLake/blob storage",
-        min_length=1
-    )
+    blob_path: str = Field(..., description="Target path in OneLake/blob storage", min_length=1)
     status_subtype: str = Field(
-        ...,
-        description="Event status subtype (last part of event type)",
-        min_length=1
+        ..., description="Event status subtype (last part of event type)", min_length=1
     )
-    file_type: str = Field(
-        ...,
-        description="File type extracted from URL extension",
-        min_length=1
-    )
-    assignment_id: str = Field(
-        ...,
-        description="Assignment ID from event payload",
-        min_length=1
-    )
+    file_type: str = Field(..., description="File type extracted from URL extension", min_length=1)
+    assignment_id: str = Field(..., description="Assignment ID from event payload", min_length=1)
     status: Literal["completed", "failed", "failed_permanent"] = Field(
-        ...,
-        description="Outcome status: completed, failed (transient), or failed_permanent"
+        ..., description="Outcome status: completed, failed (transient), or failed_permanent"
     )
-    http_status: Optional[int] = Field(
-        default=None,
-        description="HTTP response status code"
-    )
+    http_status: Optional[int] = Field(default=None, description="HTTP response status code")
     bytes_downloaded: int = Field(
-        default=0,
-        description="Number of bytes downloaded (0 if failed)",
-        ge=0
+        default=0, description="Number of bytes downloaded (0 if failed)", ge=0
     )
-    retry_count: int = Field(
-        default=0,
-        description="Number of retry attempts made",
-        ge=0
-    )
+    retry_count: int = Field(default=0, description="Number of retry attempts made", ge=0)
     error_message: Optional[str] = Field(
-        default=None,
-        description="Error description if failed (truncated to 500 chars)"
+        default=None, description="Error description if failed (truncated to 500 chars)"
     )
-    created_at: datetime = Field(
-        ...,
-        description="Timestamp when result was created"
-    )
+    created_at: datetime = Field(..., description="Timestamp when result was created")
     expires_at: Optional[datetime] = Field(
-        default=None,
-        description="URL expiration timestamp (optional)"
+        default=None, description="URL expiration timestamp (optional)"
     )
     expired_at_ingest: Optional[bool] = Field(
-        default=None,
-        description="Whether URL was expired at ingest time"
+        default=None, description="Whether URL was expired at ingest time"
     )
 
-    @field_validator('trace_id', 'media_id', 'attachment_url', 'blob_path', 'status_subtype', 'file_type', 'assignment_id')
+    @field_validator(
+        "trace_id",
+        "media_id",
+        "attachment_url",
+        "blob_path",
+        "status_subtype",
+        "file_type",
+        "assignment_id",
+    )
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -124,7 +94,7 @@ class DownloadResultMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    @field_validator('error_message')
+    @field_validator("error_message")
     @classmethod
     def truncate_error_message(cls, v: Optional[str]) -> Optional[str]:
         """Truncate error message to prevent huge messages."""
@@ -132,7 +102,7 @@ class DownloadResultMessage(BaseModel):
             return v[:497] + "..."
         return v
 
-    @field_serializer('created_at', 'expires_at')
+    @field_serializer("created_at", "expires_at")
     def serialize_timestamp(self, timestamp: Optional[datetime]) -> Optional[str]:
         """Serialize datetime to ISO 8601 format."""
         if timestamp is None:
@@ -165,40 +135,40 @@ class DownloadResultMessage(BaseModel):
         }
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'trace_id': 'abc123-def456',
-                    'attachment_url': 'https://xactware.com/docs/estimate.pdf',
-                    'blob_path': 'documentsReceived/A12345/pdf/estimate.pdf',
-                    'status_subtype': 'documentsReceived',
-                    'file_type': 'pdf',
-                    'assignment_id': 'A12345',
-                    'status': 'completed',
-                    'http_status': 200,
-                    'bytes_downloaded': 2048576,
-                    'retry_count': 0,
-                    'error_message': None,
-                    'created_at': '2024-12-25T10:31:15Z',
-                    'expires_at': None,
-                    'expired_at_ingest': False
+                    "trace_id": "abc123-def456",
+                    "attachment_url": "https://xactware.com/docs/estimate.pdf",
+                    "blob_path": "documentsReceived/A12345/pdf/estimate.pdf",
+                    "status_subtype": "documentsReceived",
+                    "file_type": "pdf",
+                    "assignment_id": "A12345",
+                    "status": "completed",
+                    "http_status": 200,
+                    "bytes_downloaded": 2048576,
+                    "retry_count": 0,
+                    "error_message": None,
+                    "created_at": "2024-12-25T10:31:15Z",
+                    "expires_at": None,
+                    "expired_at_ingest": False,
                 },
                 {
-                    'trace_id': 'xyz789-abc123',
-                    'attachment_url': 'https://xactware.com/estimates/v2.esx',
-                    'blob_path': 'estimateCreated/B67890/esx/v2.esx',
-                    'status_subtype': 'estimateCreated',
-                    'file_type': 'esx',
-                    'assignment_id': 'B67890',
-                    'status': 'failed',
-                    'http_status': 503,
-                    'bytes_downloaded': 0,
-                    'retry_count': 2,
-                    'error_message': 'Service temporarily unavailable',
-                    'created_at': '2024-12-25T10:31:45Z',
-                    'expires_at': None,
-                    'expired_at_ingest': False
-                }
+                    "trace_id": "xyz789-abc123",
+                    "attachment_url": "https://xactware.com/estimates/v2.esx",
+                    "blob_path": "estimateCreated/B67890/esx/v2.esx",
+                    "status_subtype": "estimateCreated",
+                    "file_type": "esx",
+                    "assignment_id": "B67890",
+                    "status": "failed",
+                    "http_status": 503,
+                    "bytes_downloaded": 0,
+                    "retry_count": 2,
+                    "error_message": "Service temporarily unavailable",
+                    "created_at": "2024-12-25T10:31:45Z",
+                    "expires_at": None,
+                    "expired_at_ingest": False,
+                },
             ]
         }
     }
@@ -219,36 +189,18 @@ class FailedDownloadMessage(BaseModel):
         failed_at: Timestamp when task was sent to DLQ
     """
 
-    trace_id: str = Field(
-        ...,
-        description="Unique event identifier for correlation",
-        min_length=1
-    )
-    attachment_url: str = Field(
-        ...,
-        description="URL of the attachment that failed",
-        min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier for correlation", min_length=1)
+    attachment_url: str = Field(..., description="URL of the attachment that failed", min_length=1)
     original_task: DownloadTaskMessage = Field(
-        ...,
-        description="Complete original task message for replay capability"
+        ..., description="Complete original task message for replay capability"
     )
     error_category: str = Field(
-        ...,
-        description="Error classification from final attempt",
-        min_length=1
+        ..., description="Error classification from final attempt", min_length=1
     )
-    retry_count: int = Field(
-        ...,
-        description="Total number of retry attempts made",
-        ge=0
-    )
-    failed_at: datetime = Field(
-        ...,
-        description="Timestamp when task was sent to DLQ"
-    )
+    retry_count: int = Field(..., description="Total number of retry attempts made", ge=0)
+    failed_at: datetime = Field(..., description="Timestamp when task was sent to DLQ")
 
-    @field_validator('trace_id', 'attachment_url', 'error_category')
+    @field_validator("trace_id", "attachment_url", "error_category")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -263,37 +215,37 @@ class FailedDownloadMessage(BaseModel):
             return v[:497] + "..."
         return v
 
-    @field_serializer('failed_at')
+    @field_serializer("failed_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:
         """Serialize datetime to ISO 8601 format."""
         return timestamp.isoformat()
 
     model_config = {
-        'json_schema_extra': {
-            'examples': [
+        "json_schema_extra": {
+            "examples": [
                 {
-                    'trace_id': 'evt-2024-004',
-                    'attachment_url': 'https://storage.example.com/claims/C-99999/missing.pdf',
-                    'original_task': {
-                        'trace_id': 'evt-2024-004',
-                        'attachment_url': 'https://storage.example.com/claims/C-99999/missing.pdf',
-                        'blob_path': 'claims/C-99999/missing.pdf',
-                        'status_subtype': 'documentsReceived',
-                        'file_type': 'pdf',
-                        'assignment_id': 'C-99999',
-                        'event_type': 'claim',
-                        'event_subtype': 'created',
-                        'retry_count': 4,
-                        'original_timestamp': '2024-12-25T10:00:00Z',
-                        'metadata': {
-                            'last_error': 'File not found (404)',
-                            'retry_at': '2024-12-25T10:40:00Z'
-                        }
+                    "trace_id": "evt-2024-004",
+                    "attachment_url": "https://storage.example.com/claims/C-99999/missing.pdf",
+                    "original_task": {
+                        "trace_id": "evt-2024-004",
+                        "attachment_url": "https://storage.example.com/claims/C-99999/missing.pdf",
+                        "blob_path": "claims/C-99999/missing.pdf",
+                        "status_subtype": "documentsReceived",
+                        "file_type": "pdf",
+                        "assignment_id": "C-99999",
+                        "event_type": "claim",
+                        "event_subtype": "created",
+                        "retry_count": 4,
+                        "original_timestamp": "2024-12-25T10:00:00Z",
+                        "metadata": {
+                            "last_error": "File not found (404)",
+                            "retry_at": "2024-12-25T10:40:00Z",
+                        },
                     },
-                    'final_error': 'File not found (404) - URL returned 404 Not Found after 4 retry attempts',
-                    'error_category': 'permanent',
-                    'retry_count': 4,
-                    'failed_at': '2024-12-25T10:45:00Z'
+                    "final_error": "File not found (404) - URL returned 404 Not Found after 4 retry attempts",
+                    "error_category": "permanent",
+                    "retry_count": 4,
+                    "failed_at": "2024-12-25T10:45:00Z",
                 }
             ]
         }

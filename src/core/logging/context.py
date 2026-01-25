@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -49,12 +49,12 @@ def get_log_context() -> Dict[str, str]:
         import opentracing
 
         span = opentracing.tracer.active_span
-        if span is not None and hasattr(span, 'context'):
+        if span is not None and hasattr(span, "context"):
             span_ctx = span.context
-            if hasattr(span_ctx, 'trace_id') and span_ctx.trace_id:
-                context["trace_id"] = format(span_ctx.trace_id, 'x')
-            if hasattr(span_ctx, 'span_id') and span_ctx.span_id:
-                context["span_id"] = format(span_ctx.span_id, 'x')
+            if hasattr(span_ctx, "trace_id") and span_ctx.trace_id:
+                context["trace_id"] = format(span_ctx.trace_id, "x")
+            if hasattr(span_ctx, "span_id") and span_ctx.span_id:
+                context["span_id"] = format(span_ctx.span_id, "x")
     except Exception:
         # OpenTracing not initialized or not available, skip
         pass

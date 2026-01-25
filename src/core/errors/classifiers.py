@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -27,7 +27,6 @@ from core.errors.exceptions import (
     TransientError,
     wrap_exception,
 )
-
 
 # Azure error code classifications (P2.11)
 AZURE_ERROR_CODES = {
@@ -127,9 +126,7 @@ class StorageErrorClassifier:
     """
 
     @staticmethod
-    def classify_kusto_error(
-        error: Exception, context: Optional[dict] = None
-    ) -> PipelineError:
+    def classify_kusto_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
         """Classify a Kusto error into appropriate exception type."""
         error_str = str(error).lower()
         error_context = {"service": "kusto"}
@@ -137,11 +134,7 @@ class StorageErrorClassifier:
             error_context.update(context)
 
         # Auth errors
-        if (
-            "401" in error_str
-            or "unauthorized" in error_str
-            or "access rights" in error_str
-        ):
+        if "401" in error_str or "unauthorized" in error_str or "access rights" in error_str:
             return AuthError(
                 f"Kusto authentication failed: {error}",
                 cause=error,
@@ -149,11 +142,7 @@ class StorageErrorClassifier:
             )
 
         # Throttling with Retry-After header extraction (Task F.2)
-        if (
-            "429" in error_str
-            or "throttl" in error_str
-            or "too many requests" in error_str
-        ):
+        if "429" in error_str or "throttl" in error_str or "too many requests" in error_str:
             # Try to extract retry-after header from exception
             retry_after_ms = None
 
@@ -200,8 +189,7 @@ class StorageErrorClassifier:
         # Connection/network errors (check exception type and error string)
         error_type = type(error).__name__
         if "KustoNetworkError" in error_type or any(
-            marker in error_str
-            for marker in ("connection", "network", "dns", "socket")
+            marker in error_str for marker in ("connection", "network", "dns", "socket")
         ):
             return ConnectionError(
                 f"Kusto connection error: {error}",
@@ -210,10 +198,7 @@ class StorageErrorClassifier:
             )
 
         # Service errors (transient)
-        if any(
-            marker in error_str
-            for marker in ("503", "502", "504", "service unavailable")
-        ):
+        if any(marker in error_str for marker in ("503", "502", "504", "service unavailable")):
             return TransientError(
                 f"Kusto service error: {error}",
                 cause=error,
@@ -239,9 +224,7 @@ class StorageErrorClassifier:
         )
 
     @staticmethod
-    def classify_delta_error(
-        error: Exception, context: Optional[dict] = None
-    ) -> PipelineError:
+    def classify_delta_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
         """Classify a Delta table error into appropriate exception type."""
         error_str = str(error).lower()
         error_context = {"service": "delta"}
@@ -265,10 +248,7 @@ class StorageErrorClassifier:
             )
 
         # Connection/network errors
-        if any(
-            marker in error_str
-            for marker in ("connection", "network", "timeout", "dns")
-        ):
+        if any(marker in error_str for marker in ("connection", "network", "timeout", "dns")):
             if "timeout" in error_str:
                 return TimeoutError(
                     f"Delta operation timeout: {error}",
@@ -297,9 +277,7 @@ class StorageErrorClassifier:
         )
 
     @staticmethod
-    def classify_onelake_error(
-        error: Exception, context: Optional[dict] = None
-    ) -> PipelineError:
+    def classify_onelake_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
         """Classify an OneLake error into appropriate exception type."""
         error_str = str(error).lower()
         error_context = {"service": "onelake"}
@@ -334,9 +312,7 @@ class StorageErrorClassifier:
             )
 
         # Connection errors
-        if any(
-            marker in error_str for marker in ("connection", "network", "dns", "socket")
-        ):
+        if any(marker in error_str for marker in ("connection", "network", "dns", "socket")):
             return ConnectionError(
                 f"OneLake connection error: {error}",
                 cause=error,
@@ -344,10 +320,7 @@ class StorageErrorClassifier:
             )
 
         # Service errors (transient)
-        if any(
-            marker in error_str
-            for marker in ("503", "502", "504", "service unavailable")
-        ):
+        if any(marker in error_str for marker in ("503", "502", "504", "service unavailable")):
             return TransientError(
                 f"OneLake service error: {error}",
                 cause=error,

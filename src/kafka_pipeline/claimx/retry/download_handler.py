@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -149,10 +149,10 @@ class DownloadRetryHandler:
                 },
             )
             # Record retry exhausted metric
-#             record_retry_exhausted(
-#                 domain="claimx",
-#                 error_category=error_category.value,
-#             )
+            #             record_retry_exhausted(
+            #                 domain="claimx",
+            #                 error_category=error_category.value,
+            #             )
             await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
 
@@ -284,7 +284,7 @@ class DownloadRetryHandler:
             updated_task.download_url = new_url
 
             # Add metadata about URL refresh
-            if not hasattr(updated_task, 'metadata'):
+            if not hasattr(updated_task, "metadata"):
                 updated_task.metadata = {}
             updated_task.metadata["url_refreshed_at"] = datetime.now(timezone.utc).isoformat()
             updated_task.metadata["original_url"] = task.download_url[:200]  # Truncate
@@ -329,7 +329,7 @@ class DownloadRetryHandler:
 
         # Add error context to metadata (truncate to prevent huge messages)
         error_message = str(error)[:500]
-        if not hasattr(updated_task, 'metadata'):
+        if not hasattr(updated_task, "metadata"):
             updated_task.metadata = {}
         updated_task.metadata["last_error"] = error_message
         updated_task.metadata["error_category"] = error_category.value
@@ -352,12 +352,12 @@ class DownloadRetryHandler:
         )
 
         # Record retry attempt metric
-#         record_retry_attempt(
-#             domain="claimx",
-#             worker_type="download_worker",
-#             error_category=error_category.value,
-#             delay_seconds=delay_seconds,
-#         )
+        #         record_retry_attempt(
+        #             domain="claimx",
+        #             worker_type="download_worker",
+        #             error_category=error_category.value,
+        #             delay_seconds=delay_seconds,
+        #         )
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self.producer.send(
@@ -452,4 +452,3 @@ class DownloadRetryHandler:
                 "dlq_topic": self.dlq_topic,
             },
         )
-

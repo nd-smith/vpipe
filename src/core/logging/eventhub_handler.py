@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -184,9 +184,7 @@ class EventHubLogHandler(logging.Handler):
                 except Exception:
                     pass
 
-    async def _send_batch(
-        self, producer: EventHubProducerClient, batch: list[str]
-    ) -> None:
+    async def _send_batch(self, producer: EventHubProducerClient, batch: list[str]) -> None:
         """
         Send a batch of logs to Event Hub.
 

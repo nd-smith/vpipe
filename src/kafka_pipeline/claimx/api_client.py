@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -28,9 +28,8 @@ from core.resilience.rate_limiter import (
 from core.types import ErrorCategory
 from core.logging import get_logger
 from kafka_pipeline.common.logging import logged_operation, LoggedClass
+
 logger = get_logger(__name__)
-
-
 
 
 class ClaimXApiError(Exception):
@@ -124,7 +123,7 @@ class ClaimXApiClient(LoggedClass):
         self.base_url = base_url.rstrip("/")
 
         if not token:
-             raise ValueError("ClaimXApiClient requires 'token'")
+            raise ValueError("ClaimXApiClient requires 'token'")
 
         self._auth_header = f"Basic {token}"
         self.timeout_seconds = timeout_seconds
@@ -137,7 +136,6 @@ class ClaimXApiClient(LoggedClass):
         self._rate_limiter = get_rate_limiter("claimx_api", CLAIMX_API_RATE_CONFIG)
 
         super().__init__()
-
 
     async def __aenter__(self) -> "ClaimXApiClient":
         await self._ensure_session()
@@ -410,9 +408,7 @@ class ClaimXApiClient(LoggedClass):
         return await self._request("POST", "/data", json_body=body)
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_conversations(
-        self, project_id: int
-    ) -> List[Dict[str, Any]]:
+    async def get_project_conversations(self, project_id: int) -> List[Dict[str, Any]]:
         response = await self._request(
             "GET",
             f"/export/project/{project_id}/conversations",

@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -63,10 +63,7 @@ from kafka_pipeline.claimx.schemas.tasks import (
 )
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -151,7 +148,11 @@ class DLQManager:
                 # Get topic partitions
                 partitions = consumer.partitions_for_topic(topic_name)
                 if not partitions:
-                    counts[topic_label] = {"topic": topic_name, "count": 0, "error": "Topic not found"}
+                    counts[topic_label] = {
+                        "topic": topic_name,
+                        "count": 0,
+                        "error": "Topic not found",
+                    }
                     continue
 
                 # Get end offsets for all partitions
@@ -163,8 +164,7 @@ class DLQManager:
 
                 # Calculate total message count
                 total_count = sum(
-                    end_offsets[tp] - beginning_offsets[tp]
-                    for tp in topic_partitions
+                    end_offsets[tp] - beginning_offsets[tp] for tp in topic_partitions
                 )
 
                 counts[topic_label] = {
@@ -230,27 +230,32 @@ class DLQManager:
 
                     # Add type-specific fields
                     if dlq_type == "enrichment":
-                        message_data.update({
-                            "event_id": failed_message.event_id,
-                            "event_type": failed_message.event_type,
-                            "project_id": failed_message.project_id,
-                            "error_category": failed_message.error_category,
-                            "final_error": failed_message.final_error,
-                            "retry_count": failed_message.retry_count,
-                            "failed_at": failed_message.failed_at.isoformat(),
-                        })
+                        message_data.update(
+                            {
+                                "event_id": failed_message.event_id,
+                                "event_type": failed_message.event_type,
+                                "project_id": failed_message.project_id,
+                                "error_category": failed_message.error_category,
+                                "final_error": failed_message.final_error,
+                                "retry_count": failed_message.retry_count,
+                                "failed_at": failed_message.failed_at.isoformat(),
+                            }
+                        )
                     else:  # download
-                        message_data.update({
-                            "media_id": failed_message.media_id,
-                            "project_id": failed_message.project_id,
-                            "download_url": failed_message.download_url[:100] + "...",  # Truncate
-                            "blob_path": failed_message.blob_path,
-                            "error_category": failed_message.error_category,
-                            "final_error": failed_message.final_error,
-                            "retry_count": failed_message.retry_count,
-                            "url_refresh_attempted": failed_message.url_refresh_attempted,
-                            "failed_at": failed_message.failed_at.isoformat(),
-                        })
+                        message_data.update(
+                            {
+                                "media_id": failed_message.media_id,
+                                "project_id": failed_message.project_id,
+                                "download_url": failed_message.download_url[:100]
+                                + "...",  # Truncate
+                                "blob_path": failed_message.blob_path,
+                                "error_category": failed_message.error_category,
+                                "final_error": failed_message.final_error,
+                                "retry_count": failed_message.retry_count,
+                                "url_refresh_attempted": failed_message.url_refresh_attempted,
+                                "failed_at": failed_message.failed_at.isoformat(),
+                            }
+                        )
 
                     messages.append(message_data)
                     count += 1
@@ -472,7 +477,7 @@ async def cmd_replay(args: argparse.Namespace) -> int:
     config = KafkaConfig.from_env()
     manager = DLQManager(config)
 
-    event_ids = args.event_ids.split(',') if args.event_ids else None
+    event_ids = args.event_ids.split(",") if args.event_ids else None
 
     if args.all:
         print(f"\n🔄 Replaying ALL messages from {args.dlq_type} DLQ...")
@@ -550,49 +555,30 @@ Examples:
     # Inspect command
     parser_inspect = subparsers.add_parser("inspect", help="Inspect DLQ messages")
     parser_inspect.add_argument(
-        "dlq_type",
-        choices=["enrichment", "download"],
-        help="Which DLQ to inspect"
+        "dlq_type", choices=["enrichment", "download"], help="Which DLQ to inspect"
     )
     parser_inspect.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Maximum number of messages to retrieve (default: 10)"
+        "--limit", type=int, default=10, help="Maximum number of messages to retrieve (default: 10)"
     )
     parser_inspect.set_defaults(func=cmd_inspect)
 
     # Replay command
     parser_replay = subparsers.add_parser("replay", help="Replay DLQ messages to pending topic")
     parser_replay.add_argument(
-        "dlq_type",
-        choices=["enrichment", "download"],
-        help="Which DLQ to replay from"
+        "dlq_type", choices=["enrichment", "download"], help="Which DLQ to replay from"
     )
     parser_replay.add_argument(
-        "--event-ids",
-        type=str,
-        help="Comma-separated list of event/media IDs to replay"
+        "--event-ids", type=str, help="Comma-separated list of event/media IDs to replay"
     )
-    parser_replay.add_argument(
-        "--all",
-        action="store_true",
-        help="Replay all messages in DLQ"
-    )
+    parser_replay.add_argument("--all", action="store_true", help="Replay all messages in DLQ")
     parser_replay.set_defaults(func=cmd_replay)
 
     # Purge command
     parser_purge = subparsers.add_parser("purge", help="Purge all messages from DLQ")
     parser_purge.add_argument(
-        "dlq_type",
-        choices=["enrichment", "download"],
-        help="Which DLQ to purge"
+        "dlq_type", choices=["enrichment", "download"], help="Which DLQ to purge"
     )
-    parser_purge.add_argument(
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompt"
-    )
+    parser_purge.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
     parser_purge.set_defaults(func=cmd_purge)
 
     # Parse arguments

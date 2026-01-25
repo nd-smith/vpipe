@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -147,12 +147,12 @@ class TaskTriggerPlugin(Plugin):
 
     async def execute(self, context: PluginContext) -> PluginResult:
         """
-        Check if task matches a trigger and execute actions.
+                Check if task matches a trigger and execute actions.
 
-        Args:
-v
-        Returns:
-            PluginResult with actions to execute
+                Args:
+        v
+                Returns:
+                    PluginResult with actions to execute
         """
         # Get task data from enriched entities
         task = context.get_first_task()
@@ -241,18 +241,20 @@ v
         # Publish to topic
         if "publish_to_topic" in action_config:
             topic = action_config["publish_to_topic"]
-            actions.append(PluginAction(
-                action_type=ActionType.PUBLISH_TO_TOPIC,
-                params={
-                    "topic": topic,
-                    "payload": payload,
-                    "headers": {
-                        "x-trigger-name": trigger_config.get("name", ""),
-                        "x-task-id": str(task.get("task_id", "")),
-                        "x-event-type": context.event_type or "",
+            actions.append(
+                PluginAction(
+                    action_type=ActionType.PUBLISH_TO_TOPIC,
+                    params={
+                        "topic": topic,
+                        "payload": payload,
+                        "headers": {
+                            "x-trigger-name": trigger_config.get("name", ""),
+                            "x-task-id": str(task.get("task_id", "")),
+                            "x-event-type": context.event_type or "",
+                        },
                     },
-                }
-            ))
+                )
+            )
 
         # HTTP webhook
         if "webhook" in action_config:
@@ -260,15 +262,17 @@ v
             if isinstance(webhook_config, str):
                 webhook_config = {"url": webhook_config}
 
-            actions.append(PluginAction(
-                action_type=ActionType.HTTP_WEBHOOK,
-                params={
-                    "url": webhook_config.get("url"),
-                    "method": webhook_config.get("method", "POST"),
-                    "body": payload,
-                    "headers": webhook_config.get("headers", {}),
-                }
-            ))
+            actions.append(
+                PluginAction(
+                    action_type=ActionType.HTTP_WEBHOOK,
+                    params={
+                        "url": webhook_config.get("url"),
+                        "method": webhook_config.get("method", "POST"),
+                        "body": payload,
+                        "headers": webhook_config.get("headers", {}),
+                    },
+                )
+            )
 
         # Log action
         if "log" in action_config:
@@ -276,21 +280,27 @@ v
             if isinstance(log_config, str):
                 log_config = {"message": log_config}
 
-            actions.append(PluginAction(
-                action_type=ActionType.LOG,
-                params={
-                    "level": log_config.get("level", "info"),
-                    "message": log_config.get("message", f"Task trigger: {task.get('task_id')}"),
-                }
-            ))
+            actions.append(
+                PluginAction(
+                    action_type=ActionType.LOG,
+                    params={
+                        "level": log_config.get("level", "info"),
+                        "message": log_config.get(
+                            "message", f"Task trigger: {task.get('task_id')}"
+                        ),
+                    },
+                )
+            )
 
         # Custom actions (for extension)
         if "custom" in action_config:
             for custom_action in action_config.get("custom", []):
-                actions.append(PluginAction(
-                    action_type=ActionType(custom_action.get("type", "log")),
-                    params=custom_action.get("params", {}),
-                ))
+                actions.append(
+                    PluginAction(
+                        action_type=ActionType(custom_action.get("type", "log")),
+                        params=custom_action.get("params", {}),
+                    )
+                )
 
         return actions
 
@@ -364,8 +374,10 @@ def create_task_trigger_plugin(
             }
         })
     """
-    return TaskTriggerPlugin(config={
-        "triggers": triggers,
-        "include_task_data": include_task_data,
-        "include_project_data": include_project_data,
-    })
+    return TaskTriggerPlugin(
+        config={
+            "triggers": triggers,
+            "include_task_data": include_task_data,
+            "include_project_data": include_project_data,
+        }
+    )

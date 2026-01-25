@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -204,12 +204,12 @@ class RetryHandler:
         target_topic = self.config.get_topic(self.domain, "downloads_pending")
 
         # Record retry attempt metric
-#         record_retry_attempt(
-#             domain=self.domain,
-#             worker_type="download_worker",
-#             error_category=error_category.value,
-#             delay_seconds=delay_seconds,
-#         )
+        #         record_retry_attempt(
+        #             domain=self.domain,
+        #             worker_type="download_worker",
+        #             error_category=error_category.value,
+        #             delay_seconds=delay_seconds,
+        #         )
 
         logger.info(
             "Sending task to retry topic",

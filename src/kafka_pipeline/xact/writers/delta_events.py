@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -113,10 +113,12 @@ class DeltaEventsWriter(BaseDeltaWriter):
                 raw_df = pl.DataFrame(raw_events)
                 flattened_df = flatten_events(raw_df)
                 now = datetime.now(timezone.utc)
-                return flattened_df.with_columns([
-                    pl.lit(now).alias("created_at"),
-                    pl.lit(now.date()).alias("created_date"),
-                ])
+                return flattened_df.with_columns(
+                    [
+                        pl.lit(now).alias("created_at"),
+                        pl.lit(now.date()).alias("created_date"),
+                    ]
+                )
 
             flattened_df = await asyncio.to_thread(_sync_transform)
 

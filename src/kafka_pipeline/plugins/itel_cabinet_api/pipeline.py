@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -42,15 +42,15 @@ class ItelCabinetPipeline:
         self.delta = delta_writer
         self.kafka = kafka_producer
         self.config = config
-        self.claimx_connection = config.get('claimx_connection', 'claimx_api')
-        self.output_topic = config.get('output_topic', 'itel.cabinet.completed')
+        self.claimx_connection = config.get("claimx_connection", "claimx_api")
+        self.output_topic = config.get("output_topic", "itel.cabinet.completed")
 
         logger.info(
             "ItelCabinetPipeline initialized",
             extra={
-                'claimx_connection': self.claimx_connection,
-                'output_topic': self.output_topic,
-            }
+                "claimx_connection": self.claimx_connection,
+                "output_topic": self.output_topic,
+            },
         )
 
     async def process(self, raw_message: dict) -> ProcessedTask:
@@ -64,24 +64,24 @@ class ItelCabinetPipeline:
         logger.info(
             "Processing iTel cabinet event",
             extra={
-                'event_id': event.event_id,
-                'assignment_id': event.assignment_id,
-                'task_status': event.task_status,
-            }
+                "event_id": event.event_id,
+                "assignment_id": event.assignment_id,
+                "task_status": event.task_status,
+            },
         )
 
         self._validate_event(event)
-        if event.task_status == 'COMPLETED':
+        if event.task_status == "COMPLETED":
             submission, attachments, readable_report = await self._enrich_completed_task(event)
         else:
             submission, attachments, readable_report = None, [], None
             logger.debug(
                 f"Skipping enrichment for non-completed task",
-                extra={'task_status': event.task_status}
+                extra={"task_status": event.task_status},
             )
 
         await self._write_to_delta(event, submission, attachments)
-        if event.task_status == 'COMPLETED' and submission:
+        if event.task_status == "COMPLETED" and submission:
             await self._publish_for_api(event, submission, attachments, readable_report)
 
         return ProcessedTask(
@@ -98,15 +98,13 @@ class ItelCabinetPipeline:
         """
         if event.task_id != 32513:
             raise ValueError(
-                f"Invalid task_id: {event.task_id}. "
-                f"Expected 32513 (iTel Cabinet Repair Form)"
+                f"Invalid task_id: {event.task_id}. " f"Expected 32513 (iTel Cabinet Repair Form)"
             )
 
-        valid_statuses = ['ASSIGNED', 'IN_PROGRESS', 'COMPLETED']
+        valid_statuses = ["ASSIGNED", "IN_PROGRESS", "COMPLETED"]
         if event.task_status not in valid_statuses:
             raise ValueError(
-                f"Invalid task_status: {event.task_status}. "
-                f"Expected one of: {valid_statuses}"
+                f"Invalid task_status: {event.task_status}. " f"Expected one of: {valid_statuses}"
             )
 
         logger.debug("Event validation passed")
@@ -120,10 +118,7 @@ class ItelCabinetPipeline:
         2. Fetch project media for URL lookup
         3. Parse form, attachments, and readable report
         """
-        logger.info(
-            "Enriching completed task",
-            extra={'assignment_id': event.assignment_id}
-        )
+        logger.info("Enriching completed task", extra={"assignment_id": event.assignment_id})
 
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
         project_id = int(task_data.get("projectId", event.project_id))
@@ -132,7 +127,7 @@ class ItelCabinetPipeline:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("itel.parse") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "internal")
             submission = parse_cabinet_form(task_data, event.event_id)
 
@@ -154,30 +149,27 @@ class ItelCabinetPipeline:
         logger.info(
             "Task enriched successfully",
             extra={
-                'assignment_id': event.assignment_id,
-                'attachment_count': len(attachments),
-            }
+                "assignment_id": event.assignment_id,
+                "attachment_count": len(attachments),
+            },
         )
 
         return submission, attachments, readable_report
 
-
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
-        logger.debug(f"Fetching assignment from ClaimX", extra={'assignment_id': assignment_id})
+        logger.debug(f"Fetching assignment from ClaimX", extra={"assignment_id": assignment_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
-            method='GET',
+            method="GET",
             path=endpoint,
-            params={'full': 'true'},
+            params={"full": "true"},
         )
 
         if status < 200 or status >= 300:
-            raise Exception(
-                f"ClaimX API returned error status {status}: {response}"
-            )
+            raise Exception(f"ClaimX API returned error status {status}: {response}")
 
         return response
 
@@ -185,11 +177,11 @@ class ItelCabinetPipeline:
         """Build media_id -> download URL lookup map from ClaimX API."""
         endpoint = f"/export/project/{project_id}/media"
 
-        logger.debug(f"Fetching all project media", extra={'project_id': project_id})
+        logger.debug(f"Fetching all project media", extra={"project_id": project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
-            method='GET',
+            method="GET",
             path=endpoint,
             params={},  # No mediaIds param = get all media
         )
@@ -197,7 +189,7 @@ class ItelCabinetPipeline:
         if status < 200 or status >= 300:
             logger.warning(
                 f"Failed to fetch project media: HTTP {status}",
-                extra={'project_id': project_id, 'status': status}
+                extra={"project_id": project_id, "status": status},
             )
             return {}
         if isinstance(response, list):
@@ -221,10 +213,10 @@ class ItelCabinetPipeline:
         logger.info(
             f"Fetched project media URLs",
             extra={
-                'project_id': project_id,
-                'total_media': len(media_list),
-                'with_urls': len(media_url_map),
-            }
+                "project_id": project_id,
+                "total_media": len(media_list),
+                "with_urls": len(media_url_map),
+            },
         )
 
         # Resolve ClaimX URLs to S3 pre-signed URLs
@@ -235,7 +227,7 @@ class ItelCabinetPipeline:
 
         logger.info(
             f"Resolved {len(resolved_media_url_map)} media URLs to S3",
-            extra={'project_id': project_id}
+            extra={"project_id": project_id},
         )
 
         return resolved_media_url_map
@@ -260,8 +252,8 @@ class ItelCabinetPipeline:
 
         url_lower = url.lower()
         return (
-            's3.amazonaws.com' in url_lower or
-            's3-' in url_lower  # Handles s3-region.amazonaws.com patterns
+            "s3.amazonaws.com" in url_lower
+            or "s3-" in url_lower  # Handles s3-region.amazonaws.com patterns
         )
 
     async def _resolve_redirect_url(self, claimx_url: str) -> str:
@@ -284,7 +276,7 @@ class ItelCabinetPipeline:
         if self._is_s3_url(claimx_url):
             logger.debug(
                 f"URL is already S3, skipping redirect resolution",
-                extra={'url_prefix': claimx_url[:80]}
+                extra={"url_prefix": claimx_url[:80]},
             )
             return claimx_url
 
@@ -308,28 +300,27 @@ class ItelCabinetPipeline:
             ) as response:
                 # Check for redirect status (first redirect only)
                 if response.status in (301, 302, 303, 307, 308):
-                    location = response.headers.get('Location')
+                    location = response.headers.get("Location")
                     if location:
                         logger.debug(
                             f"Resolved ClaimX URL to S3",
                             extra={
-                                'status': response.status,
-                                'claimx_url_prefix': claimx_url[:80],
-                                's3_url_prefix': location[:80],
-                            }
+                                "status": response.status,
+                                "claimx_url_prefix": claimx_url[:80],
+                                "s3_url_prefix": location[:80],
+                            },
                         )
                         return location
 
                 logger.warning(
                     f"No redirect found for ClaimX URL (status {response.status})",
-                    extra={'url_prefix': claimx_url[:80], 'status': response.status}
+                    extra={"url_prefix": claimx_url[:80], "status": response.status},
                 )
                 return claimx_url  # Fall back to original URL
 
         except Exception as e:
             logger.warning(
-                f"Failed to resolve redirect URL: {e}",
-                extra={'url_prefix': claimx_url[:80]}
+                f"Failed to resolve redirect URL: {e}", extra={"url_prefix": claimx_url[:80]}
             )
             return claimx_url  # Fall back to original URL
 
@@ -339,10 +330,7 @@ class ItelCabinetPipeline:
         submission: Optional[CabinetSubmission],
         attachments: list[CabinetAttachment],
     ) -> None:
-        logger.info(
-            "Writing to Delta tables",
-            extra={'assignment_id': event.assignment_id}
-        )
+        logger.info("Writing to Delta tables", extra={"assignment_id": event.assignment_id})
         if submission:
             submission_row = submission.to_dict()
         else:
@@ -351,7 +339,7 @@ class ItelCabinetPipeline:
 
         tracer = get_tracer(__name__)
         with tracer.start_active_span("delta.write") as scope:
-            span = scope.span if hasattr(scope, 'span') else scope
+            span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("span.kind", "client")
             await self.delta.write_submission(submission_row)
             if attachments:
@@ -366,10 +354,10 @@ class ItelCabinetPipeline:
         logger.info(
             "Delta write complete",
             extra={
-                'assignment_id': event.assignment_id,
-                'has_submission': submission is not None,
-                'attachment_count': len(attachments),
-            }
+                "assignment_id": event.assignment_id,
+                "has_submission": submission is not None,
+                "attachment_count": len(attachments),
+            },
         )
 
     def _build_metadata_row(self, event: TaskEvent) -> dict:
@@ -377,22 +365,22 @@ class ItelCabinetPipeline:
         now = datetime.utcnow()
 
         return {
-            'assignment_id': event.assignment_id,
-            'project_id': event.project_id,
-            'task_id': event.task_id,
-            'task_name': event.task_name,
-            'task_status': event.task_status,
-            'event_id': event.event_id,
-            'event_type': event.event_type,
-            'event_timestamp': event.event_timestamp,
-            'assigned_to_user_id': event.assigned_to_user_id,
-            'assigned_by_user_id': event.assigned_by_user_id,
-            'task_created_at': event.task_created_at,
-            'task_completed_at': event.task_completed_at,
-            'updated_at': now.isoformat(),
-            'form_id': None,
-            'customer_first_name': None,
-            'customer_last_name': None,
+            "assignment_id": event.assignment_id,
+            "project_id": event.project_id,
+            "task_id": event.task_id,
+            "task_name": event.task_name,
+            "task_status": event.task_status,
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "event_timestamp": event.event_timestamp,
+            "assigned_to_user_id": event.assigned_to_user_id,
+            "assigned_by_user_id": event.assigned_by_user_id,
+            "task_created_at": event.task_created_at,
+            "task_completed_at": event.task_completed_at,
+            "updated_at": now.isoformat(),
+            "form_id": None,
+            "customer_first_name": None,
+            "customer_last_name": None,
         }
 
     async def _publish_for_api(
@@ -405,30 +393,29 @@ class ItelCabinetPipeline:
         logger.info(
             "Publishing to API worker topic",
             extra={
-                'assignment_id': event.assignment_id,
-                'topic': self.output_topic,
-            }
+                "assignment_id": event.assignment_id,
+                "topic": self.output_topic,
+            },
         )
 
         payload = {
-            'event_id': event.event_id,
-            'event_timestamp': event.event_timestamp,
-            'assignment_id': event.assignment_id,
-            'project_id': event.project_id,
-            'task_id': event.task_id,
-            'submission': submission.to_dict(),
-            'attachments': [att.to_dict() for att in attachments],
-            'readable_report': readable_report,
-            'published_at': datetime.utcnow().isoformat(),
-            'source': 'itel_cabinet_tracking_worker',
+            "event_id": event.event_id,
+            "event_timestamp": event.event_timestamp,
+            "assignment_id": event.assignment_id,
+            "project_id": event.project_id,
+            "task_id": event.task_id,
+            "submission": submission.to_dict(),
+            "attachments": [att.to_dict() for att in attachments],
+            "readable_report": readable_report,
+            "published_at": datetime.utcnow().isoformat(),
+            "source": "itel_cabinet_tracking_worker",
         }
         await self.kafka.send(
             topic=self.output_topic,
-            value=json.dumps(payload).encode('utf-8'),
-            key=event.event_id.encode('utf-8'),
+            value=json.dumps(payload).encode("utf-8"),
+            key=event.event_id.encode("utf-8"),
         )
 
         logger.info(
-            "Published to API worker successfully",
-            extra={'assignment_id': event.assignment_id}
+            "Published to API worker successfully", extra={"assignment_id": event.assignment_id}
         )

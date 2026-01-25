@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -25,59 +25,177 @@ from kafka_pipeline.common.dummy.plugin_profiles import (
     PluginProfile,
 )
 
-
 # =============================================================================
 # Reference Data - Realistic Insurance Terminology
 # =============================================================================
 
 FIRST_NAMES = [
-    "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
-    "David", "Elizabeth", "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica",
-    "Thomas", "Sarah", "Charles", "Karen", "Christopher", "Lisa", "Daniel", "Nancy",
-    "Matthew", "Betty", "Anthony", "Margaret", "Mark", "Sandra", "Donald", "Ashley",
+    "James",
+    "Mary",
+    "Robert",
+    "Patricia",
+    "John",
+    "Jennifer",
+    "Michael",
+    "Linda",
+    "David",
+    "Elizabeth",
+    "William",
+    "Barbara",
+    "Richard",
+    "Susan",
+    "Joseph",
+    "Jessica",
+    "Thomas",
+    "Sarah",
+    "Charles",
+    "Karen",
+    "Christopher",
+    "Lisa",
+    "Daniel",
+    "Nancy",
+    "Matthew",
+    "Betty",
+    "Anthony",
+    "Margaret",
+    "Mark",
+    "Sandra",
+    "Donald",
+    "Ashley",
 ]
 
 LAST_NAMES = [
-    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
-    "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
-    "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson",
-    "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson", "Walker",
+    "Smith",
+    "Johnson",
+    "Williams",
+    "Brown",
+    "Jones",
+    "Garcia",
+    "Miller",
+    "Davis",
+    "Rodriguez",
+    "Martinez",
+    "Hernandez",
+    "Lopez",
+    "Gonzalez",
+    "Wilson",
+    "Anderson",
+    "Thomas",
+    "Taylor",
+    "Moore",
+    "Jackson",
+    "Martin",
+    "Lee",
+    "Perez",
+    "Thompson",
+    "White",
+    "Harris",
+    "Sanchez",
+    "Clark",
+    "Ramirez",
+    "Lewis",
+    "Robinson",
+    "Walker",
 ]
 
 STREET_NAMES = [
-    "Main", "Oak", "Maple", "Cedar", "Pine", "Elm", "Washington", "Lake",
-    "Hill", "Park", "Forest", "River", "Spring", "Valley", "Sunset", "Highland",
-    "Meadow", "Cherry", "Willow", "Birch", "Walnut", "Hickory", "Laurel", "Magnolia",
+    "Main",
+    "Oak",
+    "Maple",
+    "Cedar",
+    "Pine",
+    "Elm",
+    "Washington",
+    "Lake",
+    "Hill",
+    "Park",
+    "Forest",
+    "River",
+    "Spring",
+    "Valley",
+    "Sunset",
+    "Highland",
+    "Meadow",
+    "Cherry",
+    "Willow",
+    "Birch",
+    "Walnut",
+    "Hickory",
+    "Laurel",
+    "Magnolia",
 ]
 
 STREET_SUFFIXES = ["St", "Ave", "Blvd", "Dr", "Ln", "Rd", "Way", "Ct", "Pl", "Cir"]
 
 CITIES = [
-    ("Austin", "TX", "78701"), ("Denver", "CO", "80202"), ("Phoenix", "AZ", "85001"),
-    ("Seattle", "WA", "98101"), ("Portland", "OR", "97201"), ("Atlanta", "GA", "30301"),
-    ("Chicago", "IL", "60601"), ("Miami", "FL", "33101"), ("Dallas", "TX", "75201"),
-    ("Houston", "TX", "77001"), ("San Diego", "CA", "92101"), ("Nashville", "TN", "37201"),
-    ("Charlotte", "NC", "28201"), ("Columbus", "OH", "43201"), ("Indianapolis", "IN", "46201"),
-    ("Jacksonville", "FL", "32099"), ("San Antonio", "TX", "78201"), ("Fort Worth", "TX", "76101"),
+    ("Austin", "TX", "78701"),
+    ("Denver", "CO", "80202"),
+    ("Phoenix", "AZ", "85001"),
+    ("Seattle", "WA", "98101"),
+    ("Portland", "OR", "97201"),
+    ("Atlanta", "GA", "30301"),
+    ("Chicago", "IL", "60601"),
+    ("Miami", "FL", "33101"),
+    ("Dallas", "TX", "75201"),
+    ("Houston", "TX", "77001"),
+    ("San Diego", "CA", "92101"),
+    ("Nashville", "TN", "37201"),
+    ("Charlotte", "NC", "28201"),
+    ("Columbus", "OH", "43201"),
+    ("Indianapolis", "IN", "46201"),
+    ("Jacksonville", "FL", "32099"),
+    ("San Antonio", "TX", "78201"),
+    ("Fort Worth", "TX", "76101"),
 ]
 
 INSURANCE_COMPANIES = [
-    "State Farm", "Progressive", "GEICO", "Liberty Mutual",
-    "USAA", "Farmers", "Nationwide", "Travelers", "American Family",
-    "Erie Insurance", "Auto-Owners", "Chubb", "Hartford", "Safeco",
+    "State Farm",
+    "Progressive",
+    "GEICO",
+    "Liberty Mutual",
+    "USAA",
+    "Farmers",
+    "Nationwide",
+    "Travelers",
+    "American Family",
+    "Erie Insurance",
+    "Auto-Owners",
+    "Chubb",
+    "Hartford",
+    "Safeco",
 ]
 
 ADJUSTERS = [
-    "John Mitchell", "Sarah Thompson", "Michael Chen", "Emily Rodriguez",
-    "David Kim", "Jennifer Wilson", "Robert Garcia", "Amanda Martinez",
-    "Christopher Lee", "Jessica Brown", "William Davis", "Ashley Taylor",
+    "John Mitchell",
+    "Sarah Thompson",
+    "Michael Chen",
+    "Emily Rodriguez",
+    "David Kim",
+    "Jennifer Wilson",
+    "Robert Garcia",
+    "Amanda Martinez",
+    "Christopher Lee",
+    "Jessica Brown",
+    "William Davis",
+    "Ashley Taylor",
 ]
 
 # Damage types and descriptions
 DAMAGE_TYPES = [
-    "Water Damage", "Fire Damage", "Wind Damage", "Hail Damage", "Theft",
-    "Vandalism", "Lightning Strike", "Burst Pipe", "Flood Damage", "Roof Damage",
-    "Structural Damage", "Smoke Damage", "Mold Damage", "Foundation Crack",
+    "Water Damage",
+    "Fire Damage",
+    "Wind Damage",
+    "Hail Damage",
+    "Theft",
+    "Vandalism",
+    "Lightning Strike",
+    "Burst Pipe",
+    "Flood Damage",
+    "Roof Damage",
+    "Structural Damage",
+    "Smoke Damage",
+    "Mold Damage",
+    "Foundation Crack",
 ]
 
 DAMAGE_DESCRIPTIONS = [
@@ -94,9 +212,21 @@ DAMAGE_DESCRIPTIONS = [
 ]
 
 ROOMS = [
-    "Living Room", "Master Bedroom", "Kitchen", "Bathroom", "Garage",
-    "Basement", "Attic", "Dining Room", "Guest Bedroom", "Home Office",
-    "Laundry Room", "Hallway", "Foyer", "Patio", "Deck",
+    "Living Room",
+    "Master Bedroom",
+    "Kitchen",
+    "Bathroom",
+    "Garage",
+    "Basement",
+    "Attic",
+    "Dining Room",
+    "Guest Bedroom",
+    "Home Office",
+    "Laundry Room",
+    "Hallway",
+    "Foyer",
+    "Patio",
+    "Deck",
 ]
 
 # File types commonly found in insurance claims
@@ -154,6 +284,7 @@ TASK_NAMES = [
 
 class EventFrequency(Enum):
     """Relative frequency of different event types."""
+
     VERY_COMMON = 50
     COMMON = 30
     OCCASIONAL = 15
@@ -177,6 +308,7 @@ EVENT_TYPE_WEIGHTS = {
 @dataclass
 class GeneratorConfig:
     """Configuration for data generators."""
+
     seed: Optional[int] = None
     base_url: str = "http://localhost:8765"  # Dummy file server URL
     include_failures: bool = False  # Generate some failing scenarios
@@ -191,6 +323,7 @@ class GeneratorConfig:
 @dataclass
 class GeneratedClaim:
     """A complete generated insurance claim with all associated data."""
+
     claim_id: str
     project_id: str
     policy_number: str
@@ -228,7 +361,7 @@ class RealisticDataGenerator:
     def _generate_id(self, prefix: str, length: int = 8) -> str:
         """Generate a unique ID with prefix."""
         chars = string.ascii_uppercase + string.digits
-        suffix = ''.join(self._rng.choices(chars, k=length))
+        suffix = "".join(self._rng.choices(chars, k=length))
         return f"{prefix}{suffix}"
 
     def _generate_deterministic_id(self, *components: str) -> str:
@@ -272,7 +405,8 @@ class RealisticDataGenerator:
 
         # Generate base IDs
         claim_id = self._generate_id("CLM-")
-        project_id = self._generate_id("proj_", 12)
+        # ClaimX API uses integer project IDs - generate as numeric string
+        project_id = str(self._rng.randint(100000, 999999))
         policy_number = f"POL-{self._rng.randint(100000, 999999)}-{self._rng.randint(10, 99)}"
 
         # Date of loss (within last 30 days)
@@ -329,7 +463,8 @@ class RealisticDataGenerator:
         file_name = template.format(n=file_num)
         file_size = self._rng.randint(min_size, max_size)
 
-        media_id = self._generate_id("media_", 12)
+        # ClaimX API uses integer media IDs - generate as numeric string
+        media_id = str(self._rng.randint(100000, 999999))
 
         attachment = {
             "media_id": media_id,
@@ -367,10 +502,9 @@ class RealisticDataGenerator:
         # Generate 1-5 attachments
         num_attachments = self._rng.randint(1, 5)
         for _ in range(num_attachments):
-            category = self._rng.choices(
-                ["photos", "documents", "reports"],
-                weights=[60, 30, 10]
-            )[0]
+            category = self._rng.choices(["photos", "documents", "reports"], weights=[60, 30, 10])[
+                0
+            ]
             self.generate_attachment(claim, category)
 
         attachment_urls = [a["download_url"] for a in claim.attachments[-num_attachments:]]
@@ -460,74 +594,89 @@ class RealisticDataGenerator:
         }
 
         if event_type == "PROJECT_CREATED":
-            raw_data.update({
-                "projectName": f"Claim {claim.claim_id}",
-                "createdAt": now.isoformat(),
-                "insuredName": claim.policyholder["full_name"],
-                "propertyAddress": claim.property_address["full"],
-                "lossType": claim.damage_type,
-                "dateOfLoss": claim.date_of_loss.strftime("%Y-%m-%d"),
-                "assignedAdjuster": claim.assigned_adjuster,
-            })
+            raw_data.update(
+                {
+                    "projectName": f"Claim {claim.claim_id}",
+                    "createdAt": now.isoformat(),
+                    "insuredName": claim.policyholder["full_name"],
+                    "propertyAddress": claim.property_address["full"],
+                    "lossType": claim.damage_type,
+                    "dateOfLoss": claim.date_of_loss.strftime("%Y-%m-%d"),
+                    "assignedAdjuster": claim.assigned_adjuster,
+                }
+            )
 
         elif event_type == "PROJECT_FILE_ADDED":
             attachment = self.generate_attachment(claim, "photos")
             event["media_id"] = attachment["media_id"]
-            raw_data.update({
-                "mediaId": attachment["media_id"],
-                "fileName": attachment["file_name"],
-                "fileSize": attachment["file_size"],
-                "contentType": attachment["content_type"],
-                "uploadedBy": claim.policyholder["email"],
-            })
+            raw_data.update(
+                {
+                    "mediaId": attachment["media_id"],
+                    "fileName": attachment["file_name"],
+                    "fileSize": attachment["file_size"],
+                    "contentType": attachment["content_type"],
+                    "uploadedBy": claim.policyholder["email"],
+                }
+            )
 
         elif event_type == "PROJECT_MFN_ADDED":
             mfn = f"MFN-{self._rng.randint(100000, 999999)}.xm8"
             event["master_file_name"] = mfn
-            raw_data.update({
-                "masterFileName": mfn,
-                "version": self._rng.randint(1, 5),
-                "lineItemCount": self._rng.randint(10, 200),
-            })
+            raw_data.update(
+                {
+                    "masterFileName": mfn,
+                    "version": self._rng.randint(1, 5),
+                    "lineItemCount": self._rng.randint(10, 200),
+                }
+            )
 
         elif event_type in ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"]:
-            task_id = self._generate_id("task_", 8)
+            # ClaimX API uses integer task assignment IDs - generate as numeric string
+            task_id = str(self._rng.randint(10000, 99999))
             event["task_assignment_id"] = task_id
-            raw_data.update({
-                "taskAssignmentId": task_id,
-                "taskName": self._rng.choice(TASK_NAMES),
-                "assignee": claim.assigned_adjuster,
-                "assigneeEmail": f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
-                "dueDate": (now + timedelta(days=self._rng.randint(1, 7))).strftime("%Y-%m-%d"),
-            })
+            raw_data.update(
+                {
+                    "taskAssignmentId": task_id,
+                    "taskName": self._rng.choice(TASK_NAMES),
+                    "assignee": claim.assigned_adjuster,
+                    "assigneeEmail": f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
+                    "dueDate": (now + timedelta(days=self._rng.randint(1, 7))).strftime("%Y-%m-%d"),
+                }
+            )
             if event_type == "CUSTOM_TASK_COMPLETED":
                 raw_data["completedAt"] = now.isoformat()
 
         elif event_type == "POLICYHOLDER_INVITED":
-            raw_data.update({
-                "inviteeEmail": claim.policyholder["email"],
-                "inviteeName": claim.policyholder["full_name"],
-                "invitedBy": claim.assigned_adjuster,
-            })
+            raw_data.update(
+                {
+                    "inviteeEmail": claim.policyholder["email"],
+                    "inviteeName": claim.policyholder["full_name"],
+                    "invitedBy": claim.assigned_adjuster,
+                }
+            )
 
         elif event_type == "POLICYHOLDER_JOINED":
-            raw_data.update({
-                "userEmail": claim.policyholder["email"],
-                "userName": claim.policyholder["full_name"],
-                "joinedAt": now.isoformat(),
-            })
+            raw_data.update(
+                {
+                    "userEmail": claim.policyholder["email"],
+                    "userName": claim.policyholder["full_name"],
+                    "joinedAt": now.isoformat(),
+                }
+            )
 
         elif event_type in ["VIDEO_COLLABORATION_INVITE_SENT", "VIDEO_COLLABORATION_COMPLETED"]:
             video_id = self._generate_id("vid_", 8)
             event["video_collaboration_id"] = video_id
-            raw_data.update({
-                "videoCollaborationId": video_id,
-                "scheduledFor": (now + timedelta(hours=self._rng.randint(1, 48))).isoformat(),
-                "participants": [
-                    claim.policyholder["email"],
-                    f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
-                ],
-            })
+            raw_data.update(
+                {
+                    "videoCollaborationId": video_id,
+                    "scheduledFor": (now + timedelta(hours=self._rng.randint(1, 48))).isoformat(),
+                    "participants": [
+                        claim.policyholder["email"],
+                        f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
+                    ],
+                }
+            )
             if event_type == "VIDEO_COLLABORATION_COMPLETED":
                 raw_data["duration_minutes"] = self._rng.randint(5, 45)
                 raw_data["recordingAvailable"] = self._rng.choice([True, False])
@@ -557,8 +706,7 @@ class RealisticDataGenerator:
         if event_type is None:
             # Bias towards completed tasks (70% completed, 30% assigned)
             event_type = self._rng.choices(
-                ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"],
-                weights=[30, 70]
+                ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"], weights=[30, 70]
             )[0]
 
         # Use existing claim or generate new one
@@ -606,15 +754,19 @@ class RealisticDataGenerator:
         }
 
         if event_type == "CUSTOM_TASK_ASSIGNED":
-            raw_data.update({
-                "assignedAt": form_data.date_assigned,
-                "dueDate": (now + timedelta(days=self._rng.randint(3, 7))).strftime("%Y-%m-%d"),
-            })
+            raw_data.update(
+                {
+                    "assignedAt": form_data.date_assigned,
+                    "dueDate": (now + timedelta(days=self._rng.randint(3, 7))).strftime("%Y-%m-%d"),
+                }
+            )
         elif event_type == "CUSTOM_TASK_COMPLETED":
-            raw_data.update({
-                "completedAt": form_data.date_completed or now.isoformat(),
-                "assignedAt": form_data.date_assigned,
-            })
+            raw_data.update(
+                {
+                    "completedAt": form_data.date_completed or now.isoformat(),
+                    "assignedAt": form_data.date_assigned,
+                }
+            )
 
         # Add the complete task details that would be fetched by ClaimX API lookup
         # This is what the enrichment handler will use

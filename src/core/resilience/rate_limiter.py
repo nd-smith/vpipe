@@ -189,10 +189,7 @@ class RateLimiter:
             elapsed = now - self._last_update
 
             # Add tokens for elapsed time (up to burst capacity)
-            self._tokens = min(
-                self._burst_capacity,
-                self._tokens + elapsed * self._rate
-            )
+            self._tokens = min(self._burst_capacity, self._tokens + elapsed * self._rate)
             self._last_update = now
 
             # If not enough tokens, calculate wait time
@@ -281,12 +278,15 @@ def rate_limited(limiter: RateLimiter, tokens: float = 1.0):
         async def api_call():
             return await make_request()
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
         async def wrapper(*args, **kwargs) -> T:
             await limiter.acquire(tokens)
             return await func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 

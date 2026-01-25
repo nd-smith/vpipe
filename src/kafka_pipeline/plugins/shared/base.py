@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -24,6 +24,7 @@ from kafka_pipeline.common.logging import LoggedClass
 
 class Domain(str, Enum):
     """Pipeline domains."""
+
     XACT = "xact"
     CLAIMX = "claimx"
 
@@ -34,6 +35,7 @@ class PipelineStage(str, Enum):
 
     Stages map to worker processing points in each domain.
     """
+
     # Common
     EVENT_INGEST = "event_ingest"
 
@@ -55,6 +57,7 @@ class PipelineStage(str, Enum):
 
 class ActionType(str, Enum):
     """Available plugin action types."""
+
     PUBLISH_TO_TOPIC = "publish_to_topic"
     HTTP_WEBHOOK = "http_webhook"
     LOG = "log"
@@ -66,6 +69,7 @@ class ActionType(str, Enum):
 @dataclass
 class PluginAction:
     """An action to be executed by a plugin."""
+
     action_type: ActionType
     params: Dict[str, Any] = field(default_factory=dict)
 
@@ -73,6 +77,7 @@ class PluginAction:
 @dataclass
 class PluginResult:
     """Result returned by plugin execution."""
+
     success: bool
     actions: List[PluginAction] = field(default_factory=list)
     message: Optional[str] = None
@@ -98,14 +103,16 @@ class PluginResult:
         """Create a result that publishes to a Kafka topic."""
         return cls(
             success=True,
-            actions=[PluginAction(
-                action_type=ActionType.PUBLISH_TO_TOPIC,
-                params={
-                    "topic": topic,
-                    "payload": payload,
-                    "headers": headers or {},
-                }
-            )]
+            actions=[
+                PluginAction(
+                    action_type=ActionType.PUBLISH_TO_TOPIC,
+                    params={
+                        "topic": topic,
+                        "payload": payload,
+                        "headers": headers or {},
+                    },
+                )
+            ],
         )
 
     @classmethod
@@ -119,15 +126,17 @@ class PluginResult:
         """Create a result that calls an HTTP webhook."""
         return cls(
             success=True,
-            actions=[PluginAction(
-                action_type=ActionType.HTTP_WEBHOOK,
-                params={
-                    "url": url,
-                    "method": method,
-                    "body": body or {},
-                    "headers": headers or {},
-                }
-            )]
+            actions=[
+                PluginAction(
+                    action_type=ActionType.HTTP_WEBHOOK,
+                    params={
+                        "url": url,
+                        "method": method,
+                        "body": body or {},
+                        "headers": headers or {},
+                    },
+                )
+            ],
         )
 
     @classmethod
@@ -135,10 +144,11 @@ class PluginResult:
         """Create a result that logs a message."""
         return cls(
             success=True,
-            actions=[PluginAction(
-                action_type=ActionType.LOG,
-                params={"level": level, "message": message}
-            )]
+            actions=[
+                PluginAction(
+                    action_type=ActionType.LOG, params={"level": level, "message": message}
+                )
+            ],
         )
 
     @classmethod
@@ -148,10 +158,7 @@ class PluginResult:
             success=True,
             terminate_pipeline=True,
             message=f"Filtered: {reason}",
-            actions=[PluginAction(
-                action_type=ActionType.FILTER,
-                params={"reason": reason}
-            )]
+            actions=[PluginAction(action_type=ActionType.FILTER, params={"reason": reason})],
         )
 
 
@@ -163,6 +170,7 @@ class PluginContext:
     Domain-agnostic: works with any message type via the generic
     'message' field and domain-specific data in 'data' dict.
     """
+
     # Domain identification
     domain: Domain
     stage: PipelineStage
@@ -248,7 +256,7 @@ class PluginContext:
                 return None
 
             # Handle array indexing: tasks[0]
-            array_match = re.match(r'^(\w+)\[(\d+)\]$', part)
+            array_match = re.match(r"^(\w+)\[(\d+)\]$", part)
             if array_match:
                 attr_name, index = array_match.groups()
                 if isinstance(obj, dict):

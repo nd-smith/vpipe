@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -242,15 +242,10 @@ def with_retry(
                         )
                     else:
                         cat = classify_exception(wrapped)
-                        error_category = (
-                            cat.value if hasattr(cat, "value") else str(cat)
-                        )
+                        error_category = cat.value if hasattr(cat, "value") else str(cat)
 
                     # Handle auth errors - refresh before retry decision
-                    if (
-                        isinstance(wrapped, PipelineError)
-                        and wrapped.should_refresh_auth
-                    ):
+                    if isinstance(wrapped, PipelineError) and wrapped.should_refresh_auth:
                         logger.info(
                             "Auth error detected for %s, refreshing credentials",
                             func.__name__,
@@ -265,10 +260,7 @@ def with_retry(
                     # Check if should retry
                     if not config.should_retry(wrapped, attempt):
                         error_type = type(wrapped).__name__
-                        if (
-                            isinstance(wrapped, PipelineError)
-                            and not wrapped.is_retryable
-                        ):
+                        if isinstance(wrapped, PipelineError) and not wrapped.is_retryable:
                             logger.warning(
                                 "Permanent error for %s, not retrying: %s",
                                 func.__name__,

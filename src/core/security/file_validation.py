@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -14,7 +14,6 @@ Supports validation by file extension and Content-Type header.
 from typing import Optional, Set, Tuple
 from urllib.parse import urlparse, parse_qs
 
-
 # Allowed file extensions (case-insensitive)
 ALLOWED_EXTENSIONS: Set[str] = {
     # Documents
@@ -26,10 +25,10 @@ ALLOWED_EXTENSIONS: Set[str] = {
     "html",
     "htm",
     "xls",
-    "xlsx", 
+    "xlsx",
     "doc",
     "docx",
-    "esx",    
+    "esx",
     # Images
     "jpg",
     "jpeg",
@@ -41,8 +40,6 @@ ALLOWED_EXTENSIONS: Set[str] = {
     "webp",
     "mov",
     "mp4",
-
-
 }
 
 # Allowed MIME types (Content-Type header values)
@@ -60,7 +57,7 @@ ALLOWED_CONTENT_TYPES: Set[str] = {
     "image/tiff",
     "image/webp",
     "video/quicktime",
-    "video/mp4",    
+    "video/mp4",
 }
 
 # Extension to primary MIME type mapping (for validation)
@@ -77,7 +74,7 @@ EXTENSION_TO_MIME = {
     "tif": "image/tiff",
     "webp": "image/webp",
     "mov": "video/quicktime",
-    "mp4": "video/mp4",    
+    "mp4": "video/mp4",
 }
 
 

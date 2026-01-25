@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -35,10 +35,9 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, Tuple
 import threading
 
-
 # Token timing constants
 TOKEN_REFRESH_MINS = 50  # Refresh before expiry (Azure tokens: 60 min lifetime)
-TOKEN_EXPIRY_MINS = 60   # Azure token lifetime
+TOKEN_EXPIRY_MINS = 60  # Azure token lifetime
 
 
 class TokenCache:

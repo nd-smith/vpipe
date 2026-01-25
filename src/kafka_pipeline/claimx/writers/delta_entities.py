@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -17,17 +17,22 @@ Writes ClaimX entity data to 7 separate Delta tables:
 - claimx_video_collab: Video collaboration sessions
 
 Uses merge (upsert) operations with appropriate primary keys for idempotency.
+
+Simulation Mode:
+When simulation mode is enabled, writes to local filesystem Delta tables
+in /tmp/vpipe_simulation/delta/ instead of cloud OneLake storage.
 """
 
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+import shutil
 
 import polars as pl
 
 from core.logging.setup import get_logger
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.common.writers.base import BaseDeltaWriter
-
 
 # Schema definitions matching actual Delta table schemas exactly
 # These schemas are derived from the Fabric Delta tables to ensure type compatibility
@@ -265,8 +270,11 @@ class ClaimXEntityWriter:
         """
         Initialize ClaimX entity writer with table paths.
 
+        In simulation mode, table paths are overridden to use local filesystem.
+
         Args:
-            projects_table_path: Full abfss:// path to claimx_projects table
+            projects_table_path: Full abfss:// path to claimx_projects table (cloud)
+                                or local path in simulation mode
             contacts_table_path: Full abfss:// path to claimx_contacts table
             media_table_path: Full abfss:// path to claimx_attachment_metadata table
             tasks_table_path: Full abfss:// path to claimx_tasks table
@@ -275,6 +283,69 @@ class ClaimXEntityWriter:
             video_collab_table_path: Full abfss:// path to claimx_video_collab table
         """
         self.logger = get_logger(self.__class__.__name__)
+
+        # Check if simulation mode is enabled and override paths
+        try:
+            from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
+
+            if is_simulation_mode():
+                simulation_config = get_simulation_config()
+                self.use_local_delta = True
+                self.delta_base_path = simulation_config.local_delta_path
+
+                # Ensure base directory exists
+                simulation_config.ensure_directories()
+
+                # Override table paths to use local filesystem
+                table_names = {
+                    "projects": "claimx_projects",
+                    "contacts": "claimx_contacts",
+                    "media": "claimx_attachment_metadata",
+                    "tasks": "claimx_tasks",
+                    "task_templates": "claimx_task_templates",
+                    "external_links": "claimx_external_links",
+                    "video_collab": "claimx_video_collab",
+                }
+
+                # Truncate tables if configured
+                if simulation_config.truncate_tables_on_start:
+                    for table_name in table_names.values():
+                        table_path = self.delta_base_path / table_name
+                        if table_path.exists():
+                            shutil.rmtree(table_path)
+                            self.logger.info(
+                                f"Truncated Delta table: {table_name}",
+                                extra={"table_path": str(table_path)},
+                            )
+
+                # Use local paths
+                projects_table_path = str(self.delta_base_path / table_names["projects"])
+                contacts_table_path = str(self.delta_base_path / table_names["contacts"])
+                media_table_path = str(self.delta_base_path / table_names["media"])
+                tasks_table_path = str(self.delta_base_path / table_names["tasks"])
+                task_templates_table_path = str(
+                    self.delta_base_path / table_names["task_templates"]
+                )
+                external_links_table_path = str(
+                    self.delta_base_path / table_names["external_links"]
+                )
+                video_collab_table_path = str(self.delta_base_path / table_names["video_collab"])
+
+                self.logger.info(
+                    "Simulation mode enabled - writing Delta Lake to local filesystem",
+                    extra={
+                        "delta_path": str(self.delta_base_path),
+                        "truncate_on_start": simulation_config.truncate_tables_on_start,
+                        "tables": list(table_names.values()),
+                    },
+                )
+            else:
+                self.use_local_delta = False
+                self.delta_base_path = None
+        except Exception:
+            # Simulation mode not available or not enabled
+            self.use_local_delta = False
+            self.delta_base_path = None
 
         # Create individual writers for each entity table
         # Projects and Media are partitioned by project_id
@@ -305,10 +376,12 @@ class ClaimXEntityWriter:
             ),
         }
 
+        mode_str = "local" if self.use_local_delta else "cloud"
         self.logger.info(
-            "Initialized ClaimXEntityWriter",
+            f"Initialized ClaimXEntityWriter ({mode_str} mode)",
             extra={
                 "tables": list(self._writers.keys()),
+                "simulation_mode": self.use_local_delta,
             },
         )
 
@@ -571,9 +644,7 @@ class ClaimXEntityWriter:
                     if col_type == pl.Datetime("us", "UTC") and isinstance(val, str):
                         # Parse ISO timestamp string (e.g., "2026-01-09T01:58:32.556819Z")
                         # Handle both "Z" suffix and "+00:00" timezone formats
-                        converted_row[col_name] = datetime.fromisoformat(
-                            val.replace("Z", "+00:00")
-                        )
+                        converted_row[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
                     elif col_type == pl.Date and isinstance(val, str):
                         # Parse date string (e.g., "2026-01-09" or from ISO timestamp)
                         if "T" in val:

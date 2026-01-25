@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -23,6 +23,7 @@ class TaskEvent:
 
     This is what the plugin publishes when a task changes.
     """
+
     event_id: str
     event_type: str
     event_timestamp: str
@@ -52,18 +53,18 @@ class TaskEvent:
         """
         try:
             return cls(
-                event_id=raw['event_id'],
-                event_type=raw['event_type'],
-                event_timestamp=raw['timestamp'],
-                task_id=raw['task_id'],
-                assignment_id=raw['assignment_id'],
-                project_id=raw['project_id'],
-                task_name=raw['task_name'],
-                task_status=raw['task_status'],
-                assigned_to_user_id=raw.get('task', {}).get('assigned_to_user_id'),
-                assigned_by_user_id=raw.get('task', {}).get('assigned_by_user_id'),
-                task_created_at=raw.get('task', {}).get('created_at'),
-                task_completed_at=raw.get('task', {}).get('completed_at'),
+                event_id=raw["event_id"],
+                event_type=raw["event_type"],
+                event_timestamp=raw["timestamp"],
+                task_id=raw["task_id"],
+                assignment_id=raw["assignment_id"],
+                project_id=raw["project_id"],
+                task_name=raw["task_name"],
+                task_status=raw["task_status"],
+                assigned_to_user_id=raw.get("task", {}).get("assigned_to_user_id"),
+                assigned_by_user_id=raw.get("task", {}).get("assigned_by_user_id"),
+                task_created_at=raw.get("task", {}).get("created_at"),
+                task_completed_at=raw.get("task", {}).get("completed_at"),
             )
         except KeyError as e:
             raise ValueError(f"Missing required field in Kafka message: {e}")
@@ -76,6 +77,7 @@ class CabinetSubmission:
 
     This is the structured data extracted from ClaimX task response.
     """
+
     # Primary identifiers
     assignment_id: int
     project_id: str  # String from ClaimX (e.g., "5395115")
@@ -114,7 +116,9 @@ class CabinetSubmission:
     lower_cabinets_lf: Optional[float] = None
     num_damaged_lower_boxes: Optional[int] = None
     lower_cabinets_detached: Optional[bool] = None
-    lower_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    lower_face_frames_doors_drawers_available: Optional[str] = (
+        None  # "Yes"/"No" string per table schema
+    )
     lower_face_frames_doors_drawers_damaged: Optional[bool] = None
     lower_finished_end_panels_damaged: Optional[bool] = None
     lower_end_panel_damage_present: Optional[bool] = None
@@ -125,7 +129,9 @@ class CabinetSubmission:
     upper_cabinets_lf: Optional[float] = None
     num_damaged_upper_boxes: Optional[int] = None
     upper_cabinets_detached: Optional[bool] = None
-    upper_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    upper_face_frames_doors_drawers_available: Optional[str] = (
+        None  # "Yes"/"No" string per table schema
+    )
     upper_face_frames_doors_drawers_damaged: Optional[bool] = None
     upper_finished_end_panels_damaged: Optional[bool] = None
     upper_end_panel_damage_present: Optional[bool] = None
@@ -135,7 +141,9 @@ class CabinetSubmission:
     full_height_cabinets_lf: Optional[float] = None
     num_damaged_full_height_boxes: Optional[int] = None
     full_height_cabinets_detached: Optional[bool] = None
-    full_height_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    full_height_face_frames_doors_drawers_available: Optional[str] = (
+        None  # "Yes"/"No" string per table schema
+    )
     full_height_face_frames_doors_drawers_damaged: Optional[bool] = None
     full_height_finished_end_panels_damaged: Optional[bool] = None
 
@@ -144,7 +152,9 @@ class CabinetSubmission:
     island_cabinets_lf: Optional[float] = None
     num_damaged_island_boxes: Optional[int] = None
     island_cabinets_detached: Optional[bool] = None
-    island_face_frames_doors_drawers_available: Optional[str] = None  # "Yes"/"No" string per table schema
+    island_face_frames_doors_drawers_available: Optional[str] = (
+        None  # "Yes"/"No" string per table schema
+    )
     island_face_frames_doors_drawers_damaged: Optional[bool] = None
     island_finished_end_panels_damaged: Optional[bool] = None
     island_end_panel_damage_present: Optional[bool] = None
@@ -170,6 +180,7 @@ class CabinetAttachment:
     """
     Media attachment linked to form question.
     """
+
     assignment_id: int
     project_id: int  # ClaimX project ID
     event_id: str  # Kafka event ID for traceability
@@ -202,6 +213,7 @@ class ProcessedTask:
 
     Contains everything we learned about the task.
     """
+
     event: TaskEvent
     submission: Optional[CabinetSubmission]
     attachments: list[CabinetAttachment]

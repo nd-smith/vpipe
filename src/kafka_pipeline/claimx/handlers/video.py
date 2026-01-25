@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -84,7 +84,7 @@ class VideoCollabHandler(EventHandler):
             return EnrichmentResult(
                 event=event,
                 success=True,
-                rows=rows, # Return project rows even if video data missing
+                rows=rows,  # Return project rows even if video data missing
                 api_calls=2,
                 duration_ms=elapsed_ms(start_time),
             )
@@ -201,9 +201,7 @@ class VideoCollabTransformer:
             full_name = " ".join(parts) if parts else None
 
         row = {
-            "video_collaboration_id": safe_int(
-                data.get("videoCollaborationId") or data.get("id")
-            ),
+            "video_collaboration_id": safe_int(data.get("videoCollaborationId") or data.get("id")),
             "claim_id": safe_int(data.get("claimId")),
             "mfn": safe_str(data.get("mfn")),
             "claim_number": safe_str(data.get("claimNumber")),
@@ -219,9 +217,7 @@ class VideoCollabTransformer:
             "total_time_seconds": safe_decimal_str(data.get("totalTimeSeconds")),
             "total_time": safe_str(data.get("totalTime")),
             "created_date": parse_timestamp(data.get("createdDate")),
-            "live_call_first_session": parse_timestamp(
-                data.get("liveCallFirstSession")
-            ),
+            "live_call_first_session": parse_timestamp(data.get("liveCallFirstSession")),
             "live_call_last_session": parse_timestamp(data.get("liveCallLastSession")),
             "company_id": safe_int(data.get("companyId")),
             "company_name": safe_str(data.get("companyName")),

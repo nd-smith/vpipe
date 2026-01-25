@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -43,10 +43,10 @@ def _json_serializer(obj: Any) -> Any:
         return float(obj)
     elif isinstance(obj, Path):
         return str(obj)
-    elif hasattr(obj, 'value'):
+    elif hasattr(obj, "value"):
         # For enums
         return obj.value
-    elif hasattr(obj, '__dict__'):
+    elif hasattr(obj, "__dict__"):
         # For objects with __dict__, serialize as dict
         return obj.__dict__
     else:
@@ -144,7 +144,6 @@ class JSONFormatter(logging.Formatter):
         "processing_time_ms": float,
         "duration_ms": float,
         "memory_mb": float,
-
         # Count fields (as int for smaller counts)
         "retry_count": int,
         "http_status": int,
@@ -152,7 +151,6 @@ class JSONFormatter(logging.Formatter):
         "kafka_partition": int,
         "df_cols": int,
         "api_calls": int,
-
         # Large count fields (as int, ADX can handle large ints)
         "batch_size": int,
         "records_processed": int,
@@ -167,7 +165,6 @@ class JSONFormatter(logging.Formatter):
         "df_rows": int,
         "query_length": int,
         "limit": int,
-
         # Byte counts (as int for large values)
         "blob_size": int,
         "bytes_uploaded": int,
@@ -239,8 +236,7 @@ class JSONFormatter(logging.Formatter):
         being converted to strings, enabling efficient ADX aggregations.
         """
         log_entry: Dict[str, Any] = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
-            + "Z",
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
@@ -286,7 +282,7 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = {
                 "type": exc_type.__name__ if exc_type else None,
                 "message": str(exc_value) if exc_value else None,
-                "stacktrace": self.formatException(record.exc_info)
+                "stacktrace": self.formatException(record.exc_info),
             }
 
         # Use type-safe serializer instead of default=str

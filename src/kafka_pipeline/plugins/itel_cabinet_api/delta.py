@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -133,9 +133,9 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
         logger.info(
             "Initialized iTel Cabinet Delta writers",
             extra={
-                'submissions_table': submissions_table_path,
-                'attachments_table': attachments_table_path,
-            }
+                "submissions_table": submissions_table_path,
+                "attachments_table": attachments_table_path,
+            },
         )
 
     def _process_submission_row(self, row: dict) -> dict:
@@ -154,9 +154,7 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
             elif col_type == pl.Datetime("us", "UTC"):
                 # Handle datetime conversion
                 if isinstance(val, str):
-                    processed[col_name] = datetime.fromisoformat(
-                        val.replace("Z", "+00:00")
-                    )
+                    processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
                 elif isinstance(val, datetime):
                     if val.tzinfo is None:
                         processed[col_name] = val.replace(tzinfo=timezone.utc)
@@ -195,9 +193,7 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
                 processed[col_name] = None
             elif col_type == pl.Datetime("us", "UTC"):
                 if isinstance(val, str):
-                    processed[col_name] = datetime.fromisoformat(
-                        val.replace("Z", "+00:00")
-                    )
+                    processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
                 elif isinstance(val, datetime):
                     if val.tzinfo is None:
                         processed[col_name] = val.replace(tzinfo=timezone.utc)
@@ -296,9 +292,7 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
             return True
 
         # Pre-process all rows with explicit type conversion
-        processed_rows = [
-            self._process_attachment_row(row) for row in attachment_rows
-        ]
+        processed_rows = [self._process_attachment_row(row) for row in attachment_rows]
 
         # Create DataFrame with explicit schema
         df = pl.DataFrame(processed_rows, schema=ATTACHMENTS_SCHEMA)
