@@ -61,7 +61,7 @@ done
 # Clean if requested
 if [ "$CLEAN" = true ]; then
     echo -e "${YELLOW}Cleaning up existing simulation environment...${NC}"
-    docker-compose -f docker-compose.simulation.yml down -v
+    docker-compose -f scripts/docker/docker-compose.simulation.yml down -v
     rm -rf logs/
     rm -rf /tmp/vpipe_simulation
     echo -e "${GREEN}✓ Cleanup complete${NC}"
@@ -71,7 +71,7 @@ fi
 # Build images if requested or if they don't exist
 if [ "$BUILD" = true ] || ! docker images | grep -q "kafka-pipeline"; then
     echo -e "${YELLOW}Building Docker images...${NC}"
-    docker-compose -f docker-compose.simulation.yml build
+    docker-compose -f scripts/docker/docker-compose.simulation.yml build
     echo -e "${GREEN}✓ Build complete${NC}"
     echo ""
 fi
@@ -85,7 +85,7 @@ echo ""
 
 # Start all services (Kafka will start first, workers will wait for it to be healthy)
 echo -e "${YELLOW}Starting all simulation services...${NC}"
-docker-compose -f docker-compose.simulation.yml --profile simulation up -d
+docker-compose -f scripts/docker/docker-compose.simulation.yml --profile simulation up -d
 echo ""
 
 # Wait for Kafka to be healthy
@@ -93,7 +93,7 @@ echo "Waiting for Kafka to be healthy..."
 timeout 120 bash -c 'until [ "$(docker inspect -f "{{.State.Health.Status}}" kafka-simulation 2>/dev/null)" = "healthy" ]; do sleep 2; done' || {
     echo -e "${RED}✗ Kafka failed to start within 120 seconds${NC}"
     echo "Kafka status: $(docker inspect -f '{{.State.Health.Status}}' kafka-simulation 2>/dev/null || echo 'container not found')"
-    docker-compose -f docker-compose.simulation.yml logs kafka | tail -50
+    docker-compose -f scripts/docker/docker-compose.simulation.yml logs kafka | tail -50
     exit 1
 }
 echo -e "${GREEN}✓ Kafka is ready${NC}"
@@ -116,13 +116,13 @@ echo "  - Domains:      ClaimX, XACT"
 echo "  - Max Events:   100,000"
 echo ""
 echo "Workers Running:"
-docker-compose -f docker-compose.simulation.yml ps | grep -E "ingester|enricher|download|upload|delta|retry|entity|producer|file-server" || echo "  (Starting up...)"
+docker-compose -f scripts/docker/docker-compose.simulation.yml ps | grep -E "ingester|enricher|download|upload|delta|retry|entity|producer|file-server" || echo "  (Starting up...)"
 echo ""
 echo "Useful Commands:"
-echo "  View logs:      docker-compose -f docker-compose.simulation.yml logs -f"
-echo "  View producer:  docker-compose -f docker-compose.simulation.yml logs -f dummy-producer"
-echo "  Stop all:       docker-compose -f docker-compose.simulation.yml down"
-echo "  Clean all:      docker-compose -f docker-compose.simulation.yml down -v"
+echo "  View logs:      docker-compose -f scripts/docker/docker-compose.simulation.yml logs -f"
+echo "  View producer:  docker-compose -f scripts/docker/docker-compose.simulation.yml logs -f dummy-producer"
+echo "  Stop all:       docker-compose -f scripts/docker/docker-compose.simulation.yml down"
+echo "  Clean all:      docker-compose -f scripts/docker/docker-compose.simulation.yml down -v"
 echo ""
 echo "Simulation data stored at: /tmp/vpipe_simulation/"
 echo "Logs stored at: $PROJECT_ROOT/logs/"

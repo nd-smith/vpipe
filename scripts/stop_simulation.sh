@@ -39,13 +39,13 @@ done
 echo -e "${YELLOW}Stopping simulation environment...${NC}"
 
 if [ "$CLEAN" = true ]; then
-    docker-compose -f docker-compose.simulation.yml down -v
+    docker-compose -f scripts/docker/docker-compose.simulation.yml down -v
     echo -e "${YELLOW}Cleaning up data...${NC}"
     rm -rf logs/
     rm -rf /tmp/vpipe_simulation
     echo -e "${GREEN}✓ Simulation stopped and cleaned${NC}"
 else
-    docker-compose -f docker-compose.simulation.yml down
+    docker-compose -f scripts/docker/docker-compose.simulation.yml down
     echo -e "${GREEN}✓ Simulation stopped (data preserved)${NC}"
     echo ""
     echo "Data locations:"

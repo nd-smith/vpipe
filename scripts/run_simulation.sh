@@ -85,7 +85,7 @@ fi
 echo -e "${YELLOW}Checking Kafka connectivity...${NC}"
 if ! nc -z localhost 9092 2>/dev/null; then
     echo -e "${RED}Error: Kafka not reachable at localhost:9092${NC}"
-    echo "Start Kafka with: docker-compose -f scripts/docker-compose.kafka.yml up -d"
+    echo "Start Kafka with: docker-compose -f scripts/docker/docker-compose.kafka.yml up -d"
     exit 1
 fi
 echo -e "${GREEN}✓ Kafka is running${NC}"

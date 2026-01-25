@@ -22,11 +22,10 @@ Workers (OTel SDK) → OTel Collector (OTLP) → Prometheus (scrapes :8889) → 
 1. **Start observability stack:**
    ```bash
    # Start Jaeger + OTel Collector
-   docker-compose -f docker-compose.jaeger.yml up -d
+   docker-compose -f scripts/docker/docker-compose.jaeger.yml up -d
 
    # Start Prometheus + Grafana
-   cd scripts
-   docker-compose -f docker-compose.obs.yml up -d
+   docker-compose -f scripts/docker/docker-compose.obs.yml up -d
    ```
 
 2. **Access Grafana:** http://localhost:3000 (admin/admin)
