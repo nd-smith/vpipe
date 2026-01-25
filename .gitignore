@@ -25,6 +25,7 @@ MANIFEST
 *.tmp.*
 .ruff_cache
 docs*
+*.code-workspace
 
 # Virtual environments
 venv/
