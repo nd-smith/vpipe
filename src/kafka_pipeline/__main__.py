@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -47,6 +47,10 @@ Usage:
     # Run in development mode (local Kafka only, no Event Hub/Eventhouse)
     python -m kafka_pipeline --dev
 
+    # Run in simulation mode (with mock dependencies)
+    python -m kafka_pipeline --simulation-mode --worker claimx-enricher
+    python -m kafka_pipeline --simulation-mode --worker xact-uploader
+
 Event Source Configuration:
     Set EVENT_SOURCE environment variable:
     - eventhub (default): Use Azure Event Hub via Kafka protocol
@@ -83,7 +87,7 @@ from typing import Any, Callable, Coroutine, Optional
 
 import coolname
 from dotenv import load_dotenv
-from prometheus_client import start_http_server
+from prometheus_client import start_http_server, REGISTRY
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger, setup_logging, setup_multi_worker_logging
@@ -212,11 +216,20 @@ Examples:
     )
 
     parser.add_argument(
-        "--count", "-c",
+        "--count",
+        "-c",
         type=int,
         default=1,
         help="Number of worker instances to run concurrently (default: 1). "
-             "Multiple instances share the same consumer group for automatic partition distribution.",
+        "Multiple instances share the same consumer group for automatic partition distribution.",
+    )
+
+    parser.add_argument(
+        "--simulation-mode",
+        action="store_true",
+        help="Enable simulation mode with mock dependencies for local testing. "
+        "Uses mock API clients and local filesystem storage instead of production services. "
+        "CANNOT run in production environments.",
     )
 
     return parser.parse_args()
@@ -299,26 +312,28 @@ async def run_all_workers(
         )
         logger.info("XACT unified retry scheduler enabled")
 
-    tasks.extend([
-        asyncio.create_task(
-            xact_runners.run_download_worker(local_kafka_config, shutdown_event),
-            name="xact-download",
-        ),
-        asyncio.create_task(
-            xact_runners.run_upload_worker(local_kafka_config, shutdown_event),
-            name="xact-upload",
-        ),
-        asyncio.create_task(
-            xact_runners.run_result_processor(
-                local_kafka_config,
-                shutdown_event,
-                enable_delta_writes,
-                inventory_table_path=pipeline_config.inventory_table_path,
-                failed_table_path=pipeline_config.failed_table_path,
+    tasks.extend(
+        [
+            asyncio.create_task(
+                xact_runners.run_download_worker(local_kafka_config, shutdown_event),
+                name="xact-download",
             ),
-            name="xact-result-processor",
-        ),
-    ])
+            asyncio.create_task(
+                xact_runners.run_upload_worker(local_kafka_config, shutdown_event),
+                name="xact-upload",
+            ),
+            asyncio.create_task(
+                xact_runners.run_result_processor(
+                    local_kafka_config,
+                    shutdown_event,
+                    enable_delta_writes,
+                    inventory_table_path=pipeline_config.inventory_table_path,
+                    failed_table_path=pipeline_config.failed_table_path,
+                ),
+                name="xact-result-processor",
+            ),
+        ]
+    )
 
     try:
         await asyncio.gather(*tasks)
@@ -334,19 +349,32 @@ def start_metrics_server(preferred_port: int) -> int:
     Returns actual port number that the server is listening on."""
     import socket
 
+    # Try to get custom registry from telemetry, fallback to default
     try:
-        start_http_server(preferred_port)
+        from kafka_pipeline.common.telemetry import get_prometheus_registry
+
+        registry = get_prometheus_registry()
+        if registry is None:
+            registry = REGISTRY
+    except ImportError:
+        registry = REGISTRY
+
+    try:
+        start_http_server(preferred_port, registry=registry)
         return preferred_port
     except OSError as e:
         if e.errno == 98:
-            logger.info("Port already in use, finding available port", extra={"preferred_port": preferred_port})
+            logger.info(
+                "Port already in use, finding available port",
+                extra={"preferred_port": preferred_port},
+            )
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('', 0))
+                s.bind(("", 0))
                 s.listen(1)
                 available_port = s.getsockname()[1]
 
-            start_http_server(available_port)
+            start_http_server(available_port, registry=registry)
             return available_port
         else:
             raise
@@ -428,7 +456,7 @@ def main():
                 "project_root": str(PROJECT_ROOT),
                 "token_file": _debug_token_file,
                 "token_file_exists": _debug_token_exists,
-            }
+            },
         )
         if not _debug_token_exists:
             _resolved = PROJECT_ROOT / _debug_token_file
@@ -437,14 +465,51 @@ def main():
                 extra={
                     "resolved_path": str(_resolved),
                     "resolved_exists": _resolved.exists(),
-                }
+                },
             )
+
+    # Initialize telemetry before starting metrics server so metrics are registered
+    from kafka_pipeline.common.telemetry import initialize_telemetry
+
+    worker_name = args.worker if args.worker != "all" else "all-workers"
+    initialize_telemetry(
+        service_name=f"{domain}-{worker_name}",
+        environment=os.getenv("ENVIRONMENT", "development"),
+    )
 
     actual_port = start_metrics_server(args.metrics_port)
     if actual_port != args.metrics_port:
-        logger.info("Metrics server started on fallback port", extra={"actual_port": actual_port, "preferred_port": args.metrics_port})
+        logger.info(
+            "Metrics server started on fallback port",
+            extra={"actual_port": actual_port, "preferred_port": args.metrics_port},
+        )
     else:
         logger.info("Metrics server started", extra={"port": actual_port})
+
+    # Workers that only use local Kafka (don't need Event Hub/Eventhouse credentials)
+    local_only_workers = [
+        "xact-local-ingester",
+        "xact-enricher",
+        "xact-download",
+        "xact-upload",
+        "xact-delta-writer",
+        "xact-retry-scheduler",
+        "claimx-ingester",
+        "claimx-enricher",
+        "claimx-downloader",
+        "claimx-uploader",
+        "claimx-result-processor",
+        "claimx-delta-writer",
+        "claimx-entity-writer",
+        "claimx-retry-scheduler",
+    ]
+
+    # Auto-enable dev mode for local-only workers
+    if args.worker in local_only_workers and not args.dev:
+        logger.info(
+            "Auto-enabling development mode for local-only worker", extra={"worker": args.worker}
+        )
+        args.dev = True
 
     if args.dev:
         logger.info("Running in DEVELOPMENT mode (local Kafka only)")
@@ -484,6 +549,20 @@ def main():
 
     enable_delta_writes = not args.no_delta
 
+    # Check for simulation mode
+    simulation_mode = args.simulation_mode or os.getenv("SIMULATION_MODE", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
+    if simulation_mode:
+        logger.warning("=" * 80)
+        logger.warning("SIMULATION MODE ENABLED")
+        logger.warning("Using mock dependencies and local storage for testing")
+        logger.warning("Production APIs and cloud storage will NOT be accessed")
+        logger.warning("=" * 80)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -491,8 +570,34 @@ def main():
 
     shutdown_event = get_shutdown_event()
 
+    # Check for deprecated dummy-source worker
+    if args.worker in ["dummy-source", "dummy_source"]:
+        logger.error("=" * 80)
+        logger.error("DEPRECATED: 'dummy-source' has been moved to simulation module")
+        logger.error("=" * 80)
+        logger.error("")
+        logger.error("The dummy data producer is now a simulation-only tool.")
+        logger.error("It has been moved to prevent accidental use in production.")
+        logger.error("")
+        logger.error("New usage:")
+        logger.error("  export SIMULATION_MODE=true")
+        logger.error(
+            "  python -m kafka_pipeline.simulation.dummy_producer --domains claimx --max-events 100"
+        )
+        logger.error("")
+        logger.error("Or use the convenience script:")
+        logger.error("  ./scripts/generate_test_data.sh")
+        logger.error("")
+        logger.error("See: kafka_pipeline/simulation/README.md")
+        logger.error("=" * 80)
+        sys.exit(1)
+
     try:
         if args.worker == "all":
+            if simulation_mode:
+                logger.error("Simulation mode does not support running all workers")
+                logger.error("Please specify a specific worker with --worker flag")
+                sys.exit(1)
             loop.run_until_complete(run_all_workers(pipeline_config, enable_delta_writes))
         else:
             # Use registry to run specific worker
@@ -508,6 +613,7 @@ def main():
                         enable_delta_writes,
                         eventhub_config,
                         local_kafka_config,
+                        simulation_mode=simulation_mode,
                     )
                 )
             else:
@@ -519,6 +625,7 @@ def main():
                         enable_delta_writes,
                         eventhub_config,
                         local_kafka_config,
+                        simulation_mode=simulation_mode,
                     )
                 )
     except KeyboardInterrupt:

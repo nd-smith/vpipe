@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -31,8 +31,10 @@ _metrics_available = False
 # No-Op Metric Classes
 # =============================================================================
 
+
 class NoOpCounter:
     """No-op counter when prometheus-client is unavailable."""
+
     def inc(self, amount=1):
         pass
 
@@ -42,6 +44,7 @@ class NoOpCounter:
 
 class NoOpGauge:
     """No-op gauge when prometheus-client is unavailable."""
+
     def set(self, value):
         pass
 
@@ -57,6 +60,7 @@ class NoOpGauge:
 
 class NoOpHistogram:
     """No-op histogram when prometheus-client is unavailable."""
+
     def observe(self, value):
         pass
 
@@ -68,6 +72,7 @@ class NoOpHistogram:
 # Lazy Initialization
 # =============================================================================
 
+
 def _ensure_prometheus():
     """Ensure prometheus_client is loaded (lazy import)."""
     global _prometheus_client, _metrics_available
@@ -77,6 +82,7 @@ def _ensure_prometheus():
 
     try:
         import prometheus_client
+
         _prometheus_client = prometheus_client
         _metrics_available = True
         return True
@@ -89,6 +95,7 @@ def _get_registry():
     """Get the Prometheus registry from telemetry module."""
     try:
         from kafka_pipeline.common.telemetry import get_prometheus_registry
+
         return get_prometheus_registry()
     except ImportError:
         return None
@@ -138,7 +145,12 @@ def _create_histogram(name: str, description: str, labelnames=None, buckets=None
         return NoOpHistogram()
 
     try:
-        kwargs = {"name": name, "documentation": description, "labelnames": labelnames or [], "registry": registry}
+        kwargs = {
+            "name": name,
+            "documentation": description,
+            "labelnames": labelnames or [],
+            "registry": registry,
+        }
         if buckets:
             kwargs["buckets"] = buckets
         return _prometheus_client.Histogram(**kwargs)
@@ -154,67 +166,65 @@ def _create_histogram(name: str, description: str, labelnames=None, buckets=None
 messages_produced_counter = _create_counter(
     "kafka_messages_produced_total",
     "Total number of messages produced to Kafka topics",
-    labelnames=["topic"]
+    labelnames=["topic"],
 )
 
 messages_consumed_counter = _create_counter(
     "kafka_messages_consumed_total",
     "Total number of messages consumed from Kafka topics",
-    labelnames=["topic", "consumer_group"]
+    labelnames=["topic", "consumer_group"],
 )
 
 # Consumer lag monitoring
 consumer_lag_gauge = _create_gauge(
     "kafka_consumer_lag",
     "Current consumer lag (messages behind latest offset)",
-    labelnames=["topic", "partition", "consumer_group"]
+    labelnames=["topic", "partition", "consumer_group"],
 )
 
 consumer_offset_gauge = _create_gauge(
     "kafka_consumer_offset",
     "Current consumer offset position",
-    labelnames=["topic", "partition", "consumer_group"]
+    labelnames=["topic", "partition", "consumer_group"],
 )
 
 # Error tracking
 processing_errors_counter = _create_counter(
     "kafka_processing_errors_total",
     "Total processing errors by error category",
-    labelnames=["topic", "consumer_group", "error_category"]
+    labelnames=["topic", "consumer_group", "error_category"],
 )
 
 producer_errors_counter = _create_counter(
     "kafka_producer_errors_total",
     "Total producer errors by error type",
-    labelnames=["topic", "error_type"]
+    labelnames=["topic", "error_type"],
 )
 
 # Delta Lake operations
 delta_writes_counter = _create_counter(
-    "delta_writes_total",
-    "Total Delta Lake write operations",
-    labelnames=["table", "success"]
+    "delta_writes_total", "Total Delta Lake write operations", labelnames=["table", "success"]
 )
 
 # DLQ tracking
 dlq_messages_counter = _create_counter(
     "kafka_dlq_messages_total",
     "Total messages sent to dead letter queue",
-    labelnames=["domain", "reason"]
+    labelnames=["domain", "reason"],
 )
 
 # Connection health
 kafka_connection_status_gauge = _create_gauge(
     "kafka_connection_status",
     "Kafka connection status (1=connected, 0=disconnected)",
-    labelnames=["component"]
+    labelnames=["component"],
 )
 
 # Partition assignment
 consumer_assigned_partitions_gauge = _create_gauge(
     "kafka_consumer_assigned_partitions",
     "Number of partitions assigned to consumer",
-    labelnames=["consumer_group"]
+    labelnames=["consumer_group"],
 )
 
 # Processing duration (keeping one histogram for performance monitoring)
@@ -222,7 +232,7 @@ message_processing_duration_seconds = _create_histogram(
     "kafka_message_processing_duration_seconds",
     "Time spent processing individual messages",
     labelnames=["topic", "consumer_group"],
-    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
 )
 
 # ClaimX handler metrics
@@ -230,19 +240,41 @@ claimx_handler_duration_seconds = _create_histogram(
     "claimx_handler_duration_seconds",
     "Time spent in ClaimX handlers processing events",
     labelnames=["handler_name", "status"],
-    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
 claimx_handler_events_total = _create_counter(
     "claimx_handler_events_total",
     "Total events processed by ClaimX handlers",
-    labelnames=["handler_name", "status"]
+    labelnames=["handler_name", "status"],
+)
+
+# Retry scheduler metrics
+retry_messages_queued_gauge = _create_gauge(
+    "retry_messages_queued", "Current number of messages in retry queue", labelnames=["domain"]
+)
+
+retry_messages_routed_counter = _create_counter(
+    "retry_messages_routed_total",
+    "Total messages routed from retry queue back to target topics",
+    labelnames=["domain"],
+)
+
+retry_messages_delayed_counter = _create_counter(
+    "retry_messages_delayed_total", "Total messages added to retry queue", labelnames=["domain"]
+)
+
+retry_messages_exhausted_counter = _create_counter(
+    "retry_messages_exhausted_total",
+    "Total messages that exhausted max retries (sent to DLQ)",
+    labelnames=["domain"],
 )
 
 
 # =============================================================================
 # Convenience Functions (minimal set, callers can use metrics directly)
 # =============================================================================
+
 
 def record_message_produced(topic: str, message_bytes: int, success: bool = True) -> None:
     """Record a produced message."""
@@ -265,9 +297,7 @@ def record_message_consumed(
 def record_processing_error(topic: str, consumer_group: str, error_category: str) -> None:
     """Record a message processing error."""
     processing_errors_counter.labels(
-        topic=topic,
-        consumer_group=consumer_group,
-        error_category=error_category
+        topic=topic, consumer_group=consumer_group, error_category=error_category
     ).inc()
 
 
@@ -279,18 +309,14 @@ def record_producer_error(topic: str, error_type: str) -> None:
 def update_consumer_lag(topic: str, partition: int, consumer_group: str, lag: int) -> None:
     """Update consumer lag metric."""
     consumer_lag_gauge.labels(
-        topic=topic,
-        partition=str(partition),
-        consumer_group=consumer_group
+        topic=topic, partition=str(partition), consumer_group=consumer_group
     ).set(lag)
 
 
 def update_consumer_offset(topic: str, partition: int, consumer_group: str, offset: int) -> None:
     """Update consumer offset metric."""
     consumer_offset_gauge.labels(
-        topic=topic,
-        partition=str(partition),
-        consumer_group=consumer_group
+        topic=topic, partition=str(partition), consumer_group=consumer_group
     ).set(offset)
 
 
@@ -306,10 +332,7 @@ def update_assigned_partitions(consumer_group: str, count: int) -> None:
 
 def record_delta_write(table: str, event_count: int, success: bool = True) -> None:
     """Record a Delta Lake write operation."""
-    delta_writes_counter.labels(
-        table=table,
-        success="true" if success else "false"
-    ).inc()
+    delta_writes_counter.labels(table=table, success="true" if success else "false").inc()
 
 
 def record_dlq_message(domain: str, reason: str) -> None:
