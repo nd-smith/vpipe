@@ -1,0 +1,140 @@
+# Simulation Mode Configuration
+# This file is ONLY used when SIMULATION_MODE=true
+# Keeps simulation settings completely separate from production config
+
+simulation:
+  # Master switch - can be overridden with SIMULATION_MODE env var
+  enabled: true
+
+  # Local filesystem paths for simulated storage
+  local_storage_path: /tmp/vpipe_simulation
+  local_delta_path: /tmp/vpipe_simulation/delta
+
+  # Allow localhost URLs in download worker (normally blocked for security)
+  allow_localhost_urls: true
+
+  # Fixtures directory for mock API data
+  # Relative paths are resolved from kafka_pipeline/simulation/
+  fixtures_dir: fixtures
+
+  # Delta Lake configuration
+  truncate_tables_on_start: false  # Set to true to clean tables on startup
+  delta_write_mode: append         # Options: append, overwrite, merge
+
+# Kafka configuration for simulation mode
+# Uses local Kafka instance, not Event Hub
+kafka:
+  bootstrap_servers: localhost:9092
+
+  # Topic naming - uses same structure as production
+  topic_prefix: ""  # No prefix for local dev
+
+  # Consumer groups - use different groups than production
+  consumer_groups:
+    claimx:
+      event_ingester: claimx-event-ingester-sim
+      enrichment: claimx-enricher-sim
+      download: claimx-download-sim
+      upload: claimx-upload-sim
+      entity_delta: claimx-entity-delta-sim
+    xact:
+      event_ingester: xact-event-ingester-sim
+      enrichment: xact-enricher-sim
+      download: xact-download-sim
+      upload: xact-upload-sim
+
+# Dummy data producer configuration
+dummy_producer:
+  # Which domains to generate events for
+  domains:
+    - claimx
+    - xact
+
+  # Event generation rate
+  events_per_minute: 10  # Per domain (20 total with 2 domains)
+
+  # Burst mode for load testing
+  burst_mode: false
+  burst_size: 50
+  burst_interval_seconds: 60
+
+  # Runtime limits
+  max_events: null        # null = unlimited, or set a number
+  max_runtime_seconds: null
+
+  # Event types
+  include_all_event_types: true  # Generate all ClaimX event types
+
+  # Plugin profiles
+  plugin_profile: mixed  # Options: null, "itel_cabinet_api", "mixed"
+  itel_trigger_percentage: 0.3  # 30% of tasks trigger iTel workflow
+
+# File server configuration (serves dummy files at localhost:8765)
+file_server:
+  host: 0.0.0.0
+  port: 8765
+  default_file_size: 102400    # 100KB
+  max_file_size: 10485760      # 10MB
+
+# Logging configuration for simulation
+logging:
+  level: INFO  # DEBUG for verbose output
+  format: json  # or "text" for human-readable
+
+  # Log file locations (simulation-specific)
+  log_dir: /tmp/vpipe_simulation/logs
+
+  # Worker-specific log files
+  workers:
+    event_ingester: event_ingester_sim.log
+    enrichment: enrichment_sim.log
+    download: download_sim.log
+    upload: upload_sim.log
+    entity_delta: entity_delta_sim.log
+    itel_cabinet: itel_cabinet_sim.log
+
+# Performance tuning for local testing
+performance:
+  # Worker concurrency
+  download_worker_concurrency: 5   # Parallel downloads
+  upload_worker_concurrency: 5     # Parallel uploads
+
+  # Kafka batch sizes (smaller for local testing)
+  consumer_max_poll_records: 100
+  producer_batch_size: 1000
+
+  # Timeouts (shorter for local testing)
+  consumer_timeout_ms: 30000      # 30 seconds
+  producer_timeout_ms: 30000      # 30 seconds
+
+# Testing scenarios
+scenarios:
+  # Predefined test scenarios
+  quick_test:
+    max_events: 10
+    events_per_minute: 60
+    domains: [claimx]
+
+  medium_test:
+    max_events: 100
+    events_per_minute: 60
+    domains: [claimx, xact]
+
+  load_test:
+    max_events: 1000
+    burst_mode: true
+    burst_size: 100
+    domains: [claimx, xact]
+
+  itel_test:
+    max_events: 20
+    events_per_minute: 10
+    domains: [claimx]
+    plugin_profile: itel_cabinet_api
+
+# Safety settings
+safety:
+  # These settings prevent accidental production use
+  require_simulation_mode_env: true  # Must set SIMULATION_MODE=true
+  block_on_production_env: true       # Fail if ENVIRONMENT=production
+  warn_on_cloud_config: true          # Warn if cloud settings detected

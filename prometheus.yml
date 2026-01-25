@@ -1,0 +1,106 @@
+# Prometheus configuration for VPipe simulation
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'simulation'
+    cluster: 'vpipe-local'
+
+scrape_configs:
+  # XACT Workers
+  - job_name: 'xact-local-ingester'
+    static_configs:
+      - targets: ['xact-local-ingester-sim:8000']
+        labels:
+          domain: 'xact'
+          worker_type: 'ingester'
+
+  - job_name: 'xact-enricher'
+    static_configs:
+      - targets: ['xact-enricher-sim:8000']
+        labels:
+          domain: 'xact'
+          worker_type: 'enricher'
+
+  - job_name: 'xact-download'
+    static_configs:
+      - targets: ['vpipe_xact-download_1:8000']
+        labels:
+          domain: 'xact'
+          worker_type: 'download'
+
+  - job_name: 'xact-upload'
+    static_configs:
+      - targets: ['vpipe_xact-upload_1:8000']
+        labels:
+          domain: 'xact'
+          worker_type: 'upload'
+
+  - job_name: 'xact-delta-writer'
+    static_configs:
+      - targets: ['vpipe_xact-delta-writer_1:8000']
+        labels:
+          domain: 'xact'
+          worker_type: 'delta-writer'
+
+  - job_name: 'xact-retry-scheduler'
+    static_configs:
+      - targets: ['xact-retry-scheduler-sim:8000']
+        labels:
+          domain: 'xact'
+          worker_type: 'retry-scheduler'
+
+  # ClaimX Workers
+  - job_name: 'claimx-ingester'
+    static_configs:
+      - targets: ['claimx-ingester-sim:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'ingester'
+
+  - job_name: 'claimx-enricher'
+    static_configs:
+      - targets: ['vpipe_claimx-enricher_1:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'enricher'
+
+  - job_name: 'claimx-downloader'
+    static_configs:
+      - targets: ['vpipe_claimx-downloader_1:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'downloader'
+
+  - job_name: 'claimx-uploader'
+    static_configs:
+      - targets: ['vpipe_claimx-uploader_1:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'uploader'
+
+  - job_name: 'claimx-delta-writer'
+    static_configs:
+      - targets: ['vpipe_claimx-delta-writer_1:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'delta-writer'
+
+  - job_name: 'claimx-retry-scheduler'
+    static_configs:
+      - targets: ['claimx-retry-scheduler-sim:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'retry-scheduler'
+
+  - job_name: 'claimx-entity-writer'
+    static_configs:
+      - targets: ['vpipe_claimx-entity-writer_1:8000']
+        labels:
+          domain: 'claimx'
+          worker_type: 'entity-writer'
+
+  # Kafka Exporter (optional - for Kafka metrics)
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka-exporter:9308']

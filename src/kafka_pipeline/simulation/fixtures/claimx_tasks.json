@@ -1,0 +1,347 @@
+[
+  {
+    "task_assignment_id": "task_assign_10001",
+    "task_id": 32513,
+    "task_name": "iTel Cabinet Repair Form",
+    "project_id": "123456",
+    "status": "completed",
+    "assigned_at": "2026-01-16T09:00:00Z",
+    "completed_at": "2026-01-17T14:30:00Z",
+    "assigned_to_user_id": 5001,
+    "assigned_by_user_id": 6001,
+    "created_at": "2026-01-16T09:00:00Z",
+    "updated_at": "2026-01-17T14:30:00Z",
+    "form_id": "form_32513",
+    "form_response_id": "response_100001",
+    "form_response": {
+      "id": "response_100001",
+      "form_id": "form_32513",
+      "project_id": "123456",
+      "assignment_id": "10001",
+      "status": "completed",
+      "submitted_at": "2026-01-17T14:30:00Z",
+      "created_at": "2026-01-16T09:00:00Z",
+      "updated_at": "2026-01-17T14:30:00Z",
+      "responses": [
+        {
+          "question_key": "customer_first_name",
+          "question_text": "Customer First Name",
+          "answer": "James"
+        },
+        {
+          "question_key": "customer_last_name",
+          "question_text": "Customer Last Name",
+          "answer": "Wilson"
+        },
+        {
+          "question_key": "customer_email",
+          "question_text": "Customer Email",
+          "answer": "james.wilson@gmail.com"
+        },
+        {
+          "question_key": "customer_phone",
+          "question_text": "Customer Phone",
+          "answer": "(512) 555-1234"
+        },
+        {
+          "question_key": "damage_description",
+          "question_text": "Describe the damage to the cabinets",
+          "answer": "Water damage from burst pipe affecting lower cabinets"
+        },
+        {
+          "question_key": "additional_notes",
+          "question_text": "Additional Notes",
+          "answer": "Homeowner present during inspection. Access to all areas granted."
+        },
+        {
+          "question_key": "countertops_lf",
+          "question_text": "Countertops Linear Feet",
+          "answer": "12.5"
+        },
+        {
+          "question_key": "lower_cabinets_damaged",
+          "question_text": "Are lower cabinets damaged?",
+          "answer": "Yes"
+        },
+        {
+          "question_key": "lower_cabinets_lf",
+          "question_text": "Lower Cabinets Linear Feet",
+          "answer": "12.5"
+        },
+        {
+          "question_key": "num_damaged_lower_boxes",
+          "question_text": "Number of Damaged Lower Cabinet Boxes",
+          "answer": "3"
+        },
+        {
+          "question_key": "lower_counter_type",
+          "question_text": "Lower Counter Type",
+          "answer": "Laminate"
+        },
+        {
+          "question_key": "upper_cabinets_damaged",
+          "question_text": "Are upper cabinets damaged?",
+          "answer": "No"
+        }
+      ],
+      "attachments": [
+        {
+          "media_id": "media_cab_001",
+          "question_key": "overview_photos",
+          "question_text": "Overview Photos of Kitchen",
+          "file_name": "overview_1.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 1854976,
+          "download_url": "http://localhost:8765/files/proj_1A2B3C4D5E6F/media_cab_001/overview_1.jpg"
+        },
+        {
+          "media_id": "media_cab_002",
+          "question_key": "overview_photos",
+          "question_text": "Overview Photos of Kitchen",
+          "file_name": "overview_2.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 1623040,
+          "download_url": "http://localhost:8765/files/proj_1A2B3C4D5E6F/media_cab_002/overview_2.jpg"
+        },
+        {
+          "media_id": "media_cab_003",
+          "question_key": "lower_cabinet_box",
+          "question_text": "Lower Cabinet Box Damage Photos",
+          "file_name": "lower_box_1.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 1945600,
+          "download_url": "http://localhost:8765/files/proj_1A2B3C4D5E6F/media_cab_003/lower_box_1.jpg"
+        },
+        {
+          "media_id": "media_cab_004",
+          "question_key": "lower_cabinet_box",
+          "question_text": "Lower Cabinet Box Damage Photos",
+          "file_name": "lower_box_2.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 2097152,
+          "download_url": "http://localhost:8765/files/proj_1A2B3C4D5E6F/media_cab_004/lower_box_2.jpg"
+        }
+      ]
+    }
+  },
+  {
+    "task_assignment_id": "task_assign_20001",
+    "task_id": 32513,
+    "task_name": "iTel Cabinet Repair Form",
+    "project_id": "234567",
+    "status": "completed",
+    "assigned_at": "2026-01-19T10:30:00Z",
+    "completed_at": "2026-01-20T16:45:00Z",
+    "assigned_to_user_id": 5002,
+    "assigned_by_user_id": 6002,
+    "created_at": "2026-01-19T10:30:00Z",
+    "updated_at": "2026-01-20T16:45:00Z",
+    "form_id": "form_32513",
+    "form_response_id": "response_200001",
+    "form_response": {
+      "id": "response_200001",
+      "form_id": "form_32513",
+      "project_id": "234567",
+      "assignment_id": "20001",
+      "status": "completed",
+      "submitted_at": "2026-01-20T16:45:00Z",
+      "created_at": "2026-01-19T10:30:00Z",
+      "updated_at": "2026-01-20T16:45:00Z",
+      "responses": [
+        {
+          "question_key": "customer_first_name",
+          "question_text": "Customer First Name",
+          "answer": "Mary"
+        },
+        {
+          "question_key": "customer_last_name",
+          "question_text": "Customer Last Name",
+          "answer": "Johnson"
+        },
+        {
+          "question_key": "customer_email",
+          "question_text": "Customer Email",
+          "answer": "mary.johnson@yahoo.com"
+        },
+        {
+          "question_key": "customer_phone",
+          "question_text": "Customer Phone",
+          "answer": "(720) 555-5678"
+        },
+        {
+          "question_key": "damage_description",
+          "question_text": "Describe the damage to the cabinets",
+          "answer": "Fire damage to kitchen cabinets - smoke and heat damage"
+        },
+        {
+          "question_key": "additional_notes",
+          "question_text": "Additional Notes",
+          "answer": "Cabinet manufacturer confirmed discontinuation of this model. Custom match required."
+        },
+        {
+          "question_key": "countertops_lf",
+          "question_text": "Countertops Linear Feet",
+          "answer": "18.0"
+        },
+        {
+          "question_key": "lower_cabinets_damaged",
+          "question_text": "Are lower cabinets damaged?",
+          "answer": "Yes"
+        },
+        {
+          "question_key": "lower_cabinets_lf",
+          "question_text": "Lower Cabinets Linear Feet",
+          "answer": "18.0"
+        },
+        {
+          "question_key": "num_damaged_lower_boxes",
+          "question_text": "Number of Damaged Lower Cabinet Boxes",
+          "answer": "5"
+        },
+        {
+          "question_key": "lower_counter_type",
+          "question_text": "Lower Counter Type",
+          "answer": "Granite"
+        },
+        {
+          "question_key": "upper_cabinets_damaged",
+          "question_text": "Are upper cabinets damaged?",
+          "answer": "Yes"
+        },
+        {
+          "question_key": "upper_cabinets_lf",
+          "question_text": "Upper Cabinets Linear Feet",
+          "answer": "15.0"
+        },
+        {
+          "question_key": "num_damaged_upper_boxes",
+          "question_text": "Number of Damaged Upper Cabinet Boxes",
+          "answer": "4"
+        },
+        {
+          "question_key": "upper_counter_type",
+          "question_text": "Upper Counter Type",
+          "answer": "Granite"
+        }
+      ],
+      "attachments": [
+        {
+          "media_id": "media_cab_101",
+          "question_key": "overview_photos",
+          "question_text": "Overview Photos of Kitchen",
+          "file_name": "overview_1.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 2097152,
+          "download_url": "http://localhost:8765/files/proj_9Z8Y7X6W5V4U/media_cab_101/overview_1.jpg"
+        },
+        {
+          "media_id": "media_cab_102",
+          "question_key": "overview_photos",
+          "question_text": "Overview Photos of Kitchen",
+          "file_name": "overview_2.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 1835008,
+          "download_url": "http://localhost:8765/files/proj_9Z8Y7X6W5V4U/media_cab_102/overview_2.jpg"
+        },
+        {
+          "media_id": "media_cab_103",
+          "question_key": "lower_cabinet_box",
+          "question_text": "Lower Cabinet Box Damage Photos",
+          "file_name": "lower_box_1.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 1728000,
+          "download_url": "http://localhost:8765/files/proj_9Z8Y7X6W5V4U/media_cab_103/lower_box_1.jpg"
+        },
+        {
+          "media_id": "media_cab_104",
+          "question_key": "upper_cabinet_box",
+          "question_text": "Upper Cabinet Box Damage Photos",
+          "file_name": "upper_box_1.jpg",
+          "content_type": "image/jpeg",
+          "file_size": 1892352,
+          "download_url": "http://localhost:8765/files/proj_9Z8Y7X6W5V4U/media_cab_104/upper_box_1.jpg"
+        }
+      ]
+    }
+  },
+  {
+    "task_assignment_id": "task_assign_30001",
+    "task_id": 1234,
+    "task_name": "Review initial photos",
+    "project_id": "345678",
+    "status": "completed",
+    "assigned_at": "2026-01-20T13:00:00Z",
+    "completed_at": "2026-01-21T10:15:00Z",
+    "assigned_to_user_id": 5003,
+    "assigned_by_user_id": 6003,
+    "created_at": "2026-01-20T13:00:00Z",
+    "updated_at": "2026-01-21T10:15:00Z"
+  },
+  {
+    "task_assignment_id": "task_assign_40001",
+    "task_id": 2456,
+    "task_name": "Schedule inspection",
+    "project_id": "456789",
+    "status": "assigned",
+    "assigned_at": "2026-01-13T08:30:00Z",
+    "completed_at": null,
+    "assigned_to_user_id": 5004,
+    "assigned_by_user_id": 6004,
+    "created_at": "2026-01-13T08:30:00Z",
+    "updated_at": "2026-01-13T08:30:00Z"
+  },
+  {
+    "task_assignment_id": "task_assign_50001",
+    "task_id": 32513,
+    "task_name": "iTel Cabinet Repair Form",
+    "project_id": "678901",
+    "status": "assigned",
+    "assigned_at": "2026-01-20T11:00:00Z",
+    "completed_at": null,
+    "assigned_to_user_id": 5005,
+    "assigned_by_user_id": 6005,
+    "created_at": "2026-01-20T11:00:00Z",
+    "updated_at": "2026-01-20T11:00:00Z",
+    "form_id": "form_32513",
+    "form_response_id": null
+  },
+  {
+    "task_assignment_id": "task_assign_60001",
+    "task_id": 3789,
+    "task_name": "Contact policyholder",
+    "project_id": "789012",
+    "status": "completed",
+    "assigned_at": "2026-01-17T14:00:00Z",
+    "completed_at": "2026-01-18T09:30:00Z",
+    "assigned_to_user_id": 5006,
+    "assigned_by_user_id": 6006,
+    "created_at": "2026-01-17T14:00:00Z",
+    "updated_at": "2026-01-18T09:30:00Z"
+  },
+  {
+    "task_assignment_id": "task_assign_70001",
+    "task_id": 4512,
+    "task_name": "Approve repair scope",
+    "project_id": "567890",
+    "status": "completed",
+    "assigned_at": "2026-01-10T12:00:00Z",
+    "completed_at": "2026-01-15T16:45:00Z",
+    "assigned_to_user_id": 5007,
+    "assigned_by_user_id": 6007,
+    "created_at": "2026-01-10T12:00:00Z",
+    "updated_at": "2026-01-15T16:45:00Z"
+  },
+  {
+    "task_assignment_id": "task_assign_80001",
+    "task_id": 5678,
+    "task_name": "Process payment",
+    "project_id": "901234",
+    "status": "assigned",
+    "assigned_at": "2026-01-22T09:00:00Z",
+    "completed_at": null,
+    "assigned_to_user_id": 5008,
+    "assigned_by_user_id": 6008,
+    "created_at": "2026-01-22T09:00:00Z",
+    "updated_at": "2026-01-22T09:00:00Z"
+  }
+]
