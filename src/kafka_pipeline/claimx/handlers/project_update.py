@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -134,7 +134,6 @@ class ProjectUpdateHandler(EventHandler):
             logging.DEBUG,
             "Project update event processed",
             handler_name="project_update",
-            event_type=event.event_type,
             fields_updated=list(fields_to_update.keys()),
             project_verification=event_config["requires_verification"],
             **extract_log_context(event),

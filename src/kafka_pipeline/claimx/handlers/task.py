@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -85,12 +85,8 @@ class TaskTransformer:
             "stp_started_date": parse_timestamp(data.get("stpStartedDate")),
             "mfn": safe_str(data.get("mfn")),
             "xactimate_exportable": safe_bool(data.get("xactimateExportable")),
-            "fraud_language_accepted_date": parse_timestamp(
-                data.get("fraudLanguageAcceptedDate")
-            ),
-            "resubmit_task_assignment_id": safe_int(
-                data.get("resubmitTaskAssignmentId")
-            ),
+            "fraud_language_accepted_date": parse_timestamp(data.get("fraudLanguageAcceptedDate")),
+            "resubmit_task_assignment_id": safe_int(data.get("resubmitTaskAssignmentId")),
             "task_url": safe_str(data.get("url")),
         }
         return BaseTransformer.inject_metadata(row, event_id)
@@ -111,9 +107,7 @@ class TaskTransformer:
             "enabled": safe_bool(template.get("enabled")),
             "is_default": safe_bool(template.get("default")),
             "is_manual_delivery": safe_bool(template.get("isManualDelivery")),
-            "is_external_link_delivery": safe_bool(
-                template.get("isExternalLinkDelivery")
-            ),
+            "is_external_link_delivery": safe_bool(template.get("isExternalLinkDelivery")),
             "provide_portal_access": safe_bool(template.get("providePortalAccess")),
             "notify_assigned_send_recipient": safe_bool(
                 template.get("notifyAssignedSendRecipient")
@@ -123,9 +117,7 @@ class TaskTransformer:
             ),
             "notify_assigned_subject": safe_str(template.get("notifyAssignedSubject")),
             "notify_task_completed": safe_bool(template.get("notifyTaskCompleted")),
-            "notify_completed_subject": safe_str(
-                template.get("notifyCompletedSubject")
-            ),
+            "notify_completed_subject": safe_str(template.get("notifyCompletedSubject")),
             "allow_resubmit": safe_bool(template.get("allowReSubmit")),
             "auto_generate_pdf": safe_bool(template.get("autoGeneratePdf")),
             "modified_by": safe_str(template.get("modifiedBy")),
@@ -148,9 +140,7 @@ class TaskTransformer:
             "project_id": safe_str_id(project_id),
             "link_code": safe_str(link.get("linkCode")),
             "url": safe_str(link.get("url")),
-            "notification_access_method": safe_str(
-                link.get("notificationAccessMethod")
-            ),
+            "notification_access_method": safe_str(link.get("notificationAccessMethod")),
             "country_id": safe_int(link.get("countryId")),
             "state_id": safe_int(link.get("stateId")),
             "created_date": None,
@@ -228,8 +218,21 @@ class TaskHandler(EventHandler):
                 duration_ms=0,
             )
 
+        # Validate task_assignment_id is numeric
+        assignment_id = safe_int(event.task_assignment_id)
+        if assignment_id is None:
+            return EnrichmentResult(
+                event=event,
+                success=False,
+                error=f"Invalid task_assignment_id: {event.task_assignment_id} (must be numeric)",
+                error_category=ErrorCategory.PERMANENT,
+                is_retryable=False,
+                api_calls=0,
+                duration_ms=0,
+            )
+
         # 1. Fetch task details
-        response = await self.client.get_custom_task(int(event.task_assignment_id))
+        response = await self.client.get_custom_task(assignment_id)
 
         rows = EntityRowsMessage()
 
@@ -241,9 +244,8 @@ class TaskHandler(EventHandler):
             rows.tasks.append(task_row)
 
         project_id = safe_int(response.get("projectId")) or int(event.project_id)
-        assignment_id = (
-            safe_int(response.get("assignmentId")) or int(event.task_assignment_id)
-        )
+        # assignment_id already validated above, use API response if available
+        assignment_id = safe_int(response.get("assignmentId")) or assignment_id
 
         # 2. In-flight Project Verification
         project_rows = await self.ensure_project_exists(
