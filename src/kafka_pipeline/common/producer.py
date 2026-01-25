@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
 # SPDX-License-Identifier: PROPRIETARY
-# 
+#
 # This file is proprietary and confidential. Unauthorized copying of this file,
 # via any medium is strictly prohibited.
 
@@ -17,6 +17,7 @@ def _json_serializer(obj: Any) -> str:
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import RecordMetadata
@@ -99,11 +100,13 @@ class BaseKafkaProducer:
             )
             acks_value = "all"
 
-        kafka_producer_config.update({
-            "acks": acks_value,
-            "retry_backoff_ms": self.producer_config.get("retry_backoff_ms", 1000),
-            "enable_idempotence": enable_idempotence,
-        })
+        kafka_producer_config.update(
+            {
+                "acks": acks_value,
+                "retry_backoff_ms": self.producer_config.get("retry_backoff_ms", 1000),
+                "enable_idempotence": enable_idempotence,
+            }
+        )
 
         # aiokafka uses 'max_batch_size', config uses 'batch_size' for compatibility
         if "batch_size" in self.producer_config:
@@ -112,7 +115,9 @@ class BaseKafkaProducer:
             kafka_producer_config["linger_ms"] = self.producer_config["linger_ms"]
         if "compression_type" in self.producer_config:
             compression = self.producer_config["compression_type"]
-            kafka_producer_config["compression_type"] = None if compression == "none" else compression
+            kafka_producer_config["compression_type"] = (
+                None if compression == "none" else compression
+            )
         if "max_request_size" in self.producer_config:
             kafka_producer_config["max_request_size"] = self.producer_config["max_request_size"]
         if "max_request_size" not in self.producer_config:
@@ -120,6 +125,13 @@ class BaseKafkaProducer:
         if self.config.security_protocol != "PLAINTEXT":
             kafka_producer_config["security_protocol"] = self.config.security_protocol
             kafka_producer_config["sasl_mechanism"] = self.config.sasl_mechanism
+
+            # Create SSL context for SSL/SASL_SSL connections
+            if "SSL" in self.config.security_protocol:
+                import ssl
+
+                ssl_context = ssl.create_default_context()
+                kafka_producer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
                 oauth_callback = create_kafka_oauth_callback()
@@ -158,9 +170,7 @@ class BaseKafkaProducer:
             try:
                 loop = asyncio.get_running_loop()
                 if loop.is_closed():
-                    logger.warning(
-                        "Event loop is closed, skipping graceful producer shutdown"
-                    )
+                    logger.warning("Event loop is closed, skipping graceful producer shutdown")
                     return
             except RuntimeError:
                 logger.warning("No running event loop, skipping graceful producer shutdown")
@@ -179,14 +189,17 @@ class BaseKafkaProducer:
     async def send(
         self,
         topic: str,
-        key: str,
-        value: Union[BaseModel, Dict[str, Any]],
+        key: Optional[Union[str, bytes]],
+        value: Union[BaseModel, Dict[str, Any], bytes],
         headers: Optional[Dict[str, str]] = None,
     ) -> RecordMetadata:
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
 
-        if isinstance(value, BaseModel):
+        if isinstance(value, bytes):
+            # Pass-through for raw bytes (e.g., retry routing)
+            value_bytes = value
+        elif isinstance(value, BaseModel):
             value_bytes = value.model_dump_json().encode("utf-8")
         else:
             value_bytes = json.dumps(value, default=_json_serializer).encode("utf-8")
@@ -199,10 +212,13 @@ class BaseKafkaProducer:
         try:
             import opentracing
             from kafka_pipeline.common.telemetry import get_tracer
+
             tracer = get_tracer(__name__)
-            if hasattr(tracer, 'inject') and opentracing.tracer.active_span:
+            if hasattr(tracer, "inject") and opentracing.tracer.active_span:
                 carrier: dict = {}
-                tracer.inject(opentracing.tracer.active_span.context, opentracing.Format.TEXT_MAP, carrier)
+                tracer.inject(
+                    opentracing.tracer.active_span.context, opentracing.Format.TEXT_MAP, carrier
+                )
                 if not headers_list:
                     headers_list = []
                 headers_list.extend([(k, v.encode("utf-8")) for k, v in carrier.items()])
@@ -220,9 +236,17 @@ class BaseKafkaProducer:
         )
 
         try:
+            # Handle key encoding
+            if key is None:
+                key_bytes = None
+            elif isinstance(key, bytes):
+                key_bytes = key
+            else:
+                key_bytes = key.encode("utf-8")
+
             metadata = await self._producer.send_and_wait(
                 topic,
-                key=key.encode("utf-8"),
+                key=key_bytes,
                 value=value_bytes,
                 headers=headers_list,
             )
