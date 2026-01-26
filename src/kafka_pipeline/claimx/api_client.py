@@ -120,7 +120,20 @@ class ClaimXApiClient(LoggedClass):
         max_concurrent: int = 20,
         sender_username: str = "user@example.com",
     ):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url.rstrip("/") if base_url else ""
+
+        if not self.base_url:
+            raise ValueError(
+                "ClaimXApiClient requires 'base_url'. "
+                "Set CLAIMX_API_URL environment variable or configure claimx_api.base_url in config."
+            )
+
+        # Validate base_url has a scheme (http/https)
+        if not self.base_url.startswith(("http://", "https://")):
+            raise ValueError(
+                f"ClaimXApiClient base_url must start with http:// or https://, got: {self.base_url!r}. "
+                "Set CLAIMX_API_URL environment variable or configure claimx_api.base_url in config."
+            )
 
         if not token:
             raise ValueError("ClaimXApiClient requires 'token'")
@@ -136,6 +149,16 @@ class ClaimXApiClient(LoggedClass):
         self._rate_limiter = get_rate_limiter("claimx_api", CLAIMX_API_RATE_CONFIG)
 
         super().__init__()
+
+        # Log configuration at startup for debugging
+        logger.info(
+            "ClaimXApiClient initialized",
+            extra={
+                "base_url": self.base_url,
+                "timeout_seconds": self.timeout_seconds,
+                "max_concurrent": self.max_concurrent,
+            },
+        )
 
     async def __aenter__(self) -> "ClaimXApiClient":
         await self._ensure_session()
