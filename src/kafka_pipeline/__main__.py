@@ -406,14 +406,7 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 
 
 def main():
-    env_file = PROJECT_ROOT / ".env"
-    dotenv_loaded = load_dotenv(env_file)
-
-    # Debug: Log env file loading status (before logger is configured)
-    print(f"[DEBUG] .env file path: {env_file}", file=sys.stderr)
-    print(f"[DEBUG] .env file exists: {env_file.exists()}", file=sys.stderr)
-    print(f"[DEBUG] dotenv loaded: {dotenv_loaded}", file=sys.stderr)
-    print(f"[DEBUG] CLAIMX_DELTA_PROJECTS_TABLE = {os.getenv('CLAIMX_DELTA_PROJECTS_TABLE', '<NOT SET>')}", file=sys.stderr)
+    load_dotenv(PROJECT_ROOT / ".env")
 
     global logger
     args = parse_args()
