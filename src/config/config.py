@@ -447,7 +447,7 @@ def load_config(
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
         cache_dir=storage.get("cache_dir") or _get_default_cache_dir(),
-        claimx_api_url=os.getenv("CLAIMX_API_URL") or claimx_api.get("base_url", ""),
+        claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH") or os.getenv("CLAIMX_API_URL") or claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=int(
             os.getenv("CLAIMX_API_TIMEOUT_SECONDS") or claimx_api.get("timeout_seconds", 30)

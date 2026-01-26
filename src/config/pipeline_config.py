@@ -341,7 +341,7 @@ class LocalKafkaConfig:
             claimx_config=claimx_config,
             xact_config=xact_config,
             # ClaimX API settings (loaded from root claimx.api section)
-            claimx_api_url=os.getenv("CLAIMX_API_URL", claimx_api_data.get("base_url", "")),
+            claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH") or os.getenv("CLAIMX_API_URL") or claimx_api_data.get("base_url", ""),
             claimx_api_token=os.getenv("CLAIMX_API_TOKEN", claimx_api_data.get("token", "")),
             claimx_api_timeout_seconds=int(
                 os.getenv(
