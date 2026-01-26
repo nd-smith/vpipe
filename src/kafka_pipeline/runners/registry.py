@@ -195,7 +195,40 @@ def build_claimx_entity_writer_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for claimx-entity-writer worker."""
+    """Build arguments for claimx-entity-writer worker.
+
+    Environment variables (checked in order for each table):
+        CLAIMX_{TABLE}_TABLE_PATH: Primary env var (e.g., CLAIMX_PROJECTS_TABLE_PATH)
+        CLAIMX_DELTA_{TABLE}_TABLE: Alternative env var (e.g., CLAIMX_DELTA_PROJECTS_TABLE)
+
+    Validates that at least one required table path is configured.
+    """
+    # Define required table paths with their config attribute names and env var names
+    required_tables = [
+        ("projects", "claimx_projects_table_path", "CLAIMX_PROJECTS_TABLE_PATH", "CLAIMX_DELTA_PROJECTS_TABLE"),
+        ("contacts", "claimx_contacts_table_path", "CLAIMX_CONTACTS_TABLE_PATH", "CLAIMX_DELTA_CONTACTS_TABLE"),
+        ("media", "claimx_media_table_path", "CLAIMX_MEDIA_TABLE_PATH", "CLAIMX_DELTA_MEDIA_TABLE"),
+        ("tasks", "claimx_tasks_table_path", "CLAIMX_TASKS_TABLE_PATH", "CLAIMX_DELTA_TASKS_TABLE"),
+        ("task_templates", "claimx_task_templates_table_path", "CLAIMX_TASK_TEMPLATES_TABLE_PATH", "CLAIMX_DELTA_TASK_TEMPLATES_TABLE"),
+        ("external_links", "claimx_external_links_table_path", "CLAIMX_EXTERNAL_LINKS_TABLE_PATH", "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE"),
+        ("video_collab", "claimx_video_collab_table_path", "CLAIMX_VIDEO_COLLAB_TABLE_PATH", "CLAIMX_DELTA_VIDEO_COLLAB_TABLE"),
+    ]
+
+    missing_tables = []
+    for table_name, config_attr, primary_env, alt_env in required_tables:
+        # Check environment variables first (primary, then alternative)
+        path = os.getenv(primary_env, "") or os.getenv(alt_env, "")
+        # Fall back to pipeline_config if env vars not set
+        if not path:
+            path = getattr(pipeline_config, config_attr, "")
+        if not path:
+            missing_tables.append(f"{table_name} ({primary_env} or {alt_env})")
+
+    if missing_tables:
+        raise ValueError(
+            f"Missing required table paths for claimx-entity-writer: {', '.join(missing_tables)}"
+        )
+
     return {
         "kafka_config": local_kafka_config,
         "pipeline_config": pipeline_config,
