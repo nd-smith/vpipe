@@ -108,6 +108,33 @@ class TestEventhouseSourceConfig:
         assert config.eventhouse_query_window_hours == 3
         assert config.overlap_minutes == 8
 
+    def test_load_config_xact_source_table_priority(self):
+        """Test XACT_EVENTHOUSE_SOURCE_TABLE takes priority over EVENTHOUSE_SOURCE_TABLE."""
+        env = {
+            "EVENTHOUSE_CLUSTER_URL": "https://test.kusto.windows.net",
+            "EVENTHOUSE_DATABASE": "testdb",
+            "XACT_EVENTHOUSE_SOURCE_TABLE": "xact_events",
+            "EVENTHOUSE_SOURCE_TABLE": "Events",  # Legacy var should be ignored
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            config = EventhouseSourceConfig.load_config()
+
+        assert config.source_table == "xact_events"
+
+    def test_load_config_legacy_source_table_fallback(self):
+        """Test EVENTHOUSE_SOURCE_TABLE is used when XACT_EVENTHOUSE_SOURCE_TABLE is not set."""
+        env = {
+            "EVENTHOUSE_CLUSTER_URL": "https://test.kusto.windows.net",
+            "EVENTHOUSE_DATABASE": "testdb",
+            "EVENTHOUSE_SOURCE_TABLE": "LegacyEvents",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            config = EventhouseSourceConfig.load_config()
+
+        assert config.source_table == "LegacyEvents"
+
     def test_load_config_missing_cluster_url(self, tmp_path):
         """Test error when cluster URL is missing."""
         # Create config directory with files
