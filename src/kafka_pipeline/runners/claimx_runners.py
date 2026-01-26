@@ -323,7 +323,13 @@ async def run_claimx_retry_scheduler(
 
 async def run_claimx_entity_delta_worker(
     kafka_config,
-    pipeline_config,
+    projects_table_path: str,
+    contacts_table_path: str,
+    media_table_path: str,
+    tasks_table_path: str,
+    task_templates_table_path: str,
+    external_links_table_path: str,
+    video_collab_table_path: str,
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
 ):
@@ -338,13 +344,13 @@ async def run_claimx_entity_delta_worker(
     worker = ClaimXEntityDeltaWorker(
         config=kafka_config,
         domain="claimx",
-        projects_table_path=pipeline_config.claimx_projects_table_path,
-        contacts_table_path=pipeline_config.claimx_contacts_table_path,
-        media_table_path=pipeline_config.claimx_media_table_path,
-        tasks_table_path=pipeline_config.claimx_tasks_table_path,
-        task_templates_table_path=pipeline_config.claimx_task_templates_table_path,
-        external_links_table_path=pipeline_config.claimx_external_links_table_path,
-        video_collab_table_path=pipeline_config.claimx_video_collab_table_path,
+        projects_table_path=projects_table_path,
+        contacts_table_path=contacts_table_path,
+        media_table_path=media_table_path,
+        tasks_table_path=tasks_table_path,
+        task_templates_table_path=task_templates_table_path,
+        external_links_table_path=external_links_table_path,
+        video_collab_table_path=video_collab_table_path,
         instance_id=instance_id,
     )
 

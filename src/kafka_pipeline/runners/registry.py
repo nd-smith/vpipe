@@ -201,37 +201,58 @@ def build_claimx_entity_writer_args(
         CLAIMX_{TABLE}_TABLE_PATH: Primary env var (e.g., CLAIMX_PROJECTS_TABLE_PATH)
         CLAIMX_DELTA_{TABLE}_TABLE: Alternative env var (e.g., CLAIMX_DELTA_PROJECTS_TABLE)
 
-    Validates that at least one required table path is configured.
+    Reads env vars directly and passes explicit paths to the runner (same pattern as
+    claimx-delta-writer) to avoid issues with pipeline_config loading order.
     """
-    # Define required table paths with their config attribute names and env var names
-    required_tables = [
-        ("projects", "claimx_projects_table_path", "CLAIMX_PROJECTS_TABLE_PATH", "CLAIMX_DELTA_PROJECTS_TABLE"),
-        ("contacts", "claimx_contacts_table_path", "CLAIMX_CONTACTS_TABLE_PATH", "CLAIMX_DELTA_CONTACTS_TABLE"),
-        ("media", "claimx_media_table_path", "CLAIMX_MEDIA_TABLE_PATH", "CLAIMX_DELTA_MEDIA_TABLE"),
-        ("tasks", "claimx_tasks_table_path", "CLAIMX_TASKS_TABLE_PATH", "CLAIMX_DELTA_TASKS_TABLE"),
-        ("task_templates", "claimx_task_templates_table_path", "CLAIMX_TASK_TEMPLATES_TABLE_PATH", "CLAIMX_DELTA_TASK_TEMPLATES_TABLE"),
-        ("external_links", "claimx_external_links_table_path", "CLAIMX_EXTERNAL_LINKS_TABLE_PATH", "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE"),
-        ("video_collab", "claimx_video_collab_table_path", "CLAIMX_VIDEO_COLLAB_TABLE_PATH", "CLAIMX_DELTA_VIDEO_COLLAB_TABLE"),
-    ]
+    # Read each table path from env vars (primary, then alternative)
+    def get_table_path(primary_env: str, alt_env: str) -> str:
+        return os.getenv(primary_env, "") or os.getenv(alt_env, "")
 
-    missing_tables = []
-    for table_name, config_attr, primary_env, alt_env in required_tables:
-        # Check environment variables first (primary, then alternative)
-        path = os.getenv(primary_env, "") or os.getenv(alt_env, "")
-        # Fall back to pipeline_config if env vars not set
-        if not path:
-            path = getattr(pipeline_config, config_attr, "")
-        if not path:
-            missing_tables.append(f"{table_name} ({primary_env} or {alt_env})")
+    projects_table_path = get_table_path("CLAIMX_PROJECTS_TABLE_PATH", "CLAIMX_DELTA_PROJECTS_TABLE")
+    contacts_table_path = get_table_path("CLAIMX_CONTACTS_TABLE_PATH", "CLAIMX_DELTA_CONTACTS_TABLE")
+    media_table_path = get_table_path("CLAIMX_MEDIA_TABLE_PATH", "CLAIMX_DELTA_MEDIA_TABLE")
+    tasks_table_path = get_table_path("CLAIMX_TASKS_TABLE_PATH", "CLAIMX_DELTA_TASKS_TABLE")
+    task_templates_table_path = get_table_path("CLAIMX_TASK_TEMPLATES_TABLE_PATH", "CLAIMX_DELTA_TASK_TEMPLATES_TABLE")
+    external_links_table_path = get_table_path("CLAIMX_EXTERNAL_LINKS_TABLE_PATH", "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE")
+    video_collab_table_path = get_table_path("CLAIMX_VIDEO_COLLAB_TABLE_PATH", "CLAIMX_DELTA_VIDEO_COLLAB_TABLE")
 
+    # Validate all paths are set
+    table_paths = {
+        "projects": projects_table_path,
+        "contacts": contacts_table_path,
+        "media": media_table_path,
+        "tasks": tasks_table_path,
+        "task_templates": task_templates_table_path,
+        "external_links": external_links_table_path,
+        "video_collab": video_collab_table_path,
+    }
+
+    missing_tables = [name for name, path in table_paths.items() if not path]
     if missing_tables:
+        env_hints = {
+            "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
+            "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
+            "media": "CLAIMX_DELTA_MEDIA_TABLE",
+            "tasks": "CLAIMX_DELTA_TASKS_TABLE",
+            "task_templates": "CLAIMX_DELTA_TASK_TEMPLATES_TABLE",
+            "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
+            "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
+        }
+        missing_info = [f"{name} ({env_hints[name]})" for name in missing_tables]
         raise ValueError(
-            f"Missing required table paths for claimx-entity-writer: {', '.join(missing_tables)}"
+            f"Missing required table paths for claimx-entity-writer: {', '.join(missing_info)}"
         )
 
+    # Pass explicit paths to runner (same pattern as claimx-delta-writer)
     return {
         "kafka_config": local_kafka_config,
-        "pipeline_config": pipeline_config,
+        "projects_table_path": projects_table_path,
+        "contacts_table_path": contacts_table_path,
+        "media_table_path": media_table_path,
+        "tasks_table_path": tasks_table_path,
+        "task_templates_table_path": task_templates_table_path,
+        "external_links_table_path": external_links_table_path,
+        "video_collab_table_path": video_collab_table_path,
         "shutdown_event": shutdown_event,
     }
 
