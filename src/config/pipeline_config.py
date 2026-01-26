@@ -665,8 +665,10 @@ class ClaimXEventhouseSourceConfig:
                     str(claimx_eventhouse_data.get("query_timeout_seconds", 120)),
                 )
             ),
-            claimx_events_table_path=os.getenv(
-                "CLAIMX_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
+            claimx_events_table_path=(
+                os.getenv("CLAIMX_EVENTS_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_EVENTS_TABLE")
+                or poller_data.get("events_table_path", "")
             ),
             claimx_events_window_hours=int(
                 os.getenv(
@@ -835,35 +837,65 @@ class PipelineConfig:
             local_kafka=local_kafka,
             domain=domain,
             enable_delta_writes=enable_delta_writes,
-            events_table_path=os.getenv(
-                "DELTA_EVENTS_TABLE_PATH", domain_delta_config.get("events_table_path", "")
+            # XACT table paths - check domain-specific env vars first, then generic
+            events_table_path=(
+                os.getenv("XACT_EVENTS_TABLE_PATH")
+                or os.getenv("XACT_DELTA_EVENTS_TABLE")
+                or os.getenv("DELTA_EVENTS_TABLE_PATH")
+                or domain_delta_config.get("events_table_path", "")
             ),
-            inventory_table_path=os.getenv(
-                "DELTA_INVENTORY_TABLE_PATH", domain_delta_config.get("inventory_table_path", "")
+            inventory_table_path=(
+                os.getenv("XACT_INVENTORY_TABLE_PATH")
+                or os.getenv("XACT_DELTA_INVENTORY_TABLE")
+                or os.getenv("DELTA_INVENTORY_TABLE_PATH")
+                or domain_delta_config.get("inventory_table_path", "")
             ),
-            failed_table_path=os.getenv(
-                "DELTA_FAILED_TABLE_PATH", domain_delta_config.get("failed_table_path", "")
+            failed_table_path=(
+                os.getenv("XACT_FAILED_TABLE_PATH")
+                or os.getenv("XACT_DELTA_FAILED_TABLE")
+                or os.getenv("DELTA_FAILED_TABLE_PATH")
+                or domain_delta_config.get("failed_table_path", "")
             ),
-            # Load ClaimX table paths (only populated if domain is claimx or paths are explicitly set)
-            claimx_projects_table_path=delta_config.get("claimx", {}).get(
-                "projects_table_path", ""
+            # Load ClaimX table paths - check env vars first, then config file
+            claimx_projects_table_path=(
+                os.getenv("CLAIMX_PROJECTS_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_PROJECTS_TABLE")
+                or delta_config.get("claimx", {}).get("projects_table_path", "")
             ),
-            claimx_contacts_table_path=delta_config.get("claimx", {}).get(
-                "contacts_table_path", ""
+            claimx_contacts_table_path=(
+                os.getenv("CLAIMX_CONTACTS_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_CONTACTS_TABLE")
+                or delta_config.get("claimx", {}).get("contacts_table_path", "")
             ),
-            claimx_inventory_table_path=delta_config.get("claimx", {}).get(
-                "inventory_table_path", ""
+            claimx_inventory_table_path=(
+                os.getenv("CLAIMX_INVENTORY_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_INVENTORY_TABLE")
+                or delta_config.get("claimx", {}).get("inventory_table_path", "")
             ),
-            claimx_media_table_path=delta_config.get("claimx", {}).get("media_table_path", ""),
-            claimx_tasks_table_path=delta_config.get("claimx", {}).get("tasks_table_path", ""),
-            claimx_task_templates_table_path=delta_config.get("claimx", {}).get(
-                "task_templates_table_path", ""
+            claimx_media_table_path=(
+                os.getenv("CLAIMX_MEDIA_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_MEDIA_TABLE")
+                or delta_config.get("claimx", {}).get("media_table_path", "")
             ),
-            claimx_external_links_table_path=delta_config.get("claimx", {}).get(
-                "external_links_table_path", ""
+            claimx_tasks_table_path=(
+                os.getenv("CLAIMX_TASKS_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_TASKS_TABLE")
+                or delta_config.get("claimx", {}).get("tasks_table_path", "")
             ),
-            claimx_video_collab_table_path=delta_config.get("claimx", {}).get(
-                "video_collab_table_path", ""
+            claimx_task_templates_table_path=(
+                os.getenv("CLAIMX_TASK_TEMPLATES_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_TASK_TEMPLATES_TABLE")
+                or delta_config.get("claimx", {}).get("task_templates_table_path", "")
+            ),
+            claimx_external_links_table_path=(
+                os.getenv("CLAIMX_EXTERNAL_LINKS_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_EXTERNAL_LINKS_TABLE")
+                or delta_config.get("claimx", {}).get("external_links_table_path", "")
+            ),
+            claimx_video_collab_table_path=(
+                os.getenv("CLAIMX_VIDEO_COLLAB_TABLE_PATH")
+                or os.getenv("CLAIMX_DELTA_VIDEO_COLLAB_TABLE")
+                or delta_config.get("claimx", {}).get("video_collab_table_path", "")
             ),
             # Simulation configuration
             simulation=simulation_config,

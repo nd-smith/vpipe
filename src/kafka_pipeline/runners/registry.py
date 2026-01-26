@@ -81,11 +81,18 @@ def build_xact_delta_writer_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for xact-delta-writer worker."""
+    """Build arguments for xact-delta-writer worker.
+
+    Environment variables (checked in order):
+        XACT_EVENTS_TABLE_PATH: Primary env var (matches ClaimX pattern)
+        XACT_DELTA_EVENTS_TABLE: Alternative env var name
+    """
     from config.pipeline_config import EventSourceType
 
-    # Check environment variable first (like ClaimX does)
-    events_table_path = os.getenv("DELTA_EVENTS_TABLE_PATH", "")
+    # Check environment variables first (domain-specific like ClaimX)
+    events_table_path = os.getenv("XACT_EVENTS_TABLE_PATH", "")
+    if not events_table_path:
+        events_table_path = os.getenv("XACT_DELTA_EVENTS_TABLE", "")
     if not events_table_path:
         events_table_path = pipeline_config.events_table_path
         if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
@@ -94,7 +101,9 @@ def build_xact_delta_writer_args(
             )
 
     if not events_table_path:
-        raise ValueError("DELTA_EVENTS_TABLE_PATH is required for xact-delta-writer")
+        raise ValueError(
+            "XACT_EVENTS_TABLE_PATH or XACT_DELTA_EVENTS_TABLE is required for xact-delta-writer"
+        )
 
     return {
         "kafka_config": local_kafka_config,
@@ -126,13 +135,22 @@ def build_claimx_delta_writer_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for claimx-delta-writer worker."""
+    """Build arguments for claimx-delta-writer worker.
+
+    Environment variables (checked in order):
+        CLAIMX_EVENTS_TABLE_PATH: Primary env var
+        CLAIMX_DELTA_EVENTS_TABLE: Alternative env var name
+    """
     claimx_events_table_path = os.getenv("CLAIMX_EVENTS_TABLE_PATH", "")
+    if not claimx_events_table_path:
+        claimx_events_table_path = os.getenv("CLAIMX_DELTA_EVENTS_TABLE", "")
     if not claimx_events_table_path and pipeline_config.claimx_eventhouse:
         claimx_events_table_path = pipeline_config.claimx_eventhouse.claimx_events_table_path
 
     if not claimx_events_table_path:
-        raise ValueError("CLAIMX_EVENTS_TABLE_PATH is required for claimx-delta-writer")
+        raise ValueError(
+            "CLAIMX_EVENTS_TABLE_PATH or CLAIMX_DELTA_EVENTS_TABLE is required for claimx-delta-writer"
+        )
 
     return {
         "kafka_config": local_kafka_config,
