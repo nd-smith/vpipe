@@ -787,9 +787,12 @@ class PipelineConfig:
 
         # Optionally load ClaimX Eventhouse config if configured
         # Check for config section or env vars
+        # Note: CLAIMX_EVENTHOUSE_DATABASE indicates intent to use ClaimX;
+        # EVENTHOUSE_CLUSTER_URL serves as a shared fallback for cluster_url
         has_claimx_config = (
             "claimx_eventhouse" in yaml_data
             or os.getenv("CLAIMX_EVENTHOUSE_CLUSTER_URL")
+            or os.getenv("CLAIMX_EVENTHOUSE_DATABASE")
             or os.getenv("CLAIMX_EVENTS_TABLE_PATH")
         )
         if has_claimx_config:
