@@ -208,22 +208,7 @@ class BaseKafkaProducer:
         if headers:
             headers_list = [(k, v.encode("utf-8")) for k, v in headers.items()]
 
-        # Inject trace context into headers (optional - graceful degradation)
-        try:
-            import opentracing
-            from kafka_pipeline.common.telemetry import get_tracer
-
-            tracer = get_tracer(__name__)
-            if hasattr(tracer, "inject") and opentracing.tracer.active_span:
-                carrier: dict = {}
-                tracer.inject(
-                    opentracing.tracer.active_span.context, opentracing.Format.TEXT_MAP, carrier
-                )
-                if not headers_list:
-                    headers_list = []
-                headers_list.extend([(k, v.encode("utf-8")) for k, v in carrier.items()])
-        except Exception:
-            pass  # Tracing not available or no active span
+        # Note: Distributed tracing has been removed or no active span
 
         log_with_context(
             logger,

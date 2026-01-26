@@ -256,11 +256,7 @@ class JSONFormatter(logging.Formatter):
         if log_context["trace_id"]:
             log_entry["trace_id"] = log_context["trace_id"]
 
-        # Inject OpenTracing trace context if available
-        if log_context.get("opentracing_trace_id"):
-            log_entry["opentracing_trace_id"] = log_context["opentracing_trace_id"]
-        if log_context.get("opentracing_span_id"):
-            log_entry["opentracing_span_id"] = log_context["opentracing_span_id"]
+        # Note: Distributed tracing (OpenTracing) has been removed
 
         # Add source location for DEBUG/ERROR
         if record.levelno in (logging.DEBUG, logging.ERROR, logging.CRITICAL):

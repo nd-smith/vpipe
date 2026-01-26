@@ -92,7 +92,7 @@ class MitigationTrackingWorker:
         """Start the worker (connect to Kafka)."""
         logger.info("Starting Mitigation Task Tracking Worker")
 
-        # Initialize OpenTracing
+        # Initialize telemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(

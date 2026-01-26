@@ -2,18 +2,16 @@
 
 This directory contains production-ready Grafana dashboards for monitoring the Kafka-based data pipeline.
 
-## ✅ OpenTelemetry Migration - Complete
+## Architecture
 
-**Status**: All dashboards have been updated to use OpenTelemetry SDK metric names.
+**Status**: Dashboards use Prometheus metrics directly from workers.
 
 **Architecture**:
 ```
-Workers (OTel SDK) → OTel Collector (OTLP) → Prometheus (scrapes :8889) → Grafana
+Workers (Prometheus Client) → Prometheus (scrapes workers) → Grafana
 ```
 
-**Metric Naming Convention**: All metrics now use dot notation (e.g., `kafka.messages.consumed` instead of `kafka_messages_consumed_total`).
-
-**Prometheus Configuration**: Updated to scrape OTel Collector at `host.docker.internal:8889`.
+**Metric Naming Convention**: Metrics use standard Prometheus naming (e.g., `kafka_messages_consumed_total`).
 
 ---
 
@@ -21,9 +19,6 @@ Workers (OTel SDK) → OTel Collector (OTLP) → Prometheus (scrapes :8889) → 
 
 1. **Start observability stack:**
    ```bash
-   # Start Jaeger + OTel Collector
-   docker-compose -f scripts/docker/docker-compose.jaeger.yml up -d
-
    # Start Prometheus + Grafana
    docker-compose -f scripts/docker/docker-compose.obs.yml up -d
    ```

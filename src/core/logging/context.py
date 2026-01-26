@@ -44,20 +44,7 @@ def get_log_context() -> Dict[str, str]:
         "trace_id": _trace_id.get(),
     }
 
-    # Add OpenTracing trace context if available
-    try:
-        import opentracing
-
-        span = opentracing.tracer.active_span
-        if span is not None and hasattr(span, "context"):
-            span_ctx = span.context
-            if hasattr(span_ctx, "trace_id") and span_ctx.trace_id:
-                context["trace_id"] = format(span_ctx.trace_id, "x")
-            if hasattr(span_ctx, "span_id") and span_ctx.span_id:
-                context["span_id"] = format(span_ctx.span_id, "x")
-    except Exception:
-        # OpenTracing not initialized or not available, skip
-        pass
+    # Note: Distributed tracing (OpenTracing) has been removed
 
     return context
 

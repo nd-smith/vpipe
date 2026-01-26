@@ -195,7 +195,7 @@ class ClaimXDeltaEventsWorker:
         logger.info("Starting ClaimXDeltaEventsWorker")
         self._running = True
 
-        # Initialize OpenTracing
+        # Initialize telemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 

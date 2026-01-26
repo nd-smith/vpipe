@@ -250,7 +250,6 @@ docker system prune -a --volumes
 - Observability stack (`--profile observability`)
 
 **`scripts/docker/docker-compose.obs.yml`** - Observability stack
-**`scripts/docker/docker-compose.jaeger.yml`** - Jaeger only
 
 ### Using Profiles
 

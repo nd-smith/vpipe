@@ -5,18 +5,18 @@
 # via any medium is strictly prohibited.
 
 """
-Telemetry initialization and configuration using Prometheus + Jaeger/OpenTracing.
+Telemetry initialization and configuration using Prometheus.
 
-Provides centralized telemetry setup for distributed tracing and metrics:
-- Tracer using Jaeger client (OpenTracing API)
+Provides centralized telemetry setup for metrics:
 - Metrics using Prometheus client → Prometheus
-- W3C Trace Context propagation for Kafka headers
-- 100% sampling (ALWAYS_ON)
 - Resource attributes (service.name, deployment.environment)
 
 Telemetry is fully optional:
 - Set ENABLE_TELEMETRY=false to disable
-- If prometheus-client or jaeger-client not available, gracefully degrades to no-op
+- If prometheus-client not available, gracefully degrades to no-op
+
+Note: Distributed tracing support has been removed. NoOp tracer is provided
+for backward compatibility with existing code.
 """
 
 import logging
@@ -120,28 +120,27 @@ class NoOpSpanContext:
 def initialize_telemetry(
     service_name: str,
     environment: str = "development",
-    jaeger_endpoint: Optional[str] = None,
-    enable_traces: bool = True,
+    jaeger_endpoint: Optional[str] = None,  # Deprecated, ignored
+    enable_traces: bool = True,  # Deprecated, ignored
     enable_metrics: bool = True,
 ) -> None:
     """
-    Initialize Prometheus and Jaeger telemetry with 100% sampling.
+    Initialize Prometheus telemetry.
 
-    Sets up distributed tracing and metrics export to Jaeger and Prometheus.
+    Sets up metrics export to Prometheus.
     This should be called once at application startup.
 
     Args:
         service_name: Name of the service (e.g., "xact-event-ingester")
         environment: Deployment environment (development, staging, production)
-        jaeger_endpoint: Jaeger agent endpoint (default: localhost:6831)
-        enable_traces: Enable trace export to Jaeger
+        jaeger_endpoint: Deprecated, ignored (kept for backward compatibility)
+        enable_traces: Deprecated, ignored (kept for backward compatibility)
         enable_metrics: Enable metric export to Prometheus
 
     Example:
         >>> initialize_telemetry(
         ...     service_name="xact-download-worker",
-        ...     environment="production",
-        ...     jaeger_endpoint="localhost:6831"
+        ...     environment="production"
         ... )
 
     Environment Variables:
@@ -160,17 +159,11 @@ def initialize_telemetry(
         _initialized = True
         return
 
-    # Get endpoint from environment if not provided
-    if jaeger_endpoint is None:
-        jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "localhost:6831")
-
     logger.info(
         "Initializing telemetry",
         extra={
             "service_name": service_name,
             "environment": environment,
-            "jaeger_endpoint": jaeger_endpoint,
-            "enable_traces": enable_traces,
             "enable_metrics": enable_metrics,
         },
     )
@@ -187,49 +180,10 @@ def initialize_telemetry(
         logger.warning(f"prometheus-client not available: {e}. Metrics will be disabled.")
         enable_metrics = False
 
-    try:
-        if enable_traces:
-            from jaeger_client import Config
-
-            _telemetry_available = True
-
-            # Initialize Jaeger tracer with 100% sampling
-            config = Config(
-                config={
-                    "sampler": {
-                        "type": "const",
-                        "param": 1,  # 100% sampling (ALWAYS_ON)
-                    },
-                    "local_agent": {
-                        "reporting_host": jaeger_endpoint.split(":")[0],
-                        "reporting_port": (
-                            int(jaeger_endpoint.split(":")[1]) if ":" in jaeger_endpoint else 6831
-                        ),
-                    },
-                    "logging": True,
-                },
-                service_name=service_name,
-                validate=True,
-            )
-            _tracer = config.initialize_tracer()
-            logger.info(
-                "Tracing initialized",
-                extra={
-                    "endpoint": jaeger_endpoint,
-                    "sampler": "const=1 (ALWAYS_ON)",
-                },
-            )
-    except ImportError as e:
-        logger.warning(f"jaeger-client not available: {e}. Tracing will be disabled.")
-        enable_traces = False
-    except Exception as e:
-        logger.error("Failed to initialize tracing", exc_info=True)
-        enable_traces = False
-
     _initialized = True
 
-    if not enable_traces and not enable_metrics:
-        logger.warning("Telemetry initialized but both traces and metrics are disabled")
+    if not enable_metrics:
+        logger.warning("Telemetry initialized but metrics are disabled")
     else:
         logger.info("Telemetry initialization complete")
 
@@ -284,22 +238,13 @@ def shutdown_telemetry() -> None:
     """
     Shutdown telemetry providers gracefully.
 
-    This should be called on application shutdown to flush any pending spans/metrics.
+    This should be called on application shutdown to flush any pending metrics.
     """
-    global _initialized, _tracer
+    global _initialized
 
     if not _initialized:
         return
 
     logger.info("Shutting down telemetry")
-
-    # Close Jaeger tracer
-    if _tracer is not None:
-        try:
-            _tracer.close()
-            logger.info("Jaeger tracer closed")
-        except Exception as e:
-            logger.error(f"Error closing Jaeger tracer: {e}")
-
     _initialized = False
     logger.info("Telemetry shutdown complete")

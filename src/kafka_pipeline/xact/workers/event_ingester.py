@@ -136,7 +136,7 @@ class EventIngesterWorker:
         logger.info("Starting EventIngesterWorker")
         self._running = True
 
-        # Initialize OpenTracing
+        # Initialize telemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 

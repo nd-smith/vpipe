@@ -5,7 +5,7 @@
 # - Dummy data producer (generates 1000 events/min for both domains)
 # - Dummy file server (serves test attachments)
 # - All pipeline workers in simulation mode
-# - Observability stack (Prometheus, Grafana, Jaeger)
+# - Observability stack (Prometheus, Grafana)
 #
 # Configuration:
 #   Failure injection and other simulation settings are configured in .env.simulation
@@ -15,7 +15,7 @@
 #   # Start everything (including observability)
 #   docker-compose -f docker-compose.simulation.yml --profile simulation up -d
 #
-#   # Start with observability stack (optional, for tracing)
+#   # Start with observability stack (optional)
 #   docker-compose -f docker-compose.simulation.yml --profile simulation --profile observability up -d
 #
 #   # View logs
@@ -28,7 +28,6 @@
 #   - Kafka UI: http://localhost:8080
 #   - Prometheus: http://localhost:9090
 #   - Grafana: http://localhost:3000 (admin/admin)
-#   - Jaeger UI: http://localhost:16686 (requires observability profile)
 
 services:
   # =============================================================================
@@ -542,30 +541,6 @@ services:
         reservations:
           memory: 128M
 
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger-simulation
-    profiles:
-      - observability
-    ports:
-      - "5775:5775/udp"  # Zipkin compact thrift
-      - "6831:6831/udp"  # Jaeger compact thrift
-      - "6832:6832/udp"  # Jaeger binary thrift
-      - "5778:5778"      # Serve configs
-      - "16686:16686"    # Jaeger UI
-      - "14268:14268"    # Jaeger collector HTTP
-      - "14250:14250"    # Jaeger gRPC
-      - "9411:9411"      # Zipkin compatible endpoint
-    environment:
-      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
-      - COLLECTOR_OTLP_ENABLED=true
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
 volumes:
   kafka_simulation_data:

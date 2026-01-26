@@ -156,7 +156,7 @@ class ClaimXEntityDeltaWorker:
 
     async def start(self) -> None:
         """Start the worker."""
-        # Initialize OpenTracing
+        # Initialize telemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 

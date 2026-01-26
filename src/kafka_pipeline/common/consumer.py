@@ -320,25 +320,9 @@ class BaseKafkaConsumer:
     async def _process_message(self, message: ConsumerRecord) -> None:
         from kafka_pipeline.common.telemetry import get_tracer
 
-        # Extract trace context from headers (optional - graceful degradation)
-        parent_context = None
-        try:
-            import opentracing
-
-            carrier = {}
-            if message.headers:
-                for key, value in message.headers:
-                    k = key.decode("utf-8") if isinstance(key, bytes) else key
-                    v = value.decode("utf-8") if isinstance(value, bytes) else value
-                    carrier[k] = v
-            tracer = get_tracer(__name__)
-            if hasattr(tracer, "extract"):
-                parent_context = tracer.extract(opentracing.Format.TEXT_MAP, carrier)
-        except Exception:
-            pass  # Tracing not available
-
+        # Note: Distributed tracing has been removed
         tracer = get_tracer(__name__)
-        with tracer.start_active_span("kafka.message.process", child_of=parent_context) as scope:
+        with tracer.start_active_span("kafka.message.process") as scope:
             span = scope.span if hasattr(scope, "span") else scope
             span.set_tag("messaging.system", "kafka")
             span.set_tag("messaging.destination", message.topic)

@@ -230,7 +230,7 @@ class ClaimXDownloadWorker:
             },
         )
 
-        # Initialize OpenTracing
+        # Initialize telemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 

@@ -229,7 +229,7 @@ class ResultProcessor:
         logger.info("Starting result processor")
         self._running = True
 
-        # Initialize OpenTracing
+        # Initialize telemetry
         from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
 
