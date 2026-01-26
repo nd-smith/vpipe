@@ -8,7 +8,7 @@ event_source: eventhub
 # Kafka configuration
 kafka:
   connection:
-    bootstrap_servers: kafka:9092
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
     security_protocol: PLAINTEXT
 
   consumer_defaults:
@@ -75,7 +75,7 @@ delta:
 
 # Local Kafka configuration (for simulation)
 local_kafka:
-  bootstrap_servers: kafka:9092
+  bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
   security_protocol: PLAINTEXT
   consumer_poll_timeout_ms: 1000
   producer_max_block_ms: 60000
