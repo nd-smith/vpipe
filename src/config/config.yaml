@@ -55,23 +55,25 @@ delta:
   enable_writes: true
 
   # XACT domain delta tables
+  # Env vars: XACT_EVENTS_TABLE_PATH, XACT_DELTA_EVENTS_TABLE (or legacy DELTA_EVENTS_TABLE_PATH)
   xact:
-    events_table_path: ""  # Will be set via DELTA_EVENTS_TABLE_PATH env var
-    inventory_table_path: ""
-    failed_table_path: ""
+    events_table_path: ""  # XACT_EVENTS_TABLE_PATH or XACT_DELTA_EVENTS_TABLE
+    inventory_table_path: ""  # XACT_INVENTORY_TABLE_PATH or XACT_DELTA_INVENTORY_TABLE
+    failed_table_path: ""  # XACT_FAILED_TABLE_PATH or XACT_DELTA_FAILED_TABLE
 
   # ClaimX domain delta tables
+  # Env vars: CLAIMX_*_TABLE_PATH or CLAIMX_DELTA_*_TABLE patterns both supported
   claimx:
-    events_table_path: ""  # Will be set via CLAIMX_EVENTS_TABLE_PATH env var
-    inventory_table_path: ""
+    events_table_path: ""  # CLAIMX_EVENTS_TABLE_PATH or CLAIMX_DELTA_EVENTS_TABLE
+    inventory_table_path: ""  # CLAIMX_INVENTORY_TABLE_PATH or CLAIMX_DELTA_INVENTORY_TABLE
     failed_table_path: ""
-    projects_table_path: ""
-    contacts_table_path: ""
-    media_table_path: ""
-    tasks_table_path: ""
-    task_templates_table_path: ""
-    external_links_table_path: ""
-    video_collab_table_path: ""
+    projects_table_path: ""  # CLAIMX_PROJECTS_TABLE_PATH or CLAIMX_DELTA_PROJECTS_TABLE
+    contacts_table_path: ""  # CLAIMX_CONTACTS_TABLE_PATH or CLAIMX_DELTA_CONTACTS_TABLE
+    media_table_path: ""  # CLAIMX_MEDIA_TABLE_PATH or CLAIMX_DELTA_MEDIA_TABLE
+    tasks_table_path: ""  # CLAIMX_TASKS_TABLE_PATH or CLAIMX_DELTA_TASKS_TABLE
+    task_templates_table_path: ""  # CLAIMX_TASK_TEMPLATES_TABLE_PATH or CLAIMX_DELTA_TASK_TEMPLATES_TABLE
+    external_links_table_path: ""  # CLAIMX_EXTERNAL_LINKS_TABLE_PATH or CLAIMX_DELTA_EXTERNAL_LINKS_TABLE
+    video_collab_table_path: ""  # CLAIMX_VIDEO_COLLAB_TABLE_PATH or CLAIMX_DELTA_VIDEO_COLLAB_TABLE
 
 # Local Kafka configuration (for simulation)
 local_kafka:
