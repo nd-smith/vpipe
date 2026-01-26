@@ -62,7 +62,9 @@ tokens.json
 .env.*.local
 .env.simulation
 /docs
-*.env*
+# Allow .env.example and .env.template to be committed
+!.env.example
+!.env.template
 
 # Local config overrides (for multi-file config system)
 config/local.yaml
