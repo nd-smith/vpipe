@@ -125,14 +125,14 @@ class ClaimXApiClient(LoggedClass):
         if not self.base_url:
             raise ValueError(
                 "ClaimXApiClient requires 'base_url'. "
-                "Set CLAIMX_API_URL environment variable or configure claimx_api.base_url in config."
+                "Set CLAIMX_API_BASE_PATH environment variable or configure claimx_api.base_url in config."
             )
 
         # Validate base_url has a scheme (http/https)
         if not self.base_url.startswith(("http://", "https://")):
             raise ValueError(
                 f"ClaimXApiClient base_url must start with http:// or https://, got: {self.base_url!r}. "
-                "Set CLAIMX_API_URL environment variable or configure claimx_api.base_url in config."
+                "Set CLAIMX_API_BASE_PATH environment variable or configure claimx_api.base_url in config."
             )
 
         if not token:
