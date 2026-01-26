@@ -347,6 +347,37 @@ class ClaimXEntityWriter:
             self.use_local_delta = False
             self.delta_base_path = None
 
+        # Validate that all required table paths are set (not in simulation mode)
+        # This catches configuration errors early with a clear message
+        if not self.use_local_delta:
+            # Update table_paths dict with potentially overridden values (for simulation)
+            table_paths = {
+                "projects": projects_table_path,
+                "contacts": contacts_table_path,
+                "media": media_table_path,
+                "tasks": tasks_table_path,
+                "task_templates": task_templates_table_path,
+                "external_links": external_links_table_path,
+                "video_collab": video_collab_table_path,
+            }
+            empty_paths = [name for name, path in table_paths.items() if not path]
+            if empty_paths:
+                env_var_hints = {
+                    "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
+                    "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
+                    "media": "CLAIMX_DELTA_MEDIA_TABLE",
+                    "tasks": "CLAIMX_DELTA_TASKS_TABLE",
+                    "task_templates": "CLAIMX_DELTA_TASK_TEMPLATES_TABLE",
+                    "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
+                    "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
+                }
+                missing_info = [f"{name} ({env_var_hints[name]})" for name in empty_paths]
+                raise ValueError(
+                    f"ClaimXEntityWriter requires table paths for all entity types. "
+                    f"Missing paths for: {', '.join(missing_info)}. "
+                    f"Set the corresponding environment variables."
+                )
+
         # Create individual writers for each entity table
         # Projects and Media are partitioned by project_id
         # Others use the default (no partitioning)
