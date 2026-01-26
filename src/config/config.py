@@ -447,10 +447,14 @@ def load_config(
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
         cache_dir=storage.get("cache_dir") or _get_default_cache_dir(),
-        claimx_api_url=claimx_api.get("base_url", ""),
+        claimx_api_url=os.getenv("CLAIMX_API_URL") or claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
-        claimx_api_timeout_seconds=claimx_api.get("timeout_seconds", 30),
-        claimx_api_concurrency=claimx_api.get("max_concurrent", 20),
+        claimx_api_timeout_seconds=int(
+            os.getenv("CLAIMX_API_TIMEOUT_SECONDS") or claimx_api.get("timeout_seconds", 30)
+        ),
+        claimx_api_concurrency=int(
+            os.getenv("CLAIMX_API_CONCURRENCY") or claimx_api.get("max_concurrent", 20)
+        ),
     )
 
     logger.debug(f"Configuration loaded successfully:")
