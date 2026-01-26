@@ -345,7 +345,10 @@ class ClaimXEventIngesterWorker:
         self._mark_processed(event_id)
         self._cleanup_dedup_cache()
         duration = time.perf_counter() - start_time
-        message_processing_duration_seconds.labels(domain=self.domain).observe(duration)
+        message_processing_duration_seconds.labels(
+            topic=self.consumer_config.get_topic(self.domain, "events"),
+            consumer_group=f"{self.domain}-event-ingester",
+        ).observe(duration)
 
     async def _create_enrichment_task(self, event: ClaimXEventMessage) -> None:
         enrichment_task = ClaimXEnrichmentTask(
