@@ -55,6 +55,7 @@ def build_xact_event_ingester_args(
     shutdown_event: asyncio.Event,
     eventhub_config=None,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for xact-event-ingester worker."""
     from config.pipeline_config import EventSourceType
@@ -107,6 +108,7 @@ def build_xact_result_processor_args(
     shutdown_event: asyncio.Event,
     enable_delta_writes: bool,
     local_kafka_config=None,
+    **kwargs,
 ):
     """Build arguments for xact-result-processor worker."""
     return {
