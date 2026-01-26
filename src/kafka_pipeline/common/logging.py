@@ -142,7 +142,7 @@ class LoggedClass:
             **extra: Additional context fields
         """
         context: Dict[str, Any] = {}
-        for attr in ["table_path", "primary_keys", "circuit_name", "api_url"]:
+        for attr in ["table_path", "primary_keys", "circuit_name", "api_url", "base_url"]:
             if hasattr(self, attr):
                 value = getattr(self, attr)
                 if value is not None:
@@ -168,7 +168,7 @@ class LoggedClass:
             **extra: Additional context fields
         """
         context: Dict[str, Any] = {}
-        for attr in ["table_path", "primary_keys", "circuit_name", "api_url"]:
+        for attr in ["table_path", "primary_keys", "circuit_name", "api_url", "base_url"]:
             if hasattr(self, attr):
                 value = getattr(self, attr)
                 if value is not None:
