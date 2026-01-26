@@ -3,13 +3,13 @@
 # Environment variables will override these settings
 
 # Event source type (eventhub or eventhouse)
-event_source: eventhub
+event_source: ${EVENT_SOURCE:-eventhub}
 
 # Kafka configuration
 kafka:
   connection:
-    bootstrap_servers: kafka:9092
-    security_protocol: PLAINTEXT
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+    security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
 
   consumer_defaults:
     auto_offset_reset: earliest
@@ -75,7 +75,7 @@ delta:
 
 # Local Kafka configuration (for simulation)
 local_kafka:
-  bootstrap_servers: kafka:9092
-  security_protocol: PLAINTEXT
+  bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+  security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
   consumer_poll_timeout_ms: 1000
   producer_max_block_ms: 60000
