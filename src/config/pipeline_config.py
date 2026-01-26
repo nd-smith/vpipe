@@ -454,7 +454,8 @@ class EventhouseSourceConfig:
         Optional env var overrides:
             XACT_EVENTHOUSE_CLUSTER_URL: Kusto cluster URL
             XACT_EVENTHOUSE_DATABASE: Database name
-            XACT_EVENTHOUSE_SOURCE_TABLE: Table name (default: Events)
+            XACT_EVENTHOUSE_SOURCE_TABLE: KQL source table name (default: Events)
+            EVENTHOUSE_SOURCE_TABLE: Legacy env var for source table (fallback)
             POLL_INTERVAL_SECONDS: Poll interval (default: 30)
             POLL_BATCH_SIZE: Max events per poll (default: 1000)
             EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
@@ -503,7 +504,8 @@ class EventhouseSourceConfig:
             cluster_url=cluster_url,
             database=database,
             source_table=os.getenv(
-                "EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")
+                "XACT_EVENTHOUSE_SOURCE_TABLE",
+                os.getenv("EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")),
             ),
             poll_interval_seconds=int(
                 os.getenv(
