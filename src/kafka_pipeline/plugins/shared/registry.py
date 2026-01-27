@@ -332,6 +332,8 @@ class ActionExecutor:
             await self._publish_to_topic(action.params, context)
         elif action.action_type == ActionType.HTTP_WEBHOOK:
             await self._http_webhook(action.params, context)
+        elif action.action_type == ActionType.SEND_EMAIL:
+            await self._send_email(action.params, context)
         elif action.action_type == ActionType.LOG:
             self._log(action.params, context)
         elif action.action_type == ActionType.ADD_HEADER:
@@ -514,6 +516,134 @@ class ActionExecutor:
                     url=url,
                     method=method,
                 )
+
+    async def _send_email(
+        self,
+        params: Dict,
+        context: PluginContext,
+    ) -> None:
+        """
+        Send an email via configured email service.
+
+        Uses ConnectionManager to call an email service API (e.g., SendGrid, Mailgun,
+        AWS SES, or custom SMTP relay API).
+
+        Params:
+            connection: Named connection for email service (default: "email_service")
+            to: List of recipient email addresses
+            subject: Email subject line
+            body: Email body content
+            html: If True, body is HTML content (default: False)
+            cc: Optional list of CC recipients
+            bcc: Optional list of BCC recipients
+            reply_to: Optional reply-to address
+            template_id: Optional template ID for templated emails
+            template_data: Optional dict of template variables
+        """
+        connection_name = params.get("connection", "email_service")
+
+        if not self.connection_manager:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Send email action requires connection manager but none configured",
+                connection=connection_name,
+                event_id=context.event_id,
+            )
+            return
+
+        # Extract email parameters
+        to_addresses = params.get("to", [])
+        subject = params.get("subject", "")
+        body = params.get("body", "")
+        is_html = params.get("html", False)
+        cc_addresses = params.get("cc", [])
+        bcc_addresses = params.get("bcc", [])
+        reply_to = params.get("reply_to")
+        template_id = params.get("template_id")
+        template_data = params.get("template_data", {})
+
+        # Build email payload - generic format that works with most email APIs
+        # Specific email services may need adapter configuration in the connection
+        email_payload = {
+            "to": to_addresses,
+            "subject": subject,
+            "content": body,
+            "content_type": "text/html" if is_html else "text/plain",
+        }
+
+        if cc_addresses:
+            email_payload["cc"] = cc_addresses
+        if bcc_addresses:
+            email_payload["bcc"] = bcc_addresses
+        if reply_to:
+            email_payload["reply_to"] = reply_to
+        if template_id:
+            email_payload["template_id"] = template_id
+            email_payload["template_data"] = template_data
+
+        # Add context metadata for tracking
+        email_payload["metadata"] = {
+            "event_id": context.event_id,
+            "event_type": context.event_type,
+            "project_id": context.project_id,
+            "domain": context.domain.value,
+            "stage": context.stage.value,
+        }
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Plugin action: send email",
+            connection=connection_name,
+            to_count=len(to_addresses),
+            subject=subject[:50] + "..." if len(subject) > 50 else subject,
+            has_template=template_id is not None,
+            event_id=context.event_id,
+            project_id=context.project_id,
+        )
+
+        try:
+            response = await self.connection_manager.request(
+                connection_name=connection_name,
+                method="POST",
+                path="/send",
+                json=email_payload,
+            )
+
+            if response.status >= 400:
+                response_body = await response.text()
+                log_with_context(
+                    logger,
+                    logging.ERROR,
+                    "Email send failed with error status",
+                    status=response.status,
+                    response=response_body[:200],
+                    connection=connection_name,
+                    event_id=context.event_id,
+                )
+            else:
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "Email sent successfully",
+                    status=response.status,
+                    connection=connection_name,
+                    to_count=len(to_addresses),
+                    event_id=context.event_id,
+                    project_id=context.project_id,
+                )
+        except Exception as e:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Email send request failed",
+                connection=connection_name,
+                error=str(e),
+                event_id=context.event_id,
+                exc_info=True,
+            )
+            raise
 
     def _log(self, params: Dict, context: PluginContext) -> None:
         """Log a message."""
