@@ -334,6 +334,8 @@ class ActionExecutor:
             await self._http_webhook(action.params, context)
         elif action.action_type == ActionType.SEND_EMAIL:
             await self._send_email(action.params, context)
+        elif action.action_type == ActionType.CREATE_CLAIMX_TASK:
+            await self._create_claimx_task(action.params, context)
         elif action.action_type == ActionType.LOG:
             self._log(action.params, context)
         elif action.action_type == ActionType.ADD_HEADER:
@@ -639,6 +641,235 @@ class ActionExecutor:
                 logging.ERROR,
                 "Email send request failed",
                 connection=connection_name,
+                error=str(e),
+                event_id=context.event_id,
+                exc_info=True,
+            )
+            raise
+
+    async def _create_claimx_task(
+        self,
+        params: Dict,
+        context: PluginContext,
+    ) -> None:
+        """
+        Create a ClaimX task via the ClaimX API.
+
+        Uses ConnectionManager to call the ClaimX API endpoint /import/project/actions
+        to create a new task in the specified project.
+
+        Supports cross-domain usage by accepting either project_id (for ClaimX events)
+        or claim_number (for XACT events). If claim_number is provided, will first
+        fetch the ClaimX project ID via GET /export/project/projectId.
+
+        Required API payload structure:
+        {
+            "projectId": 0,
+            "usePrimaryContactAsSender": true,
+            "senderUserName": "string",
+            "type": "CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",
+            "data": {
+                "customTaskName": "string",
+                "customTaskId": 0,
+                "notificationType": "COPY_EXTERNAL_LINK_URL",
+                ...
+            }
+        }
+
+        Params:
+            connection: Named connection for ClaimX API (default: "claimx_api")
+            project_id: ClaimX project ID (optional if claim_number provided)
+            claim_number: Claim number (optional if project_id provided)
+            task_type: Action type (e.g., "CUSTOM_TASK_ASSIGN_EXTERNAL_LINK")
+            task_data: Task-specific data payload
+            use_primary_contact_as_sender: Use primary contact as sender (default: True)
+            sender_username: Sender username (optional)
+        """
+        connection_name = params.get("connection", "claimx_api")
+
+        if not self.connection_manager:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Create ClaimX task action requires connection manager but none configured",
+                connection=connection_name,
+                event_id=context.event_id,
+            )
+            return
+
+        project_id = params.get("project_id")
+        claim_number = params.get("claim_number")
+        task_type = params.get("task_type")
+        task_data = params.get("task_data", {})
+        use_primary_contact_as_sender = params.get("use_primary_contact_as_sender", True)
+        sender_username = params.get("sender_username")
+
+        # Resolve project_id from claim_number if needed
+        if not project_id and claim_number:
+            log_with_context(
+                logger,
+                logging.INFO,
+                "Resolving ClaimX project ID from claim number",
+                connection=connection_name,
+                claim_number=claim_number,
+                event_id=context.event_id,
+            )
+
+            try:
+                response = await self.connection_manager.request(
+                    connection_name=connection_name,
+                    method="GET",
+                    path="/export/project/projectId",
+                    params={"projectNumber": claim_number},  # API uses projectNumber param
+                )
+
+                if response.status >= 400:
+                    response_body = await response.text()
+                    log_with_context(
+                        logger,
+                        logging.WARNING,
+                        "Failed to resolve ClaimX project ID from claim number",
+                        status=response.status,
+                        response=response_body[:200],
+                        connection=connection_name,
+                        claim_number=claim_number,
+                        event_id=context.event_id,
+                    )
+                    return
+
+                # Parse the response - may be just a number or a dict
+                response_data = await response.json()
+                if isinstance(response_data, int):
+                    project_id = response_data
+                elif isinstance(response_data, dict):
+                    project_id = response_data.get("projectId") or response_data.get("id")
+
+                if not project_id:
+                    log_with_context(
+                        logger,
+                        logging.WARNING,
+                        "ClaimX project ID not found in API response",
+                        connection=connection_name,
+                        claim_number=claim_number,
+                        response=str(response_data)[:200],
+                        event_id=context.event_id,
+                    )
+                    return
+
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "Resolved ClaimX project ID from claim number",
+                    connection=connection_name,
+                    claim_number=claim_number,
+                    project_id=project_id,
+                    event_id=context.event_id,
+                )
+
+            except Exception as e:
+                log_with_context(
+                    logger,
+                    logging.ERROR,
+                    "Failed to resolve ClaimX project ID from claim number",
+                    connection=connection_name,
+                    claim_number=claim_number,
+                    error=str(e),
+                    event_id=context.event_id,
+                    exc_info=True,
+                )
+                raise
+
+        if not project_id:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Create ClaimX task action requires project_id or claim_number parameter",
+                event_id=context.event_id,
+            )
+            return
+
+        if not task_type:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Create ClaimX task action requires task_type parameter",
+                event_id=context.event_id,
+                project_id=project_id,
+            )
+            return
+
+        if not task_data:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Create ClaimX task action requires task_data parameter",
+                event_id=context.event_id,
+                project_id=project_id,
+            )
+            return
+
+        # Build the API payload according to ClaimX spec
+        payload = {
+            "projectId": project_id,
+            "usePrimaryContactAsSender": use_primary_contact_as_sender,
+            "type": task_type,
+            "data": task_data,
+        }
+
+        # Add sender username if provided
+        if sender_username:
+            payload["senderUserName"] = sender_username
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Plugin action: create ClaimX task",
+            connection=connection_name,
+            project_id=project_id,
+            task_type=task_type,
+            event_id=context.event_id,
+        )
+
+        try:
+            response = await self.connection_manager.request(
+                connection_name=connection_name,
+                method="POST",
+                path="/import/project/actions",
+                json=payload,
+            )
+
+            if response.status >= 400:
+                response_body = await response.text()
+                log_with_context(
+                    logger,
+                    logging.ERROR,
+                    "ClaimX task creation failed with error status",
+                    status=response.status,
+                    response=response_body[:500],
+                    connection=connection_name,
+                    project_id=project_id,
+                    task_type=task_type,
+                    event_id=context.event_id,
+                )
+            else:
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "ClaimX task created successfully",
+                    status=response.status,
+                    connection=connection_name,
+                    project_id=project_id,
+                    task_type=task_type,
+                    event_id=context.event_id,
+                )
+        except Exception as e:
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "ClaimX task creation request failed",
+                connection=connection_name,
+                project_id=project_id,
+                task_type=task_type,
                 error=str(e),
                 event_id=context.event_id,
                 exc_info=True,

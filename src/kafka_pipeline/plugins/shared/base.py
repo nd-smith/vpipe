@@ -22,6 +22,73 @@ from pydantic import BaseModel
 from kafka_pipeline.common.logging import LoggedClass
 
 
+async def resolve_claimx_project_id(
+    claim_number: str,
+    connection_manager,
+    connection_name: str = "claimx_api",
+) -> Optional[int]:
+    """
+    Helper function to resolve ClaimX project ID from claim number.
+
+    Useful for plugins in XACT domain that need to work with ClaimX but only
+    have the claim number available.
+
+    Args:
+        claim_number: The claim number (e.g., "ABC123456")
+        connection_manager: ConnectionManager instance for API requests
+        connection_name: Named connection to use (default: "claimx_api")
+
+    Returns:
+        ClaimX project ID if found, None otherwise
+
+    Example:
+        from kafka_pipeline.plugins.shared.base import resolve_claimx_project_id
+
+        class MyXACTPlugin(Plugin):
+            async def execute(self, context: PluginContext) -> PluginResult:
+                claim_number = context.message.claim_number
+
+                # Resolve ClaimX project ID
+                project_id = await resolve_claimx_project_id(
+                    claim_number,
+                    self.connection_manager
+                )
+
+                if not project_id:
+                    return PluginResult.skip("ClaimX project not found")
+
+                # Now create task with the resolved ID
+                return PluginResult.create_claimx_task(
+                    project_id=project_id,
+                    task_type="CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",
+                    task_data={...}
+                )
+    """
+    try:
+        response = await connection_manager.request(
+            connection_name=connection_name,
+            method="GET",
+            path="/export/project/projectId",
+            params={"projectNumber": claim_number},  # API uses projectNumber param
+        )
+
+        if response.status >= 400:
+            return None
+
+        response_data = await response.json()
+
+        # API may return just the ID as a number, or in a dict
+        if isinstance(response_data, int):
+            return response_data
+        elif isinstance(response_data, dict):
+            return response_data.get("projectId") or response_data.get("id")
+
+    except Exception:
+        return None
+
+    return None
+
+
 class Domain(str, Enum):
     """Pipeline domains."""
 
@@ -61,6 +128,7 @@ class ActionType(str, Enum):
     PUBLISH_TO_TOPIC = "publish_to_topic"
     HTTP_WEBHOOK = "http_webhook"
     SEND_EMAIL = "send_email"
+    CREATE_CLAIMX_TASK = "create_claimx_task"
     LOG = "log"
     ADD_HEADER = "add_header"
     FILTER = "filter"
@@ -216,6 +284,79 @@ class PluginResult:
         return cls(
             success=True,
             actions=[PluginAction(action_type=ActionType.SEND_EMAIL, params=params)],
+        )
+
+    @classmethod
+    def create_claimx_task(
+        cls,
+        task_type: str,
+        task_data: Dict[str, Any],
+        *,
+        project_id: Optional[int] = None,
+        claim_number: Optional[str] = None,
+        connection: str = "claimx_api",
+        use_primary_contact_as_sender: bool = True,
+        sender_username: Optional[str] = None,
+    ) -> "PluginResult":
+        """
+        Create a result that creates a ClaimX task via /import/project/actions API.
+
+        Args:
+            task_type: Action type (e.g., "CUSTOM_TASK_ASSIGN_EXTERNAL_LINK")
+            task_data: Task-specific data payload containing:
+                - customTaskName: Name of the custom task
+                - customTaskId: ID of the custom task
+                - notificationType: Type of notification (e.g., "COPY_EXTERNAL_LINK_URL")
+                - Additional fields as required by the task type
+            project_id: ClaimX project ID (required if claim_number not provided)
+            claim_number: Claim number (required if project_id not provided)
+                Will be used to fetch the ClaimX project ID via API
+            connection: Named connection for ClaimX API (default: "claimx_api")
+            use_primary_contact_as_sender: Use primary contact as sender (default: True)
+            sender_username: Sender username (optional, defaults to config value)
+
+        Returns:
+            PluginResult with CREATE_CLAIMX_TASK action
+
+        Examples:
+            # With ClaimX project ID (ClaimX domain events)
+            PluginResult.create_claimx_task(
+                project_id=12345,
+                task_type="CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",
+                task_data={
+                    "customTaskName": "Review Documentation",
+                    "customTaskId": 456,
+                    "notificationType": "COPY_EXTERNAL_LINK_URL",
+                }
+            )
+
+            # With claim number (XACT domain events)
+            PluginResult.create_claimx_task(
+                claim_number="ABC123456",
+                task_type="CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",
+                task_data={
+                    "customTaskName": "Review Documentation",
+                    "customTaskId": 456,
+                    "notificationType": "COPY_EXTERNAL_LINK_URL",
+                }
+            )
+        """
+        if not project_id and not claim_number:
+            raise ValueError("Either project_id or claim_number must be provided")
+
+        params = {
+            "connection": connection,
+            "project_id": project_id,
+            "claim_number": claim_number,
+            "task_type": task_type,
+            "task_data": task_data,
+            "use_primary_contact_as_sender": use_primary_contact_as_sender,
+            "sender_username": sender_username,
+        }
+
+        return cls(
+            success=True,
+            actions=[PluginAction(action_type=ActionType.CREATE_CLAIMX_TASK, params=params)],
         )
 
 

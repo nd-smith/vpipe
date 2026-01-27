@@ -342,6 +342,33 @@ class ClaimXApiClient(LoggedClass):
         return await self._request("GET", f"/export/project/{project_id}")
 
     @logged_operation(level=logging.DEBUG)
+    async def get_project_id_by_claim_number(self, claim_number: str) -> Optional[int]:
+        """
+        Get ClaimX project ID from claim number.
+
+        Useful for XACT domain events that have claim number but need ClaimX project ID.
+
+        Args:
+            claim_number: The claim number (e.g., "ABC123456")
+
+        Returns:
+            ClaimX project ID if found, None otherwise
+        """
+        response = await self._request(
+            "GET",
+            "/export/project/projectId",
+            params={"projectNumber": claim_number}  # API uses projectNumber param
+        )
+
+        # API may return just the ID as a number, or in a dict
+        if isinstance(response, int):
+            return response
+        elif isinstance(response, dict):
+            return response.get("projectId") or response.get("id")
+
+        return None
+
+    @logged_operation(level=logging.DEBUG)
     async def get_project_media(
         self,
         project_id: int,
