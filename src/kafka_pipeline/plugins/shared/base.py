@@ -60,6 +60,7 @@ class ActionType(str, Enum):
 
     PUBLISH_TO_TOPIC = "publish_to_topic"
     HTTP_WEBHOOK = "http_webhook"
+    SEND_EMAIL = "send_email"
     LOG = "log"
     ADD_HEADER = "add_header"
     FILTER = "filter"
@@ -159,6 +160,62 @@ class PluginResult:
             terminate_pipeline=True,
             message=f"Filtered: {reason}",
             actions=[PluginAction(action_type=ActionType.FILTER, params={"reason": reason})],
+        )
+
+    @classmethod
+    def email(
+        cls,
+        to: Union[str, List[str]],
+        subject: str,
+        body: str,
+        *,
+        connection: str = "email_service",
+        cc: Optional[Union[str, List[str]]] = None,
+        bcc: Optional[Union[str, List[str]]] = None,
+        reply_to: Optional[str] = None,
+        html: bool = False,
+        template_id: Optional[str] = None,
+        template_data: Optional[Dict[str, Any]] = None,
+    ) -> "PluginResult":
+        """
+        Create a result that sends an email.
+
+        Args:
+            to: Recipient email address(es)
+            subject: Email subject line
+            body: Email body (plain text or HTML based on 'html' flag)
+            connection: Named connection for email service (default: "email_service")
+            cc: CC recipient(s)
+            bcc: BCC recipient(s)
+            reply_to: Reply-to address
+            html: If True, body is treated as HTML
+            template_id: Optional template ID for templated emails
+            template_data: Data to populate template variables
+
+        Returns:
+            PluginResult with SEND_EMAIL action
+        """
+        params = {
+            "connection": connection,
+            "to": to if isinstance(to, list) else [to],
+            "subject": subject,
+            "body": body,
+            "html": html,
+        }
+        if cc:
+            params["cc"] = cc if isinstance(cc, list) else [cc]
+        if bcc:
+            params["bcc"] = bcc if isinstance(bcc, list) else [bcc]
+        if reply_to:
+            params["reply_to"] = reply_to
+        if template_id:
+            params["template_id"] = template_id
+        if template_data:
+            params["template_data"] = template_data
+
+        return cls(
+            success=True,
+            actions=[PluginAction(action_type=ActionType.SEND_EMAIL, params=params)],
         )
 
 

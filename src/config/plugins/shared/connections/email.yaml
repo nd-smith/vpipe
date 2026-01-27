@@ -1,0 +1,182 @@
+# =============================================================================
+# Email Service Connection Definitions
+# =============================================================================
+# Define named HTTP connections for email services used by plugin actions.
+# Supports common email APIs like SendGrid, Mailgun, AWS SES API, or custom
+# SMTP relay services with HTTP interfaces.
+#
+# Usage:
+#   - Plugin actions: Use ActionType.SEND_EMAIL with connection param
+#   - Factory method: PluginResult.email(to="...", subject="...", body="...")
+#
+# Environment Variables:
+#   - Use ${VAR_NAME} syntax to reference environment variables
+#   - Store API keys and secrets in env vars, never commit them to this file
+# =============================================================================
+
+connections:
+  # ===========================================================================
+  # Default Email Service Connection
+  # ===========================================================================
+  # Primary email service connection used by SEND_EMAIL actions.
+  # Configure this to point to your email service provider.
+  #
+  # Required Environment Variables:
+  #   - EMAIL_SERVICE_BASE_URL: Base URL for email API
+  #   - EMAIL_SERVICE_API_KEY: API key for authentication
+  #
+  # Supported Email Services:
+  #   - SendGrid: https://api.sendgrid.com/v3/mail
+  #   - Mailgun: https://api.mailgun.net/v3
+  #   - AWS SES (via HTTP): Regional endpoint
+  #   - Custom SMTP relay with HTTP API
+  #
+  # Expected API Contract:
+  #   POST /send
+  #   {
+  #     "to": ["email@example.com"],
+  #     "subject": "Subject line",
+  #     "content": "Email body",
+  #     "content_type": "text/plain" | "text/html",
+  #     "cc": ["cc@example.com"],        // optional
+  #     "bcc": ["bcc@example.com"],      // optional
+  #     "reply_to": "reply@example.com", // optional
+  #     "template_id": "template-123",   // optional
+  #     "template_data": {...},          // optional
+  #     "metadata": {                    // included automatically
+  #       "event_id": "...",
+  #       "project_id": "...",
+  #       ...
+  #     }
+  #   }
+  # ===========================================================================
+  email_service:
+    name: email_service
+    base_url: ${EMAIL_SERVICE_BASE_URL}
+    auth_type: bearer
+    auth_token: ${EMAIL_SERVICE_API_KEY}
+    timeout_seconds: 30
+    max_retries: 3
+    retry_backoff_base: 2
+    retry_backoff_max: 60
+    headers:
+      User-Agent: VPipe-EmailAction/1.0
+      Accept: application/json
+      Content-Type: application/json
+
+  # ===========================================================================
+  # SendGrid Configuration Example
+  # ===========================================================================
+  # Uncomment and configure if using SendGrid directly.
+  #
+  # Required Environment Variables:
+  #   - SENDGRID_API_KEY: Your SendGrid API key
+  #
+  # Note: You may need an adapter service to transform the generic payload
+  # to SendGrid's specific format, or modify _send_email to support SendGrid.
+  # ===========================================================================
+  # sendgrid:
+  #   name: sendgrid
+  #   base_url: https://api.sendgrid.com/v3/mail
+  #   auth_type: bearer
+  #   auth_token: ${SENDGRID_API_KEY}
+  #   timeout_seconds: 30
+  #   max_retries: 3
+  #   retry_backoff_base: 2
+  #   retry_backoff_max: 60
+  #   headers:
+  #     User-Agent: VPipe-EmailAction/1.0
+  #     Accept: application/json
+  #     Content-Type: application/json
+
+  # ===========================================================================
+  # Mailgun Configuration Example
+  # ===========================================================================
+  # Uncomment and configure if using Mailgun directly.
+  #
+  # Required Environment Variables:
+  #   - MAILGUN_API_KEY: Your Mailgun API key
+  #   - MAILGUN_DOMAIN: Your Mailgun domain (e.g., mg.yourdomain.com)
+  # ===========================================================================
+  # mailgun:
+  #   name: mailgun
+  #   base_url: https://api.mailgun.net/v3/${MAILGUN_DOMAIN}
+  #   auth_type: basic
+  #   auth_token: ${MAILGUN_API_KEY}  # Format: api:your-api-key
+  #   timeout_seconds: 30
+  #   max_retries: 3
+  #   retry_backoff_base: 2
+  #   retry_backoff_max: 60
+  #   headers:
+  #     User-Agent: VPipe-EmailAction/1.0
+  #     Accept: application/json
+
+# =============================================================================
+# Configuration Notes
+# =============================================================================
+#
+# Environment Variable Setup:
+#   Before starting workers, export required variables:
+#
+#   export EMAIL_SERVICE_BASE_URL="https://your-email-service.com/api"
+#   export EMAIL_SERVICE_API_KEY="your-api-key-here"
+#
+# Plugin Usage Example:
+#   from kafka_pipeline.plugins.shared.base import PluginResult
+#
+#   # Using the factory method (recommended)
+#   return PluginResult.email(
+#       to="user@example.com",
+#       subject="Task Completed",
+#       body="Your task has been processed successfully.",
+#   )
+#
+#   # Using explicit action (more control)
+#   return PluginResult(
+#       success=True,
+#       actions=[
+#           PluginAction(
+#               action_type=ActionType.SEND_EMAIL,
+#               params={
+#                   "connection": "email_service",
+#                   "to": ["user@example.com"],
+#                   "subject": "Task Completed",
+#                   "body": "<h1>Success!</h1><p>Your task is done.</p>",
+#                   "html": True,
+#               }
+#           )
+#       ]
+#   )
+#
+# Template Support:
+#   If your email service supports templates, use template_id and template_data:
+#
+#   return PluginResult.email(
+#       to="user@example.com",
+#       subject="",  # May be defined in template
+#       body="",     # May be defined in template
+#       template_id="task-completed-v1",
+#       template_data={
+#           "task_name": "Photo Upload",
+#           "project_id": context.project_id,
+#           "completion_time": "2024-01-15T10:30:00Z",
+#       }
+#   )
+#
+# Security Best Practices:
+#   1. Never commit API keys to version control
+#   2. Use environment variables for all secrets
+#   3. Rotate API keys regularly
+#   4. Use HTTPS only for base_url
+#   5. Validate email addresses before sending
+#   6. Implement rate limiting to prevent abuse
+#   7. Log email events for audit trails (done automatically)
+#
+# Troubleshooting:
+#   - "Connection 'email_service' not found": Ensure connection is loaded
+#   - "401 Unauthorized": Check API key is valid
+#   - "400 Bad Request": Check email payload format matches service expectations
+#   - "429 Too Many Requests": Implement rate limiting or batch emails
+#   - "Timeout": Increase timeout_seconds or check service health
+#
+# =============================================================================
