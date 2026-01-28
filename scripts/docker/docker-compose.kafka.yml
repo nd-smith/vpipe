@@ -55,31 +55,32 @@ services:
       - |
         echo "Creating Kafka topics..."
         # Using 'kafka:9092' because it is inside the docker network
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.pending --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.cached --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.results --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.downloads.dlq --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.events.raw --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.enrichment.pending --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic xact.retry --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic delta-events.dlq --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.events.raw --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.enrichment.pending --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.pending --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.cached --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.results --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.downloads.dlq --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.retry --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.entities.rows.dlq --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.task.tracking --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.task.tracking.success --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.task.tracking.errors --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.api.success --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.api.errors --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic itel.cabinet.completed --partitions 5 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.mitigation.task.tracking --partitions 8 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic claimx.mitigation.task.success --partitions 5 --replication-factor 1
+        # All topics prefixed with com.allstate.pcesdopodappv1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.downloads.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.downloads.cached --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.downloads.results --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.downloads.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.events.raw --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.enrichment.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.xact.retry --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.delta-events.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.events.raw --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.enrichment.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.downloads.pending --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.downloads.cached --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.downloads.results --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.downloads.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.retry --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.entities.rows --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.entities.rows.dlq --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.itel.cabinet.task.tracking --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.itel.cabinet.task.tracking.success --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.itel.cabinet.task.tracking.errors --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.itel.cabinet.api.success --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.itel.cabinet.api.errors --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.itel.cabinet.completed --partitions 5 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking --partitions 8 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:9092 --topic com.allstate.pcesdopodappv1.claimx.mitigation.task.success --partitions 5 --replication-factor 1
 
         echo "Topics created successfully:"
         /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092
