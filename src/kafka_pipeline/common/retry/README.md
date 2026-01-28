@@ -181,7 +181,7 @@ class MyTaskRetryHandler:
 
 ## Unified Retry Topic
 
-All domains use a single unified retry topic (`vpipe-claimx-retry` or `vpipe-xact-retry`). The `UnifiedRetryScheduler` consumes from this topic and redelivers messages when their retry timestamp has elapsed.
+All domains use a single unified retry topic (`pcesdopodappv1-claimx-retry` or `pcesdopodappv1-xact-retry`). The `UnifiedRetryScheduler` consumes from this topic and redelivers messages when their retry timestamp has elapsed.
 
 ## Testing
 

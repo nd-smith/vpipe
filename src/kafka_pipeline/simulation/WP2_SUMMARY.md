@@ -295,7 +295,7 @@ With WP2 complete, WP4 can now:
 ### Quick Test
 
 ```bash
-cd /home/nick/projects/vpipe/src
+cd /home/nick/projects/pcesdopodappv1/src
 python3 kafka_pipeline/simulation/test_mock_simple.py
 ```
 

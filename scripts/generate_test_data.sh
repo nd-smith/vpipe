@@ -1,10 +1,4 @@
 #!/bin/bash
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 # Generate test data for simulation mode
 # This script runs the dummy data producer in simulation mode
 
@@ -31,7 +25,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}VPipe Test Data Generator${NC}"
+echo -e "${BLUE}Pcesdopodappv1 Test Data Generator${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo -e "Domains: ${GREEN}$DOMAINS${NC}"
 echo -e "Events per minute: ${GREEN}$EVENTS_PER_MINUTE${NC}"
@@ -61,7 +55,7 @@ if $CMD; then
     echo ""
     echo "To verify data:"
     echo "  - Check Kafka topics"
-    echo "  - Inspect simulation storage: ls -lh /tmp/vpipe_simulation/"
+    echo "  - Inspect simulation storage: ls -lh /tmp/pcesdopodappv1_simulation/"
 else
     echo ""
     echo -e "${RED}✗ Test data generation failed${NC}"

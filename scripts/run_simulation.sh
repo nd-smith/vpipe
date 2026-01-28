@@ -1,10 +1,4 @@
 #!/bin/bash
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 # Run full simulation pipeline
 # Starts file server, workers, and dummy producer for end-to-end testing
 
@@ -37,7 +31,7 @@ if [[ "$DOMAIN" != "claimx" && "$DOMAIN" != "xact" ]]; then
 fi
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}VPipe Simulation Mode${NC}"
+echo -e "${BLUE}Pcesdopodappv1 Simulation Mode${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo -e "Domain: ${GREEN}$DOMAIN${NC}"
 echo -e "Event Count: ${GREEN}$EVENT_COUNT${NC}"
@@ -93,7 +87,7 @@ echo ""
 
 # Start file server
 echo -e "${YELLOW}Starting dummy file server...${NC}"
-python -m kafka_pipeline.common.dummy.file_server > /tmp/vpipe_file_server.log 2>&1 &
+python -m kafka_pipeline.common.dummy.file_server > /tmp/pcesdopodappv1_file_server.log 2>&1 &
 FILE_SERVER_PID=$!
 PIDS+=($FILE_SERVER_PID)
 echo -e "${GREEN}✓ File server started (PID: $FILE_SERVER_PID)${NC}"
@@ -102,7 +96,7 @@ sleep 3
 # Verify file server is responsive
 if ! curl -s http://localhost:8765/health > /dev/null 2>&1; then
     echo -e "${RED}Error: File server not responding${NC}"
-    echo "Check logs: tail -f /tmp/vpipe_file_server.log"
+    echo "Check logs: tail -f /tmp/pcesdopodappv1_file_server.log"
     exit 1
 fi
 echo -e "${GREEN}✓ File server is responding${NC}"
@@ -115,27 +109,27 @@ if [[ "$DOMAIN" == "claimx" ]]; then
     # ClaimX pipeline
 
     echo "  Starting claimx-ingester..."
-    python -m kafka_pipeline --worker claimx-ingester > /tmp/vpipe_claimx_ingester.log 2>&1 &
+    python -m kafka_pipeline --worker claimx-ingester > /tmp/pcesdopodappv1_claimx_ingester.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-enricher..."
-    python -m kafka_pipeline --worker claimx-enricher --simulation-mode > /tmp/vpipe_claimx_enricher.log 2>&1 &
+    python -m kafka_pipeline --worker claimx-enricher --simulation-mode > /tmp/pcesdopodappv1_claimx_enricher.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-downloader..."
-    python -m kafka_pipeline --worker claimx-downloader > /tmp/vpipe_claimx_downloader.log 2>&1 &
+    python -m kafka_pipeline --worker claimx-downloader > /tmp/pcesdopodappv1_claimx_downloader.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-uploader..."
-    python -m kafka_pipeline --worker claimx-uploader --simulation-mode > /tmp/vpipe_claimx_uploader.log 2>&1 &
+    python -m kafka_pipeline --worker claimx-uploader --simulation-mode > /tmp/pcesdopodappv1_claimx_uploader.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-entity-writer..."
-    python -m kafka_pipeline --worker claimx-entity-writer > /tmp/vpipe_claimx_entity_writer.log 2>&1 &
+    python -m kafka_pipeline --worker claimx-entity-writer > /tmp/pcesdopodappv1_claimx_entity_writer.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
@@ -143,22 +137,22 @@ else
     # XACT pipeline
 
     echo "  Starting xact-local-ingester..."
-    python -m kafka_pipeline --worker xact-local-ingester > /tmp/vpipe_xact_ingester.log 2>&1 &
+    python -m kafka_pipeline --worker xact-local-ingester > /tmp/pcesdopodappv1_xact_ingester.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting xact-enricher..."
-    python -m kafka_pipeline --worker xact-enricher --simulation-mode > /tmp/vpipe_xact_enricher.log 2>&1 &
+    python -m kafka_pipeline --worker xact-enricher --simulation-mode > /tmp/pcesdopodappv1_xact_enricher.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting xact-download..."
-    python -m kafka_pipeline --worker xact-download > /tmp/vpipe_xact_download.log 2>&1 &
+    python -m kafka_pipeline --worker xact-download > /tmp/pcesdopodappv1_xact_download.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting xact-upload..."
-    python -m kafka_pipeline --worker xact-upload --simulation-mode > /tmp/vpipe_xact_upload.log 2>&1 &
+    python -m kafka_pipeline --worker xact-upload --simulation-mode > /tmp/pcesdopodappv1_xact_upload.log 2>&1 &
     PIDS+=($!)
     sleep 2
 fi
@@ -181,11 +175,11 @@ echo ""
 if python -m kafka_pipeline.simulation.dummy_producer \
     --domains "$DOMAIN" \
     --events-per-minute 120 \
-    --max-events "$EVENT_COUNT" > /tmp/vpipe_dummy_source.log 2>&1; then
+    --max-events "$EVENT_COUNT" > /tmp/pcesdopodappv1_dummy_source.log 2>&1; then
     echo -e "${GREEN}✓ Dummy producer completed${NC}"
 else
     echo -e "${RED}✗ Dummy producer failed${NC}"
-    echo "Check logs: tail -f /tmp/vpipe_dummy_source.log"
+    echo "Check logs: tail -f /tmp/pcesdopodappv1_dummy_source.log"
 fi
 echo ""
 
@@ -203,7 +197,7 @@ echo ""
 
 # Check uploaded files
 echo -e "${YELLOW}Uploaded Files:${NC}"
-STORAGE_PATH="/tmp/vpipe_simulation/$DOMAIN"
+STORAGE_PATH="/tmp/pcesdopodappv1_simulation/$DOMAIN"
 if [[ -d "$STORAGE_PATH" ]]; then
     FILE_COUNT=$(find "$STORAGE_PATH" -type f 2>/dev/null | wc -l)
     echo -e "  Location: $STORAGE_PATH"
@@ -221,7 +215,7 @@ echo ""
 
 # Check Delta tables
 echo -e "${YELLOW}Delta Tables:${NC}"
-DELTA_PATH="/tmp/vpipe_simulation/delta"
+DELTA_PATH="/tmp/pcesdopodappv1_simulation/delta"
 if [[ -d "$DELTA_PATH" ]]; then
     echo -e "  Location: $DELTA_PATH"
 
@@ -247,14 +241,14 @@ echo ""
 
 # Check for errors in logs
 echo -e "${YELLOW}Error Summary:${NC}"
-ERROR_COUNT=$(grep -h ERROR /tmp/vpipe_*.log 2>/dev/null | wc -l)
+ERROR_COUNT=$(grep -h ERROR /tmp/pcesdopodappv1_*.log 2>/dev/null | wc -l)
 if [[ $ERROR_COUNT -gt 0 ]]; then
     echo -e "  ${RED}Found $ERROR_COUNT errors in logs${NC}"
     echo ""
     echo "  Recent errors:"
-    grep -h ERROR /tmp/vpipe_*.log 2>/dev/null | tail -5 | sed 's/^/    /'
+    grep -h ERROR /tmp/pcesdopodappv1_*.log 2>/dev/null | tail -5 | sed 's/^/    /'
     echo ""
-    echo "  View full logs: tail -f /tmp/vpipe_*.log"
+    echo "  View full logs: tail -f /tmp/pcesdopodappv1_*.log"
 else
     echo -e "  ${GREEN}✓ No errors found${NC}"
 fi
@@ -275,7 +269,7 @@ echo ""
 echo "To inspect data:"
 echo "  - Files: ls -lah $STORAGE_PATH"
 echo "  - Delta: python scripts/inspect_simulation_delta.py"
-echo "  - Logs: tail -f /tmp/vpipe_*.log"
+echo "  - Logs: tail -f /tmp/pcesdopodappv1_*.log"
 echo ""
 echo "To clean up:"
 echo "  - ./scripts/cleanup_simulation_data.sh --yes"

@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """
 iTel Cabinet API Worker
 
@@ -355,7 +349,7 @@ class ItelCabinetApiWorker:
     async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to simulation directory (simulation mode).
 
-        In simulation mode, submissions are written to /tmp/vpipe_simulation/itel_submissions/
+        In simulation mode, submissions are written to /tmp/pcesdopodappv1_simulation/itel_submissions/
         instead of being sent to the real iTel API. This enables end-to-end testing
         without external dependencies.
 

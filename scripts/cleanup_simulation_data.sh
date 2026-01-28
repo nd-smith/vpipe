@@ -1,16 +1,10 @@
 #!/bin/bash
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 # Cleanup script for simulation mode data
 # Removes all temporary files, Delta tables, and logs created during simulation
 
 set -e
 
-SIMULATION_DIR="${SIMULATION_DIR:-/tmp/vpipe_simulation}"
+SIMULATION_DIR="${SIMULATION_DIR:-/tmp/pcesdopodappv1_simulation}"
 
 echo "==================================================================="
 echo "Simulation Data Cleanup"

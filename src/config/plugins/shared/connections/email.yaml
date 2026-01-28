@@ -60,7 +60,7 @@ connections:
     retry_backoff_base: 2
     retry_backoff_max: 60
     headers:
-      User-Agent: VPipe-EmailAction/1.0
+      User-Agent: Pcesdopodappv1-EmailAction/1.0
       Accept: application/json
       Content-Type: application/json
 
@@ -85,7 +85,7 @@ connections:
   #   retry_backoff_base: 2
   #   retry_backoff_max: 60
   #   headers:
-  #     User-Agent: VPipe-EmailAction/1.0
+  #     User-Agent: Pcesdopodappv1-EmailAction/1.0
   #     Accept: application/json
   #     Content-Type: application/json
 
@@ -108,7 +108,7 @@ connections:
   #   retry_backoff_base: 2
   #   retry_backoff_max: 60
   #   headers:
-  #     User-Agent: VPipe-EmailAction/1.0
+  #     User-Agent: Pcesdopodappv1-EmailAction/1.0
   #     Accept: application/json
 
 # =============================================================================
