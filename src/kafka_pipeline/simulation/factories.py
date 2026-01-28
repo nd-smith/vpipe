@@ -96,7 +96,7 @@ def create_simulation_upload_worker(
 
     Returns upload worker configured for simulation mode:
     - Uses LocalStorageAdapter instead of OneLake
-    - Writes files to /tmp/vpipe_simulation/
+    - Writes files to /tmp/pcesdopodappv1_simulation/
     - Same directory structure as OneLake
 
     Args:
@@ -118,7 +118,7 @@ def create_simulation_upload_worker(
         >>> config = KafkaConfig.from_env()
         >>> sim_config = SimulationConfig.from_env(enabled=True)
         >>> worker = create_simulation_upload_worker(config, sim_config, "claimx")
-        >>> # Worker will write to /tmp/vpipe_simulation/claimx/
+        >>> # Worker will write to /tmp/pcesdopodappv1_simulation/claimx/
     """
     import logging
     from kafka_pipeline.simulation.storage import LocalStorageAdapter
@@ -230,7 +230,7 @@ def create_simulation_itel_cabinet_worker(
 
     Returns iTel Cabinet API worker configured for simulation mode:
     - Writes submissions to local files instead of calling iTel API
-    - Files written to /tmp/vpipe_simulation/itel_submissions/
+    - Files written to /tmp/pcesdopodappv1_simulation/itel_submissions/
     - Same data format as API payload for testing
 
     The worker auto-detects simulation mode via environment variable,
@@ -249,7 +249,7 @@ def create_simulation_itel_cabinet_worker(
         >>> from kafka_pipeline.simulation import create_simulation_itel_cabinet_worker
         >>> config = load_config()
         >>> worker = create_simulation_itel_cabinet_worker(config)
-        >>> # Worker will write to /tmp/vpipe_simulation/itel_submissions/
+        >>> # Worker will write to /tmp/pcesdopodappv1_simulation/itel_submissions/
     """
     import logging
     from kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker import ItelCabinetApiWorker

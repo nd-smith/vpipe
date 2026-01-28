@@ -34,7 +34,7 @@ def verify_itel_submissions(output_dir: Path, verbose: bool = False) -> bool:
     if not output_dir.exists():
         print(f"❌ No iTel submissions directory found at: {output_dir}")
         print("\nExpected directory structure:")
-        print("  /tmp/vpipe_simulation/")
+        print("  /tmp/pcesdopodappv1_simulation/")
         print("    └── itel_submissions/")
         print("          └── itel_submission_*.json")
         return False
@@ -192,8 +192,8 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/tmp/vpipe_simulation/itel_submissions"),
-        help="Directory containing iTel submissions (default: /tmp/vpipe_simulation/itel_submissions)"
+        default=Path("/tmp/pcesdopodappv1_simulation/itel_submissions"),
+        help="Directory containing iTel submissions (default: /tmp/pcesdopodappv1_simulation/itel_submissions)"
     )
     parser.add_argument(
         "--verbose", "-v",

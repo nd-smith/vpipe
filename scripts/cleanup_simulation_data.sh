@@ -4,7 +4,7 @@
 
 set -e
 
-SIMULATION_DIR="${SIMULATION_DIR:-/tmp/vpipe_simulation}"
+SIMULATION_DIR="${SIMULATION_DIR:-/tmp/pcesdopodappv1_simulation}"
 
 echo "==================================================================="
 echo "Simulation Data Cleanup"

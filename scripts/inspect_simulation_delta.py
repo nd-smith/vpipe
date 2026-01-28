@@ -264,7 +264,7 @@ def main():
     if len(sys.argv) > 1:
         delta_path = Path(sys.argv[1])
     else:
-        delta_path = Path("/tmp/vpipe_simulation/delta")
+        delta_path = Path("/tmp/pcesdopodappv1_simulation/delta")
 
     try:
         inspect_delta_tables(delta_path)

@@ -3,7 +3,7 @@ requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vpipe"
+name = "pcesdopodappv1"
 version = "0.1.0"
 description = "Verisk Pipeline - Kafka-based data pipeline for ClaimX and XACT"
 readme = "README.md"

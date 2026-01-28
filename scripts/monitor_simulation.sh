@@ -24,7 +24,7 @@ echo ""
 
 while true; do
     clear
-    echo -e "${BLUE}VPipe Simulation Monitor - $DOMAIN${NC}"
+    echo -e "${BLUE}Pcesdopodappv1 Simulation Monitor - $DOMAIN${NC}"
     echo -e "$(date)"
     echo ""
 
@@ -81,7 +81,7 @@ while true; do
 
     # Files
     echo -e "${YELLOW}Local Storage:${NC}"
-    STORAGE_PATH="/tmp/vpipe_simulation/$DOMAIN"
+    STORAGE_PATH="/tmp/pcesdopodappv1_simulation/$DOMAIN"
     if [[ -d "$STORAGE_PATH" ]]; then
         FILE_COUNT=$(find "$STORAGE_PATH" -type f 2>/dev/null | wc -l)
         TOTAL_SIZE=$(du -sh "$STORAGE_PATH" 2>/dev/null | cut -f1)
@@ -93,7 +93,7 @@ while true; do
 
     # Delta Tables
     echo -e "${YELLOW}Delta Tables:${NC}"
-    DELTA_PATH="/tmp/vpipe_simulation/delta"
+    DELTA_PATH="/tmp/pcesdopodappv1_simulation/delta"
     if [[ -d "$DELTA_PATH" ]]; then
         TABLE_COUNT=0
         for table_dir in "$DELTA_PATH"/*; do
@@ -114,10 +114,10 @@ while true; do
 
     # Logs
     echo -e "${YELLOW}Recent Errors (last 60s):${NC}"
-    ERROR_COUNT=$(find /tmp -name "vpipe_*.log" -mmin -1 -exec grep -l ERROR {} \; 2>/dev/null | wc -l)
+    ERROR_COUNT=$(find /tmp -name "pcesdopodappv1_*.log" -mmin -1 -exec grep -l ERROR {} \; 2>/dev/null | wc -l)
     if [[ $ERROR_COUNT -gt 0 ]]; then
         echo -e "  ${RED}✗${NC} Found errors in $ERROR_COUNT log files"
-        find /tmp -name "vpipe_*.log" -mmin -1 -exec grep ERROR {} \; 2>/dev/null | tail -3 | sed 's/^/    /'
+        find /tmp -name "pcesdopodappv1_*.log" -mmin -1 -exec grep ERROR {} \; 2>/dev/null | tail -3 | sed 's/^/    /'
     else
         echo -e "  ${GREEN}✓${NC} No recent errors"
     fi

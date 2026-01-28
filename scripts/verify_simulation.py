@@ -176,7 +176,7 @@ def verify_delta_table_contents(simulation_dir: Path, domain: str) -> Tuple[bool
 
 
 def verify_simulation(
-    simulation_dir: Path = Path("/tmp/vpipe_simulation"),
+    simulation_dir: Path = Path("/tmp/pcesdopodappv1_simulation"),
     domain: str = "claimx",
     verbose: bool = False,
 ) -> bool:
@@ -259,8 +259,8 @@ Examples:
     parser.add_argument(
         "--path",
         type=Path,
-        default=Path("/tmp/vpipe_simulation"),
-        help="Simulation directory path (default: /tmp/vpipe_simulation)",
+        default=Path("/tmp/pcesdopodappv1_simulation"),
+        help="Simulation directory path (default: /tmp/pcesdopodappv1_simulation)",
     )
 
     parser.add_argument(

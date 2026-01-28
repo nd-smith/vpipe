@@ -29,8 +29,8 @@ class SimulationConfig:
     enabled: bool = False
 
     # Local filesystem paths for simulated storage
-    local_storage_path: Path = Path("/tmp/vpipe_simulation")
-    local_delta_path: Path = Path("/tmp/vpipe_simulation/delta")
+    local_storage_path: Path = Path("/tmp/pcesdopodappv1_simulation")
+    local_delta_path: Path = Path("/tmp/pcesdopodappv1_simulation/delta")
 
     # Allow localhost URLs in download worker (normally blocked)
     allow_localhost_urls: bool = True
@@ -135,13 +135,13 @@ class SimulationConfig:
             local_storage_path=Path(
                 os.getenv(
                     "SIMULATION_STORAGE_PATH",
-                    simulation_data.get("local_storage_path", "/tmp/vpipe_simulation"),
+                    simulation_data.get("local_storage_path", "/tmp/pcesdopodappv1_simulation"),
                 )
             ),
             local_delta_path=Path(
                 os.getenv(
                     "SIMULATION_DELTA_PATH",
-                    simulation_data.get("local_delta_path", "/tmp/vpipe_simulation/delta"),
+                    simulation_data.get("local_delta_path", "/tmp/pcesdopodappv1_simulation/delta"),
                 )
             ),
             allow_localhost_urls=os.getenv(
@@ -176,9 +176,9 @@ class SimulationConfig:
         """
         return cls(
             enabled=enabled,
-            local_storage_path=Path(os.getenv("SIMULATION_STORAGE_PATH", "/tmp/vpipe_simulation")),
+            local_storage_path=Path(os.getenv("SIMULATION_STORAGE_PATH", "/tmp/pcesdopodappv1_simulation")),
             local_delta_path=Path(
-                os.getenv("SIMULATION_DELTA_PATH", "/tmp/vpipe_simulation/delta")
+                os.getenv("SIMULATION_DELTA_PATH", "/tmp/pcesdopodappv1_simulation/delta")
             ),
             allow_localhost_urls=os.getenv("SIMULATION_ALLOW_LOCALHOST", "true").lower()
             in ("true", "1", "yes"),

@@ -349,7 +349,7 @@ class ItelCabinetApiWorker:
     async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to simulation directory (simulation mode).
 
-        In simulation mode, submissions are written to /tmp/vpipe_simulation/itel_submissions/
+        In simulation mode, submissions are written to /tmp/pcesdopodappv1_simulation/itel_submissions/
         instead of being sent to the real iTel API. This enables end-to-end testing
         without external dependencies.
 

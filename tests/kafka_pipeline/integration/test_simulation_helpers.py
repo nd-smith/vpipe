@@ -226,7 +226,7 @@ def assert_delta_tables_written(delta_path: Path, expected_tables: List[str]):
     ), f"Missing Delta tables: {', '.join(missing_tables)}"
 
 
-def assert_no_errors_in_logs(log_dir: Path = Path("/tmp"), pattern: str = "vpipe_*.log"):
+def assert_no_errors_in_logs(log_dir: Path = Path("/tmp"), pattern: str = "pcesdopodappv1_*.log"):
     """Assert that no ERROR level logs were written.
 
     Args:

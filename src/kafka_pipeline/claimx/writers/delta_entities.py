@@ -14,7 +14,7 @@ Uses merge (upsert) operations with appropriate primary keys for idempotency.
 
 Simulation Mode:
 When simulation mode is enabled, writes to local filesystem Delta tables
-in /tmp/vpipe_simulation/delta/ instead of cloud OneLake storage.
+in /tmp/pcesdopodappv1_simulation/delta/ instead of cloud OneLake storage.
 """
 
 from datetime import date, datetime, timezone

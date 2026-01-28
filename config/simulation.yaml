@@ -7,8 +7,8 @@ simulation:
   enabled: true
 
   # Local filesystem paths for simulated storage
-  local_storage_path: /tmp/vpipe_simulation
-  local_delta_path: /tmp/vpipe_simulation/delta
+  local_storage_path: /tmp/pcesdopodappv1_simulation
+  local_delta_path: /tmp/pcesdopodappv1_simulation/delta
 
   # Allow localhost URLs in download worker (normally blocked for security)
   allow_localhost_urls: true
@@ -82,7 +82,7 @@ logging:
   format: json  # or "text" for human-readable
 
   # Log file locations (simulation-specific)
-  log_dir: /tmp/vpipe_simulation/logs
+  log_dir: /tmp/pcesdopodappv1_simulation/logs
 
   # Worker-specific log files
   workers:

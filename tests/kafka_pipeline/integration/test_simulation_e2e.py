@@ -192,7 +192,7 @@ class SimulationTestHarness:
 @pytest.fixture
 def simulation_dir():
     """Provide simulation directory for tests."""
-    sim_dir = Path("/tmp/vpipe_simulation_test")
+    sim_dir = Path("/tmp/pcesdopodappv1_simulation_test")
     yield sim_dir
     # Cleanup after test
     if sim_dir.exists():

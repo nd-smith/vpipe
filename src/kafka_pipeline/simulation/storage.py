@@ -6,7 +6,7 @@ filesystem instead of Azure OneLake. Used in simulation mode to avoid cloud depe
 and enable testing without Azure credentials.
 
 Directory Structure:
-    /tmp/vpipe_simulation/
+    /tmp/pcesdopodappv1_simulation/
         claimx/
             media/
                 proj_123/
@@ -47,7 +47,7 @@ class LocalStorageAdapter:
     - Thread-safe operations
 
     Usage:
-        adapter = LocalStorageAdapter(base_path=Path("/tmp/vpipe_simulation"))
+        adapter = LocalStorageAdapter(base_path=Path("/tmp/pcesdopodappv1_simulation"))
         async with adapter:
             await adapter.async_upload_file("media/test.jpg", "/tmp/test.jpg")
             exists = await adapter.async_exists("media/test.jpg")

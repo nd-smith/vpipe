@@ -2,7 +2,7 @@
 
 ## Configuration Files
 
-The VPipe simulation mode uses **dedicated configuration files** separate from production:
+The Pcesdopodappv1 simulation mode uses **dedicated configuration files** separate from production:
 
 ```
 config/
@@ -55,7 +55,7 @@ Add `simulation:` section to `config.yaml` (not recommended):
 # In config/config.yaml (not recommended - use simulation.yaml instead)
 simulation:
   enabled: false
-  local_storage_path: /tmp/vpipe_simulation
+  local_storage_path: /tmp/pcesdopodappv1_simulation
   # ... other settings
 ```
 
@@ -79,8 +79,8 @@ Settings are loaded in this order (highest priority first):
 ```yaml
 simulation:
   enabled: true                              # Master switch
-  local_storage_path: /tmp/vpipe_simulation  # Where uploaded files go
-  local_delta_path: /tmp/vpipe_simulation/delta  # Where Delta tables go
+  local_storage_path: /tmp/pcesdopodappv1_simulation  # Where uploaded files go
+  local_delta_path: /tmp/pcesdopodappv1_simulation/delta  # Where Delta tables go
   allow_localhost_urls: true                 # Allow http://localhost:8765
   fixtures_dir: fixtures                     # Mock API data location
   truncate_tables_on_start: false            # Clean Delta tables on startup
@@ -176,7 +176,7 @@ SIMULATION_SCENARIO=load_test MAX_EVENTS=5000 ./scripts/run_simulation.sh
    ```yaml
    # config/simulation.local.yaml
    simulation:
-     local_storage_path: /home/myuser/vpipe_sim
+     local_storage_path: /home/myuser/pcesdopodappv1_sim
      truncate_tables_on_start: true  # Your preference
    ```
 
@@ -192,7 +192,7 @@ Create a `.env.simulation` file:
 ```bash
 # .env.simulation (add to .gitignore)
 export SIMULATION_MODE=true
-export SIMULATION_STORAGE_PATH=/home/myuser/vpipe_sim
+export SIMULATION_STORAGE_PATH=/home/myuser/pcesdopodappv1_sim
 export SIMULATION_TRUNCATE_TABLES=true
 export SIMULATION_DELTA_WRITE_MODE=overwrite
 ```
@@ -359,8 +359,8 @@ export SIMULATION_MODE=true
 
 ```bash
 export SIMULATION_MODE=true
-export SIMULATION_STORAGE_PATH=/mnt/fast-ssd/vpipe_sim
-export SIMULATION_DELTA_PATH=/mnt/fast-ssd/vpipe_sim/delta
+export SIMULATION_STORAGE_PATH=/mnt/fast-ssd/pcesdopodappv1_sim
+export SIMULATION_DELTA_PATH=/mnt/fast-ssd/pcesdopodappv1_sim/delta
 ./scripts/run_simulation.sh
 ```
 
