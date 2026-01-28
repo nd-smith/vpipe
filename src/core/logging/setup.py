@@ -12,6 +12,7 @@ import os
 import secrets
 import shutil
 import sys
+import time
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -103,6 +104,141 @@ class ArchivingTimedRotatingFileHandler(TimedRotatingFileHandler):
             except Exception as e:
                 # Log to stderr if we can't move the file (don't use logger to avoid recursion)
                 print(f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr)
+
+
+class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
+    """
+    Enhanced log handler with time + size rotation triggers and OneLake upload.
+
+    Rotates logs when EITHER condition is met:
+    - Time limit reached (e.g., every 15 minutes)
+    - Size limit reached (e.g., 50 MB)
+
+    On rotation:
+    - Uploads rotated file to OneLake
+    - Deletes local file after successful upload
+    - Keeps only recent logs locally
+
+    On initialization:
+    - Cleans up old log files from previous runs
+
+    Environment variables:
+        LOG_UPLOAD_ENABLED: Enable OneLake upload (default: false)
+        LOG_MAX_SIZE_MB: Max log file size before rotation (default: 50)
+        LOG_ROTATION_MINUTES: Time-based rotation interval (default: 15)
+        LOG_RETENTION_HOURS: Keep logs locally for N hours (default: 2)
+        ONELAKE_LOG_PATH: OneLake path for logs (default: {ONELAKE_BASE_PATH}/logs)
+    """
+
+    def __init__(
+        self,
+        filename,
+        when="M",
+        interval=15,
+        backupCount=0,
+        encoding=None,
+        delay=False,
+        utc=False,
+        archive_dir=None,
+        max_bytes=52428800,  # 50 MB default
+        onelake_client=None,
+        log_retention_hours=2,
+    ):
+        super().__init__(filename, when, interval, backupCount, encoding, delay, utc, archive_dir)
+        self.max_bytes = max_bytes
+        self.onelake_client = onelake_client
+        self.log_retention_hours = log_retention_hours
+        self.upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
+
+        # Clean up old logs on initialization
+        self._cleanup_old_logs()
+
+    def shouldRollover(self, record):
+        """
+        Determine if rollover should occur.
+        Rollover happens if EITHER time OR size limit is reached.
+        """
+        # Check time-based rollover (from parent class)
+        if super().shouldRollover(record):
+            return 1
+
+        # Check size-based rollover
+        if self.stream is None:
+            self.stream = self._open()
+
+        if self.max_bytes > 0:
+            msg = "%s\n" % self.format(record)
+            self.stream.seek(0, 2)  # Go to end of file
+            if self.stream.tell() + len(msg.encode('utf-8')) >= self.max_bytes:
+                return 1
+
+        return 0
+
+    def doRollover(self):
+        """
+        Perform rollover, then upload to OneLake and cleanup.
+        """
+        # Get rotated file path before rollover
+        log_path = Path(self.baseFilename)
+
+        # Do the actual rotation (parent class handles this)
+        super().doRollover()
+
+        # Upload and cleanup rotated files
+        if self.upload_enabled and self.onelake_client:
+            self._upload_and_cleanup_rotated_files()
+        else:
+            # If upload disabled, still cleanup old files
+            self._cleanup_old_logs()
+
+    def _upload_and_cleanup_rotated_files(self):
+        """Upload rotated files to OneLake and delete after success."""
+        log_path = Path(self.baseFilename)
+        log_dir = log_path.parent
+        base_name = log_path.name
+
+        # Find rotated files in archive directory
+        for rotated_file in self.archive_dir.glob(f"{base_name}.*"):
+            try:
+                # Build OneLake path: logs/{domain}/{date}/{filename}
+                relative_path = rotated_file.relative_to(log_dir.parent.parent)
+                onelake_path = f"logs/{relative_path}"
+
+                # Upload to OneLake
+                self.onelake_client.upload_file(
+                    relative_path=onelake_path,
+                    local_path=str(rotated_file),
+                    overwrite=True,
+                )
+
+                # Delete local file after successful upload
+                rotated_file.unlink()
+                print(f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr)
+
+            except Exception as e:
+                print(f"Warning: Failed to upload log {rotated_file}: {e}", file=sys.stderr)
+
+    def _cleanup_old_logs(self):
+        """Remove log files older than retention period."""
+        if self.log_retention_hours <= 0:
+            return
+
+        log_path = Path(self.baseFilename)
+        log_dir = log_path.parent
+        cutoff_time = time.time() - (self.log_retention_hours * 3600)
+
+        # Clean up old files in both main log dir and archive dir
+        for directory in [log_dir, self.archive_dir]:
+            if not directory.exists():
+                continue
+
+            for log_file in directory.glob("*.log*"):
+                try:
+                    if log_file.stat().st_mtime < cutoff_time:
+                        log_file.unlink()
+                        print(f"Cleaned up old log: {log_file.name}", file=sys.stderr)
+                except Exception as e:
+                    print(f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr)
 
 
 def get_log_file_path(
@@ -256,15 +392,51 @@ def setup_logging(
         # Fallback if relative path calculation fails
         archive_dir = log_file.parent / "archive"
 
-    # File handler with time-based rotation and auto-archiving
-    file_handler = ArchivingTimedRotatingFileHandler(
-        log_file,
-        when=rotation_when,
-        interval=rotation_interval,
-        backupCount=backup_count,
-        encoding="utf-8",
-        archive_dir=archive_dir,
-    )
+    # Check if OneLake upload is enabled
+    upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
+    max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "50"))
+    rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "15"))
+    retention_hours = int(os.getenv("LOG_RETENTION_HOURS", "2"))
+
+    # Create OneLake client if upload enabled
+    onelake_client = None
+    if upload_enabled:
+        try:
+            from kafka_pipeline.common.storage.onelake import OneLakeClient
+            from config.pipeline_config import load_pipeline_config
+
+            # Load pipeline config to get OneLake settings
+            pipeline_config = load_pipeline_config()
+            onelake_client = OneLakeClient(
+                base_path=os.getenv("ONELAKE_LOG_PATH", pipeline_config.onelake_base_path),
+            )
+        except Exception as e:
+            print(f"Warning: Failed to initialize OneLake client for log upload: {e}", file=sys.stderr)
+            upload_enabled = False
+
+    # Choose handler based on upload configuration
+    if upload_enabled and onelake_client:
+        file_handler = OneLakeRotatingFileHandler(
+            log_file,
+            when="M",  # Minute-based rotation
+            interval=rotation_minutes,
+            backupCount=backup_count,
+            encoding="utf-8",
+            archive_dir=archive_dir,
+            max_bytes=max_size_mb * 1024 * 1024,  # Convert MB to bytes
+            onelake_client=onelake_client,
+            log_retention_hours=retention_hours,
+        )
+    else:
+        file_handler = ArchivingTimedRotatingFileHandler(
+            log_file,
+            when=rotation_when,
+            interval=rotation_interval,
+            backupCount=backup_count,
+            encoding="utf-8",
+            archive_dir=archive_dir,
+        )
+
     file_handler.setLevel(file_level)
     file_handler.setFormatter(file_formatter)
 

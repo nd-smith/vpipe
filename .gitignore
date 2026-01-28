@@ -112,3 +112,11 @@ Thumbs.db
 config.yaml:Zone.Identifier
 OVER_ENGINEERING_REVIEW.md
 findings.md
+
+# CI/CD files with secrets - DO NOT COMMIT
+Jenkinsfile
+build.gradle
+gradle.properties
+gradlew
+gradlew.bat
+gradle/
