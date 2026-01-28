@@ -4,7 +4,7 @@
 # Simple, clear configuration - no handler framework magic.
 #
 # Architecture:
-#   Plugin → Kafka (claimx.mitigation.task.tracking)
+#   Plugin → Kafka (com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking)
 #                ↓
 #        Tracking Worker
 #        (Enrichment + Success Topic)
@@ -23,13 +23,13 @@ workers:
   mitigation_tracking:
     # Kafka settings
     kafka:
-      input_topic: claimx.mitigation.task.tracking
+      input_topic: com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking
       consumer_group: claimx_mitigation_tracking_group
 
     # Pipeline configuration
     pipeline:
       claimx_connection: claimx_api
-      output_topic: claimx.mitigation.task.success
+      output_topic: com.allstate.pcesdopodappv1.claimx.mitigation.task.success
 
 # =============================================================================
 # Environment Variables Required

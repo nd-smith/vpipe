@@ -43,7 +43,7 @@ config:
         # Publish to unified tracking topic
         # Worker will consume from this topic, enrich with ClaimX API data,
         # and publish to success topic
-        publish_to_topic: claimx.mitigation.task.tracking
+        publish_to_topic: com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking
 
         log:
           level: info
@@ -61,7 +61,7 @@ config:
       # Trigger on COMPLETED status only
       on_completed:
         # Publish to same unified tracking topic
-        publish_to_topic: claimx.mitigation.task.tracking
+        publish_to_topic: com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking
 
         log:
           level: info
@@ -80,7 +80,7 @@ config:
 #   - Alternative: Use on_any to capture all status changes
 #
 # Kafka Topic:
-#   - claimx.mitigation.task.tracking: Single topic for all mitigation task completions
+#   - com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking: Single topic for all mitigation task completions
 #   - Worker consumes from this topic for processing
 #   - Retention: 7 days (configured in Kafka)
 #

@@ -82,7 +82,7 @@ class EventHubConfig:
     sasl_password: str = ""  # Full connection string
 
     # Consumer settings
-    events_topic: str = "xact.events.raw"
+    events_topic: str = "com.allstate.pcesdopodappv1.xact.events.raw"
     consumer_group: str = "xact-event-ingester"
     auto_offset_reset: str = "earliest"
 
@@ -95,7 +95,7 @@ class EventHubConfig:
             EVENTHUB_CONNECTION_STRING: Full Event Hub connection string
 
         Optional:
-            EVENTHUB_EVENTS_TOPIC: Topic name (default: xact.events.raw)
+            EVENTHUB_EVENTS_TOPIC: Topic name (default: com.allstate.pcesdopodappv1.xact.events.raw)
             EVENTHUB_CONSUMER_GROUP: Consumer group (default: xact-event-ingester)
         """
         bootstrap_servers = os.getenv("EVENTHUB_BOOTSTRAP_SERVERS")
@@ -109,7 +109,7 @@ class EventHubConfig:
         return cls(
             bootstrap_servers=bootstrap_servers,
             sasl_password=connection_string,
-            events_topic=os.getenv("EVENTHUB_EVENTS_TOPIC", "xact.events.raw"),
+            events_topic=os.getenv("EVENTHUB_EVENTS_TOPIC", "com.allstate.pcesdopodappv1.xact.events.raw"),
             consumer_group=os.getenv("EVENTHUB_CONSUMER_GROUP", "xact-event-ingester"),
             auto_offset_reset=os.getenv("EVENTHUB_AUTO_OFFSET_RESET", "earliest"),
         )
@@ -161,12 +161,12 @@ class LocalKafkaConfig:
     sasl_plain_password: str = ""  # For SASL authentication (e.g., Event Hub)
 
     # Topics for internal pipeline
-    events_topic: str = "xact.events.raw"  # Raw events from source
-    events_ingested_topic: str = "xact.events.ingested"  # Ingested events for Delta
-    downloads_pending_topic: str = "xact.downloads.pending"
-    downloads_cached_topic: str = "xact.downloads.cached"
-    downloads_results_topic: str = "xact.downloads.results"
-    dlq_topic: str = "xact.downloads.dlq"
+    events_topic: str = "com.allstate.pcesdopodappv1.xact.events.raw"  # Raw events from source
+    events_ingested_topic: str = "com.allstate.pcesdopodappv1.xact.events.ingested"  # Ingested events for Delta
+    downloads_pending_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.pending"
+    downloads_cached_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.cached"
+    downloads_results_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.results"
+    dlq_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.dlq"
 
     # Consumer group prefix
     consumer_group_prefix: str = "xact"
@@ -209,9 +209,9 @@ class LocalKafkaConfig:
         Optional env vars (all have defaults):
             LOCAL_KAFKA_BOOTSTRAP_SERVERS: Kafka broker (default: localhost:9092)
             LOCAL_KAFKA_SECURITY_PROTOCOL: Protocol (default: PLAINTEXT)
-            KAFKA_DOWNLOADS_PENDING_TOPIC: Pending topic (default: xact.downloads.pending)
-            KAFKA_DOWNLOADS_RESULTS_TOPIC: Results topic (default: xact.downloads.results)
-            KAFKA_DLQ_TOPIC: DLQ topic (default: xact.downloads.dlq)
+            KAFKA_DOWNLOADS_PENDING_TOPIC: Pending topic (default: com.allstate.pcesdopodappv1.xact.downloads.pending)
+            KAFKA_DOWNLOADS_RESULTS_TOPIC: Results topic (default: com.allstate.pcesdopodappv1.xact.downloads.results)
+            KAFKA_DLQ_TOPIC: DLQ topic (default: com.allstate.pcesdopodappv1.xact.downloads.dlq)
             ONELAKE_BASE_PATH: OneLake path for uploads (fallback)
             ONELAKE_XACT_PATH: OneLake path for xact domain
             ONELAKE_CLAIMX_PATH: OneLake path for claimx domain
@@ -279,39 +279,39 @@ class LocalKafkaConfig:
             # Topics: check nested kafka.xact.topics first, then flat kafka.*, then defaults
             events_topic=os.getenv(
                 "KAFKA_EVENTS_TOPIC",
-                topics_data.get("events", kafka_data.get("events_topic", "xact.events.raw")),
+                topics_data.get("events", kafka_data.get("events_topic", "com.allstate.pcesdopodappv1.xact.events.raw")),
             ),
             events_ingested_topic=os.getenv(
                 "KAFKA_EVENTS_INGESTED_TOPIC",
                 topics_data.get(
                     "events_ingested",
-                    kafka_data.get("events_ingested_topic", "xact.events.ingested"),
+                    kafka_data.get("events_ingested_topic", "com.allstate.pcesdopodappv1.xact.events.ingested"),
                 ),
             ),
             downloads_pending_topic=os.getenv(
                 "KAFKA_DOWNLOADS_PENDING_TOPIC",
                 topics_data.get(
                     "downloads_pending",
-                    kafka_data.get("downloads_pending_topic", "xact.downloads.pending"),
+                    kafka_data.get("downloads_pending_topic", "com.allstate.pcesdopodappv1.xact.downloads.pending"),
                 ),
             ),
             downloads_cached_topic=os.getenv(
                 "KAFKA_DOWNLOADS_CACHED_TOPIC",
                 topics_data.get(
                     "downloads_cached",
-                    kafka_data.get("downloads_cached_topic", "xact.downloads.cached"),
+                    kafka_data.get("downloads_cached_topic", "com.allstate.pcesdopodappv1.xact.downloads.cached"),
                 ),
             ),
             downloads_results_topic=os.getenv(
                 "KAFKA_DOWNLOADS_RESULTS_TOPIC",
                 topics_data.get(
                     "downloads_results",
-                    kafka_data.get("downloads_results_topic", "xact.downloads.results"),
+                    kafka_data.get("downloads_results_topic", "com.allstate.pcesdopodappv1.xact.downloads.results"),
                 ),
             ),
             dlq_topic=os.getenv(
                 "KAFKA_DLQ_TOPIC",
-                topics_data.get("dlq", kafka_data.get("dlq_topic", "xact.downloads.dlq")),
+                topics_data.get("dlq", kafka_data.get("dlq_topic", "com.allstate.pcesdopodappv1.xact.downloads.dlq")),
             ),
             consumer_group_prefix=os.getenv(
                 "KAFKA_CONSUMER_GROUP_PREFIX",
@@ -388,8 +388,8 @@ class LocalKafkaConfig:
         delta_processing.setdefault("batch_size", self.delta_events_batch_size)
         delta_processing.setdefault("retry_delays", self.retry_delays)
         delta_processing.setdefault("max_retries", self.max_retries)
-        delta_processing.setdefault("retry_topic_prefix", "delta-events.retry")
-        delta_processing.setdefault("dlq_topic", "delta-events.dlq")
+        delta_processing.setdefault("retry_topic_prefix", "com.allstate.pcesdopodappv1.delta-events.retry")
+        delta_processing.setdefault("dlq_topic", "com.allstate.pcesdopodappv1.delta-events.dlq")
 
         return KafkaConfig(
             bootstrap_servers=self.bootstrap_servers,
@@ -577,7 +577,7 @@ class ClaimXEventhouseSourceConfig:
     overlap_minutes: int = 5
 
     # Kafka topic
-    events_topic: str = "claimx.events.raw"
+    events_topic: str = "com.allstate.pcesdopodappv1.claimx.events.raw"
 
     # Backfill configuration
     backfill_start_stamp: Optional[str] = None
@@ -604,7 +604,7 @@ class ClaimXEventhouseSourceConfig:
             CLAIMX_POLL_BATCH_SIZE: Max events per poll (default: 1000)
             CLAIMX_EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
             CLAIMX_EVENTS_TABLE_PATH: Path to claimx_events Delta table
-            CLAIMX_EVENTS_TOPIC: Kafka topic (default: claimx.events.raw)
+            CLAIMX_EVENTS_TOPIC: Kafka topic (default: com.allstate.pcesdopodappv1.claimx.events.raw)
         """
         # Use default config directory if not specified
         resolved_path = config_path or DEFAULT_CONFIG_FILE
@@ -686,7 +686,7 @@ class ClaimXEventhouseSourceConfig:
                 os.getenv("CLAIMX_DEDUP_OVERLAP_MINUTES", str(dedup_data.get("overlap_minutes", 5)))
             ),
             events_topic=os.getenv(
-                "CLAIMX_EVENTS_TOPIC", poller_data.get("events_topic", "claimx.events.raw")
+                "CLAIMX_EVENTS_TOPIC", poller_data.get("events_topic", "com.allstate.pcesdopodappv1.claimx.events.raw")
             ),
             # Backfill configuration
             backfill_start_stamp=os.getenv(

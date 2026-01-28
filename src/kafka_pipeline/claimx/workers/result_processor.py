@@ -88,7 +88,7 @@ class ClaimXResultProcessor:
 
         Args:
             config: Kafka configuration for consumer
-            results_topic: Topic name for upload results (e.g., "claimx.downloads.results")
+            results_topic: Topic name for upload results (e.g., "com.allstate.pcesdopodappv1.claimx.downloads.results")
             inventory_table_path: Full abfss:// path to claimx_attachments table (optional)
             batch_size: Optional custom batch size (default: 100)
             batch_timeout_seconds: Optional custom timeout (default: 5.0)

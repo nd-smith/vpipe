@@ -86,14 +86,14 @@ max_events:
 # Expected Output
 # =============================================================================
 #
-# XACT Domain (xact.events.raw topic):
+# XACT Domain (com.allstate.pcesdopodappv1.xact.events.raw topic):
 #   - Event types: verisk.claims.property.xn.documentsReceived
 #   - Each event includes:
 #     - Claim metadata (assignmentId, policyNumber, etc.)
 #     - Property damage details
 #     - 1-5 attachment URLs (photos, documents, reports)
 #
-# ClaimX Domain (claimx.events.raw topic):
+# ClaimX Domain (com.allstate.pcesdopodappv1.claimx.events.raw topic):
 #   Standard Events (~70% of events):
 #     - PROJECT_CREATED
 #     - PROJECT_FILE_ADDED
@@ -134,13 +134,13 @@ max_events:
 #
 # 4. Monitor events:
 #    # Watch XACT events
-#    kafka-console-consumer --topic xact.events.raw --from-beginning
+#    kafka-console-consumer --topic com.allstate.pcesdopodappv1.xact.events.raw --from-beginning
 #
 #    # Watch ClaimX events
-#    kafka-console-consumer --topic claimx.events.raw --from-beginning
+#    kafka-console-consumer --topic com.allstate.pcesdopodappv1.claimx.events.raw --from-beginning
 #
 #    # Watch itel trigger events
-#    kafka-console-consumer --topic itel.cabinet.task.tracking --from-beginning
+#    kafka-console-consumer --topic com.allstate.pcesdopodappv1.itel.cabinet.task.tracking --from-beginning
 #
 # 5. Check Delta tables for persisted data
 #

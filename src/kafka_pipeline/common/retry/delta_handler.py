@@ -100,8 +100,8 @@ class DeltaRetryHandler:
         ...     producer=producer,
         ...     table_path="abfss://.../xact_events",
         ...     retry_delays=[300, 600, 1200, 2400],
-        ...     retry_topic_prefix="delta-events.retry",
-        ...     dlq_topic="delta-events.dlq",
+        ...     retry_topic_prefix="com.allstate.pcesdopodappv1.delta-events.retry",
+        ...     dlq_topic="com.allstate.pcesdopodappv1.delta-events.dlq",
         ...     domain="xact"
         ... )
     """
@@ -124,8 +124,8 @@ class DeltaRetryHandler:
             producer: Kafka producer for sending retry/DLQ messages
             table_path: Delta table path for writes
             retry_delays: List of retry delays in seconds (default: [300, 600, 1200, 2400])
-            retry_topic_prefix: Prefix for retry topics (default: "delta-events.retry")
-            dlq_topic: Dead-letter queue topic name (default: "delta-events.dlq")
+            retry_topic_prefix: Prefix for retry topics (default: "com.allstate.pcesdopodappv1.delta-events.retry")
+            dlq_topic: Dead-letter queue topic name (default: "com.allstate.pcesdopodappv1.delta-events.dlq")
             domain: Domain identifier (default: "xact")
         """
         self.config = config
@@ -136,8 +136,8 @@ class DeltaRetryHandler:
         # Retry configuration with defaults
         self._retry_delays = retry_delays or [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
         self._max_retries = len(self._retry_delays)
-        self._retry_topic_prefix = retry_topic_prefix or "delta-events.retry"
-        self._dlq_topic = dlq_topic or "delta-events.dlq"
+        self._retry_topic_prefix = retry_topic_prefix or "com.allstate.pcesdopodappv1.delta-events.retry"
+        self._dlq_topic = dlq_topic or "com.allstate.pcesdopodappv1.delta-events.dlq"
 
         logger.info(
             "Initialized DeltaRetryHandler",

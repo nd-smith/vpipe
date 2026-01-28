@@ -169,16 +169,16 @@ class MonitoringServer:
         """Extract topic statistics from parsed metrics."""
         # Known topics to track
         topic_names = [
-            "xact.downloads.pending",
-            "xact.downloads.cached",
-            "xact.downloads.results",
-            "xact.downloads.dlq",
-            "xact.events.raw",
+            "com.allstate.pcesdopodappv1.xact.downloads.pending",
+            "com.allstate.pcesdopodappv1.xact.downloads.cached",
+            "com.allstate.pcesdopodappv1.xact.downloads.results",
+            "com.allstate.pcesdopodappv1.xact.downloads.dlq",
+            "com.allstate.pcesdopodappv1.xact.events.raw",
         ]
 
         # Initialize topics
         for name in topic_names:
-            short_name = name.replace("xact.", "")
+            short_name = name.replace("com.allstate.pcesdopodappv1.xact.", "")
             data.topics[name] = TopicStats(name=short_name)
 
         # Consumer lag per topic

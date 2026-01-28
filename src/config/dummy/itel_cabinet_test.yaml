@@ -12,7 +12,7 @@
 # What this does:
 #   1. Generates ClaimX events with task_id=32513 (itel Cabinet Repair Form)
 #   2. Events include realistic form data and attachments
-#   3. Plugin triggers and publishes to itel.cabinet.task.tracking topic
+#   3. Plugin triggers and publishes to com.allstate.pcesdopodappv1.itel.cabinet.task.tracking topic
 #   4. Worker consumes and processes through enrichment pipeline
 #   5. Data written to Delta tables or sent to itel API
 #
@@ -111,9 +111,9 @@ max_events: 100
 # Monitoring:
 #   - Dummy source logs: Shows event generation progress
 #   - Worker logs: Shows enrichment pipeline processing
-#   - Kafka topic: itel.cabinet.task.tracking
-#   - Success topic: itel.cabinet.task.tracking.success
-#   - Error topic: itel.cabinet.task.tracking.errors
+#   - Kafka topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking
+#   - Success topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking.success
+#   - Error topic: com.allstate.pcesdopodappv1.itel.cabinet.api.errors
 #
 # Troubleshooting:
 #   - No events generated: Check domains includes "claimx"

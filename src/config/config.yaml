@@ -23,13 +23,13 @@ kafka:
   # XACT domain configuration
   xact:
     topics:
-      events: "xact.events.raw"
-      events_ingested: "xact.events.ingested"
-      enrichment_pending: "xact.enrichment.pending"
-      downloads_pending: "xact.downloads.pending"
-      downloads_cached: "xact.downloads.cached"
-      downloads_results: "xact.downloads.results"
-      dlq: "xact.downloads.dlq"
+      events: "com.allstate.pcesdopodappv1.xact.events.raw"
+      events_ingested: "com.allstate.pcesdopodappv1.xact.events.ingested"
+      enrichment_pending: "com.allstate.pcesdopodappv1.xact.enrichment.pending"
+      downloads_pending: "com.allstate.pcesdopodappv1.xact.downloads.pending"
+      downloads_cached: "com.allstate.pcesdopodappv1.xact.downloads.cached"
+      downloads_results: "com.allstate.pcesdopodappv1.xact.downloads.results"
+      dlq: "com.allstate.pcesdopodappv1.xact.downloads.dlq"
 
     consumer_group_prefix: "xact"
     retry_delays: [10, 20, 40, 80]  # Shorter delays for simulation (10s, 20s, 40s, 80s)
@@ -38,13 +38,14 @@ kafka:
   # ClaimX domain configuration
   claimx:
     topics:
-      events: "claimx.events.raw"
-      enrichment_pending: "claimx.enrichment.pending"
-      entities_rows: "claimx.entities.rows"
-      downloads_pending: "claimx.downloads.pending"
-      downloads_cached: "claimx.downloads.cached"
-      downloads_results: "claimx.downloads.results"
-      dlq: "claimx.downloads.dlq"
+      events: "com.allstate.pcesdopodappv1.claimx.events.raw"
+      enrichment_pending: "com.allstate.pcesdopodappv1.claimx.enrichment.pending"
+      enrichment.dlq: "com.allstate.pcesdopodappv1.claimx.enrichment.dlq"
+      entities_rows: "com.allstate.pcesdopodappv1.claimx.entities.rows"
+      downloads_pending: "com.allstate.pcesdopodappv1.claimx.downloads.pending"
+      downloads_cached: "com.allstate.pcesdopodappv1.claimx.downloads.cached"
+      downloads_results: "com.allstate.pcesdopodappv1.claimx.downloads.results"
+      dlq: "com.allstate.pcesdopodappv1.claimx.downloads.dlq"
 
     consumer_group_prefix: "claimx"
     retry_delays: [10, 20, 40, 80]  # Shorter delays for simulation (10s, 20s, 40s, 80s)

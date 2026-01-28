@@ -21,10 +21,10 @@ Features:
 - Retry via Kafka topics with exponential backoff
 
 Consumer group: {prefix}-claimx-delta-events (different from ingester)
-Input topic: claimx.events.raw (or configured events topic)
+Input topic: com.allstate.pcesdopodappv1.claimx.events.raw (or configured events topic)
 Output: Delta table claimx_events (no Kafka output)
-Retry topics: claimx-delta-events.retry.{delay}m
-DLQ topic: claimx-delta-events.dlq
+Retry topics: com.allstate.pcesdopodappv1.claimx-delta-events.retry.{delay}m
+DLQ topic: com.allstate.pcesdopodappv1.claimx-delta-events.dlq
 """
 
 import asyncio
@@ -120,9 +120,9 @@ class ClaimXDeltaEventsWorker:
         # Retry configuration from worker processing settings
         self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
         self._retry_topic_prefix = processing_config.get(
-            "retry_topic_prefix", "claimx-delta-events.retry"
+            "retry_topic_prefix", "com.allstate.pcesdopodappv1.claimx-delta-events.retry"
         )
-        self._dlq_topic = processing_config.get("dlq_topic", "claimx-delta-events.dlq")
+        self._dlq_topic = processing_config.get("dlq_topic", "com.allstate.pcesdopodappv1.claimx-delta-events.dlq")
 
         # Batch state
         self._batch: List[Dict[str, Any]] = []

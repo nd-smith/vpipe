@@ -146,12 +146,13 @@ kafka:
     # Topic Configuration
     # -------------------------------------------------------------------------
     topics:
-      events: "xact.events.raw"                  # Raw events from Event Hub/Eventhouse
-      events_ingested: "xact.events.ingested"    # Ingested/parsed events ready for Delta
-      downloads_pending: "xact.downloads.pending"  # Download tasks awaiting processing
-      downloads_cached: "xact.downloads.cached"    # Downloads cached locally, awaiting upload
-      downloads_results: "xact.downloads.results"  # Upload results for Delta processing
-      dlq: "xact.downloads.dlq"                    # Dead letter queue for failed messages
+      events: "com.allstate.pcesdopodappv1.xact.events.raw"                  # Raw events from Event Hub/Eventhouse
+      events_ingested: "com.allstate.pcesdopodappv1.xact.events.ingested"    # Ingested/parsed events ready for Delta
+      enrichment_pending: "com.allstate.pcesdopodappv1.xact.enrichment.pending"  # Events awaiting enrichment
+      downloads_pending: "com.allstate.pcesdopodappv1.xact.downloads.pending"  # Download tasks awaiting processing
+      downloads_cached: "com.allstate.pcesdopodappv1.xact.downloads.cached"    # Downloads cached locally, awaiting upload
+      downloads_results: "com.allstate.pcesdopodappv1.xact.downloads.results"  # Upload results for Delta processing
+      dlq: "com.allstate.pcesdopodappv1.xact.downloads.dlq"                    # Dead letter queue for failed messages
 
     # Prefix for consumer group names in this domain
     # Group names will be: {prefix}-{worker_name}
@@ -166,8 +167,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Event Ingester Worker
-    # Consumes: xact.events.raw
-    # Produces to: xact.events.ingested, xact.downloads.pending
+    # Consumes: com.allstate.pcesdopodappv1.xact.events.raw
+    # Produces to: com.allstate.pcesdopodappv1.xact.events.ingested, com.allstate.pcesdopodappv1.xact.downloads.pending
     # Purpose: Parse events, extract attachment metadata, create download tasks
     # -------------------------------------------------------------------------
     event_ingester:
@@ -213,8 +214,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Download Worker
-    # Consumes: xact.downloads.pending + xact.downloads.retry.*
-    # Produces to: xact.downloads.cached
+    # Consumes: com.allstate.pcesdopodappv1.xact.downloads.pending + com.allstate.pcesdopodappv1.xact.retry
+    # Produces to: com.allstate.pcesdopodappv1.xact.downloads.cached
     # Purpose: Download attachments from S3, cache locally for upload
     # -------------------------------------------------------------------------
     download_worker:
@@ -253,8 +254,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Upload Worker
-    # Consumes: xact.downloads.cached
-    # Produces to: xact.downloads.results
+    # Consumes: com.allstate.pcesdopodappv1.xact.downloads.cached
+    # Produces to: com.allstate.pcesdopodappv1.xact.downloads.results
     # Purpose: Upload cached files to OneLake, produce results
     # -------------------------------------------------------------------------
     upload_worker:
@@ -286,8 +287,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Delta Events Writer Worker
-    # Consumes: xact.downloads.results
-    # Produces to: delta-events.retry.*, delta-events.dlq
+    # Consumes: com.allstate.pcesdopodappv1.xact.downloads.results
+    # Produces to: com.allstate.pcesdopodappv1.delta-events.retry.*, com.allstate.pcesdopodappv1.delta-events.dlq
     # Purpose: Write events to Delta tables in batches
     # -------------------------------------------------------------------------
     delta_events_writer:
@@ -324,10 +325,10 @@ kafka:
         max_retries: 4
 
         # Topic prefix for retry topics
-        retry_topic_prefix: "delta-events.retry"
+        retry_topic_prefix: "com.allstate.pcesdopodappv1.delta-events.retry"
 
         # Dead letter queue topic
-        dlq_topic: "delta-events.dlq"
+        dlq_topic: "com.allstate.pcesdopodappv1.delta-events.dlq"
 
   # ===========================================================================
   # CLAIMX DOMAIN CONFIGURATION
@@ -338,12 +339,14 @@ kafka:
     # Topic Configuration
     # -------------------------------------------------------------------------
     topics:
-      events: "claimx.events.raw"                      # Raw events from Eventhouse
-      enrichment_pending: "claimx.enrichment.pending"  # Events awaiting API enrichment
-      downloads_pending: "claimx.downloads.pending"    # Download tasks awaiting processing
-      downloads_cached: "claimx.downloads.cached"      # Downloads cached locally
-      downloads_results: "claimx.downloads.results"    # Upload results
-      dlq: "claimx.downloads.dlq"                      # Dead letter queue
+      events: "com.allstate.pcesdopodappv1.claimx.events.raw"                      # Raw events from Eventhouse
+      enrichment_pending: "com.allstate.pcesdopodappv1.claimx.enrichment.pending"  # Events awaiting API enrichment
+      enrichment.dlq: "com.allstate.pcesdopodappv1.claimx.enrichment.dlq"          # Enrichment dead letter queue
+      entities_rows: "com.allstate.pcesdopodappv1.claimx.entities.rows"            # Entity data rows
+      downloads_pending: "com.allstate.pcesdopodappv1.claimx.downloads.pending"    # Download tasks awaiting processing
+      downloads_cached: "com.allstate.pcesdopodappv1.claimx.downloads.cached"      # Downloads cached locally
+      downloads_results: "com.allstate.pcesdopodappv1.claimx.downloads.results"    # Upload results
+      dlq: "com.allstate.pcesdopodappv1.claimx.downloads.dlq"                      # Dead letter queue
 
     consumer_group_prefix: "claimx"
 
@@ -352,8 +355,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Event Ingester Worker
-    # Consumes: claimx.events.raw
-    # Produces to: claimx.enrichment.pending
+    # Consumes: com.allstate.pcesdopodappv1.claimx.events.raw
+    # Produces to: com.allstate.pcesdopodappv1.claimx.enrichment.pending
     # Purpose: Parse events, route to enrichment
     # -------------------------------------------------------------------------
     event_ingester:
@@ -373,8 +376,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Enrichment Worker
-    # Consumes: claimx.enrichment.pending
-    # Produces to: claimx.downloads.pending
+    # Consumes: com.allstate.pcesdopodappv1.claimx.enrichment.pending
+    # Produces to: com.allstate.pcesdopodappv1.claimx.downloads.pending
     # Purpose: Enrich events with ClaimX API data
     # -------------------------------------------------------------------------
     enrichment_worker:
@@ -402,8 +405,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Download Worker
-    # Consumes: claimx.downloads.pending + retry topics
-    # Produces to: claimx.downloads.cached
+    # Consumes: com.allstate.pcesdopodappv1.claimx.downloads.pending + com.allstate.pcesdopodappv1.claimx.retry
+    # Produces to: com.allstate.pcesdopodappv1.claimx.downloads.cached
     # Purpose: Download attachments from ClaimX S3
     # -------------------------------------------------------------------------
     download_worker:
@@ -426,8 +429,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Upload Worker
-    # Consumes: claimx.downloads.cached
-    # Produces to: claimx.downloads.results
+    # Consumes: com.allstate.pcesdopodappv1.claimx.downloads.cached
+    # Produces to: com.allstate.pcesdopodappv1.claimx.downloads.results
     # Purpose: Upload cached files to OneLake
     # -------------------------------------------------------------------------
     upload_worker:
@@ -446,8 +449,8 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Delta Events Writer Worker
-    # Consumes: claimx.downloads.results
-    # Produces to: delta-events.retry.*, delta-events.dlq
+    # Consumes: com.allstate.pcesdopodappv1.claimx.downloads.results
+    # Produces to: com.allstate.pcesdopodappv1.delta-events.retry.*, com.allstate.pcesdopodappv1.delta-events.dlq
     # Purpose: Write events to Delta tables
     # -------------------------------------------------------------------------
     delta_events_writer:

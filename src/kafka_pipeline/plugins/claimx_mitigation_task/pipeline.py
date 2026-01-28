@@ -43,7 +43,7 @@ class MitigationTaskPipeline:
         self.kafka = kafka_producer
         self.config = config
         self.claimx_connection = config.get("claimx_connection", "claimx_api")
-        self.output_topic = config.get("output_topic", "claimx.mitigation.task.success")
+        self.output_topic = config.get("output_topic", "com.allstate.pcesdopodappv1.claimx.mitigation.task.success")
 
         logger.info(
             "MitigationTaskPipeline initialized",
