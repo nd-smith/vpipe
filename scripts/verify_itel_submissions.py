@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """Verify iTel Cabinet submissions in simulation mode.
 
 This script checks that iTel Cabinet API worker correctly writes submissions

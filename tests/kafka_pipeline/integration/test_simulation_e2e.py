@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """End-to-end integration tests for simulation mode.
 
 Tests the full pipeline flow from dummy producer through all workers to Delta Lake:
