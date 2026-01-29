@@ -84,7 +84,7 @@ from dotenv import load_dotenv
 from prometheus_client import start_http_server, REGISTRY
 
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger, setup_logging, setup_multi_worker_logging
+from core.logging.setup import get_logger, setup_logging, setup_multi_worker_logging, upload_crash_logs
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.runners.registry import WORKER_REGISTRY, run_worker_from_registry
 
@@ -542,6 +542,9 @@ def main():
             logger.error("Use --dev flag for local development without Event Hub/Eventhouse")
             logger.warning("Running in ERROR MODE - health endpoint will remain alive")
 
+            # Upload crash logs before entering error mode
+            upload_crash_logs(reason=f"Configuration error: {e}")
+
             # Run in error mode: keep health endpoint alive but report not ready
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -689,6 +692,9 @@ def main():
     except Exception as e:
         logger.error("Fatal error", extra={"error": str(e)}, exc_info=True)
         logger.warning("Entering ERROR MODE - health endpoint will remain alive")
+
+        # Upload crash logs before entering error mode
+        upload_crash_logs(reason=f"Fatal error: {e}")
 
         # Run in error mode: keep health endpoint alive but report not ready
         async def run_fatal_error_mode():
