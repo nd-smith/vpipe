@@ -804,7 +804,6 @@ class TestAttachmentDownloaderIntegration:
 
     @pytest.mark.asyncio
     async def test_custom_allowed_extensions(self, temp_output_dir):
-        """Test download with custom allowed extensions."""
         task = DownloadTask(
             url="https://claimxperience.com/file.custom",
             destination=temp_output_dir / "file.custom",

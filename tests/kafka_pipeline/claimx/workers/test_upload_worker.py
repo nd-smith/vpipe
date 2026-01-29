@@ -21,7 +21,6 @@ from kafka_pipeline.claimx.workers.upload_worker import ClaimXUploadWorker, Uplo
 
 @pytest.fixture
 def temp_cache_dir(tmp_path):
-    """Create temporary cache directory with cached files."""
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     return cache_dir
@@ -29,7 +28,6 @@ def temp_cache_dir(tmp_path):
 
 @pytest.fixture
 def kafka_config(temp_cache_dir):
-    """Create test Kafka configuration."""
     return KafkaConfig(
         bootstrap_servers="localhost:9092",
         security_protocol="PLAINTEXT",
@@ -62,7 +60,6 @@ def kafka_config(temp_cache_dir):
 
 @pytest.fixture
 def sample_cached_message(temp_cache_dir):
-    """Create sample ClaimXCachedDownloadMessage for testing."""
     # Create the actual cached file
     cache_subdir = temp_cache_dir / "claimx" / "media-111"
     cache_subdir.mkdir(parents=True, exist_ok=True)
@@ -86,7 +83,6 @@ def sample_cached_message(temp_cache_dir):
 
 @pytest.fixture
 def sample_consumer_record(sample_cached_message):
-    """Create sample ConsumerRecord with ClaimXCachedDownloadMessage."""
     return ConsumerRecord(
         topic="test.claimx.downloads.cached",
         partition=0,
@@ -107,7 +103,6 @@ class TestClaimXUploadWorker:
     """Test suite for ClaimXUploadWorker."""
 
     async def test_initialization(self, kafka_config):
-        """Test worker initialization with correct configuration."""
         worker = ClaimXUploadWorker(kafka_config)
 
         assert worker.config == kafka_config
@@ -120,7 +115,6 @@ class TestClaimXUploadWorker:
         assert worker.batch_size == 20
 
     async def test_initialization_no_onelake_path_raises(self):
-        """Test that missing OneLake path raises ValueError."""
         config = KafkaConfig(
             bootstrap_servers="localhost:9092",
             security_protocol="PLAINTEXT",
@@ -141,7 +135,6 @@ class TestClaimXUploadWorker:
             ClaimXUploadWorker(config)
 
     async def test_start_initializes_onelake_client(self, kafka_config, tmp_path):
-        """Test that start() initializes OneLake client."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Mock dependencies - replace the producer that was created in __init__
@@ -170,7 +163,6 @@ class TestClaimXUploadWorker:
     async def test_process_single_upload_success(
         self, kafka_config, sample_consumer_record, sample_cached_message
     ):
-        """Test successful upload processing."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize concurrency control
@@ -210,7 +202,6 @@ class TestClaimXUploadWorker:
     async def test_process_single_upload_file_not_found(
         self, kafka_config, sample_cached_message
     ):
-        """Test upload fails when cached file doesn't exist."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize concurrency control
@@ -252,7 +243,6 @@ class TestClaimXUploadWorker:
         assert result_message.status == "failed_permanent"
 
     async def test_process_single_upload_invalid_json(self, kafka_config):
-        """Test handling of invalid message JSON."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize concurrency control
@@ -289,7 +279,7 @@ class TestClaimXUploadWorker:
     async def test_process_batch_concurrent(
         self, kafka_config, temp_cache_dir
     ):
-        """Test concurrent batch processing."""
+        """Batch processing respects concurrency limits via semaphore."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize concurrency control with limit of 3
@@ -374,7 +364,7 @@ class TestClaimXUploadWorker:
     async def test_in_flight_tracking(
         self, kafka_config, sample_consumer_record, sample_cached_message
     ):
-        """Test in-flight task tracking."""
+        """In-flight task set tracks active uploads and clears on completion."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize concurrency control
@@ -406,7 +396,7 @@ class TestClaimXUploadWorker:
         assert len(worker._in_flight_tasks) == 0
 
     async def test_cleanup_cache_file(self, kafka_config, tmp_path):
-        """Test cache file cleanup after successful upload."""
+        """Cache cleanup deletes file and empty parent directory."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Create test cache file structure
@@ -425,7 +415,6 @@ class TestClaimXUploadWorker:
         assert not cache_subdir.exists()
 
     async def test_cleanup_cache_file_nonexistent(self, kafka_config, tmp_path):
-        """Test cleanup handles nonexistent file gracefully."""
         worker = ClaimXUploadWorker(kafka_config)
 
         nonexistent_file = tmp_path / "nonexistent" / "file.pdf"
@@ -434,7 +423,6 @@ class TestClaimXUploadWorker:
         await worker._cleanup_cache_file(nonexistent_file)
 
     async def test_request_shutdown(self, kafka_config):
-        """Test graceful shutdown request."""
         worker = ClaimXUploadWorker(kafka_config)
         worker._running = True
 
@@ -443,7 +431,7 @@ class TestClaimXUploadWorker:
         assert worker._running is False
 
     async def test_stop_waits_for_in_flight(self, kafka_config):
-        """Test stop waits for in-flight uploads."""
+        """Graceful shutdown: stop() waits for in-flight uploads to complete."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize state
@@ -472,7 +460,6 @@ class TestClaimXUploadWorker:
     async def test_produces_failure_result_on_upload_error(
         self, kafka_config, sample_consumer_record, sample_cached_message
     ):
-        """Test that upload failures produce failure result message."""
         worker = ClaimXUploadWorker(kafka_config)
 
         # Initialize concurrency control
@@ -504,7 +491,6 @@ class TestClaimXUploadWorkerConfig:
     """Test suite for upload worker configuration."""
 
     async def test_default_concurrency_from_processing_config(self):
-        """Test concurrency loaded from processing config."""
         config = KafkaConfig(
             bootstrap_servers="localhost:9092",
             security_protocol="PLAINTEXT",
@@ -530,7 +516,6 @@ class TestClaimXUploadWorkerConfig:
         assert worker.batch_size == 30
 
     async def test_fallback_to_default_concurrency(self):
-        """Test fallback to defaults when not in config."""
         config = KafkaConfig(
             bootstrap_servers="localhost:9092",
             security_protocol="PLAINTEXT",
@@ -551,7 +536,7 @@ class TestClaimXUploadWorkerConfig:
         assert worker.batch_size == 20
 
     async def test_uses_domain_specific_onelake_path(self):
-        """Test that domain-specific OneLake path is preferred."""
+        """Domain-specific OneLake path preferred over base path when available."""
         config = KafkaConfig(
             bootstrap_servers="localhost:9092",
             security_protocol="PLAINTEXT",

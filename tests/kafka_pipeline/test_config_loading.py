@@ -26,7 +26,6 @@ from kafka_pipeline.config import (
 
 @pytest.fixture
 def temp_config_dir(tmp_path):
-    """Create a temporary config directory for testing."""
     config_dir = tmp_path / "config"
     config_dir.mkdir(exist_ok=True)
     return config_dir
@@ -34,7 +33,6 @@ def temp_config_dir(tmp_path):
 
 @pytest.fixture
 def monolithic_config_content() -> Dict[str, Any]:
-    """Standard monolithic config content for testing."""
     return {
         "event_source": "eventhouse",
         "kafka": {
@@ -153,7 +151,6 @@ def monolithic_config_content() -> Dict[str, Any]:
 
 @pytest.fixture
 def split_config_files() -> Dict[str, Dict[str, Any]]:
-    """Split config files content for testing."""
     return {
         "01_shared.yaml": {
             "kafka": {
@@ -289,7 +286,6 @@ def split_config_files() -> Dict[str, Dict[str, Any]]:
 
 
 def write_yaml_file(path: Path, content: Dict[str, Any]) -> None:
-    """Helper to write YAML file."""
     with open(path, "w") as f:
         yaml.safe_dump(content, f, default_flow_style=False, sort_keys=False)
 
@@ -305,13 +301,11 @@ class TestSplitConfigLoading:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_load_from_split_config_directory(self, temp_config_dir, split_config_files):
-        """Test loading from split YAML files in config/ directory."""
         # Write all split config files
         for filename, content in split_config_files.items():
             write_yaml_file(temp_config_dir / filename, content)
@@ -325,7 +319,7 @@ class TestSplitConfigLoading:
         pytest.skip("Waiting for load_config_from_directory implementation")
 
     def test_split_config_file_ordering(self, temp_config_dir):
-        """Test that files are loaded in lexicographic order (01, 02, 03...)."""
+        """Files loaded in lexicographic order (01, 02...) with later files overriding."""
         # Create files with conflicting values
         write_yaml_file(
             temp_config_dir / "01_first.yaml",
@@ -344,7 +338,6 @@ class TestSplitConfigLoading:
         # assert config.bootstrap_servers == "second:9092"
 
     def test_split_config_ignores_non_yaml_files(self, temp_config_dir):
-        """Test that non-YAML files in config/ are ignored."""
         write_yaml_file(
             temp_config_dir / "01_valid.yaml",
             {"kafka": {"connection": {"bootstrap_servers": "valid:9092"}}},
@@ -373,13 +366,11 @@ class TestMergePrecedence:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_later_file_overrides_earlier_scalar(self, temp_config_dir):
-        """Test that scalar values in later files override earlier values."""
         write_yaml_file(
             temp_config_dir / "01_base.yaml",
             {"kafka": {"consumer_defaults": {"max_poll_records": 1000}}},
@@ -396,7 +387,7 @@ class TestMergePrecedence:
         # assert config.consumer_defaults["max_poll_records"] == 2000
 
     def test_later_file_overrides_arrays_completely(self, temp_config_dir):
-        """Test that arrays in later files completely replace earlier arrays."""
+        """Arrays are replaced completely, not merged (later file overwrites entire array)."""
         write_yaml_file(
             temp_config_dir / "01_base.yaml",
             {"kafka": {"xact": {"retry_delays": [300, 600, 1200, 2400]}}},
@@ -423,13 +414,12 @@ class TestDeepMerge:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_nested_dicts_merge_deeply(self, temp_config_dir):
-        """Test that nested dicts merge keys instead of replacing entire dict."""
+        """Nested dicts merge deeply: keys are merged, not replaced entirely."""
         write_yaml_file(
             temp_config_dir / "01_base.yaml",
             {
@@ -456,7 +446,7 @@ class TestDeepMerge:
         # assert config.sasl_mechanism == "OAUTHBEARER"
 
     def test_deep_merge_preserves_worker_configs(self, temp_config_dir):
-        """Test that worker configs merge properly across files."""
+        """Worker configs merge with shared defaults (deep merge preserves both)."""
         write_yaml_file(
             temp_config_dir / "01_shared.yaml",
             {"kafka": {"consumer_defaults": {"max_poll_records": 1000}}},
@@ -497,13 +487,11 @@ class TestEnvironmentOverrides:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_env_var_overrides_yaml(self, temp_config_dir, split_config_files, monkeypatch):
-        """Test that environment variables override YAML config."""
         for filename, content in split_config_files.items():
             write_yaml_file(temp_config_dir / filename, content)
 
@@ -517,7 +505,6 @@ class TestEnvironmentOverrides:
         # assert config.claimx_api_token == "env-override-token"
 
     def test_env_vars_work_with_split_config(self, temp_config_dir, split_config_files, monkeypatch):
-        """Test that env vars work with split config directory."""
         for filename, content in split_config_files.items():
             write_yaml_file(temp_config_dir / filename, content)
 
@@ -537,20 +524,17 @@ class TestMissingFiles:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_missing_config_directory_raises_error(self, tmp_path):
-        """Test that missing config directory raises FileNotFoundError."""
         missing_dir = tmp_path / "nonexistent_config"
 
         with pytest.raises(FileNotFoundError):
             load_config(config_path=missing_dir)
 
     def test_empty_config_directory_raises_error(self, temp_config_dir):
-        """Test that empty config/ directory raises error."""
         # TODO: Implement
         pytest.skip("Waiting for directory validation implementation")
 
@@ -558,7 +542,6 @@ class TestMissingFiles:
         #     load_config_from_directory(config_dir=temp_config_dir)
 
     def test_invalid_yaml_syntax_raises_error(self, temp_config_dir):
-        """Test that invalid YAML syntax raises error."""
         invalid_file = temp_config_dir / "01_invalid.yaml"
         invalid_file.write_text("kafka:\n  invalid: [unclosed bracket")
 
@@ -579,13 +562,11 @@ class TestPluginConfigLoading:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_plugin_config_loaded_separately(self, temp_config_dir):
-        """Test that plugin configs in config/plugins/ are loaded."""
         plugins_dir = temp_config_dir / "plugins"
         plugins_dir.mkdir(exist_ok=True)
 
@@ -608,7 +589,7 @@ class TestPluginConfigLoading:
         # assert plugins["custom_plugin"]["enabled"] is True
 
     def test_plugin_config_does_not_affect_main_config(self, temp_config_dir):
-        """Test that plugin configs don't interfere with main config."""
+        """Plugin configs isolated from main config (separate namespace)."""
         plugins_dir = temp_config_dir / "plugins"
         plugins_dir.mkdir(exist_ok=True)
 
@@ -641,13 +622,12 @@ class TestConfigValidation:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_merged_config_passes_validation(self, temp_config_dir):
-        """Test that merged config passes existing validation rules."""
+        """Merged config from multiple files passes validation."""
         # Create config directory with properly structured files
         (temp_config_dir / "shared.yaml").write_text("""
 kafka:
@@ -726,7 +706,7 @@ kafka:
         config.validate()  # Explicit validation call
 
     def test_invalid_timeout_values_caught(self, temp_config_dir):
-        """Test that validation catches invalid Kafka timeout values."""
+        """Validation catches invalid timeout relationships (e.g., heartbeat >= session/3)."""
         # Write minimal valid shared.yaml
         write_yaml_file(
             temp_config_dir / "shared.yaml",
@@ -756,13 +736,11 @@ class TestConfigLoadingPerformance:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        """Reset singleton before and after each test."""
         reset_config()
         yield
         reset_config()
 
     def test_loading_completes_quickly(self, temp_config_dir):
-        """Test that config loading completes in reasonable time."""
         import time
 
         # Create minimal config files
@@ -806,7 +784,7 @@ kafka:
         assert elapsed < 0.1, f"Config loading took {elapsed:.3f}s (should be < 0.1s)"
 
     def test_large_split_config_loads_efficiently(self, temp_config_dir):
-        """Test that loading many split files is still efficient."""
+        """Loading many split files (20+) remains efficient."""
         import time
 
         # Create 20 config files
