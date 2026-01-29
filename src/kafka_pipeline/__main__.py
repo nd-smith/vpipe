@@ -551,9 +551,9 @@ def main():
                 """Run health server in error state until shutdown signal."""
                 shutdown_event = get_shutdown_event()
 
-                # Start health server in error state
+                # Start health server in error state on port 8080 (matches Jenkinsfile probes)
                 health_server = HealthCheckServer(
-                    port=8092,  # Default health port for xact-poller
+                    port=8080,
                     worker_name=args.worker,
                     enabled=True,
                 )
@@ -675,9 +675,9 @@ def main():
             """Run health server in error state after fatal error."""
             shutdown_event = get_shutdown_event()
 
-            # Start health server in error state
+            # Start health server in error state on port 8080 (matches Jenkinsfile probes)
             health_server = HealthCheckServer(
-                port=8092,  # Default health port
+                port=8080,
                 worker_name=args.worker,
                 enabled=True,
             )
