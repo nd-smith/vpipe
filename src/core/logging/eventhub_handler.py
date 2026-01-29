@@ -129,7 +129,6 @@ class EventHubLogHandler(logging.Handler):
         Background thread that sends logs to Event Hub.
         Runs in a separate event loop to avoid blocking workers.
         """
-        # Create new event loop for this thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 

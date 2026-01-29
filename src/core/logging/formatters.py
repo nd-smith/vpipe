@@ -9,49 +9,11 @@
 import json
 import logging
 import re
-from datetime import datetime, date, timezone
-from decimal import Decimal
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from core.logging.context import get_log_context
-
-
-def _json_serializer(obj: Any) -> Any:
-    """
-    Type-safe JSON serializer for ADX compatibility.
-
-    Ensures proper types for ADX schema instead of converting everything to strings:
-    - datetime/date → ISO 8601 string
-    - Decimal → float (for precise numeric fields)
-    - Path → string
-    - Enums → value
-    - Everything else → string (fallback)
-
-    This prevents numeric fields from becoming strings, which would break
-    ADX aggregations and cause schema drift.
-
-    Args:
-        obj: Object to serialize
-
-    Returns:
-        JSON-serializable representation with proper types
-    """
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    elif isinstance(obj, Decimal):
-        return float(obj)
-    elif isinstance(obj, Path):
-        return str(obj)
-    elif hasattr(obj, "value"):
-        # For enums
-        return obj.value
-    elif hasattr(obj, "__dict__"):
-        # For objects with __dict__, serialize as dict
-        return obj.__dict__
-    else:
-        # Fallback to string
-        return str(obj)
+from core.utils.json_serializers import json_serializer
 
 
 class JSONFormatter(logging.Formatter):
@@ -283,7 +245,7 @@ class JSONFormatter(logging.Formatter):
 
         # Use type-safe serializer instead of default=str
         # This prevents numeric fields from becoming strings
-        return json.dumps(log_entry, default=_json_serializer, ensure_ascii=False)
+        return json.dumps(log_entry, default=json_serializer, ensure_ascii=False)
 
 
 class ConsoleFormatter(logging.Formatter):

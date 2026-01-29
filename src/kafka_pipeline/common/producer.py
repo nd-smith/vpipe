@@ -9,15 +9,7 @@
 import json
 import logging
 import time
-from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
-
-
-def _json_serializer(obj: Any) -> str:
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import RecordMetadata
@@ -25,6 +17,7 @@ from pydantic import BaseModel
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging import get_logger, log_with_context, log_exception
+from core.utils.json_serializers import json_serializer
 from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     record_message_produced,
@@ -202,7 +195,7 @@ class BaseKafkaProducer:
         elif isinstance(value, BaseModel):
             value_bytes = value.model_dump_json().encode("utf-8")
         else:
-            value_bytes = json.dumps(value, default=_json_serializer).encode("utf-8")
+            value_bytes = json.dumps(value, default=json_serializer).encode("utf-8")
 
         headers_list = None
         if headers:

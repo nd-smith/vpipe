@@ -90,7 +90,6 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
         Args:
             table_path: Full abfss:// path to claimx_events Delta table
         """
-        # Initialize base class
         super().__init__(
             table_path=table_path,
             timestamp_column="ingested_at",
@@ -138,17 +137,14 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                     "created_at": now,
                 }
 
-                # Parse ingested_at - handle string, datetime, or None
                 ingested_at = event.get("ingested_at")
                 if ingested_at is None:
                     processed["ingested_at"] = now
                 elif isinstance(ingested_at, str):
-                    # Parse ISO format string
                     processed["ingested_at"] = datetime.fromisoformat(
                         ingested_at.replace("Z", "+00:00")
                     )
                 elif isinstance(ingested_at, datetime):
-                    # Ensure timezone-aware
                     if ingested_at.tzinfo is None:
                         processed["ingested_at"] = ingested_at.replace(tzinfo=timezone.utc)
                     else:
@@ -181,10 +177,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                 self.logger.warning("No valid events to write after filtering nulls")
                 return True
 
-            # Create DataFrame with explicit schema for type safety
             df = pl.DataFrame(valid_events, schema=EVENTS_SCHEMA)
-
-            # Use base class async append method
             success = await self._async_append(df)
 
             if success:

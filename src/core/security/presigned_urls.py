@@ -61,13 +61,8 @@ def check_presigned_url(url: str) -> PresignedUrlInfo:
     """
     Parse presigned URL and extract expiration info.
 
-    Supports:
-    - AWS S3 presigned URLs (X-Amz-Date + X-Amz-Expires)
-    - ClaimX service URLs (systemDate + expires)
-    - Unknown URLs pass through as non-presigned (assumed valid)
-
-    Args:
-        url: The URL to check
+    Supports S3 (X-Amz-*) and ClaimX (systemDate/expires) URLs.
+    Unknown URLs pass through as non-presigned.
 
     Returns:
         PresignedUrlInfo with expiration details

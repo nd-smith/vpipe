@@ -82,25 +82,11 @@ def extract_extension(filename_or_url: str) -> Optional[str]:
     """
     Extract file extension from filename or URL.
 
-    Checks URL path first, then falls back to 'filename' query parameter
-    for URLs where the filename is passed as a parameter (common pattern
-    for file service APIs like ClaimX cxfileservice).
-
-    Args:
-        filename_or_url: Filename or URL to extract extension from
+    Checks path first, then fallback to 'filename' query parameter for
+    file service APIs where filename is in query string.
 
     Returns:
-        Lowercase file extension without dot, or None if no extension found
-
-    Examples:
-        >>> extract_extension("document.pdf")
-        "pdf"
-        >>> extract_extension("https://example.com/file.XML")
-        "xml"
-        >>> extract_extension("https://example.com/get/uuid?filename=doc.pdf")
-        "pdf"
-        >>> extract_extension("no_extension")
-        None
+        Lowercase extension without dot, or None if not found
     """
     if not filename_or_url:
         return None
@@ -142,21 +128,10 @@ def extract_extension(filename_or_url: str) -> Optional[str]:
 
 def normalize_content_type(content_type: str) -> str:
     """
-    Normalize Content-Type header value.
-
-    Removes parameters like charset and converts to lowercase.
-
-    Args:
-        content_type: Content-Type header value (e.g., "image/jpeg; charset=utf-8")
+    Normalize Content-Type header to lowercase MIME type without parameters.
 
     Returns:
         Normalized MIME type (e.g., "image/jpeg")
-
-    Examples:
-        >>> normalize_content_type("image/jpeg; charset=utf-8")
-        "image/jpeg"
-        >>> normalize_content_type("APPLICATION/PDF")
-        "application/pdf"
     """
     if not content_type:
         return ""
@@ -175,36 +150,17 @@ def validate_file_type(
     """
     Validate file type against allowed extensions and content types.
 
-    Implements FR-2.2.1: System SHALL validate files against allowed file type list.
-
-    Validation strategy:
-    - If only filename/URL provided: validate extension only
-    - If both filename and Content-Type provided: both must be valid
-    - Defense in depth: reject if either check fails
+    Defense in depth: Validates both extension and Content-Type when provided.
+    Also checks that extension and Content-Type are compatible to prevent spoofing.
 
     Args:
         filename_or_url: Filename or URL to validate
         content_type: Optional Content-Type header value
-        allowed_extensions: Optional custom set of allowed extensions (defaults to ALLOWED_EXTENSIONS)
-        allowed_content_types: Optional custom set of allowed MIME types (defaults to ALLOWED_CONTENT_TYPES)
+        allowed_extensions: Custom allowed extensions (None = use defaults)
+        allowed_content_types: Custom allowed MIME types (None = use defaults)
 
     Returns:
-        (is_valid, error_message)
-        - (True, "") if valid
-        - (False, "error description") if invalid
-
-    Examples:
-        >>> validate_file_type("document.pdf")
-        (True, "")
-
-        >>> validate_file_type("document.exe")
-        (False, "File extension 'exe' not allowed")
-
-        >>> validate_file_type("document.pdf", "application/pdf")
-        (True, "")
-
-        >>> validate_file_type("document.pdf", "application/x-executable")
-        (False, "Content-Type 'application/x-executable' not allowed")
+        Tuple of (is_valid, error_message)
     """
     if not filename_or_url:
         return False, "Empty filename or URL"

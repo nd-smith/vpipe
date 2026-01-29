@@ -117,7 +117,6 @@ class KafkaLogContext:
             "consumer_group": _kafka_consumer_group.get(),
         }
 
-        # Set new context
         for key, value in self.new_context.items():
             if value is not None:
                 set_kafka_context(**{key: value})

@@ -33,15 +33,7 @@ STREAM_THRESHOLD = 50 * 1024 * 1024  # Stream files > 50MB
 
 @dataclass
 class StreamDownloadResponse:
-    """
-    Response from streaming HTTP download operation.
-
-    Attributes:
-        status_code: HTTP status code
-        content_length: Size in bytes (from Content-Length header)
-        content_type: MIME type (from Content-Type header)
-        chunk_iterator: Async iterator yielding byte chunks
-    """
+    """Response from streaming HTTP download with chunk iterator."""
 
     status_code: int
     content_length: Optional[int]
@@ -51,14 +43,7 @@ class StreamDownloadResponse:
 
 @dataclass
 class StreamDownloadError:
-    """
-    Error result from failed streaming download.
-
-    Attributes:
-        status_code: HTTP status code if received
-        error_message: Error description
-        error_category: Classification for retry decisions
-    """
+    """Error result from failed streaming download with retry classification."""
 
     status_code: Optional[int]
     error_message: str
@@ -74,47 +59,21 @@ async def stream_download_url(
     sock_read_timeout: int = 30,
 ) -> tuple[Optional[StreamDownloadResponse], Optional[StreamDownloadError]]:
     """
-    Stream download content from URL using async HTTP with chunked reading.
+    Stream download for large files using chunked reading.
 
-    This function is optimized for large files (>50MB) and returns an async
-    iterator for memory-efficient processing. The iterator MUST be consumed
-    within the context manager scope.
-
-    Does NOT perform:
-    - URL validation (caller's responsibility)
-    - Circuit breaker checks (higher-level concern)
-    - Retry logic (higher-level concern)
-    - Temp file management (caller's responsibility)
+    Returns async iterator for memory-efficient processing. Does NOT handle
+    URL validation, circuit breaking, retry logic, or temp file management.
 
     Args:
         url: URL to download
         session: aiohttp ClientSession (caller manages lifecycle)
-        timeout: Timeout in seconds (default: 60)
-        chunk_size: Size of chunks in bytes (default: 8MB)
-        allow_redirects: Whether to follow redirects (default: True for S3 presigned URLs)
-        sock_read_timeout: Timeout for individual socket read operations in seconds
-            (default: 30). Prevents hanging on stalled connections where the server
-            stops sending data but keeps the connection open.
+        timeout: Total timeout in seconds
+        chunk_size: Chunk size in bytes
+        allow_redirects: Whether to follow redirects (needed for S3 presigned URLs)
+        sock_read_timeout: Socket read timeout to prevent hanging on stalled connections
 
     Returns:
-        Tuple of (StreamDownloadResponse, None) on success
-        or (None, StreamDownloadError) on failure
-
-    Example:
-        async with aiohttp.ClientSession() as session:
-            response, error = await stream_download_url(
-                "https://example.com/largefile.pdf",
-                session,
-                timeout=120
-            )
-            if error:
-                # Handle error
-                print(f"Download failed: {error.error_message}")
-            else:
-                # Stream to file
-                with open("output.pdf", "wb") as f:
-                    async for chunk in response.chunk_iterator:
-                        f.write(chunk)
+        Tuple of (StreamDownloadResponse, None) on success or (None, StreamDownloadError)
     """
     try:
         # Create the HTTP request context

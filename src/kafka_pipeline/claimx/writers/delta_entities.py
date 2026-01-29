@@ -645,18 +645,14 @@ class ClaimXEntityWriter:
         if not rows:
             return pl.DataFrame(rows)
 
-        # Get schema definition for this table
         table_schema = TABLE_SCHEMAS.get(table_name)
         if not table_schema:
-            # No schema defined, use default Polars inference
             return pl.DataFrame(rows)
 
-        # Get all column names from the rows
         all_columns = set()
         for row in rows:
             all_columns.update(row.keys())
 
-        # Build schema for columns that exist and have a defined type
         schema = {}
         for col in all_columns:
             if col in table_schema:

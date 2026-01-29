@@ -114,7 +114,6 @@ class ClaimXEventMessage(BaseModel):
         Returns:
             ClaimXEventMessage instance
         """
-        # Handle both camelCase and snake_case variants
         event_id = row.get("event_id") or row.get("eventId") or ""
         event_type = row.get("event_type") or row.get("eventType") or ""
         project_id = row.get("project_id") or row.get("projectId") or ""
@@ -133,7 +132,6 @@ class ClaimXEventMessage(BaseModel):
 
             # Add stable timestamp from Eventhouse (NOT poller-added ingested_at)
             if ingestion_time:
-                # Normalize to ISO string for consistency
                 if isinstance(ingestion_time, datetime):
                     composite_parts.append(ingestion_time.isoformat())
                 else:

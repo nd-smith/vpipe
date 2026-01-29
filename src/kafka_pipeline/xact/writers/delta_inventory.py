@@ -319,7 +319,6 @@ class DeltaFailedAttachmentsWriter(BaseDeltaWriter):
         # Current time for failed tracking
         now = datetime.now(timezone.utc)
 
-        # Convert to list of dicts matching table schema
         rows = []
         for failed_result in results:
             row = {

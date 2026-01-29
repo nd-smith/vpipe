@@ -235,7 +235,8 @@ class ClaimXApiClient(LoggedClass):
         async with self._semaphore:
             start_time = asyncio.get_event_loop().time()
             try:
-                assert self._session is not None
+                if self._session is None:
+                    raise RuntimeError("HTTP session not initialized - call _ensure_session() first")
                 async with self._session.request(
                     method,
                     url,

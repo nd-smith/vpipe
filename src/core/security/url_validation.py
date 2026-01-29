@@ -77,44 +77,19 @@ def validate_download_url(
     allow_localhost: bool = False,
 ) -> Tuple[bool, str]:
     """
-    Validate URL against domain allowlist with optional localhost support.
+    Validate URL against domain allowlist to prevent SSRF attacks.
 
-    Use this for attachment downloads where source domains are known.
-    Enforces HTTPS-only and domain allowlist to prevent SSRF attacks.
-
-    Security considerations:
-    - HTTPS required (except localhost when allow_localhost=True)
-    - Domain must be in allowlist (case-insensitive)
-    - Hostname must be present and valid
-    - Localhost URLs ONLY allowed when allow_localhost=True AND not in production
-    - Path traversal and credential injection blocked even for localhost
+    Security: Enforces HTTPS-only and domain allowlist. Localhost URLs only
+    permitted in non-production when allow_localhost=True. Production detection
+    is automatic; localhost URLs are always blocked in production regardless of flag.
 
     Args:
         url: URL to validate
         allowed_domains: Set of allowed domain names (None = use default allowlist)
-        allow_localhost: If True, allow localhost URLs for simulation mode.
-                        CRITICAL: Automatically blocked in production regardless of this flag.
+        allow_localhost: Allow localhost URLs for simulation mode (auto-blocked in production)
 
     Returns:
-        Tuple of (is_valid, error_message):
-        - (True, "") if valid
-        - (False, "error description") if invalid
-
-    Examples:
-        >>> validate_download_url("https://example.s3.amazonaws.com/file.pdf")
-        (False, "Domain not in allowlist: example.s3.amazonaws.com")
-
-        >>> validate_download_url("http://claimxperience.com/file.pdf")
-        (False, "Must be HTTPS for non-localhost, got http")
-
-        >>> validate_download_url("https://claimxperience.com/file.pdf")
-        (True, "")
-
-        >>> validate_download_url("http://localhost:8765/file.jpg", allow_localhost=True)
-        (True, "")  # In development/testing
-
-        >>> validate_download_url("http://localhost:8765/file.jpg", allow_localhost=False)
-        (False, "Domain not in allowlist: localhost")
+        Tuple of (is_valid, error_message)
     """
     if not url:
         return False, "Empty URL"
@@ -188,17 +163,10 @@ def _is_production_environment() -> bool:
 
 def _validate_localhost_url(url: str, parsed) -> Tuple[bool, str]:
     """
-    Validate localhost URL structure for simulation mode.
+    Validate localhost URL for simulation mode.
 
-    Allows URLs like:
-    - http://localhost:8765/files/...
-    - http://127.0.0.1:8765/files/...
-
-    Blocks:
-    - URLs with ../ (path traversal)
-    - URLs with @ (credential injection)
-    - Non-http schemes
-    - URLs with fragments that could be malicious
+    Security: Blocks path traversal, credential injection, and suspicious
+    query parameters even for localhost URLs.
 
     Args:
         url: Original URL string
@@ -278,12 +246,7 @@ def _validate_production_url(
     allowed_domains: Optional[Set[str]],
 ) -> Tuple[bool, str]:
     """
-    Validate URL for production use (standard SSRF protection).
-
-    Enforces:
-    - HTTPS only (no HTTP)
-    - Domain allowlist
-    - No private IPs or metadata endpoints
+    Validate URL for production use with standard SSRF protection.
 
     Args:
         url: Original URL string
@@ -326,12 +289,13 @@ def _validate_production_url(
 
 def is_private_ip(hostname: str) -> bool:
     """
-    Check if hostname resolves to a private/internal IP address.
+    Check if hostname is a private IP address.
 
-    Returns True if hostname is a private IP or in BLOCKED_HOSTS.
+    Security: Does NOT perform DNS resolution to avoid DNS rebinding attacks.
+    Only checks if the hostname string itself is a private IP.
 
-    Note: This function does NOT perform DNS resolution for security reasons.
-    It only checks if the hostname string itself is a private IP.
+    Returns:
+        True if hostname is a private IP or in BLOCKED_HOSTS
     """
     # Check blocked hosts
     if hostname.lower() in BLOCKED_HOSTS:
@@ -361,13 +325,8 @@ def extract_filename_from_url(url: str) -> Tuple[str, str]:
     """
     Extract filename and file extension from URL.
 
-    Returns tuple of (filename, file_type):
-        - filename: Extracted filename without extension
-        - file_type: File extension in uppercase (e.g., "PDF")
-
-    Examples:
-        >>> extract_filename_from_url("https://example.com/path/file.pdf?token=abc")
-        ("file", "PDF")
+    Returns:
+        Tuple of (filename, file_type) where file_type is uppercase extension
     """
     try:
         parsed = urlparse(url)
@@ -421,12 +380,10 @@ SENSITIVE_PARAMS = {
 
 def sanitize_url(url: str) -> str:
     """
-    Remove sensitive query parameters from URL.
+    Remove sensitive query parameters from URL for safe logging.
 
-    Preserves the path and structure for debugging while removing
-    tokens that could grant access if exposed in logs.
-
-    Returns URL with sensitive parameters replaced with [REDACTED].
+    Returns:
+        URL with sensitive parameters replaced with [REDACTED]
     """
     if not url:
         return url
@@ -484,11 +441,7 @@ SENSITIVE_PATTERNS = [
 
 
 def sanitize_error_message(msg: str, max_length: int = 500) -> str:
-    """
-    Remove potentially sensitive data from error messages.
-
-    Applies pattern-based redaction and truncates to max_length.
-    """
+    """Remove potentially sensitive data from error messages for safe logging."""
     if not msg:
         return msg
 

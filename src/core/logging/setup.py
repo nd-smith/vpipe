@@ -211,7 +211,6 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
                     overwrite=True,
                 )
 
-                # Delete local file after successful upload
                 rotated_file.unlink()
                 print(f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr)
 
@@ -355,7 +354,6 @@ def setup_logging(
     """
     log_dir = log_dir or DEFAULT_LOG_DIR
 
-    # Set context variables
     if worker_id:
         set_log_context(worker_id=worker_id)
     if stage:
@@ -453,7 +451,6 @@ def setup_logging(
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
 
-    # Remove existing handlers to avoid duplicates on re-init
     root_logger.handlers.clear()
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)

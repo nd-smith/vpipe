@@ -556,12 +556,32 @@ def main():
         "yes",
     )
 
+    # Initialize simulation config at startup if enabled
+    # Validation happens here - fail fast if config is invalid
     if simulation_mode:
+        from kafka_pipeline.simulation.config import SimulationConfig, set_simulation_config
+
         logger.warning("=" * 80)
         logger.warning("SIMULATION MODE ENABLED")
         logger.warning("Using mock dependencies and local storage for testing")
         logger.warning("Production APIs and cloud storage will NOT be accessed")
         logger.warning("=" * 80)
+
+        # Initialize and validate simulation config
+        # ValidationErrors will propagate - fail fast if config is invalid
+        sim_config = SimulationConfig.from_env(enabled=True)
+        set_simulation_config(sim_config)
+        sim_config.ensure_directories()
+
+        logger.info(
+            "Simulation config initialized",
+            extra={
+                "local_storage_path": str(sim_config.local_storage_path),
+                "local_delta_path": str(sim_config.local_delta_path),
+                "fixtures_dir": str(sim_config.fixtures_dir),
+                "delta_write_mode": sim_config.delta_write_mode,
+            },
+        )
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

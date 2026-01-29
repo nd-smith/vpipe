@@ -31,11 +31,6 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def _get_default_cache_dir() -> str:
-    """Get cross-platform default cache directory."""
-    return str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache")
-
-
 def load_yaml(path: Path) -> Dict[str, Any]:
     """Load YAML file and return dict."""
     if not path.exists():
@@ -124,7 +119,7 @@ class KafkaConfig:
     # =========================================================================
     onelake_base_path: str = ""  # Fallback path
     onelake_domain_paths: Dict[str, str] = field(default_factory=dict)
-    cache_dir: str = field(default_factory=_get_default_cache_dir)
+    cache_dir: str = field(default_factory=lambda: str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"))
 
     # =========================================================================
     # CLAIMX API CONFIGURATION
@@ -257,6 +252,56 @@ class KafkaConfig:
                         worker_config["processing"], f"{domain_name}.{worker_name}.processing"
                     )
 
+    @staticmethod
+    def _validate_enum(
+        settings: Dict[str, Any],
+        key: str,
+        valid_values: List[Any],
+        context: str
+    ) -> None:
+        """Validate that a setting's value is in a list of valid values."""
+        if key in settings and settings[key] not in valid_values:
+            raise ValueError(
+                f"{context}: {key} must be one of {valid_values}, "
+                f"got '{settings[key]}'"
+            )
+
+    @staticmethod
+    def _validate_min(
+        settings: Dict[str, Any],
+        key: str,
+        min_value: float,
+        inclusive: bool,
+        context: str
+    ) -> None:
+        """Validate that a setting's value meets a minimum threshold."""
+        if key in settings:
+            value = settings[key]
+            if inclusive and value < min_value:
+                raise ValueError(
+                    f"{context}: {key} must be >= {min_value}, got {value}"
+                )
+            elif not inclusive and value <= min_value:
+                raise ValueError(
+                    f"{context}: {key} must be > {min_value}, got {value}"
+                )
+
+    @staticmethod
+    def _validate_range(
+        settings: Dict[str, Any],
+        key: str,
+        min_value: float,
+        max_value: float,
+        context: str
+    ) -> None:
+        """Validate that a setting's value is within a range (inclusive)."""
+        if key in settings:
+            value = settings[key]
+            if not (min_value <= value <= max_value):
+                raise ValueError(
+                    f"{context}: {key} must be between {min_value} and {max_value}, got {value}"
+                )
+
     def _validate_consumer_settings(self, settings: Dict[str, Any], context: str) -> None:
         """Validate consumer settings against Kafka requirements and logical constraints."""
         if "heartbeat_interval_ms" in settings and "session_timeout_ms" in settings:
@@ -278,78 +323,22 @@ class KafkaConfig:
                     f"max_poll_interval_ms ({max_poll_interval})"
                 )
 
-        if "max_poll_records" in settings:
-            if settings["max_poll_records"] < 1:
-                raise ValueError(
-                    f"{context}: max_poll_records must be >= 1, got {settings['max_poll_records']}"
-                )
-
-        if "auto_offset_reset" in settings:
-            valid_values = ["earliest", "latest", "none"]
-            if settings["auto_offset_reset"] not in valid_values:
-                raise ValueError(
-                    f"{context}: auto_offset_reset must be one of {valid_values}, "
-                    f"got '{settings['auto_offset_reset']}'"
-                )
-
-        if "partition_assignment_strategy" in settings:
-            valid_strategies = ["RoundRobin", "Range", "Sticky"]
-            if settings["partition_assignment_strategy"] not in valid_strategies:
-                raise ValueError(
-                    f"{context}: partition_assignment_strategy must be one of {valid_strategies}, "
-                    f"got '{settings['partition_assignment_strategy']}'"
-                )
+        self._validate_min(settings, "max_poll_records", 1, inclusive=True, context=context)
+        self._validate_enum(settings, "auto_offset_reset", ["earliest", "latest", "none"], context)
+        self._validate_enum(settings, "partition_assignment_strategy", ["RoundRobin", "Range", "Sticky"], context)
 
     def _validate_producer_settings(self, settings: Dict[str, Any], context: str) -> None:
-        if "acks" in settings:
-            valid_acks = ["0", "1", "all", 0, 1]
-            if settings["acks"] not in valid_acks:
-                raise ValueError(
-                    f"{context}: acks must be one of [0, 1, 'all'], got '{settings['acks']}'"
-                )
-
-        if "compression_type" in settings:
-            valid_compression = ["none", "gzip", "snappy", "lz4", "zstd"]
-            if settings["compression_type"] not in valid_compression:
-                raise ValueError(
-                    f"{context}: compression_type must be one of {valid_compression}, "
-                    f"got '{settings['compression_type']}'"
-                )
-
-        if "retries" in settings and settings["retries"] < 0:
-            raise ValueError(f"{context}: retries must be >= 0, got {settings['retries']}")
-
-        if "batch_size" in settings and settings["batch_size"] < 0:
-            raise ValueError(f"{context}: batch_size must be >= 0, got {settings['batch_size']}")
-
-        if "linger_ms" in settings and settings["linger_ms"] < 0:
-            raise ValueError(f"{context}: linger_ms must be >= 0, got {settings['linger_ms']}")
+        self._validate_enum(settings, "acks", ["0", "1", "all", 0, 1], context)
+        self._validate_enum(settings, "compression_type", ["none", "gzip", "snappy", "lz4", "zstd"], context)
+        self._validate_min(settings, "retries", 0, inclusive=True, context=context)
+        self._validate_min(settings, "batch_size", 0, inclusive=True, context=context)
+        self._validate_min(settings, "linger_ms", 0, inclusive=True, context=context)
 
     def _validate_processing_settings(self, settings: Dict[str, Any], context: str) -> None:
-        if "concurrency" in settings:
-            concurrency = settings["concurrency"]
-            if not (1 <= concurrency <= 50):
-                raise ValueError(
-                    f"{context}: concurrency must be between 1 and 50, got {concurrency}"
-                )
-
-        if "batch_size" in settings:
-            if settings["batch_size"] < 1:
-                raise ValueError(
-                    f"{context}: batch_size must be >= 1, got {settings['batch_size']}"
-                )
-
-        if "timeout_seconds" in settings:
-            if settings["timeout_seconds"] <= 0:
-                raise ValueError(
-                    f"{context}: timeout_seconds must be > 0, got {settings['timeout_seconds']}"
-                )
-
-        if "flush_timeout_seconds" in settings:
-            if settings["flush_timeout_seconds"] <= 0:
-                raise ValueError(
-                    f"{context}: flush_timeout_seconds must be > 0, got {settings['flush_timeout_seconds']}"
-                )
+        self._validate_range(settings, "concurrency", 1, 50, context)
+        self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
+        self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
+        self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
 
 
 def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
@@ -446,7 +435,7 @@ def load_config(
         claimx=claimx_config,
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
-        cache_dir=storage.get("cache_dir") or _get_default_cache_dir(),
+        cache_dir=storage.get("cache_dir") or str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"),
         claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH") or os.getenv("CLAIMX_API_URL") or claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=int(

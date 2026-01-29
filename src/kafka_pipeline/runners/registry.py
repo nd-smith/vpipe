@@ -167,12 +167,19 @@ def build_claimx_enricher_args(
     **kwargs,
 ):
     """Build arguments for claimx-enricher worker."""
-    return {
+    args = {
         "kafka_config": local_kafka_config,
         "pipeline_config": pipeline_config,
         "shutdown_event": shutdown_event,
         "simulation_mode": simulation_mode,
     }
+
+    # Get simulation config if simulation mode is enabled
+    if simulation_mode:
+        from kafka_pipeline.simulation import get_simulation_config
+        args["simulation_config"] = get_simulation_config()
+
+    return args
 
 
 def build_claimx_result_processor_args(
@@ -299,11 +306,19 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "xact-enricher": {
         "runner": xact_runners.run_xact_enrichment_worker,
-        "args_builder": lambda pc, se, **kw: {
-            "kafka_config": kw.get("local_kafka_config"),
-            "shutdown_event": se,
-            "simulation_mode": kw.get("simulation_mode", False),
-        },
+        "args_builder": lambda pc, se, **kw: (
+            lambda sim_mode: {
+                "kafka_config": kw.get("local_kafka_config"),
+                "shutdown_event": se,
+                "simulation_mode": sim_mode,
+                "simulation_config": (
+                    __import__("kafka_pipeline.simulation", fromlist=["get_simulation_config"])
+                    .get_simulation_config()
+                    if sim_mode
+                    else None
+                ),
+            }
+        )(kw.get("simulation_mode", False)),
     },
     "xact-download": {
         "runner": xact_runners.run_download_worker,
@@ -314,11 +329,19 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "xact-upload": {
         "runner": xact_runners.run_upload_worker,
-        "args_builder": lambda pc, se, **kw: {
-            "kafka_config": kw.get("local_kafka_config"),
-            "shutdown_event": se,
-            "simulation_mode": kw.get("simulation_mode", False),
-        },
+        "args_builder": lambda pc, se, **kw: (
+            lambda sim_mode: {
+                "kafka_config": kw.get("local_kafka_config"),
+                "shutdown_event": se,
+                "simulation_mode": sim_mode,
+                "simulation_config": (
+                    __import__("kafka_pipeline.simulation", fromlist=["get_simulation_config"])
+                    .get_simulation_config()
+                    if sim_mode
+                    else None
+                ),
+            }
+        )(kw.get("simulation_mode", False)),
     },
     "xact-result-processor": {
         "runner": xact_runners.run_result_processor,
@@ -352,11 +375,19 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "claimx-uploader": {
         "runner": claimx_runners.run_claimx_upload_worker,
-        "args_builder": lambda pc, se, **kw: {
-            "kafka_config": kw.get("local_kafka_config"),
-            "shutdown_event": se,
-            "simulation_mode": kw.get("simulation_mode", False),
-        },
+        "args_builder": lambda pc, se, **kw: (
+            lambda sim_mode: {
+                "kafka_config": kw.get("local_kafka_config"),
+                "shutdown_event": se,
+                "simulation_mode": sim_mode,
+                "simulation_config": (
+                    __import__("kafka_pipeline.simulation", fromlist=["get_simulation_config"])
+                    .get_simulation_config()
+                    if sim_mode
+                    else None
+                ),
+            }
+        )(kw.get("simulation_mode", False)),
     },
     "claimx-result-processor": {
         "runner": claimx_runners.run_claimx_result_processor,

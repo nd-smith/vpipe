@@ -545,11 +545,9 @@ def _get_question_key(question_text: str) -> str:
         "Captured Island Cabinet End Panels": "island_cabinet_end_panels",
     }
 
-    # Check if it's a known media question
     if question_text in media_mapping:
         return media_mapping[question_text]
 
-    # Otherwise, generate from question text
     return question_text.lower().replace(" ", "_").replace("/", "_").replace("?", "")
 
 
@@ -575,13 +573,9 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
     """
     logger.debug(f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}")
 
-    # Convert to typed dataclass using from_dict
     api_obj = from_dict(ApiResponse, task_data)
-
-    # Use DataBuilder to process
     form_row, _, _ = DataBuilder.process(api_obj, event_id)
 
-    # Convert to CabinetSubmission model
     return CabinetSubmission(
         # Primary identifiers
         assignment_id=form_row["assignment_id"],
@@ -693,13 +687,9 @@ def parse_cabinet_attachments(
     """
     logger.debug(f"Parsing attachments for assignment_id={assignment_id}")
 
-    # Convert to typed dataclass using from_dict
     api_obj = from_dict(ApiResponse, task_data)
-
-    # Use DataBuilder to process
     _, attachments_rows, _ = DataBuilder.process(api_obj, event_id, media_url_map)
 
-    # Convert to CabinetAttachment models
     attachments = []
     for att_row in attachments_rows:
         attachments.append(

@@ -53,35 +53,11 @@ def _classify_timeout_type(error_message: str) -> str:
 
 class AttachmentDownloader:
     """
-    Unified downloader for attachments with validation and error handling.
+    Unified downloader orchestrating validation, download, and error handling.
 
-    This class orchestrates the complete download process:
-    1. URL validation (if enabled)
-    2. Presigned URL expiration check (if enabled)
-    3. File type validation (if enabled)
-    4. HTTP download (streaming or in-memory based on size)
-    5. Error classification and reporting
-
-    Usage:
-        downloader = AttachmentDownloader()
-        task = DownloadTask(
-            url="https://example.com/file.pdf",
-            destination=Path("output.pdf")
-        )
-        outcome = await downloader.download(task)
-        if outcome.success:
-            print(f"Downloaded {outcome.bytes_downloaded} bytes")
-        else:
-            print(f"Failed: {outcome.error_message}")
-
-    Session management:
-        By default, creates a new session for each download.
-        For batch downloads, pass a shared session to the constructor:
-
-        async with create_session() as session:
-            downloader = AttachmentDownloader(session=session)
-            for task in tasks:
-                outcome = await downloader.download(task)
+    Automatically handles URL/file validation, streaming/in-memory downloads based
+    on size, and error classification. Use a shared session for batch downloads
+    to reuse connections.
     """
 
     def __init__(
@@ -94,9 +70,9 @@ class AttachmentDownloader:
         Initialize AttachmentDownloader.
 
         Args:
-            session: Optional aiohttp session (None = create per download)
-            max_connections: Total connection pool size (default: 100)
-            max_connections_per_host: Per-host connection limit (default: 10)
+            session: Optional shared session (None = create per download)
+            max_connections: Total connection pool size
+            max_connections_per_host: Per-host connection limit
         """
         self._session = session
         self._owns_session = session is None

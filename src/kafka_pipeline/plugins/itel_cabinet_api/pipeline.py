@@ -272,7 +272,6 @@ class ItelCabinetPipeline:
         Returns:
             S3 pre-signed URL from Location header, or original URL if already S3 or redirect fails
         """
-        # Check if URL is already an S3 URL (edge case for large media files)
         if self._is_s3_url(claimx_url):
             logger.debug(
                 f"URL is already S3, skipping redirect resolution",

@@ -45,7 +45,7 @@ from kafka_pipeline.common.metrics import (
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.simulation.config import is_simulation_mode, get_simulation_config
+from kafka_pipeline.simulation.config import SimulationConfig
 from kafka_pipeline.xact.retry import DownloadRetryHandler
 from kafka_pipeline.xact.schemas.tasks import (
     XACTEnrichmentTask,
@@ -90,6 +90,7 @@ class XACTEnrichmentWorker:
         download_topic: str = "",
         producer_config: Optional[KafkaConfig] = None,
         instance_id: Optional[str] = None,
+        simulation_config: Optional[SimulationConfig] = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -154,25 +155,15 @@ class XACTEnrichmentWorker:
         # UUID namespace for deterministic media_id generation
         self.MEDIA_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "http://xactPipeline/media_id")
 
-        # Check if simulation mode is enabled for localhost URL support
-        self._simulation_mode_enabled = is_simulation_mode()
-        if self._simulation_mode_enabled:
-            try:
-                self._simulation_config = get_simulation_config()
-                logger.info(
-                    "Simulation mode enabled - localhost URLs will be allowed",
-                    extra={
-                        "allow_localhost_urls": self._simulation_config.allow_localhost_urls,
-                    },
-                )
-            except RuntimeError:
-                # Simulation mode check indicated true but config failed to load
-                # Fall back to disabled for safety
-                self._simulation_mode_enabled = False
-                self._simulation_config = None
-                logger.warning("Simulation mode check failed, localhost URLs will be blocked")
-        else:
-            self._simulation_config = None
+        # Store simulation config if provided (validated at startup)
+        self._simulation_config = simulation_config
+        if simulation_config is not None and simulation_config.enabled:
+            logger.info(
+                "Simulation mode enabled - localhost URLs will be allowed",
+                extra={
+                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
+                },
+            )
 
         logger.info(
             "Initialized XACTEnrichmentWorker",
@@ -188,7 +179,7 @@ class XACTEnrichmentWorker:
                 "max_poll_records": self.max_poll_records,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
-                "simulation_mode": self._simulation_mode_enabled,
+                "simulation_mode": simulation_config is not None and simulation_config.enabled,
             },
         )
 
@@ -686,9 +677,11 @@ class XACTEnrichmentWorker:
         for attachment_url in task.attachments:
             try:
                 # Determine if localhost URLs should be allowed based on simulation config
-                allow_localhost = False
-                if self._simulation_mode_enabled and self._simulation_config:
-                    allow_localhost = self._simulation_config.allow_localhost_urls
+                allow_localhost = (
+                    self._simulation_config is not None
+                    and self._simulation_config.enabled
+                    and self._simulation_config.allow_localhost_urls
+                )
 
                 # Validate attachment URL
                 is_valid, error_message = validate_download_url(

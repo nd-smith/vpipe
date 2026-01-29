@@ -206,6 +206,7 @@ async def run_xact_enrichment_worker(
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
     simulation_mode: bool = False,
+    simulation_config=None,
 ):
     """Run XACT enrichment worker with plugin-based enrichment.
 
@@ -214,13 +215,13 @@ async def run_xact_enrichment_worker(
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
         simulation_mode: Enable simulation mode with mock dependencies
+        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
     if simulation_mode:
-        from kafka_pipeline.simulation import create_simulation_enrichment_worker, SimulationConfig
+        from kafka_pipeline.simulation import create_simulation_enrichment_worker
 
-        # Load simulation config
-        simulation_config = SimulationConfig.from_env(enabled=True)
-        simulation_config.ensure_directories()
+        if simulation_config is None:
+            raise ValueError("simulation_config is required when simulation_mode=True")
 
         logger.info("Starting XACT enrichment worker in SIMULATION MODE")
         logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
@@ -282,6 +283,7 @@ async def run_upload_worker(
     shutdown_event: asyncio.Event,
     instance_id: Optional[int] = None,
     simulation_mode: bool = False,
+    simulation_config=None,
 ):
     """Upload cached files to storage.
 
@@ -290,13 +292,13 @@ async def run_upload_worker(
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
         simulation_mode: Enable simulation mode with local storage
+        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
     if simulation_mode:
-        from kafka_pipeline.simulation import create_simulation_upload_worker, SimulationConfig
+        from kafka_pipeline.simulation import create_simulation_upload_worker
 
-        # Load simulation config
-        simulation_config = SimulationConfig.from_env(enabled=True)
-        simulation_config.ensure_directories()
+        if simulation_config is None:
+            raise ValueError("simulation_config is required when simulation_mode=True")
 
         logger.info("Starting XACT upload worker in SIMULATION MODE")
         logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")

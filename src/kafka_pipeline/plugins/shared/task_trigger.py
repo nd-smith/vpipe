@@ -163,7 +163,6 @@ class TaskTriggerPlugin(Plugin):
         if task_id is None:
             return PluginResult.skip("Task has no task_id")
 
-        # Check if this task_id has a trigger configured
         triggers = self.config.get("triggers", {})
         trigger_config = triggers.get(task_id) or triggers.get(str(task_id))
 

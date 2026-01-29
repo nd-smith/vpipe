@@ -48,7 +48,7 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.simulation.config import is_simulation_mode, get_simulation_config
+from kafka_pipeline.simulation.config import SimulationConfig
 from kafka_pipeline.xact.retry.download_handler import RetryHandler
 from kafka_pipeline.xact.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
@@ -120,6 +120,7 @@ class DownloadWorker:
         domain: str = "xact",
         temp_dir: Optional[Path] = None,
         instance_id: Optional[str] = None,
+        simulation_config: Optional[SimulationConfig] = None,
     ):
         self.config = config
         self.domain = domain
@@ -175,25 +176,15 @@ class DownloadWorker:
 
         self.retry_handler: Optional[RetryHandler] = None
 
-        # Check if simulation mode is enabled for localhost URL support
-        self._simulation_mode_enabled = is_simulation_mode()
-        if self._simulation_mode_enabled:
-            try:
-                self._simulation_config = get_simulation_config()
-                logger.info(
-                    "Simulation mode enabled - localhost URLs will be allowed",
-                    extra={
-                        "allow_localhost_urls": self._simulation_config.allow_localhost_urls,
-                    },
-                )
-            except RuntimeError:
-                # Simulation mode check indicated true but config failed to load
-                # Fall back to disabled for safety
-                self._simulation_mode_enabled = False
-                self._simulation_config = None
-                logger.warning("Simulation mode check failed, localhost URLs will be blocked")
-        else:
-            self._simulation_config = None
+        # Store simulation config if provided (validated at startup)
+        self._simulation_config = simulation_config
+        if simulation_config is not None and simulation_config.enabled:
+            logger.info(
+                "Simulation mode enabled - localhost URLs will be allowed",
+                extra={
+                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
+                },
+            )
 
         # Health check server
         health_port = processing_config.get("health_port", 8090)
@@ -742,9 +733,11 @@ class DownloadWorker:
         temp_file = self.temp_dir / task_message.trace_id / destination_filename
 
         # Determine if localhost URLs should be allowed based on simulation config
-        allow_localhost = False
-        if self._simulation_mode_enabled and self._simulation_config:
-            allow_localhost = self._simulation_config.allow_localhost_urls
+        allow_localhost = (
+            self._simulation_config is not None
+            and self._simulation_config.enabled
+            and self._simulation_config.allow_localhost_urls
+        )
 
         return DownloadTask(
             url=task_message.attachment_url,

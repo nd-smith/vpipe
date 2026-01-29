@@ -77,6 +77,7 @@ class ItelCabinetApiWorker:
         kafka_config: dict,
         api_config: dict,
         connection_manager: ConnectionManager,
+        simulation_config: Optional[Any] = None,
     ):
         """
         Initialize API worker.
@@ -85,21 +86,19 @@ class ItelCabinetApiWorker:
             kafka_config: Kafka consumer configuration
             api_config: API configuration (connection, endpoint, test mode)
             connection_manager: For API connections
+            simulation_config: Optional simulation configuration (if enabled at startup)
         """
         self.kafka_config = kafka_config
         self.api_config = api_config
         self.connections = connection_manager
+        self.simulation_config = simulation_config
 
         self.consumer: AIOKafkaConsumer = None
         self.running = False
         self._shutdown_event = asyncio.Event()
 
-        # Detect simulation mode
-        from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
-
-        self.simulation_mode = is_simulation_mode()
-        if self.simulation_mode:
-            self.simulation_config = get_simulation_config()
+        # Setup simulation mode if config provided
+        if self.simulation_config:
             self.output_dir = self.simulation_config.local_storage_path / "itel_submissions"
             self.output_dir.mkdir(parents=True, exist_ok=True)
             logger.info(
@@ -117,7 +116,7 @@ class ItelCabinetApiWorker:
             "ItelCabinetApiWorker initialized",
             extra={
                 "test_mode": api_config.get("test_mode", False),
-                "simulation_mode": self.simulation_mode,
+                "simulation_mode": bool(self.simulation_config),
                 "endpoint": api_config.get("endpoint"),
             },
         )
@@ -183,7 +182,7 @@ class ItelCabinetApiWorker:
                     api_payload = self._transform_to_api_format(payload)
 
                     # Send to API or write to file
-                    if self.simulation_mode:
+                    if self.simulation_config:
                         await self._write_simulation_payload(api_payload, payload)
                     elif self.api_config.get("test_mode", False):
                         await self._write_test_payload(api_payload, payload)
@@ -197,7 +196,7 @@ class ItelCabinetApiWorker:
                         "Message processed successfully",
                         extra={
                             "assignment_id": payload.get("assignment_id"),
-                            "simulation_mode": self.simulation_mode,
+                            "simulation_mode": bool(self.simulation_config),
                             "test_mode": self.api_config.get("test_mode", False),
                         },
                     )
@@ -549,11 +548,24 @@ async def main():
     logger.info(f"Input topic: {kafka_config['input_topic']}")
     logger.info(f"Consumer group: {kafka_config['consumer_group']}")
 
+    # Check for simulation mode
+    simulation_config = None
+    try:
+        from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
+
+        if is_simulation_mode():
+            simulation_config = get_simulation_config()
+            logger.info("Simulation mode detected - worker will write to local files")
+    except ImportError:
+        # Simulation module not available
+        pass
+
     # Create and run worker
     worker = ItelCabinetApiWorker(
         kafka_config=kafka_config,
         api_config=worker_config["api"],
         connection_manager=connection_manager,
+        simulation_config=simulation_config,
     )
 
     # Setup signal handlers (Windows-compatible)

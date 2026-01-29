@@ -438,7 +438,6 @@ class MockClaimXAPIClient(LoggedClass):
         Returns:
             Video collaboration report dict
         """
-        # Return empty report (not commonly used in testing)
         return {
             "data": [],
             "projectId": project_id,
@@ -455,7 +454,6 @@ class MockClaimXAPIClient(LoggedClass):
         Returns:
             List of conversation dicts
         """
-        # Return empty list (not commonly used in testing)
         return []
 
     def get_circuit_status(self) -> Dict[str, Any]:

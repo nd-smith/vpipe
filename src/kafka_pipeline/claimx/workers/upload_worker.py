@@ -354,7 +354,6 @@ class ClaimXUploadWorker:
         Safe to call multiple times. Will clean up resources even if
         request_shutdown() was called first.
         """
-        # Check if already fully stopped
         if self._consumer is None and self.onelake_client is None:
             logger.debug("Worker already stopped")
             return
@@ -474,7 +473,8 @@ class ClaimXUploadWorker:
         )
 
     async def _consume_batch_loop(self) -> None:
-        assert self._consumer is not None
+        if self._consumer is None:
+            raise RuntimeError("Consumer not initialized - call start() first")
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
@@ -548,8 +548,10 @@ class ClaimXUploadWorker:
         CRITICAL (Issue #38): Verifies all uploads succeeded before committing offsets.
         Failed uploads are tracked and offsets are not committed for those messages.
         """
-        assert self._consumer is not None
-        assert self._semaphore is not None
+        if self._consumer is None:
+            raise RuntimeError("Consumer not initialized - call start() first")
+        if self._semaphore is None:
+            raise RuntimeError("Semaphore not initialized - call start() first")
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
@@ -609,7 +611,8 @@ class ClaimXUploadWorker:
             )
 
     async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
-        assert self._semaphore is not None
+        if self._semaphore is None:
+            raise RuntimeError("Semaphore not initialized - call start() first")
 
         async with self._semaphore:
             return await self._process_single_upload(message)
@@ -639,7 +642,8 @@ class ClaimXUploadWorker:
                 raise FileNotFoundError(f"Cached file not found: {cache_path}")
 
             # Upload to OneLake (using claimx domain-specific path)
-            assert self.onelake_client is not None
+            if self.onelake_client is None:
+                raise RuntimeError("OneLake client not initialized - call start() first")
             from kafka_pipeline.common.telemetry import get_tracer
 
             tracer = get_tracer(__name__)

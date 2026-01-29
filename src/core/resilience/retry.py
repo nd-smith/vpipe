@@ -67,10 +67,7 @@ class RetryConfig:
 
     def get_delay(self, attempt: int, error: Optional[Exception] = None) -> float:
         """
-        Calculate delay for given attempt with equal jitter.
-
-        Uses equal jitter algorithm: delay = (base/2) + random(0, base/2)
-        This prevents thundering herd by spreading retries over time.
+        Calculate delay with equal jitter to prevent thundering herd.
 
         Args:
             attempt: 0-indexed attempt number

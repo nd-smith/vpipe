@@ -24,20 +24,8 @@ class DownloadTask:
     """
     Input specification for attachment download.
 
-    Attributes:
-        url: URL to download from
-        destination: Path where file should be saved
-        timeout: Timeout in seconds (default: 60)
-        validate_url: Whether to validate URL against domain allowlist (default: True)
-        validate_file_type: Whether to validate file extension/content-type (default: True)
-        check_expiration: Whether to check if presigned URLs are expired (default: False)
-            When enabled, expired S3 presigned URLs (Xact) fail permanently.
-        allow_localhost: Whether to allow localhost URLs for simulation mode (default: False)
-            CRITICAL: Automatically blocked in production environments regardless of this setting.
-            Only use in development/testing with SIMULATION_MODE=true.
-        allowed_domains: Optional custom domain allowlist (None = use defaults)
-        allowed_extensions: Optional custom file extension allowlist (None = use defaults)
-        max_size: Optional maximum file size in bytes (None = no limit)
+    Security: allow_localhost is automatically blocked in production regardless
+    of setting. Use only in development/testing with SIMULATION_MODE=true.
     """
 
     url: str
@@ -54,25 +42,7 @@ class DownloadTask:
 
 @dataclass
 class DownloadOutcome:
-    """
-    Result of attachment download operation.
-
-    Success case:
-        success=True, file_path set, error fields None
-
-    Failure case:
-        success=False, error_message and error_category set, file_path None
-
-    Attributes:
-        success: Whether download succeeded
-        file_path: Path to downloaded file (None on failure)
-        bytes_downloaded: Number of bytes written to disk
-        content_type: MIME type from Content-Type header
-        status_code: HTTP status code (None for connection errors)
-        error_message: Error description (None on success)
-        error_category: Error classification for retry decisions (None on success)
-        validation_error: Specific validation failure message (None if no validation error)
-    """
+    """Result of attachment download operation with error classification."""
 
     success: bool
     file_path: Optional[Path] = None
@@ -91,18 +61,7 @@ class DownloadOutcome:
         content_type: Optional[str],
         status_code: int,
     ) -> "DownloadOutcome":
-        """
-        Create successful download outcome.
-
-        Args:
-            file_path: Path to downloaded file
-            bytes_downloaded: Number of bytes written
-            content_type: MIME type from response
-            status_code: HTTP status code (should be 200)
-
-        Returns:
-            DownloadOutcome with success=True
-        """
+        """Create successful download outcome."""
         return cls(
             success=True,
             file_path=file_path,
@@ -115,18 +74,7 @@ class DownloadOutcome:
     def validation_failure(
         cls, validation_error: str, error_category: ErrorCategory = ErrorCategory.PERMANENT
     ) -> "DownloadOutcome":
-        """
-        Create validation failure outcome.
-
-        Used for URL validation or file type validation failures.
-
-        Args:
-            validation_error: Specific validation error message
-            error_category: Error classification (default: PERMANENT)
-
-        Returns:
-            DownloadOutcome with success=False and validation_error set
-        """
+        """Create validation failure outcome (URL or file type validation)."""
         return cls(
             success=False,
             error_message=f"Validation failed: {validation_error}",
@@ -141,19 +89,7 @@ class DownloadOutcome:
         error_category: ErrorCategory,
         status_code: Optional[int] = None,
     ) -> "DownloadOutcome":
-        """
-        Create download failure outcome.
-
-        Used for HTTP errors, timeouts, connection failures, etc.
-
-        Args:
-            error_message: Error description
-            error_category: Error classification for retry decisions
-            status_code: HTTP status code if available
-
-        Returns:
-            DownloadOutcome with success=False
-        """
+        """Create download failure outcome (HTTP errors, timeouts, connection failures)."""
         return cls(
             success=False,
             error_message=error_message,

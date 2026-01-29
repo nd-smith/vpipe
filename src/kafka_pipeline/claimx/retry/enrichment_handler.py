@@ -133,7 +133,6 @@ class EnrichmentRetryHandler:
             await self._send_to_dlq(task, error, error_category)
             return
 
-        # Check if retries exhausted
         if retry_count >= self._max_retries:
             logger.warning(
                 "Retries exhausted, sending to DLQ",

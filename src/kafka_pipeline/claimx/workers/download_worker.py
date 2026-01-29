@@ -54,7 +54,6 @@ from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.retry import DownloadRetryHandler
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
-from kafka_pipeline.simulation.config import is_simulation_mode, get_simulation_config
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
@@ -118,6 +117,7 @@ class ClaimXDownloadWorker:
         domain: str = "claimx",
         temp_dir: Optional[Path] = None,
         instance_id: Optional[str] = None,
+        simulation_config: Optional[Any] = None,
     ):
         self.config = config
         self.domain = domain
@@ -175,25 +175,15 @@ class ClaimXDownloadWorker:
         self.api_client: Optional[ClaimXApiClient] = None
         self.retry_handler: Optional[DownloadRetryHandler] = None
 
-        # Check if simulation mode is enabled for localhost URL support
-        self._simulation_mode_enabled = is_simulation_mode()
-        if self._simulation_mode_enabled:
-            try:
-                self._simulation_config = get_simulation_config()
-                logger.info(
-                    "Simulation mode enabled - localhost URLs will be allowed",
-                    extra={
-                        "allow_localhost_urls": self._simulation_config.allow_localhost_urls,
-                    },
-                )
-            except RuntimeError:
-                # Simulation mode check indicated true but config failed to load
-                # Fall back to disabled for safety
-                self._simulation_mode_enabled = False
-                self._simulation_config = None
-                logger.warning("Simulation mode check failed, localhost URLs will be blocked")
-        else:
-            self._simulation_config = None
+        # Store simulation config if provided (already validated at startup)
+        self._simulation_config = simulation_config
+        if simulation_config is not None:
+            logger.info(
+                "Simulation mode enabled - localhost URLs will be allowed",
+                extra={
+                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
+                },
+            )
 
         health_port = processing_config.get("health_port", 8082)
         self.health_server = HealthCheckServer(
@@ -255,7 +245,7 @@ class ClaimXDownloadWorker:
 
         await self.producer.start()
 
-        if self._simulation_mode_enabled:
+        if self._simulation_config is not None:
             # In simulation mode, use mock API client (doesn't need real credentials)
             from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
 
@@ -714,7 +704,7 @@ class ClaimXDownloadWorker:
 
         # Determine if localhost URLs should be allowed based on simulation config
         allow_localhost = False
-        if self._simulation_mode_enabled and self._simulation_config:
+        if self._simulation_config is not None:
             allow_localhost = self._simulation_config.allow_localhost_urls
 
         return DownloadTask(
@@ -797,7 +787,8 @@ class ClaimXDownloadWorker:
         processing_time_ms: int,
     ) -> None:
         """Move downloaded file to cache directory and produce ClaimXCachedDownloadMessage for upload worker."""
-        assert outcome.file_path is not None, "File path missing in successful outcome"
+        if outcome.file_path is None:
+            raise ValueError("File path missing in successful outcome")
 
         logger.debug(
             "ClaimX download completed successfully",
@@ -901,7 +892,8 @@ class ClaimXDownloadWorker:
         processing_time_ms: int,
     ) -> None:
         """Route failures based on error category: CIRCUIT_OPEN (reprocess), PERMANENT (DLQ), others (retry)."""
-        assert self.retry_handler is not None, "RetryHandler not initialized"
+        if self.retry_handler is None:
+            raise RuntimeError("RetryHandler not initialized - call start() first")
 
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
 

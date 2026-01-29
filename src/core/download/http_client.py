@@ -30,15 +30,7 @@ from core.errors.exceptions import (
 
 @dataclass
 class DownloadResponse:
-    """
-    Response from HTTP download operation.
-
-    Attributes:
-        content: Downloaded bytes
-        status_code: HTTP status code
-        content_length: Size in bytes (from Content-Length header)
-        content_type: MIME type (from Content-Type header)
-    """
+    """Response from HTTP download operation with content and metadata."""
 
     content: bytes
     status_code: int
@@ -48,14 +40,7 @@ class DownloadResponse:
 
 @dataclass
 class DownloadError:
-    """
-    Error result from failed HTTP download.
-
-    Attributes:
-        status_code: HTTP status code if received
-        error_message: Error description
-        error_category: Classification for retry decisions
-    """
+    """Error result from failed HTTP download with retry classification."""
 
     status_code: Optional[int]
     error_message: str
@@ -70,34 +55,17 @@ async def download_url(
     sock_read_timeout: int = 30,
 ) -> tuple[Optional[DownloadResponse], Optional[DownloadError]]:
     """
-    Download content from URL using async HTTP.
-
-    This is a low-level HTTP download function that returns either success
-    or error. It does NOT perform:
-    - URL validation (caller's responsibility)
-    - Circuit breaker checks (higher-level concern)
-    - Retry logic (higher-level concern)
+    Low-level HTTP download without URL validation, circuit breaking, or retry.
 
     Args:
         url: URL to download
         session: aiohttp ClientSession (caller manages lifecycle)
-        timeout: Timeout in seconds (default: 60)
-        allow_redirects: Whether to follow redirects (default: True for S3 presigned URLs)
-        sock_read_timeout: Timeout for individual socket read operations in seconds
-            (default: 30). Prevents hanging on stalled connections where the server
-            stops sending data but keeps the connection open.
+        timeout: Total timeout in seconds
+        allow_redirects: Whether to follow redirects (needed for S3 presigned URLs)
+        sock_read_timeout: Socket read timeout to prevent hanging on stalled connections
 
     Returns:
-        Tuple of (DownloadResponse, None) on success
-        or (None, DownloadError) on failure
-
-    Example:
-        async with aiohttp.ClientSession() as session:
-            response, error = await download_url(
-                "https://example.com/file.pdf",
-                session,
-                timeout=30
-            )
+        Tuple of (DownloadResponse, None) on success or (None, DownloadError)
             if error:
                 # Handle error
                 if error.error_category == ErrorCategory.TRANSIENT:

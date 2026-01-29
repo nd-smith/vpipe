@@ -409,10 +409,8 @@ class DLQManager:
                 logger.warning(f"Topic {topic} not found or has no partitions")
                 return False
 
-            # For each partition, consume to end and commit
             topic_partitions = [TopicPartition(topic, p) for p in partitions]
 
-            # Seek to end of all partitions
             for tp in topic_partitions:
                 await consumer.seek_to_end(tp)
 

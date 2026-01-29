@@ -138,7 +138,6 @@ class DownloadRetryHandler:
             await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
 
-        # Check if retries exhausted
         if retry_count >= self._max_retries:
             logger.warning(
                 "Retries exhausted, sending to DLQ",
