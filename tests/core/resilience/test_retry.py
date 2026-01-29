@@ -38,7 +38,6 @@ class TestRetryConfig:
     """Tests for RetryConfig."""
 
     def test_default_values(self):
-        """Test default configuration values."""
         config = RetryConfig()
         assert config.max_attempts == 3
         assert config.base_delay == 1.0
@@ -50,7 +49,7 @@ class TestRetryConfig:
         assert config.never_retry == set()
 
     def test_type_conversion_from_strings(self):
-        """Test that config handles string inputs (e.g., from YAML)."""
+        """Config handles string inputs from YAML/env vars."""
         config = RetryConfig(
             max_attempts="5",
             base_delay="2.5",
@@ -63,7 +62,7 @@ class TestRetryConfig:
         assert config.exponential_base == 3.0
 
     def test_exponential_backoff_calculation(self):
-        """Test exponential delay calculation."""
+        """Exponential backoff with equal jitter: delay = base * 2^attempt, jittered [50%, 100%]."""
         config = RetryConfig(base_delay=1.0, exponential_base=2.0, max_delay=30.0)
 
         # Attempt 0: base_delay * 2^0 = 1.0
@@ -79,7 +78,7 @@ class TestRetryConfig:
         assert 2.0 <= delay_2 <= 4.0  # Equal jitter: [2.0, 4.0]
 
     def test_jitter_prevents_thundering_herd(self):
-        """Test that equal jitter spreads retry times."""
+        """Equal jitter prevents thundering herd by spreading retry times randomly."""
         config = RetryConfig(base_delay=1.0, exponential_base=2.0)
 
         # Generate multiple delays for same attempt
@@ -99,7 +98,6 @@ class TestRetryConfig:
         assert 1.3 <= mean_delay <= 1.7  # Allow some variance
 
     def test_max_delay_cap(self):
-        """Test that delay is capped at max_delay."""
         config = RetryConfig(base_delay=10.0, max_delay=5.0, exponential_base=2.0)
 
         # Even for high attempts, delay should not exceed max_delay
@@ -107,7 +105,7 @@ class TestRetryConfig:
         assert delay <= 5.0
 
     def test_retry_after_respected(self):
-        """Test that Retry-After header from ThrottlingError is used."""
+        """Server-provided Retry-After header is used when available."""
         config = RetryConfig(respect_retry_after=True, max_delay=30.0)
 
         error = ThrottlingError("Rate limited", retry_after=5.0)
@@ -117,7 +115,7 @@ class TestRetryConfig:
         assert delay == 5.0
 
     def test_retry_after_capped_by_max_delay(self):
-        """Test that Retry-After is still capped by max_delay."""
+        """Server Retry-After is still capped by max_delay setting."""
         config = RetryConfig(respect_retry_after=True, max_delay=10.0)
 
         error = ThrottlingError("Rate limited", retry_after=15.0)
@@ -127,7 +125,6 @@ class TestRetryConfig:
         assert delay == 10.0
 
     def test_retry_after_ignored_when_disabled(self):
-        """Test that Retry-After is ignored when respect_retry_after=False."""
         config = RetryConfig(
             respect_retry_after=False, base_delay=1.0, exponential_base=2.0
         )
@@ -139,7 +136,6 @@ class TestRetryConfig:
         assert 0.5 <= delay <= 1.0  # Based on attempt 0
 
     def test_should_retry_respects_max_attempts(self):
-        """Test that should_retry returns False after max attempts."""
         config = RetryConfig(max_attempts=3)
 
         assert config.should_retry(TransientError("test"), attempt=0) is True
@@ -148,7 +144,6 @@ class TestRetryConfig:
         assert config.should_retry(TransientError("test"), attempt=3) is False
 
     def test_should_retry_permanent_errors(self):
-        """Test that permanent errors are not retried."""
         config = RetryConfig(respect_permanent=True)
 
         # PipelineError with PERMANENT category
@@ -156,7 +151,6 @@ class TestRetryConfig:
         assert config.should_retry(error, attempt=0) is False
 
     def test_should_retry_transient_errors(self):
-        """Test that transient errors are retried."""
         config = RetryConfig(respect_permanent=True)
 
         # PipelineError with TRANSIENT category
@@ -165,14 +159,13 @@ class TestRetryConfig:
         assert config.should_retry(error, attempt=1) is True
 
     def test_should_retry_auth_errors(self):
-        """Test that auth errors are retried."""
         config = RetryConfig(respect_permanent=True)
 
         error = AuthError("Unauthorized")
         assert config.should_retry(error, attempt=0) is True
 
     def test_should_retry_always_retry_list(self):
-        """Test that always_retry overrides classification."""
+        """always_retry list overrides error classification."""
         config = RetryConfig(
             respect_permanent=True, always_retry={PermanentError, ValueError}
         )
@@ -186,7 +179,7 @@ class TestRetryConfig:
         assert config.should_retry(error, attempt=0) is True
 
     def test_should_retry_never_retry_list(self):
-        """Test that never_retry overrides classification."""
+        """never_retry list overrides error classification."""
         config = RetryConfig(
             respect_permanent=True, never_retry={TransientError, TimeoutError}
         )
@@ -200,7 +193,7 @@ class TestRetryConfig:
         assert config.should_retry(error, attempt=0) is False
 
     def test_should_retry_unknown_exceptions(self):
-        """Test that unknown exceptions are classified and handled."""
+        """Unknown exceptions are classified as retryable by default."""
         config = RetryConfig(respect_permanent=True)
 
         # Generic exceptions should be classified as UNKNOWN
@@ -217,7 +210,6 @@ class TestRetryStats:
     """Tests for RetryStats."""
 
     def test_default_values(self):
-        """Test default RetryStats values."""
         stats = RetryStats()
         assert stats.attempts == 0
         assert stats.total_delay == 0.0
@@ -226,7 +218,6 @@ class TestRetryStats:
         assert stats.retried is False
 
     def test_retried_property(self):
-        """Test retried property."""
         stats = RetryStats(attempts=1)
         assert stats.retried is False
 
@@ -308,7 +299,6 @@ class TestWithRetryDecorator:
     """Tests for @with_retry decorator."""
 
     def test_success_on_first_attempt(self):
-        """Test that successful function returns immediately."""
         call_count = 0
 
         @with_retry()
@@ -322,7 +312,6 @@ class TestWithRetryDecorator:
         assert call_count == 1
 
     def test_retry_on_transient_error(self):
-        """Test retry on transient errors."""
         call_count = 0
 
         @with_retry(config=RetryConfig(max_attempts=3, base_delay=0.01))
@@ -338,7 +327,6 @@ class TestWithRetryDecorator:
         assert call_count == 3
 
     def test_no_retry_on_permanent_error(self):
-        """Test that permanent errors are not retried."""
         call_count = 0
 
         @with_retry(config=RetryConfig(max_attempts=3, base_delay=0.01))
@@ -354,7 +342,6 @@ class TestWithRetryDecorator:
         assert call_count == 1
 
     def test_max_retries_exhausted(self):
-        """Test that error is raised after max retries."""
         call_count = 0
 
         @with_retry(config=RetryConfig(max_attempts=3, base_delay=0.01))
@@ -370,7 +357,7 @@ class TestWithRetryDecorator:
         assert call_count == 3
 
     def test_auth_error_callback(self):
-        """Test that on_auth_error callback is invoked."""
+        """on_auth_error callback is invoked for auth failures."""
         auth_callback = Mock()
         call_count = 0
 
@@ -391,7 +378,7 @@ class TestWithRetryDecorator:
         auth_callback.assert_called_once()
 
     def test_retry_callback(self):
-        """Test that on_retry callback is invoked before each retry."""
+        """on_retry callback is invoked before each retry with (error, attempt, delay)."""
         retry_callback = Mock()
         call_count = 0
 
@@ -422,8 +409,6 @@ class TestWithRetryDecorator:
             assert isinstance(delay, float)
 
     def test_wrap_errors_enabled(self):
-        """Test that unknown exceptions are wrapped when wrap_errors=True."""
-
         @with_retry(config=RetryConfig(max_attempts=1), wrap_errors=True)
         def unknown_error():
             raise ValueError("Unknown error")
@@ -435,8 +420,6 @@ class TestWithRetryDecorator:
         assert exc_info.value.cause.__class__ == ValueError
 
     def test_wrap_errors_disabled(self):
-        """Test that unknown exceptions are not wrapped when wrap_errors=False."""
-
         @with_retry(config=RetryConfig(max_attempts=1), wrap_errors=False)
         def unknown_error():
             raise ValueError("Unknown error")
@@ -445,7 +428,7 @@ class TestWithRetryDecorator:
             unknown_error()
 
     def test_retry_delay_timing(self):
-        """Test that retry delays are applied."""
+        """Retry delays are applied between attempts according to backoff config."""
         config = RetryConfig(max_attempts=3, base_delay=0.1, exponential_base=2.0)
         call_times: List[float] = []
 
@@ -470,8 +453,6 @@ class TestWithRetryDecorator:
         assert 0.1 <= delay_2 <= 0.25  # Allow some overhead
 
     def test_default_retry_config(self):
-        """Test that DEFAULT_RETRY is used when no config provided."""
-
         @with_retry()
         def default_config_func():
             return "success"
@@ -481,12 +462,11 @@ class TestWithRetryDecorator:
         assert result == "success"
 
     def test_auth_retry_config(self):
-        """Test AUTH_RETRY configuration."""
         assert AUTH_RETRY.max_attempts == 2
         assert AUTH_RETRY.base_delay == 0.5
 
     def test_retry_callback_exception_handling(self):
-        """Test that exceptions in on_retry callback don't break retry logic."""
+        """Exceptions in retry callback don't break retry logic."""
 
         def bad_callback(error, attempt, delay):
             raise RuntimeError("Callback failed")
@@ -510,7 +490,7 @@ class TestWithRetryDecorator:
         assert call_count == 3
 
     def test_server_retry_after_delay(self):
-        """Test that server-provided Retry-After is used."""
+        """Server-provided Retry-After header is honored when respect_retry_after=True."""
         config = RetryConfig(
             max_attempts=3, base_delay=0.01, respect_retry_after=True
         )
@@ -558,7 +538,7 @@ class TestRetryIntegration:
     """Integration tests combining retry with other components."""
 
     def test_retry_with_custom_exception_lists(self):
-        """Test retry behavior with custom always/never retry lists."""
+        """Custom always_retry and never_retry lists override default classification."""
         config = RetryConfig(
             max_attempts=3,
             base_delay=0.01,

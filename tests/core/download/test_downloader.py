@@ -31,7 +31,6 @@ from core.errors.exceptions import ErrorCategory
 
 @pytest.fixture
 def temp_output_dir(tmp_path):
-    """Create temporary output directory for downloads."""
     output_dir = tmp_path / "downloads"
     output_dir.mkdir()
     return output_dir
@@ -39,7 +38,6 @@ def temp_output_dir(tmp_path):
 
 @pytest.fixture
 def sample_task(temp_output_dir):
-    """Create sample download task."""
     return DownloadTask(
         url="https://claimxperience.com/file.pdf",
         destination=temp_output_dir / "file.pdf",
@@ -52,7 +50,6 @@ class TestAttachmentDownloaderSuccess:
 
     @pytest.mark.asyncio
     async def test_small_file_download_success(self, sample_task, temp_output_dir):
-        """Test successful download of small file (in-memory)."""
         content = b"PDF file content"
         response = DownloadResponse(
             content=content,
@@ -91,7 +88,7 @@ class TestAttachmentDownloaderSuccess:
 
     @pytest.mark.asyncio
     async def test_large_file_download_success(self, sample_task, temp_output_dir):
-        """Test successful download of large file (streaming)."""
+        """Large files use streaming download to avoid memory issues."""
         bytes_written = 100 * 1024 * 1024  # 100MB
 
         # Mock session for HEAD requests (both Content-Length and Content-Type)
@@ -125,7 +122,7 @@ class TestAttachmentDownloaderSuccess:
 
     @pytest.mark.asyncio
     async def test_download_without_validation(self, temp_output_dir):
-        """Test download with validation disabled."""
+        """Validation can be disabled to allow untrusted domains and file types."""
         task = DownloadTask(
             url="https://untrusted.com/file.exe",
             destination=temp_output_dir / "file.exe",
@@ -166,7 +163,6 @@ class TestAttachmentDownloaderValidation:
 
     @pytest.mark.asyncio
     async def test_url_validation_failure_domain(self, temp_output_dir):
-        """Test URL validation failure for untrusted domain."""
         task = DownloadTask(
             url="https://untrusted.com/file.pdf",
             destination=temp_output_dir / "file.pdf",
@@ -183,7 +179,6 @@ class TestAttachmentDownloaderValidation:
 
     @pytest.mark.asyncio
     async def test_url_validation_failure_http(self, temp_output_dir):
-        """Test URL validation failure for HTTP (not HTTPS)."""
         task = DownloadTask(
             url="http://claimxperience.com/file.pdf",
             destination=temp_output_dir / "file.pdf",
@@ -200,7 +195,6 @@ class TestAttachmentDownloaderValidation:
 
     @pytest.mark.asyncio
     async def test_file_type_validation_failure_extension(self, temp_output_dir):
-        """Test file type validation failure for disallowed extension."""
         task = DownloadTask(
             url="https://claimxperience.com/file.exe",
             destination=temp_output_dir / "file.exe",
@@ -219,7 +213,7 @@ class TestAttachmentDownloaderValidation:
     async def test_file_type_validation_failure_content_type(
         self, sample_task, temp_output_dir
     ):
-        """Test file type validation failure for mismatched Content-Type."""
+        """Content-Type mismatch detected and file deleted after validation failure."""
         content = b"executable content"
         response = DownloadResponse(
             content=content,
@@ -242,7 +236,6 @@ class TestAttachmentDownloaderValidation:
 
     @pytest.mark.asyncio
     async def test_max_size_enforcement(self, sample_task):
-        """Test max size enforcement."""
         sample_task.max_size = 1000  # 1KB limit
 
         mock_session = AsyncMock(spec=aiohttp.ClientSession)
@@ -263,7 +256,7 @@ class TestAttachmentDownloaderExpiration:
 
     @pytest.mark.asyncio
     async def test_expired_s3_url_fails_permanently(self, temp_output_dir):
-        """Test that expired S3/Xact presigned URLs fail permanently."""
+        """Expired S3 presigned URLs fail with PERMANENT category (cannot be refreshed)."""
         # S3 presigned URL with expired timestamp (year 2020)
         expired_s3_url = (
             "https://s3.amazonaws.com/bucket/file.pdf"
@@ -289,7 +282,6 @@ class TestAttachmentDownloaderExpiration:
 
     @pytest.mark.asyncio
     async def test_valid_s3_url_passes_expiration_check(self, temp_output_dir):
-        """Test that non-expired S3 URLs pass the expiration check."""
         from datetime import datetime, timezone
 
         # Generate a URL that expires far in the future
@@ -336,7 +328,7 @@ class TestAttachmentDownloaderExpiration:
 
     @pytest.mark.asyncio
     async def test_non_presigned_url_passes_when_check_enabled(self, temp_output_dir):
-        """Test that non-presigned URLs pass when check_expiration is enabled."""
+        """Non-presigned URLs pass through expiration check (only S3/Xact URLs checked)."""
         task = DownloadTask(
             url="https://claimxperience.com/file.pdf",
             destination=temp_output_dir / "file.pdf",
@@ -368,7 +360,7 @@ class TestAttachmentDownloaderExpiration:
 
     @pytest.mark.asyncio
     async def test_expiration_check_disabled_by_default(self, temp_output_dir):
-        """Test that expiration check is disabled by default."""
+        """Expiration check is disabled by default for backward compatibility."""
         # Expired S3 URL
         expired_s3_url = (
             "https://s3.amazonaws.com/bucket/file.pdf"
@@ -410,7 +402,7 @@ class TestAttachmentDownloaderExpiration:
 
     @pytest.mark.asyncio
     async def test_claimx_expired_url_not_blocked(self, temp_output_dir):
-        """Test that expired ClaimX URLs are NOT blocked (they can be refreshed)."""
+        """ClaimX expired URLs allowed: API can refresh them unlike S3 presigned URLs."""
         # ClaimX URL with expired timestamp
         expired_claimx_url = (
             "https://api.claimxperience.com/media/file.pdf"
@@ -455,7 +447,6 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_http_404_error(self, sample_task):
-        """Test handling of HTTP 404 error."""
         error = DownloadError(
             status_code=404,
             error_message="HTTP 404",
@@ -485,7 +476,6 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_http_500_error(self, sample_task):
-        """Test handling of HTTP 500 error."""
         error = DownloadError(
             status_code=500,
             error_message="HTTP 500",
@@ -515,7 +505,6 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_timeout_error(self, sample_task):
-        """Test handling of timeout error."""
         error = DownloadError(
             status_code=None,
             error_message="Download timeout after 30s",
@@ -545,7 +534,6 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_connection_error(self, sample_task):
-        """Test handling of connection error."""
         error = DownloadError(
             status_code=None,
             error_message="Connection error: DNS lookup failed",
@@ -575,7 +563,7 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_file_write_error(self, sample_task):
-        """Test handling of permanent file write error (disk full)."""
+        """Disk full errors are classified as PERMANENT (errno ENOSPC)."""
         import errno as errno_module
         content = b"PDF content"
         response = DownloadResponse(
@@ -601,7 +589,7 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_file_write_socket_timeout_error(self, sample_task):
-        """Test that socket timeout errors during file write are classified as transient."""
+        """Socket timeouts during file write are TRANSIENT (network issue, not disk)."""
         content = b"PDF content"
         response = DownloadResponse(
             content=content, status_code=200, content_type="application/pdf"
@@ -628,7 +616,7 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_file_write_unknown_error(self, sample_task):
-        """Test that unknown file write errors are classified as transient (conservative)."""
+        """Unknown file write errors classified as TRANSIENT (conservative, allows retry)."""
         content = b"PDF content"
         response = DownloadResponse(
             content=content, status_code=200, content_type="application/pdf"
@@ -654,7 +642,6 @@ class TestAttachmentDownloaderErrors:
 
     @pytest.mark.asyncio
     async def test_streaming_download_error(self, sample_task):
-        """Test handling of streaming download error."""
         error = StreamDownloadError(
             status_code=500,
             error_message="HTTP 500",
@@ -680,7 +667,7 @@ class TestAttachmentDownloaderSessionManagement:
 
     @pytest.mark.asyncio
     async def test_creates_own_session(self, sample_task):
-        """Test that downloader creates its own session when none provided."""
+        """Session lifecycle: downloader creates and closes own session when none provided."""
         content = b"PDF content"
         response = DownloadResponse(
             content=content, status_code=200, content_type="application/pdf"
@@ -708,7 +695,7 @@ class TestAttachmentDownloaderSessionManagement:
 
     @pytest.mark.asyncio
     async def test_uses_provided_session(self, sample_task):
-        """Test that downloader uses provided session without closing it."""
+        """Session lifecycle: provided session is used but NOT closed by downloader."""
         content = b"PDF content"
         response = DownloadResponse(
             content=content, status_code=200, content_type="application/pdf"
@@ -731,7 +718,7 @@ class TestAttachmentDownloaderSessionManagement:
 
     @pytest.mark.asyncio
     async def test_session_cleanup_on_error(self, sample_task):
-        """Test that session is cleaned up even on error."""
+        """Session cleanup: session closed even on unexpected errors."""
         with patch("core.download.downloader.download_url") as mock_download, patch(
             "core.download.downloader.create_session"
         ) as mock_create:
@@ -753,7 +740,6 @@ class TestAttachmentDownloaderIntegration:
 
     @pytest.mark.asyncio
     async def test_download_creates_parent_directory(self, temp_output_dir):
-        """Test that download creates parent directory if missing."""
         nested_path = temp_output_dir / "nested" / "dir" / "file.pdf"
         task = DownloadTask(
             url="https://claimxperience.com/file.pdf", destination=nested_path
@@ -786,7 +772,6 @@ class TestAttachmentDownloaderIntegration:
 
     @pytest.mark.asyncio
     async def test_custom_allowed_domains(self, temp_output_dir):
-        """Test download with custom allowed domains."""
         task = DownloadTask(
             url="https://custom-domain.com/file.pdf",
             destination=temp_output_dir / "file.pdf",
