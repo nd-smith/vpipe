@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """
 URL validation for attachment downloads with SSRF prevention.
 
@@ -130,7 +124,7 @@ def validate_download_url(
     is_localhost = hostname_lower in ("localhost", "127.0.0.1")
     # In simulation mode, also treat Docker internal hostnames as localhost
     is_simulation_internal = allow_localhost and (
-        hostname_lower.endswith("-simulation") or hostname_lower.startswith("vpipe_")
+        hostname_lower.endswith("-simulation") or hostname_lower.startswith("pcesdopodappv1_")
     )
 
     # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
@@ -190,7 +184,7 @@ def _validate_localhost_url(url: str, parsed) -> Tuple[bool, str]:
     is_valid_internal = (
         hostname_lower in ("localhost", "127.0.0.1")
         or hostname_lower.endswith("-simulation")
-        or hostname_lower.startswith("vpipe_")
+        or hostname_lower.startswith("pcesdopodappv1_")
     )
     if not is_valid_internal:
         return False, f"Invalid localhost/internal hostname: {hostname_lower}"

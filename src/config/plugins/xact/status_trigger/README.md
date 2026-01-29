@@ -319,4 +319,4 @@ Plugin execution failed | event_id=evt_12345 | error=...
 
 ## License
 
-This plugin is part of the vpipe project.
+This plugin is part of the pcesdopodappv1 project.

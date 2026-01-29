@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """End-to-end integration tests for simulation mode.
 
 Tests the full pipeline flow from dummy producer through all workers to Delta Lake:
@@ -198,7 +192,7 @@ class SimulationTestHarness:
 @pytest.fixture
 def simulation_dir():
     """Provide simulation directory for tests."""
-    sim_dir = Path("/tmp/vpipe_simulation_test")
+    sim_dir = Path("/tmp/pcesdopodappv1_simulation_test")
     yield sim_dir
     # Cleanup after test
     if sim_dir.exists():

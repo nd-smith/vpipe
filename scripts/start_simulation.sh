@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start VPipe Simulation Environment
+# Start Pcesdopodappv1 Simulation Environment
 #
 # This script builds and launches the complete simulation environment:
 # - Kafka infrastructure
@@ -26,7 +26,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}VPipe Simulation Environment${NC}"
+echo -e "${GREEN}Pcesdopodappv1 Simulation Environment${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
@@ -63,7 +63,7 @@ if [ "$CLEAN" = true ]; then
     echo -e "${YELLOW}Cleaning up existing simulation environment...${NC}"
     docker-compose -f scripts/docker/docker-compose.simulation.yml down -v
     rm -rf logs/
-    rm -rf /tmp/vpipe_simulation
+    rm -rf /tmp/pcesdopodappv1_simulation
     echo -e "${GREEN}✓ Cleanup complete${NC}"
     echo ""
 fi
@@ -79,7 +79,7 @@ fi
 # Create directories
 echo -e "${YELLOW}Creating directories...${NC}"
 mkdir -p logs
-mkdir -p /tmp/vpipe_simulation
+mkdir -p /tmp/pcesdopodappv1_simulation
 echo -e "${GREEN}✓ Directories created${NC}"
 echo ""
 
@@ -124,7 +124,7 @@ echo "  View producer:  docker-compose -f scripts/docker/docker-compose.simulati
 echo "  Stop all:       docker-compose -f scripts/docker/docker-compose.simulation.yml down"
 echo "  Clean all:      docker-compose -f scripts/docker/docker-compose.simulation.yml down -v"
 echo ""
-echo "Simulation data stored at: /tmp/vpipe_simulation/"
+echo "Simulation data stored at: /tmp/pcesdopodappv1_simulation/"
 echo "Logs stored at: $PROJECT_ROOT/logs/"
 echo ""
 echo -e "${GREEN}Simulation is running! Press Ctrl+C to stop.${NC}"

@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """
 Entry point for running Kafka pipeline workers.
 
@@ -91,6 +85,7 @@ from prometheus_client import start_http_server, REGISTRY
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger, setup_logging, setup_multi_worker_logging
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.runners.registry import WORKER_REGISTRY, run_worker_from_registry
 
 # Project root directory (where .env file is located)
@@ -545,7 +540,48 @@ def main():
         except ValueError as e:
             logger.error("Configuration error", extra={"error": str(e)})
             logger.error("Use --dev flag for local development without Event Hub/Eventhouse")
-            sys.exit(1)
+            logger.warning("Running in ERROR MODE - health endpoint will remain alive")
+
+            # Run in error mode: keep health endpoint alive but report not ready
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            setup_signal_handlers(loop)
+
+            async def run_error_mode():
+                """Run health server in error state until shutdown signal."""
+                shutdown_event = get_shutdown_event()
+
+                # Start health server in error state on port 8080 (matches Jenkinsfile probes)
+                health_server = HealthCheckServer(
+                    port=8080,
+                    worker_name=args.worker,
+                    enabled=True,
+                )
+                health_server.set_error(f"Configuration error: {e}")
+
+                await health_server.start()
+                logger.info(
+                    "Health server running in error mode",
+                    extra={
+                        "port": health_server.actual_port,
+                        "worker": args.worker,
+                        "error": str(e),
+                    },
+                )
+
+                # Wait for shutdown signal
+                await shutdown_event.wait()
+                logger.info("Shutdown signal received in error mode")
+                await health_server.stop()
+
+            try:
+                loop.run_until_complete(run_error_mode())
+            except KeyboardInterrupt:
+                logger.info("Keyboard interrupt received in error mode, shutting down...")
+            finally:
+                loop.close()
+                logger.info("Error mode shutdown complete")
+            return  # Exit main() without sys.exit(1)
 
     enable_delta_writes = not args.no_delta
 
@@ -652,7 +688,40 @@ def main():
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
         logger.error("Fatal error", extra={"error": str(e)}, exc_info=True)
-        sys.exit(1)
+        logger.warning("Entering ERROR MODE - health endpoint will remain alive")
+
+        # Run in error mode: keep health endpoint alive but report not ready
+        async def run_fatal_error_mode():
+            """Run health server in error state after fatal error."""
+            shutdown_event = get_shutdown_event()
+
+            # Start health server in error state on port 8080 (matches Jenkinsfile probes)
+            health_server = HealthCheckServer(
+                port=8080,
+                worker_name=args.worker,
+                enabled=True,
+            )
+            health_server.set_error(f"Fatal error: {e}")
+
+            await health_server.start()
+            logger.info(
+                "Health server running in error mode after fatal error",
+                extra={
+                    "port": health_server.actual_port,
+                    "worker": args.worker,
+                    "error": str(e),
+                },
+            )
+
+            # Wait for shutdown signal
+            await shutdown_event.wait()
+            logger.info("Shutdown signal received in error mode")
+            await health_server.stop()
+
+        try:
+            loop.run_until_complete(run_fatal_error_mode())
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received in error mode, shutting down...")
     finally:
         loop.close()
         logger.info("Pipeline shutdown complete")

@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """Inspect Delta Lake tables written during simulation.
 
 Usage:
@@ -270,7 +264,7 @@ def main():
     if len(sys.argv) > 1:
         delta_path = Path(sys.argv[1])
     else:
-        delta_path = Path("/tmp/vpipe_simulation/delta")
+        delta_path = Path("/tmp/pcesdopodappv1_simulation/delta")
 
     try:
         inspect_delta_tables(delta_path)

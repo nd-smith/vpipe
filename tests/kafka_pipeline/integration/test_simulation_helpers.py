@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """Helper utilities for simulation integration tests."""
 
 import asyncio
@@ -232,7 +226,7 @@ def assert_delta_tables_written(delta_path: Path, expected_tables: List[str]):
     ), f"Missing Delta tables: {', '.join(missing_tables)}"
 
 
-def assert_no_errors_in_logs(log_dir: Path = Path("/tmp"), pattern: str = "vpipe_*.log"):
+def assert_no_errors_in_logs(log_dir: Path = Path("/tmp"), pattern: str = "pcesdopodappv1_*.log"):
     """Assert that no ERROR level logs were written.
 
     Args:

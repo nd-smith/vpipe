@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """
 Delta Lake writer for ClaimX entity tables.
 
@@ -20,7 +14,7 @@ Uses merge (upsert) operations with appropriate primary keys for idempotency.
 
 Simulation Mode:
 When simulation mode is enabled, writes to local filesystem Delta tables
-in /tmp/vpipe_simulation/delta/ instead of cloud OneLake storage.
+in /tmp/pcesdopodappv1_simulation/delta/ instead of cloud OneLake storage.
 """
 
 from datetime import date, datetime, timezone

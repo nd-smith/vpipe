@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """Worker registry for mapping CLI worker names to runner functions.
 
 This registry defines all available workers and how to execute them.

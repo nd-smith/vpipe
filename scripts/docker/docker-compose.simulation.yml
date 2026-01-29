@@ -1,6 +1,6 @@
 # Simulation Mode Docker Compose
 #
-# This runs the complete VPipe simulation environment for local testing:
+# This runs the complete Pcesdopodappv1 simulation environment for local testing:
 # - Kafka infrastructure (local)
 # - Dummy data producer (generates 1000 events/min for both domains)
 # - Dummy file server (serves test attachments)
@@ -200,7 +200,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -226,7 +226,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -250,7 +250,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -272,10 +272,10 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_SECURITY_PROTOCOL=PLAINTEXT
       - LOG_LEVEL=INFO
-      - DELTA_EVENTS_TABLE_PATH=/tmp/vpipe_simulation/delta/xact_events
+      - DELTA_EVENTS_TABLE_PATH=/tmp/pcesdopodappv1_simulation/delta/xact_events
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -353,7 +353,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -379,7 +379,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -403,7 +403,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -425,10 +425,10 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_SECURITY_PROTOCOL=PLAINTEXT
       - LOG_LEVEL=INFO
-      - CLAIMX_EVENTS_TABLE_PATH=/tmp/vpipe_simulation/delta/claimx_events
+      - CLAIMX_EVENTS_TABLE_PATH=/tmp/pcesdopodappv1_simulation/delta/claimx_events
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -476,7 +476,7 @@ services:
       - LOG_LEVEL=INFO
     volumes:
       - ./logs:/app/logs
-      - /tmp/vpipe_simulation:/tmp/vpipe_simulation
+      - /tmp/pcesdopodappv1_simulation:/tmp/pcesdopodappv1_simulation
     restart: unless-stopped
     deploy:
       resources:
@@ -549,4 +549,4 @@ volumes:
 
 networks:
   default:
-    name: vpipe_simulation_network
+    name: pcesdopodappv1_simulation_network

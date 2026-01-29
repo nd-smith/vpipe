@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop VPipe Simulation Environment
+# Stop Pcesdopodappv1 Simulation Environment
 #
 # Usage:
 #   ./scripts/stop_simulation.sh           # Stop but keep data
@@ -42,7 +42,7 @@ if [ "$CLEAN" = true ]; then
     docker-compose -f scripts/docker/docker-compose.simulation.yml down -v
     echo -e "${YELLOW}Cleaning up data...${NC}"
     rm -rf logs/
-    rm -rf /tmp/vpipe_simulation
+    rm -rf /tmp/pcesdopodappv1_simulation
     echo -e "${GREEN}✓ Simulation stopped and cleaned${NC}"
 else
     docker-compose -f scripts/docker/docker-compose.simulation.yml down
@@ -50,7 +50,7 @@ else
     echo ""
     echo "Data locations:"
     echo "  - Kafka data:        docker volume 'kafka_simulation_data'"
-    echo "  - Simulation files:  /tmp/vpipe_simulation/"
+    echo "  - Simulation files:  /tmp/pcesdopodappv1_simulation/"
     echo "  - Logs:              $PROJECT_ROOT/logs/"
     echo ""
     echo "To clean all data: $0 --clean"

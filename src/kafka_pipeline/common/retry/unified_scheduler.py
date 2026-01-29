@@ -1,9 +1,3 @@
-# Copyright (c) 2024-2026 nickdsmith. All Rights Reserved.
-# SPDX-License-Identifier: PROPRIETARY
-#
-# This file is proprietary and confidential. Unauthorized copying of this file,
-# via any medium is strictly prohibited.
-
 """
 Unified retry scheduler for header-based routing.
 
@@ -130,7 +124,7 @@ class UnifiedRetryScheduler:
         self._persistence_interval = persistence_interval_seconds
 
         # Persistence file path
-        self._persistence_file = Path(f"/tmp/vpipe_{domain}_retry_queue.json")
+        self._persistence_file = Path(f"/tmp/pcesdopodappv1_{domain}_retry_queue.json")
 
         # Metrics
         self._messages_routed = 0
