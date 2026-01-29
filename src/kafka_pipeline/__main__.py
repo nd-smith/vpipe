@@ -569,8 +569,8 @@ def main():
                     },
                 )
 
-                # Upload crash logs after health server is up
-                upload_crash_logs(reason=f"Configuration error: {e}")
+                # Upload crash logs in background thread so health server stays responsive
+                await asyncio.to_thread(upload_crash_logs, f"Configuration error: {e}")
 
                 # Wait for shutdown signal
                 await shutdown_event.wait()
@@ -716,8 +716,8 @@ def main():
                 },
             )
 
-            # Upload crash logs after health server is up
-            upload_crash_logs(reason=f"Fatal error: {e}")
+            # Upload crash logs in background thread so health server stays responsive
+            await asyncio.to_thread(upload_crash_logs, f"Fatal error: {e}")
 
             # Wait for shutdown signal
             await shutdown_event.wait()
