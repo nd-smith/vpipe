@@ -342,9 +342,12 @@ class OneLakeClient(LoggedClass):
         if credential is None and auth.has_spn_credentials:
             from azure.identity import ClientSecretCredential
 
-            assert auth.tenant_id is not None
-            assert auth.client_id is not None
-            assert auth.client_secret is not None
+            if auth.tenant_id is None:
+                raise RuntimeError("Azure tenant_id is required for SPN authentication")
+            if auth.client_id is None:
+                raise RuntimeError("Azure client_id is required for SPN authentication")
+            if auth.client_secret is None:
+                raise RuntimeError("Azure client_secret is required for SPN authentication")
 
             credential = ClientSecretCredential(
                 tenant_id=auth.tenant_id,

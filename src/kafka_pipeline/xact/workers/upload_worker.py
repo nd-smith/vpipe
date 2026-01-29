@@ -430,7 +430,8 @@ class UploadWorker:
         )
 
     async def _consume_batch_loop(self) -> None:
-        assert self._consumer is not None
+        if self._consumer is None:
+            raise RuntimeError("Consumer not initialized - call start() first")
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
@@ -537,8 +538,10 @@ class UploadWorker:
                 await asyncio.sleep(1)
 
     async def _process_batch(self, messages: List[ConsumerRecord]) -> None:
-        assert self._consumer is not None
-        assert self._semaphore is not None
+        if self._consumer is None:
+            raise RuntimeError("Consumer not initialized - call start() first")
+        if self._semaphore is None:
+            raise RuntimeError("Semaphore not initialized - call start() first")
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
@@ -564,7 +567,8 @@ class UploadWorker:
             logger.error("Failed to commit offsets", extra={"error": str(e)}, exc_info=True)
 
     async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
-        assert self._semaphore is not None
+        if self._semaphore is None:
+            raise RuntimeError("Semaphore not initialized - call start() first")
 
         async with self._semaphore:
             return await self._process_single_upload(message)

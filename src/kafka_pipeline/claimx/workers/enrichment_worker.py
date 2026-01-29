@@ -1139,7 +1139,8 @@ class ClaimXEnrichmentWorker:
         Route failed task to retry topic or DLQ based on error category and retry count.
         TRANSIENT/AUTH/CIRCUIT_OPEN/UNKNOWN -> retry with backoff, PERMANENT -> DLQ immediately.
         """
-        assert self.retry_handler is not None, "Retry handler not initialized"
+        if self.retry_handler is None:
+            raise RuntimeError("RetryHandler not initialized - call start() first")
 
         log_worker_error(
             logger,

@@ -847,7 +847,8 @@ class XACTEnrichmentWorker:
         """
         Route failed task to retry topic or DLQ based on error category and retry count.
         """
-        assert self.retry_handler is not None, "Retry handler not initialized"
+        if self.retry_handler is None:
+            raise RuntimeError("RetryHandler not initialized - call start() first")
 
         log_worker_error(
             logger,

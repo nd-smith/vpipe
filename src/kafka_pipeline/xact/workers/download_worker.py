@@ -752,7 +752,8 @@ class DownloadWorker:
         outcome: DownloadOutcome,
         processing_time_ms: int,
     ) -> None:
-        assert outcome.file_path is not None, "File path missing in successful outcome"
+        if outcome.file_path is None:
+            raise ValueError("File path missing in successful outcome")
 
         logger.info(
             "Download completed successfully",
@@ -833,7 +834,8 @@ class DownloadWorker:
         - PERMANENT: DLQ (no retry)
         - TRANSIENT/AUTH/UNKNOWN: Retry topic
         """
-        assert self.retry_handler is not None, "RetryHandler not initialized"
+        if self.retry_handler is None:
+            raise RuntimeError("RetryHandler not initialized - call start() first")
 
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
 
