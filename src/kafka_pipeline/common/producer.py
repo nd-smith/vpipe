@@ -126,6 +126,10 @@ class BaseKafkaProducer:
             elif self.config.sasl_mechanism == "PLAIN":
                 kafka_producer_config["sasl_plain_username"] = self.config.sasl_plain_username
                 kafka_producer_config["sasl_plain_password"] = self.config.sasl_plain_password
+            elif self.config.sasl_mechanism == "GSSAPI":
+                kafka_producer_config["sasl_kerberos_service_name"] = (
+                    self.config.sasl_kerberos_service_name
+                )
 
         self._producer = AIOKafkaProducer(**kafka_producer_config)
         await self._producer.start()

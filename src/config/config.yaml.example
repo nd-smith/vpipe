@@ -41,8 +41,12 @@ kafka:
     security_protocol: "PLAINTEXT"
 
     # SASL authentication mechanism
-    # Options: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
-    sasl_mechanism: "OAUTHBEARER"
+    # Options: GSSAPI (Kerberos), PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
+    sasl_mechanism: "GSSAPI"
+
+    # Kerberos service name (GSSAPI only, default: "kafka")
+    # Must match the service principal name configured on the Kafka brokers
+    sasl_kerberos_service_name: "kafka"
 
     # Username for SASL/PLAIN authentication or Azure Event Hubs
     sasl_plain_username: ""
