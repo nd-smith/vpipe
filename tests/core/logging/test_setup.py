@@ -2,14 +2,22 @@
 
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from core.logging.context import clear_log_context, get_log_context, set_log_context
 from core.logging.filters import StageContextFilter
-from core.logging.setup import get_log_file_path, setup_logging, setup_multi_worker_logging
+from core.logging.setup import (
+    get_log_file_path,
+    setup_logging,
+    setup_multi_worker_logging,
+    upload_crash_logs,
+)
 
 
 class TestSetupMultiWorkerLogging:
@@ -293,3 +301,163 @@ class TestSetupLogging:
         # When disabled, get_log_file_path still generates a coolname phrase as fallback
         # Just verify a log file was created
         assert log_files[0].exists()
+
+
+class TestUploadCrashLogs:
+    """Tests for upload_crash_logs function."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup(self):
+        """Clean up after each test."""
+        clear_log_context()
+        yield
+        clear_log_context()
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+
+    @pytest.fixture
+    def mock_onelake_module(self):
+        """Inject a mock OneLakeClient via sys.modules for the lazy import."""
+        mock_client_cls = MagicMock()
+        mock_module = ModuleType("kafka_pipeline.common.storage.onelake")
+        mock_module.OneLakeClient = mock_client_cls
+
+        # Ensure parent modules exist in sys.modules
+        modules_to_inject = {
+            "kafka_pipeline.common.storage": ModuleType("kafka_pipeline.common.storage"),
+            "kafka_pipeline.common.storage.onelake": mock_module,
+        }
+
+        with patch.dict(sys.modules, modules_to_inject):
+            yield mock_client_cls
+
+    def test_uploads_active_log_files(self, tmp_path, mock_onelake_module):
+        """Uploads active log files to OneLake via crash/ prefix."""
+        setup_logging(
+            name="test",
+            stage="download",
+            domain="kafka",
+            log_dir=tmp_path,
+        )
+
+        # Write some log content so the file is non-empty
+        test_logger = logging.getLogger("test.crash")
+        test_logger.error("Fatal crash occurred")
+
+        # Flush handlers
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+        mock_client = MagicMock()
+        mock_onelake_module.return_value = mock_client
+
+        with patch.dict(os.environ, {"ONELAKE_LOG_PATH": "abfss://test@test.dfs.fabric.microsoft.com/logs"}):
+            upload_crash_logs(reason="test fatal error")
+
+        # Verify OneLake client was created and upload_file was called
+        mock_onelake_module.assert_called_once_with(base_path="abfss://test@test.dfs.fabric.microsoft.com/logs")
+        assert mock_client.upload_file.call_count >= 1
+
+        # Verify the upload path includes crash/ prefix
+        call_args = mock_client.upload_file.call_args_list[0]
+        relative_path = call_args.kwargs.get("relative_path", "")
+        assert "logs/crash/" in relative_path
+
+    def test_no_op_without_onelake_config(self, tmp_path):
+        """Does nothing when no OneLake path is configured."""
+        setup_logging(
+            name="test",
+            stage="download",
+            domain="kafka",
+            log_dir=tmp_path,
+        )
+
+        test_logger = logging.getLogger("test.crash")
+        test_logger.error("Fatal crash occurred")
+
+        # Ensure no OneLake env vars are set
+        env = {k: v for k, v in os.environ.items() if k not in ("ONELAKE_LOG_PATH", "ONELAKE_BASE_PATH")}
+        with patch.dict(os.environ, env, clear=True):
+            # Should not raise
+            upload_crash_logs(reason="test fatal error")
+
+    def test_no_op_without_file_handlers(self):
+        """Does nothing when no file handlers are configured."""
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+
+        # Add only a console handler (no file handler)
+        console_handler = logging.StreamHandler()
+        root_logger.addHandler(console_handler)
+
+        # Should not raise
+        upload_crash_logs(reason="test fatal error")
+
+    def test_never_raises_on_client_failure(self, tmp_path, mock_onelake_module):
+        """Never raises exceptions even when OneLake client creation fails."""
+        setup_logging(
+            name="test",
+            stage="download",
+            domain="kafka",
+            log_dir=tmp_path,
+        )
+
+        test_logger = logging.getLogger("test.crash")
+        test_logger.error("Fatal crash occurred")
+
+        mock_onelake_module.side_effect = RuntimeError("Connection failed")
+
+        with patch.dict(os.environ, {"ONELAKE_LOG_PATH": "abfss://test@test.dfs.fabric.microsoft.com/logs"}):
+            # Must not raise - crash upload is best-effort
+            upload_crash_logs(reason="test fatal error")
+
+    def test_never_raises_on_upload_failure(self, tmp_path, mock_onelake_module):
+        """Never raises exceptions even when individual file uploads fail."""
+        setup_logging(
+            name="test",
+            stage="download",
+            domain="kafka",
+            log_dir=tmp_path,
+        )
+
+        test_logger = logging.getLogger("test.crash")
+        test_logger.error("Fatal crash occurred")
+
+        mock_client = MagicMock()
+        mock_client.upload_file.side_effect = RuntimeError("Upload failed")
+        mock_onelake_module.return_value = mock_client
+
+        with patch.dict(os.environ, {"ONELAKE_LOG_PATH": "abfss://test@test.dfs.fabric.microsoft.com/logs"}):
+            # Must not raise - crash upload is best-effort
+            upload_crash_logs(reason="test fatal error")
+
+        # upload_file was attempted even though it failed
+        assert mock_client.upload_file.call_count >= 1
+
+    def test_reuses_existing_onelake_client_from_handler(self, tmp_path, mock_onelake_module):
+        """Reuses OneLake client already attached to a handler."""
+        setup_logging(
+            name="test",
+            stage="download",
+            domain="kafka",
+            log_dir=tmp_path,
+        )
+
+        test_logger = logging.getLogger("test.crash")
+        test_logger.error("Fatal crash occurred")
+
+        # Attach a mock OneLake client to the file handler
+        mock_client = MagicMock()
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers:
+            if isinstance(handler, logging.FileHandler):
+                handler.onelake_client = mock_client
+                break
+
+        # Should use the existing client, not create a new one
+        upload_crash_logs(reason="test fatal error")
+
+        # OneLakeClient constructor should NOT have been called
+        mock_onelake_module.assert_not_called()
+        # But the existing client's upload_file should have been called
+        assert mock_client.upload_file.call_count >= 1

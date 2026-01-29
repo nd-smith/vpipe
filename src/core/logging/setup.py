@@ -601,6 +601,135 @@ def setup_multi_worker_logging(
     return logger
 
 
+def upload_crash_logs(reason: str = "") -> None:
+    """Upload active log files to OneLake after a fatal crash.
+
+    Called when any worker fatally crashes to ensure crash logs are
+    preserved in OneLake for post-mortem debugging, regardless of whether
+    periodic log upload is enabled via LOG_UPLOAD_ENABLED.
+
+    This is a best-effort operation: failures are logged but never raised.
+
+    Args:
+        reason: Description of why logs are being uploaded (e.g., error message)
+    """
+    try:
+        _do_crash_log_upload(reason)
+    except Exception as e:
+        # Last-resort fallback: never let crash upload break the error-mode flow
+        print(f"Warning: Crash log upload failed unexpectedly: {e}", file=sys.stderr)
+
+
+def _do_crash_log_upload(reason: str) -> None:
+    """Internal implementation for crash log upload."""
+    root_logger = logging.getLogger()
+    crash_logger = logging.getLogger("core.logging.crash_upload")
+
+    # Phase 1: Flush all file handlers and collect their file paths
+    log_files: List[Path] = []
+    onelake_client = None
+
+    for handler in root_logger.handlers:
+        if not isinstance(handler, logging.FileHandler):
+            continue
+
+        try:
+            handler.flush()
+        except Exception:
+            pass
+
+        log_path = Path(handler.baseFilename)
+        if log_path.exists() and log_path.stat().st_size > 0:
+            log_files.append(log_path)
+
+        # Reuse existing OneLake client if available
+        if hasattr(handler, "onelake_client") and handler.onelake_client is not None:
+            onelake_client = handler.onelake_client
+
+        # Also include any archived log files from recent rotations
+        if hasattr(handler, "archive_dir"):
+            archive_path = (
+                Path(handler.archive_dir)
+                if not isinstance(handler.archive_dir, Path)
+                else handler.archive_dir
+            )
+            if archive_path.exists():
+                for archived in archive_path.glob("*.log*"):
+                    try:
+                        if archived.stat().st_size > 0:
+                            log_files.append(archived)
+                    except OSError:
+                        pass
+
+    if not log_files:
+        crash_logger.warning("No log files found for crash upload")
+        return
+
+    # Deduplicate while preserving order
+    seen: set = set()
+    unique_files: List[Path] = []
+    for f in log_files:
+        resolved = f.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique_files.append(f)
+    log_files = unique_files
+
+    # Phase 2: Get or create OneLake client
+    if onelake_client is None:
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv("ONELAKE_BASE_PATH")
+        if not onelake_log_path:
+            crash_logger.warning(
+                "No OneLake path configured for crash log upload "
+                "(set ONELAKE_LOG_PATH or ONELAKE_BASE_PATH)"
+            )
+            return
+
+        try:
+            from kafka_pipeline.common.storage.onelake import OneLakeClient
+
+            onelake_client = OneLakeClient(base_path=onelake_log_path)
+        except Exception as e:
+            crash_logger.warning(
+                "Failed to create OneLake client for crash log upload",
+                extra={"error": str(e)},
+            )
+            return
+
+    # Phase 3: Upload log files under crash/ prefix
+    crash_logger.info(
+        "Uploading crash logs to OneLake",
+        extra={"file_count": len(log_files), "reason": reason},
+    )
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    uploaded = 0
+
+    for log_file in log_files:
+        try:
+            onelake_path = f"logs/crash/{date_str}/{log_file.name}"
+            onelake_client.upload_file(
+                relative_path=onelake_path,
+                local_path=str(log_file),
+                overwrite=True,
+            )
+            uploaded += 1
+            crash_logger.debug("Uploaded crash log", extra={"file": log_file.name})
+        except Exception as e:
+            crash_logger.warning(
+                "Failed to upload crash log file",
+                extra={"file": log_file.name, "error": str(e)},
+            )
+
+    if uploaded > 0:
+        crash_logger.info(
+            "Crash log upload complete",
+            extra={"uploaded": uploaded, "total": len(log_files)},
+        )
+    else:
+        crash_logger.warning("No crash logs were successfully uploaded")
+
+
 def get_logger(name: str) -> logging.Logger:
     """
     Get a logger instance.
