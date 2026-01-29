@@ -392,19 +392,23 @@ def setup_logging(
 
     # Create OneLake client if upload enabled
     onelake_client = None
+    onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv("ONELAKE_BASE_PATH")
     if upload_enabled:
-        try:
-            from kafka_pipeline.common.storage.onelake import OneLakeClient
-            from config.pipeline_config import get_pipeline_config
-
-            # Load pipeline config to get OneLake settings
-            pipeline_config = get_pipeline_config()
-            onelake_client = OneLakeClient(
-                base_path=os.getenv("ONELAKE_LOG_PATH", pipeline_config.onelake_base_path),
+        if not onelake_log_path:
+            print(
+                "Warning: LOG_UPLOAD_ENABLED=true but no ONELAKE_LOG_PATH or "
+                "ONELAKE_BASE_PATH configured, disabling log upload",
+                file=sys.stderr,
             )
-        except Exception as e:
-            print(f"Warning: Failed to initialize OneLake client for log upload: {e}", file=sys.stderr)
             upload_enabled = False
+        else:
+            try:
+                from kafka_pipeline.common.storage.onelake import OneLakeClient
+
+                onelake_client = OneLakeClient(base_path=onelake_log_path)
+            except Exception as e:
+                print(f"Warning: Failed to initialize OneLake client for log upload: {e}", file=sys.stderr)
+                upload_enabled = False
 
     # Choose handler based on upload configuration
     if upload_enabled and onelake_client:
