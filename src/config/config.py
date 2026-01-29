@@ -296,43 +296,74 @@ class KafkaConfig:
                     f"{context}: {key} must be between {min_value} and {max_value}, got {value}"
                 )
 
+    def _validate_kafka_settings(
+        self,
+        settings: Dict[str, Any],
+        context: str,
+        setting_type: str
+    ) -> None:
+        """Generic validator for Kafka settings (consumer, producer, or processing).
+
+        Args:
+            settings: Dictionary of settings to validate
+            context: Context string for error messages (e.g., "consumer_defaults")
+            setting_type: Type of settings - "consumer", "producer", or "processing"
+        """
+        if setting_type == "consumer":
+            # Consumer-specific cross-field validations
+            if "heartbeat_interval_ms" in settings and "session_timeout_ms" in settings:
+                heartbeat = settings["heartbeat_interval_ms"]
+                session_timeout = settings["session_timeout_ms"]
+                if heartbeat >= session_timeout / 3:
+                    raise ValueError(
+                        f"{context}: heartbeat_interval_ms ({heartbeat}) must be < "
+                        f"session_timeout_ms/3 ({session_timeout/3:.0f}). "
+                        f"Recommended: heartbeat_interval_ms <= {session_timeout // 3}"
+                    )
+
+            if "session_timeout_ms" in settings and "max_poll_interval_ms" in settings:
+                session_timeout = settings["session_timeout_ms"]
+                max_poll_interval = settings["max_poll_interval_ms"]
+                if session_timeout >= max_poll_interval:
+                    raise ValueError(
+                        f"{context}: session_timeout_ms ({session_timeout}) must be < "
+                        f"max_poll_interval_ms ({max_poll_interval})"
+                    )
+
+            # Consumer field validations
+            self._validate_min(settings, "max_poll_records", 1, inclusive=True, context=context)
+            self._validate_enum(settings, "auto_offset_reset", ["earliest", "latest", "none"], context)
+            self._validate_enum(settings, "partition_assignment_strategy", ["RoundRobin", "Range", "Sticky"], context)
+
+        elif setting_type == "producer":
+            # Producer field validations
+            self._validate_enum(settings, "acks", ["0", "1", "all", 0, 1], context)
+            self._validate_enum(settings, "compression_type", ["none", "gzip", "snappy", "lz4", "zstd"], context)
+            self._validate_min(settings, "retries", 0, inclusive=True, context=context)
+            self._validate_min(settings, "batch_size", 0, inclusive=True, context=context)
+            self._validate_min(settings, "linger_ms", 0, inclusive=True, context=context)
+
+        elif setting_type == "processing":
+            # Processing field validations
+            self._validate_range(settings, "concurrency", 1, 50, context)
+            self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
+            self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
+            self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
+
+        else:
+            raise ValueError(f"Invalid setting_type: {setting_type}. Must be 'consumer', 'producer', or 'processing'")
+
     def _validate_consumer_settings(self, settings: Dict[str, Any], context: str) -> None:
         """Validate consumer settings against Kafka requirements and logical constraints."""
-        if "heartbeat_interval_ms" in settings and "session_timeout_ms" in settings:
-            heartbeat = settings["heartbeat_interval_ms"]
-            session_timeout = settings["session_timeout_ms"]
-            if heartbeat >= session_timeout / 3:
-                raise ValueError(
-                    f"{context}: heartbeat_interval_ms ({heartbeat}) must be < "
-                    f"session_timeout_ms/3 ({session_timeout/3:.0f}). "
-                    f"Recommended: heartbeat_interval_ms <= {session_timeout // 3}"
-                )
-
-        if "session_timeout_ms" in settings and "max_poll_interval_ms" in settings:
-            session_timeout = settings["session_timeout_ms"]
-            max_poll_interval = settings["max_poll_interval_ms"]
-            if session_timeout >= max_poll_interval:
-                raise ValueError(
-                    f"{context}: session_timeout_ms ({session_timeout}) must be < "
-                    f"max_poll_interval_ms ({max_poll_interval})"
-                )
-
-        self._validate_min(settings, "max_poll_records", 1, inclusive=True, context=context)
-        self._validate_enum(settings, "auto_offset_reset", ["earliest", "latest", "none"], context)
-        self._validate_enum(settings, "partition_assignment_strategy", ["RoundRobin", "Range", "Sticky"], context)
+        self._validate_kafka_settings(settings, context, "consumer")
 
     def _validate_producer_settings(self, settings: Dict[str, Any], context: str) -> None:
-        self._validate_enum(settings, "acks", ["0", "1", "all", 0, 1], context)
-        self._validate_enum(settings, "compression_type", ["none", "gzip", "snappy", "lz4", "zstd"], context)
-        self._validate_min(settings, "retries", 0, inclusive=True, context=context)
-        self._validate_min(settings, "batch_size", 0, inclusive=True, context=context)
-        self._validate_min(settings, "linger_ms", 0, inclusive=True, context=context)
+        """Validate producer settings."""
+        self._validate_kafka_settings(settings, context, "producer")
 
     def _validate_processing_settings(self, settings: Dict[str, Any], context: str) -> None:
-        self._validate_range(settings, "concurrency", 1, 50, context)
-        self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
-        self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
-        self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
+        """Validate processing settings."""
+        self._validate_kafka_settings(settings, context, "processing")
 
 
 def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
