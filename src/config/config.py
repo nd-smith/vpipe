@@ -92,6 +92,8 @@ class KafkaConfig:
     sasl_mechanism: str = "OAUTHBEARER"
     sasl_plain_username: str = ""
     sasl_plain_password: str = ""
+    sasl_kerberos_service_name: str = "kafka"
+    schema_registry_url: str = ""
     request_timeout_ms: int = 120000  # 2 minutes
     metadata_max_age_ms: int = 300000  # 5 minutes
     connections_max_idle_ms: int = 540000  # 9 minutes
@@ -451,6 +453,8 @@ def load_config(
         sasl_mechanism=connection.get("sasl_mechanism", "OAUTHBEARER"),
         sasl_plain_username=connection.get("sasl_plain_username", ""),
         sasl_plain_password=connection.get("sasl_plain_password", ""),
+        sasl_kerberos_service_name=connection.get("sasl_kerberos_service_name", "kafka"),
+        schema_registry_url=connection.get("schema_registry_url", ""),
         request_timeout_ms=connection.get("request_timeout_ms", 120000),
         metadata_max_age_ms=connection.get("metadata_max_age_ms", 300000),
         connections_max_idle_ms=connection.get("connections_max_idle_ms", 540000),

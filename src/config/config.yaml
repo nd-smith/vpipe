@@ -8,8 +8,14 @@ event_source: ${EVENT_SOURCE:-eventhub}
 # Kafka configuration
 kafka:
   connection:
+    # Bootstrap servers for the Kafka cluster.
+    # Format: comma-separated host:port list. Port depends on security protocol:
+    #   SASL_PLAINTEXT -> 9092 | SASL_SSL -> 9093 | SSL (mTLS) -> 9094
     bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
     security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
+    sasl_mechanism: ${KAFKA_SASL_MECHANISM:-GSSAPI}
+    sasl_kerberos_service_name: ${KAFKA_SASL_KERBEROS_SERVICE_NAME:-kafka}
+    schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:-}
 
   consumer_defaults:
     auto_offset_reset: earliest

@@ -29,6 +29,11 @@ kafka:
   # ===========================================================================
   connection:
     # Comma-separated list of Kafka broker addresses (host:port)
+    # Port depends on security protocol:
+    #   SASL_PLAINTEXT -> 9092 | SASL_SSL -> 9093 | SSL (mTLS) -> 9094
+    #
+    # Example for corporate Kafka cluster (SASL_SSL on port 9093):
+    #   bootstrap_servers: "lxv102325.company.com:9093,lxv102326.company.com:9093,..."
     bootstrap_servers: "localhost:9092"
 
     # Security protocol for broker communication
@@ -36,14 +41,22 @@ kafka:
     security_protocol: "PLAINTEXT"
 
     # SASL authentication mechanism
-    # Options: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
-    sasl_mechanism: "OAUTHBEARER"
+    # Options: GSSAPI (Kerberos), PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
+    sasl_mechanism: "GSSAPI"
+
+    # Kerberos service name (GSSAPI only, default: "kafka")
+    # Must match the service principal name configured on the Kafka brokers
+    sasl_kerberos_service_name: "kafka"
 
     # Username for SASL/PLAIN authentication or Azure Event Hubs
     sasl_plain_username: ""
 
     # Password for SASL/PLAIN authentication or Azure Event Hubs
     sasl_plain_password: ""
+
+    # Confluent Schema Registry URL (optional)
+    # schema_registry_url: "https://your-registry.company.com:8081"
+    schema_registry_url: ""
 
     # Maximum time to wait for any request to complete (milliseconds)
     # Prevents requests from hanging indefinitely during network issues

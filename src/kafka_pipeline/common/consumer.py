@@ -145,6 +145,10 @@ class BaseKafkaConsumer:
             elif self.config.sasl_mechanism == "PLAIN":
                 kafka_consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
                 kafka_consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
+            elif self.config.sasl_mechanism == "GSSAPI":
+                kafka_consumer_config["sasl_kerberos_service_name"] = (
+                    self.config.sasl_kerberos_service_name
+                )
 
         self._consumer = AIOKafkaConsumer(*self.topics, **kafka_consumer_config)
 
@@ -538,6 +542,10 @@ class BaseKafkaConsumer:
             elif self.config.sasl_mechanism == "PLAIN":
                 dlq_producer_config["sasl_plain_username"] = self.config.sasl_plain_username
                 dlq_producer_config["sasl_plain_password"] = self.config.sasl_plain_password
+            elif self.config.sasl_mechanism == "GSSAPI":
+                dlq_producer_config["sasl_kerberos_service_name"] = (
+                    self.config.sasl_kerberos_service_name
+                )
 
         self._dlq_producer = AIOKafkaProducer(**dlq_producer_config)
         await self._dlq_producer.start()
