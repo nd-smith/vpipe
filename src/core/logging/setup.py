@@ -395,10 +395,10 @@ def setup_logging(
     if upload_enabled:
         try:
             from kafka_pipeline.common.storage.onelake import OneLakeClient
-            from config.pipeline_config import load_pipeline_config
+            from config.pipeline_config import get_pipeline_config
 
             # Load pipeline config to get OneLake settings
-            pipeline_config = load_pipeline_config()
+            pipeline_config = get_pipeline_config()
             onelake_client = OneLakeClient(
                 base_path=os.getenv("ONELAKE_LOG_PATH", pipeline_config.onelake_base_path),
             )

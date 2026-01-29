@@ -542,9 +542,6 @@ def main():
             logger.error("Use --dev flag for local development without Event Hub/Eventhouse")
             logger.warning("Running in ERROR MODE - health endpoint will remain alive")
 
-            # Upload crash logs before entering error mode
-            upload_crash_logs(reason=f"Configuration error: {e}")
-
             # Run in error mode: keep health endpoint alive but report not ready
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -571,6 +568,9 @@ def main():
                         "error": str(e),
                     },
                 )
+
+                # Upload crash logs after health server is up
+                upload_crash_logs(reason=f"Configuration error: {e}")
 
                 # Wait for shutdown signal
                 await shutdown_event.wait()
@@ -693,9 +693,6 @@ def main():
         logger.error("Fatal error", extra={"error": str(e)}, exc_info=True)
         logger.warning("Entering ERROR MODE - health endpoint will remain alive")
 
-        # Upload crash logs before entering error mode
-        upload_crash_logs(reason=f"Fatal error: {e}")
-
         # Run in error mode: keep health endpoint alive but report not ready
         async def run_fatal_error_mode():
             """Run health server in error state after fatal error."""
@@ -718,6 +715,9 @@ def main():
                     "error": str(e),
                 },
             )
+
+            # Upload crash logs after health server is up
+            upload_crash_logs(reason=f"Fatal error: {e}")
 
             # Wait for shutdown signal
             await shutdown_event.wait()
