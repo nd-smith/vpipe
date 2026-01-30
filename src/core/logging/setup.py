@@ -311,6 +311,7 @@ def setup_logging(
     suppress_noisy: bool = True,
     worker_id: Optional[str] = None,
     use_instance_id: bool = True,
+    log_to_stdout: bool = False,
 ) -> logging.Logger:
     """
     Configure logging with console and auto-archiving time-based rotating file handlers.
@@ -342,6 +343,8 @@ def setup_logging(
         worker_id: Worker identifier for context
         use_instance_id: Generate unique phrase for log filename (default: True).
             Set to False for single-worker deployments or when log aggregation is preferred.
+        log_to_stdout: Send all log output to stdout only, skipping file handlers (default: False).
+            Useful for containerized deployments where logs are captured from stdout.
 
     Returns:
         Configured logger instance
@@ -355,103 +358,111 @@ def setup_logging(
     if domain:
         set_log_context(domain=domain)
 
-    # Generate human-readable instance ID for multi-worker isolation
-    # Uses coolname to generate phrases like "happy-tiger" or "calm-ocean"
-    instance_id = coolname.generate_slug(2) if use_instance_id else None
-
-    # Build log file path with subfolders
-    log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
-
-    # Ensure directory exists
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Create formatters
-    if json_format:
-        file_formatter = JSONFormatter()
-    else:
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-        )
+    # Console handler (always created)
     console_formatter = ConsoleFormatter()
-
-    # File handler with time-based rotation and auto-archiving
-    # Calculate centralized archive directory
-    # Structure: logs/archive/domain/date
-    try:
-        relative_path = log_file.relative_to(log_dir)
-        archive_dir = log_dir / "archive" / relative_path.parent
-    except ValueError:
-        # Fallback if relative path calculation fails
-        archive_dir = log_file.parent / "archive"
-
-    # Check if OneLake upload is enabled
-    upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
-    max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "50"))
-    rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "15"))
-    retention_hours = int(os.getenv("LOG_RETENTION_HOURS", "2"))
-
-    # Create OneLake client if upload enabled
-    onelake_client = None
-    onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv("ONELAKE_BASE_PATH")
-    if upload_enabled:
-        if not onelake_log_path:
-            print(
-                "Warning: LOG_UPLOAD_ENABLED=true but no ONELAKE_LOG_PATH or "
-                "ONELAKE_BASE_PATH configured, disabling log upload",
-                file=sys.stderr,
-            )
-            upload_enabled = False
-        else:
-            try:
-                from kafka_pipeline.common.storage.onelake import OneLakeClient
-
-                onelake_client = OneLakeClient(base_path=onelake_log_path)
-            except Exception as e:
-                print(f"Warning: Failed to initialize OneLake client for log upload: {e}", file=sys.stderr)
-                upload_enabled = False
-
-    # Choose handler based on upload configuration
-    if upload_enabled and onelake_client:
-        file_handler = OneLakeRotatingFileHandler(
-            log_file,
-            when="M",  # Minute-based rotation
-            interval=rotation_minutes,
-            backupCount=backup_count,
-            encoding="utf-8",
-            archive_dir=archive_dir,
-            max_bytes=max_size_mb * 1024 * 1024,  # Convert MB to bytes
-            onelake_client=onelake_client,
-            log_retention_hours=retention_hours,
-        )
-    else:
-        file_handler = ArchivingTimedRotatingFileHandler(
-            log_file,
-            when=rotation_when,
-            interval=rotation_interval,
-            backupCount=backup_count,
-            encoding="utf-8",
-            archive_dir=archive_dir,
-        )
-
-    file_handler.setLevel(file_level)
-    file_handler.setFormatter(file_formatter)
-
-    # Console handler
     if sys.platform == "win32":
         safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(console_level)
-    console_handler.setFormatter(console_formatter)
 
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
-
     root_logger.handlers.clear()
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
+
+    if log_to_stdout:
+        # Stdout-only mode: all log output goes to stdout, no file handlers
+        console_handler.setLevel(file_level)
+        console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
+    else:
+        # Normal mode: console + file handlers
+        console_handler.setLevel(console_level)
+        console_handler.setFormatter(console_formatter)
+
+        # Generate human-readable instance ID for multi-worker isolation
+        # Uses coolname to generate phrases like "happy-tiger" or "calm-ocean"
+        instance_id = coolname.generate_slug(2) if use_instance_id else None
+
+        # Build log file path with subfolders
+        log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
+
+        # Ensure directory exists
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create formatters
+        if json_format:
+            file_formatter = JSONFormatter()
+        else:
+            file_formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+            )
+
+        # File handler with time-based rotation and auto-archiving
+        # Calculate centralized archive directory
+        # Structure: logs/archive/domain/date
+        try:
+            relative_path = log_file.relative_to(log_dir)
+            archive_dir = log_dir / "archive" / relative_path.parent
+        except ValueError:
+            # Fallback if relative path calculation fails
+            archive_dir = log_file.parent / "archive"
+
+        # Check if OneLake upload is enabled
+        upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
+        max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "50"))
+        rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "15"))
+        retention_hours = int(os.getenv("LOG_RETENTION_HOURS", "2"))
+
+        # Create OneLake client if upload enabled
+        onelake_client = None
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv("ONELAKE_BASE_PATH")
+        if upload_enabled:
+            if not onelake_log_path:
+                print(
+                    "Warning: LOG_UPLOAD_ENABLED=true but no ONELAKE_LOG_PATH or "
+                    "ONELAKE_BASE_PATH configured, disabling log upload",
+                    file=sys.stderr,
+                )
+                upload_enabled = False
+            else:
+                try:
+                    from kafka_pipeline.common.storage.onelake import OneLakeClient
+
+                    onelake_client = OneLakeClient(base_path=onelake_log_path)
+                except Exception as e:
+                    print(f"Warning: Failed to initialize OneLake client for log upload: {e}", file=sys.stderr)
+                    upload_enabled = False
+
+        # Choose handler based on upload configuration
+        if upload_enabled and onelake_client:
+            file_handler = OneLakeRotatingFileHandler(
+                log_file,
+                when="M",  # Minute-based rotation
+                interval=rotation_minutes,
+                backupCount=backup_count,
+                encoding="utf-8",
+                archive_dir=archive_dir,
+                max_bytes=max_size_mb * 1024 * 1024,  # Convert MB to bytes
+                onelake_client=onelake_client,
+                log_retention_hours=retention_hours,
+            )
+        else:
+            file_handler = ArchivingTimedRotatingFileHandler(
+                log_file,
+                when=rotation_when,
+                interval=rotation_interval,
+                backupCount=backup_count,
+                encoding="utf-8",
+                archive_dir=archive_dir,
+            )
+
+        file_handler.setLevel(file_level)
+        file_handler.setFormatter(file_formatter)
+
+        root_logger.addHandler(file_handler)
+        root_logger.addHandler(console_handler)
 
     # Suppress noisy loggers
     if suppress_noisy:
@@ -459,10 +470,16 @@ def setup_logging(
             logging.getLogger(logger_name).setLevel(logging.WARNING)
 
     logger = logging.getLogger(name)
-    logger.debug(
-        f"Logging initialized: file={log_file}, json={json_format}",
-        extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
-    )
+    if log_to_stdout:
+        logger.debug(
+            f"Logging initialized: stdout-only mode",
+            extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
+        )
+    else:
+        logger.debug(
+            f"Logging initialized: file={log_file}, json={json_format}",
+            extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
+        )
 
     return logger
 
@@ -479,6 +496,7 @@ def setup_multi_worker_logging(
     backup_count: int = DEFAULT_BACKUP_COUNT,
     suppress_noisy: bool = True,
     use_instance_id: bool = True,
+    log_to_stdout: bool = False,
 ) -> logging.Logger:
     """
     Configure logging with per-worker auto-archiving time-based file handlers.
@@ -510,22 +528,14 @@ def setup_multi_worker_logging(
         backup_count: Number of backup files to keep (default: 7)
         suppress_noisy: Quiet down Azure SDK and HTTP client loggers
         use_instance_id: Generate unique phrase for log filenames (default: True)
+        log_to_stdout: Send all log output to stdout only, skipping file handlers (default: False).
+            Useful for containerized deployments where logs are captured from stdout.
 
     Returns:
         Configured logger instance
     """
     log_dir = log_dir or DEFAULT_LOG_DIR
 
-    # Generate human-readable instance ID for multi-instance isolation
-    instance_id = coolname.generate_slug(2) if use_instance_id else None
-
-    # Create formatters
-    if json_format:
-        file_formatter = JSONFormatter()
-    else:
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-        )
     console_formatter = ConsoleFormatter()
 
     # Configure root logger
@@ -539,57 +549,75 @@ def setup_multi_worker_logging(
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(console_level)
     console_handler.setFormatter(console_formatter)
-    root_logger.addHandler(console_handler)
 
-    # Add per-worker file handlers with auto-archiving
-    for worker in workers:
-        log_file = get_log_file_path(log_dir, domain=domain, stage=worker, instance_id=instance_id)
-        log_file.parent.mkdir(parents=True, exist_ok=True)
+    if log_to_stdout:
+        # Stdout-only mode: all log output goes to stdout, no file handlers
+        console_handler.setLevel(file_level)
+        root_logger.addHandler(console_handler)
+    else:
+        # Normal mode: console + per-worker file handlers
+        console_handler.setLevel(console_level)
+        root_logger.addHandler(console_handler)
 
+        # Generate human-readable instance ID for multi-instance isolation
+        instance_id = coolname.generate_slug(2) if use_instance_id else None
+
+        # Create formatters
+        if json_format:
+            file_formatter = JSONFormatter()
+        else:
+            file_formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+            )
+
+        # Add per-worker file handlers with auto-archiving
+        for worker in workers:
+            log_file = get_log_file_path(log_dir, domain=domain, stage=worker, instance_id=instance_id)
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+
+            try:
+                relative_path = log_file.relative_to(log_dir)
+                archive_dir = log_dir / "archive" / relative_path.parent
+            except ValueError:
+                archive_dir = log_file.parent / "archive"
+
+            handler = ArchivingTimedRotatingFileHandler(
+                log_file,
+                when=rotation_when,
+                interval=rotation_interval,
+                backupCount=backup_count,
+                encoding="utf-8",
+                archive_dir=archive_dir,
+            )
+            handler.setLevel(file_level)
+            handler.setFormatter(file_formatter)
+            handler.addFilter(StageContextFilter(worker))
+            root_logger.addHandler(handler)
+
+        # Add combined file handler with auto-archiving (no filter - receives all logs)
+        combined_file = get_log_file_path(
+            log_dir, domain=domain, stage="pipeline", instance_id=instance_id
+        )
+        combined_file.parent.mkdir(parents=True, exist_ok=True)
+        # Calculate archive dir for combined log
         try:
-            relative_path = log_file.relative_to(log_dir)
-            archive_dir = log_dir / "archive" / relative_path.parent
+            relative_path = combined_file.relative_to(log_dir)
+            combined_archive_dir = log_dir / "archive" / relative_path.parent
         except ValueError:
-            archive_dir = log_file.parent / "archive"
+            combined_archive_dir = combined_file.parent / "archive"
 
-        handler = ArchivingTimedRotatingFileHandler(
-            log_file,
+        combined_handler = ArchivingTimedRotatingFileHandler(
+            combined_file,
             when=rotation_when,
             interval=rotation_interval,
             backupCount=backup_count,
             encoding="utf-8",
-            archive_dir=archive_dir,
+            archive_dir=combined_archive_dir,
         )
-        handler.setLevel(file_level)
-        handler.setFormatter(file_formatter)
-        handler.addFilter(StageContextFilter(worker))
-        root_logger.addHandler(handler)
-
-    # Add combined file handler with auto-archiving (no filter - receives all logs)
-    combined_file = get_log_file_path(
-        log_dir, domain=domain, stage="pipeline", instance_id=instance_id
-    )
-    combined_file.parent.mkdir(parents=True, exist_ok=True)
-    # Calculate archive dir for combined log
-    try:
-        relative_path = combined_file.relative_to(log_dir)
-        combined_archive_dir = log_dir / "archive" / relative_path.parent
-    except ValueError:
-        combined_archive_dir = combined_file.parent / "archive"
-
-    combined_handler = ArchivingTimedRotatingFileHandler(
-        combined_file,
-        when=rotation_when,
-        interval=rotation_interval,
-        backupCount=backup_count,
-        encoding="utf-8",
-        archive_dir=combined_archive_dir,
-    )
-    combined_handler.setLevel(file_level)
-    combined_handler.setFormatter(file_formatter)
-    root_logger.addHandler(combined_handler)
+        combined_handler.setLevel(file_level)
+        combined_handler.setFormatter(file_formatter)
+        root_logger.addHandler(combined_handler)
 
     # Suppress noisy loggers
     if suppress_noisy:
@@ -598,7 +626,7 @@ def setup_multi_worker_logging(
 
     logger = logging.getLogger("kafka_pipeline")
     logger.debug(
-        f"Multi-worker logging initialized: workers={workers}, domain={domain}",
+        f"Multi-worker logging initialized: workers={workers}, domain={domain}, stdout_only={log_to_stdout}",
         extra={"stage": "pipeline", "domain": domain},
     )
 

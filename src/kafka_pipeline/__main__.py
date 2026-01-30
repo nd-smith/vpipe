@@ -220,6 +220,14 @@ Examples:
     )
 
     parser.add_argument(
+        "--log-to-stdout",
+        action="store_true",
+        help="Send all log output to stdout only, skipping file handlers. "
+        "Useful for containerized deployments where logs are captured from stdout. "
+        "Can also be set via LOG_TO_STDOUT environment variable.",
+    )
+
+    parser.add_argument(
         "--simulation-mode",
         action="store_true",
         help="Enable simulation mode with mock dependencies for local testing. "
@@ -413,6 +421,12 @@ def main():
     log_dir_str = args.log_dir or os.getenv("LOG_DIR", "logs")
     log_dir = Path(log_dir_str)
 
+    log_to_stdout = args.log_to_stdout or os.getenv("LOG_TO_STDOUT", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
     worker_id = os.getenv("WORKER_ID", f"kafka-{args.worker}")
 
     domain = "kafka"
@@ -428,6 +442,7 @@ def main():
             log_dir=log_dir,
             json_format=json_logs,
             console_level=log_level,
+            log_to_stdout=log_to_stdout,
         )
     else:
         setup_logging(
@@ -438,6 +453,7 @@ def main():
             json_format=json_logs,
             console_level=log_level,
             worker_id=worker_id,
+            log_to_stdout=log_to_stdout,
         )
 
     logger = get_logger(__name__)
