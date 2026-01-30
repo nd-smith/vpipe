@@ -51,17 +51,21 @@ Usage:
     ... )
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from config.config import KafkaConfig
 from core.types import ErrorCategory
 from kafka_pipeline.common.metrics import (
     record_dlq_message,
 )
-from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.xact.schemas.delta_batch import FailedDeltaBatch
+
+if TYPE_CHECKING:
+    from kafka_pipeline.common.producer import BaseKafkaProducer
 
 logger = logging.getLogger(__name__)
 

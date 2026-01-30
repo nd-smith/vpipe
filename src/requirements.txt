@@ -21,7 +21,11 @@ aiohttp>=3.9.2,<4.0.0
 
 # Kafka
 aiokafka[lz4]>=0.11.0,<1.0.0
-gssapi>=1.8.0,<2.0.0  # Kerberos (GSSAPI) SASL auth; wheel pre-built in vendor/
+# NOTE: gssapi is only needed for Kerberos (GSSAPI) SASL auth (e.g. CF deployments).
+# It is NOT required for local development with PLAINTEXT or SASL_PLAIN Kafka.
+# On Windows, gssapi fails at import time without Kerberos for Windows (KfW) installed.
+# Install separately when needed: pip install "gssapi>=1.8.0,<2.0.0"
+# Pre-built wheel for CF is in vendor/.
 
 prometheus-client>=0.19.0,<1.0.0  # Metrics
 
