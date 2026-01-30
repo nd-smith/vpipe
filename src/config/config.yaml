@@ -103,9 +103,15 @@ local_kafka:
 eventhouse:
   cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
   database: ${XACT_EVENTHOUSE_DATABASE:-VERISK_XACTANALYSIS_DB}
-  source_table: ${XACT_EVENTHOUSE_SOURCE_TABLE:-tbl_VERISK_XACTANALYSIS_STATUS_EXPORT}
   query_timeout_seconds: 120
-  max_retries: 3
+  poller:
+    source_table: ${XACT_EVENTHOUSE_SOURCE_TABLE:-tbl_VERISK_XACTANALYSIS_STATUS_EXPORT}
+    poll_interval_seconds: 30
+    batch_size: 1000
+  dedup:
+    xact_events_window_hours: 24
+    eventhouse_query_window_hours: 1
+    overlap_minutes: 5
 
 # =============================================================================
 # EVENTHOUSE - CLAIMX DOMAIN
@@ -113,9 +119,15 @@ eventhouse:
 claimx_eventhouse:
   cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
   database: ${CLAIMX_EVENTHOUSE_DATABASE:-VERISK_CLAIMXPERIENCE_DB}
-  source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE:-tbl_CLAIMXPERIENCE_EVENTS}
   query_timeout_seconds: 120
-  max_retries: 3
+  poller:
+    source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE:-tbl_CLAIMXPERIENCE_EVENTS}
+    poll_interval_seconds: 30
+    batch_size: 1000
+  dedup:
+    claimx_events_window_hours: 24
+    eventhouse_query_window_hours: 1
+    overlap_minutes: 5
 
 # =============================================================================
 # AZURE AUTHENTICATION
