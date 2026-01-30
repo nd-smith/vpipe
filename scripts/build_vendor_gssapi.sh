@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# Build gssapi wheel and extract Kerberos runtime libraries for vendoring.
+# Build the gssapi wheel for vendoring into the Cloud Foundry deployment.
 #
-# Uses a Docker container matching the production base image (python:3.11-slim)
-# to compile the gssapi wheel and copy the required shared libraries.
+# The CF stack (cflinuxfs4) already ships libkrb5 runtime libraries,
+# but gssapi has no pre-built wheel on PyPI -- it must be compiled
+# against libkrb5-dev headers. This script uses a Docker container
+# to compile the wheel on a matching platform.
 #
 # Output:
-#   vendor/
-#     gssapi-*.whl           - Pre-built wheel
-#     lib/
-#       libgssapi_krb5.so*   - Kerberos runtime libraries
-#       libkrb5.so*
-#       libk5crypto.so*
-#       libkrb5support.so*
-#       libcom_err.so*
+#   vendor/gssapi-*.whl   (cp312, linux x86_64)
 #
 # Usage:
 #   ./scripts/build_vendor_gssapi.sh
@@ -22,13 +17,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENDOR_DIR="$PROJECT_ROOT/vendor"
-VENDOR_LIB_DIR="$VENDOR_DIR/lib"
-BASE_IMAGE="python:3.11-slim"
 
-echo "Building gssapi vendor artifacts using $BASE_IMAGE..."
+# Match the CF runtime version from Jenkinsfile
+BASE_IMAGE="python:3.12-slim"
+
+echo "Building gssapi wheel using $BASE_IMAGE..."
 echo "Output: $VENDOR_DIR"
 
-mkdir -p "$VENDOR_DIR" "$VENDOR_LIB_DIR"
+mkdir -p "$VENDOR_DIR"
+
+# Remove any previously built gssapi wheel
+rm -f "$VENDOR_DIR"/gssapi-*.whl
 
 docker run --rm \
     -v "$VENDOR_DIR:/output" \
@@ -36,39 +35,19 @@ docker run --rm \
     bash -c '
         set -euo pipefail
 
-        # Install build dependencies
+        # Install build dependencies (headers + compiler)
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends libkrb5-dev gcc >/dev/null 2>&1
 
         # Build the wheel
-        pip wheel "gssapi>=1.8.0,<2.0.0" --no-deps -w /output/ 2>&1 | tail -1
+        pip wheel "gssapi>=1.8.0,<2.0.0" --no-deps -w /output/
 
-        # Copy Kerberos runtime shared libraries
-        mkdir -p /output/lib
-        for lib in libgssapi_krb5 libkrb5 libk5crypto libkrb5support libcom_err; do
-            # Find the actual .so file (follow symlinks) and copy with its soname
-            src=$(find /usr/lib/ -name "${lib}.so*" -type f -o -name "${lib}.so*" -type l 2>/dev/null | head -1)
-            if [ -n "$src" ]; then
-                # Copy the real file and all symlinks
-                cp -a /usr/lib/*/$(basename "$src")* /output/lib/ 2>/dev/null || \
-                cp -aL "$src" "/output/lib/$(basename "$src")" 2>/dev/null || true
-            fi
-        done
-
-        # Also grab any symlinks we need
-        for lib in libgssapi_krb5 libkrb5 libk5crypto libkrb5support libcom_err; do
-            for f in /usr/lib/*/${lib}.so*; do
-                [ -e "$f" ] && cp -a "$f" /output/lib/ 2>/dev/null || true
-            done
-        done
-
-        echo "Wheel:"
-        ls /output/*.whl
         echo ""
-        echo "Libraries:"
-        ls -la /output/lib/
+        echo "Built:"
+        ls -lh /output/gssapi-*.whl
     '
 
 echo ""
-echo "Vendor artifacts written to: $VENDOR_DIR"
+echo "Wheel written to: $VENDOR_DIR"
+ls "$VENDOR_DIR"/gssapi-*.whl
 echo "Done."
