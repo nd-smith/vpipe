@@ -131,6 +131,18 @@ class BaseKafkaProducer:
                     self.config.sasl_kerberos_service_name
                 )
 
+        # Debug: log connection settings (mask secrets)
+        logger.info(
+            "Producer connection config: bootstrap_servers=%s, security_protocol=%s, "
+            "sasl_mechanism=%s, sasl_username=%s, sasl_password_set=%s, ssl_context_set=%s",
+            kafka_producer_config.get("bootstrap_servers"),
+            kafka_producer_config.get("security_protocol", "PLAINTEXT"),
+            kafka_producer_config.get("sasl_mechanism", "N/A"),
+            kafka_producer_config.get("sasl_plain_username", "N/A"),
+            bool(kafka_producer_config.get("sasl_plain_password")),
+            "ssl_context" in kafka_producer_config,
+        )
+
         self._producer = AIOKafkaProducer(**kafka_producer_config)
         await self._producer.start()
         self._started = True
