@@ -18,6 +18,14 @@ RUN pip install --no-cache-dir \
     --trusted-host files.pythonhosted.org \
     -r requirements.txt
 
+# Install vendored wheels (pre-built packages not available on PyPI)
+COPY vendor/*.whl /tmp/vendor/
+RUN pip install --no-cache-dir /tmp/vendor/*.whl && rm -rf /tmp/vendor
+
+# Install vendored Kerberos runtime libraries for GSSAPI SASL auth
+COPY vendor/lib/ /usr/local/lib/krb5/
+ENV LD_LIBRARY_PATH="/usr/local/lib/krb5"
+
 # Copy application code
 COPY src/ .
 
