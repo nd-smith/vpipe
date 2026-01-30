@@ -5,8 +5,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
+# libkrb5-dev: Kerberos development headers required to build the Python gssapi
+#              package, which aiokafka uses for GSSAPI (Kerberos) SASL authentication
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libkrb5-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
