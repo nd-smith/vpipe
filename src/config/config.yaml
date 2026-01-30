@@ -1,21 +1,35 @@
-# Minimal Pcesdopodappv1 Configuration for Simulation Mode
-# This file provides defaults for workers running in simulation mode
-# Environment variables will override these settings
+# =============================================================================
+# Kafka Pipeline Configuration
+# =============================================================================
+# This file configures the Kafka-based event processing pipeline.
+# Supports ${VAR} and ${VAR:-default} syntax for environment variable expansion.
+# Secrets use env var references so they are never stored in this file.
+#
+# Priority chain (highest wins):
+#   1. OS environment variables (Jenkins envVars in deployed environments)
+#   2. .env file (local development — only sets vars not already in OS)
+#   3. Values in this YAML (with ${VAR:-default} expansion)
+#   4. Dataclass defaults in Python config classes
+# =============================================================================
 
-# Event source type (eventhub or eventhouse)
-event_source: ${EVENT_SOURCE:-eventhub}
+# =============================================================================
+# ENVIRONMENT & PLATFORM
+# =============================================================================
+event_source: ${EVENT_SOURCE:-eventhouse}
 
-# Kafka configuration
+# =============================================================================
+# KAFKA PIPELINE CONFIGURATION
+# =============================================================================
 kafka:
+  # ---------------------------------------------------------------------------
+  # Corporate Kafka Cluster (Remote)
+  # ---------------------------------------------------------------------------
   connection:
-    # Bootstrap servers for the Kafka cluster.
-    # Format: comma-separated host:port list. Port depends on security protocol:
-    #   SASL_PLAINTEXT -> 9092 | SASL_SSL -> 9093 | SSL (mTLS) -> 9094
-    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-    security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
-    sasl_mechanism: ${KAFKA_SASL_MECHANISM:-OAUTHBEARER}
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-lxv102325.allstate.com:9093,lxv102326.allstate.com:9093,lxv102327.allstate.com:9093,lxv102328.allstate.com:9093,lxv102329.allstate.com:9093,lxv102330.allstate.com:9093,lxv102331.allstate.com:9093,lxv102332.allstate.com:9093}
+    security_protocol: ${KAFKA_SECURITY_PROTOCOL:-SASL_SSL}
+    sasl_mechanism: ${KAFKA_SASL_MECHANISM:-GSSAPI}
     sasl_kerberos_service_name: ${KAFKA_SASL_KERBEROS_SERVICE_NAME:-kafka}
-    schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:-}
+    schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:-https://rtvdevro-kafka.tptigslb.allstate.com:8081}
 
   consumer_defaults:
     auto_offset_reset: earliest
@@ -26,7 +40,9 @@ kafka:
     acks: "1"
     compression_type: "lz4"
 
-  # XACT domain configuration
+  # ---------------------------------------------------------------------------
+  # XACT Domain
+  # ---------------------------------------------------------------------------
   xact:
     topics:
       events: "com.allstate.pcesdopodappv1.xact.events.raw"
@@ -38,10 +54,12 @@ kafka:
       dlq: "com.allstate.pcesdopodappv1.xact.downloads.dlq"
 
     consumer_group_prefix: "xact"
-    retry_delays: [10, 20, 40, 80]  # Shorter delays for simulation (10s, 20s, 40s, 80s)
+    retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
     max_retries: 4
 
-  # ClaimX domain configuration
+  # ---------------------------------------------------------------------------
+  # ClaimX Domain
+  # ---------------------------------------------------------------------------
   claimx:
     topics:
       events: "com.allstate.pcesdopodappv1.claimx.events.raw"
@@ -54,37 +72,128 @@ kafka:
       dlq: "com.allstate.pcesdopodappv1.claimx.downloads.dlq"
 
     consumer_group_prefix: "claimx"
-    retry_delays: [10, 20, 40, 80]  # Shorter delays for simulation (10s, 20s, 40s, 80s)
+    retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
     max_retries: 4
 
-# Delta Lake configuration
+  # ---------------------------------------------------------------------------
+  # Shared Storage
+  # ---------------------------------------------------------------------------
+  storage:
+    onelake_base_path: ${ONELAKE_BASE_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline}
+    onelake_domain_paths:
+      xact: ""
+      claimx: ""
+    cache_dir: ${CACHE_DIR:-/tmp/kafka_pipeline_cache}
+
+# =============================================================================
+# LOCAL / INTERNAL PIPELINE KAFKA
+# =============================================================================
+# In deployed environments, this points to the same corporate cluster.
+# For local development, override via LOCAL_KAFKA_* env vars or .env file.
+local_kafka:
+  bootstrap_servers: ${LOCAL_KAFKA_BOOTSTRAP_SERVERS:-lxv102325.allstate.com:9093,lxv102326.allstate.com:9093,lxv102327.allstate.com:9093,lxv102328.allstate.com:9093,lxv102329.allstate.com:9093,lxv102330.allstate.com:9093,lxv102331.allstate.com:9093,lxv102332.allstate.com:9093}
+  security_protocol: ${LOCAL_KAFKA_SECURITY_PROTOCOL:-SASL_SSL}
+  sasl_mechanism: ${LOCAL_KAFKA_SASL_MECHANISM:-GSSAPI}
+  consumer_poll_timeout_ms: 1000
+  producer_max_block_ms: 60000
+
+# =============================================================================
+# EVENTHOUSE - XACT DOMAIN
+# =============================================================================
+eventhouse:
+  cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
+  database: ${XACT_EVENTHOUSE_DATABASE:-VERISK_XACTANALYSIS_DB}
+  source_table: ${XACT_EVENTHOUSE_SOURCE_TABLE:-tbl_VERISK_XACTANALYSIS_STATUS_EXPORT}
+  query_timeout_seconds: 120
+  max_retries: 3
+
+# =============================================================================
+# EVENTHOUSE - CLAIMX DOMAIN
+# =============================================================================
+claimx_eventhouse:
+  cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
+  database: ${CLAIMX_EVENTHOUSE_DATABASE:-VERISK_CLAIMXPERIENCE_DB}
+  source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE:-tbl_CLAIMXPERIENCE_EVENTS}
+  query_timeout_seconds: 120
+  max_retries: 3
+
+# =============================================================================
+# AZURE AUTHENTICATION
+# =============================================================================
+# Secrets use env var references — never stored as plain text in this file.
+# In deployed environments, Jenkins injects these as OS env vars.
+# Locally, set them in the .env file.
+azure:
+  tenant_id: ${AZURE_TENANT_ID}
+  client_id: ${AZURE_CLIENT_ID}
+  client_secret: ${AZURE_CLIENT_SECRET}
+  workspace_id: ${AZURE_WORKSPACE_ID:-7729c159-0674-42ba-abf7-a6756723c62f}
+  lakehouse_id: ${AZURE_LAKEHOUSE_ID:-584315ee-2f41-4943-949f-901d438bcd36}
+
+# =============================================================================
+# DELTA LAKE TABLE PATHS
+# =============================================================================
 delta:
   enable_writes: true
 
-  # XACT domain delta tables
-  # Env vars: XACT_EVENTS_TABLE_PATH, XACT_DELTA_EVENTS_TABLE (or legacy DELTA_EVENTS_TABLE_PATH)
+  # XACT domain
   xact:
-    events_table_path: ""  # XACT_EVENTS_TABLE_PATH or XACT_DELTA_EVENTS_TABLE
-    inventory_table_path: ""  # XACT_INVENTORY_TABLE_PATH or XACT_DELTA_INVENTORY_TABLE
-    failed_table_path: ""  # XACT_FAILED_TABLE_PATH or XACT_DELTA_FAILED_TABLE
-
-  # ClaimX domain delta tables
-  # Env vars: CLAIMX_*_TABLE_PATH or CLAIMX_DELTA_*_TABLE patterns both supported
-  claimx:
-    events_table_path: ""  # CLAIMX_EVENTS_TABLE_PATH or CLAIMX_DELTA_EVENTS_TABLE
-    inventory_table_path: ""  # CLAIMX_INVENTORY_TABLE_PATH or CLAIMX_DELTA_INVENTORY_TABLE
+    events_table_path: ${XACT_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/xact_events}
+    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/xact_attachments}
     failed_table_path: ""
-    projects_table_path: ""  # CLAIMX_PROJECTS_TABLE_PATH or CLAIMX_DELTA_PROJECTS_TABLE
-    contacts_table_path: ""  # CLAIMX_CONTACTS_TABLE_PATH or CLAIMX_DELTA_CONTACTS_TABLE
-    media_table_path: ""  # CLAIMX_MEDIA_TABLE_PATH or CLAIMX_DELTA_MEDIA_TABLE
-    tasks_table_path: ""  # CLAIMX_TASKS_TABLE_PATH or CLAIMX_DELTA_TASKS_TABLE
-    task_templates_table_path: ""  # CLAIMX_TASK_TEMPLATES_TABLE_PATH or CLAIMX_DELTA_TASK_TEMPLATES_TABLE
-    external_links_table_path: ""  # CLAIMX_EXTERNAL_LINKS_TABLE_PATH or CLAIMX_DELTA_EXTERNAL_LINKS_TABLE
-    video_collab_table_path: ""  # CLAIMX_VIDEO_COLLAB_TABLE_PATH or CLAIMX_DELTA_VIDEO_COLLAB_TABLE
 
-# Local Kafka configuration (for simulation)
-local_kafka:
-  bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-  security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
-  consumer_poll_timeout_ms: 1000
-  producer_max_block_ms: 60000
+  # ClaimX domain
+  claimx:
+    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_events}
+    inventory_table_path: ${CLAIMX_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_attachments}
+    failed_table_path: ""
+    projects_table_path: ${CLAIMX_DELTA_PROJECTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_projects}
+    contacts_table_path: ${CLAIMX_DELTA_CONTACTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_contacts}
+    media_table_path: ${CLAIMX_DELTA_MEDIA_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_attachments_metadata}
+    tasks_table_path: ${CLAIMX_DELTA_TASKS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_tasks}
+    task_templates_table_path: ${CLAIMX_DELTA_TASK_TEMPLATES_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_task_templates}
+    external_links_table_path: ${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_external_link}
+    video_collab_table_path: ${CLAIMX_DELTA_VIDEO_COLLAB_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_video_collab}
+
+# =============================================================================
+# CLAIMX API
+# =============================================================================
+claimx:
+  api:
+    base_url: ${CLAIMX_API_BASE_PATH:-https://www.claimxperience.com/service/cxedirest}
+    timeout_seconds: 30
+    max_concurrent: 20
+    # Token loaded from CLAIMX_API_TOKEN env var
+
+# =============================================================================
+# PLUGINS - ITEL CABINET API
+# =============================================================================
+itel_cabinet:
+  api_base_url: ${ITEL_CABINET_API_BASE_URL}
+  api_token: ${ITEL_CABINET_API_TOKEN}
+  delta_forms_table: ${ITEL_DELTA_FORMS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_itel_forms}
+  delta_attachments_table: ${ITEL_DELTA_ATTACHMENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_itel_attachments}
+  attachments_path: ${ITEL_ATTACHMENTS_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/itel_cabinet_form/attachments}
+
+# =============================================================================
+# EVENT HUB (EXTERNAL KAFKA SOURCE)
+# =============================================================================
+# Connection string loaded from EVENTHUB_CONNECTION_STRING env var
+eventhub:
+  connection_string: ${EVENTHUB_CONNECTION_STRING:-}
+
+# =============================================================================
+# LOGGING & MONITORING
+# =============================================================================
+logging:
+  level: ${LOG_LEVEL:-INFO}
+  log_to_stdout: ${LOG_TO_STDOUT:-true}
+  log_dir: "logs"
+
+observability:
+  json_logs: true
+  log_upload_enabled: ${LOG_UPLOAD_ENABLED:-true}
+  log_max_size_mb: ${LOG_MAX_SIZE_MB:-5}
+  log_rotation_minutes: ${LOG_ROTATION_MINUTES:-5}
+  log_retention_hours: ${LOG_RETENTION_HOURS:-1}
+  onelake_log_path: ${ONELAKE_LOG_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/logs}
