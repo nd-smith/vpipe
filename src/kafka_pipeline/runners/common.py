@@ -9,11 +9,60 @@ Provides reusable templates for running workers with consistent:
 
 import asyncio
 import logging
+import os
 from typing import Any, Callable, Optional
 
 from core.logging.context import set_log_context
 
 logger = logging.getLogger(__name__)
+
+# Startup retry configuration (overridable via env vars)
+DEFAULT_STARTUP_RETRIES = 5
+DEFAULT_STARTUP_BACKOFF_BASE = 5  # seconds
+
+
+async def _start_with_retry(
+    start_fn: Callable,
+    label: str,
+    max_retries: Optional[int] = None,
+    backoff_base: Optional[int] = None,
+) -> None:
+    """Retry an async start function with exponential backoff.
+
+    On exhaustion, re-raises the last exception so the caller's fatal error
+    handler can log it and enter health-server error mode.
+
+    Args:
+        start_fn: Async callable (e.g. worker.start, producer.start)
+        label: Human-readable label for log messages
+        max_retries: Number of retry attempts (default: 5, env: STARTUP_MAX_RETRIES)
+        backoff_base: Base seconds for backoff (default: 5, env: STARTUP_BACKOFF_SECONDS)
+    """
+    max_retries = max_retries or int(
+        os.getenv("STARTUP_MAX_RETRIES", str(DEFAULT_STARTUP_RETRIES))
+    )
+    backoff_base = backoff_base or int(
+        os.getenv("STARTUP_BACKOFF_SECONDS", str(DEFAULT_STARTUP_BACKOFF_BASE))
+    )
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            await start_fn()
+            return
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(
+                    f"Failed to start {label} after {max_retries} attempts, giving up",
+                    extra={"error": str(e), "attempts": max_retries},
+                )
+                raise
+            delay = backoff_base * attempt
+            logger.warning(
+                f"Failed to start {label} (attempt {attempt}/{max_retries}), "
+                f"retrying in {delay}s",
+                extra={"error": str(e), "attempt": attempt, "delay": delay},
+            )
+            await asyncio.sleep(delay)
 
 
 async def execute_worker_with_shutdown(
@@ -53,7 +102,7 @@ async def execute_worker_with_shutdown(
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
-        await worker_instance.start()
+        await _start_with_retry(worker_instance.start, stage_name)
     finally:
         try:
             watcher_task.cancel()
@@ -113,7 +162,7 @@ async def execute_worker_with_producer(
         domain=domain,
         worker_name=producer_worker_name,
     )
-    await producer.start()
+    await _start_with_retry(producer.start, f"{stage_name}-producer")
 
     worker = worker_class(
         config=kafka_config,
@@ -130,7 +179,7 @@ async def execute_worker_with_producer(
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
-        await worker.start()
+        await _start_with_retry(worker.start, stage_name)
     finally:
         try:
             watcher_task.cancel()
@@ -169,7 +218,7 @@ async def execute_poller_with_shutdown(
         watcher_task = asyncio.create_task(shutdown_watcher(poller))
 
         try:
-            await poller.run()
+            await _start_with_retry(poller.run, stage_name)
         finally:
             # Guard against event loop being closed during shutdown
             try:
