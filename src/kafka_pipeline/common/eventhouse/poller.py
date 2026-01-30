@@ -230,6 +230,9 @@ class KQLEventPoller:
         self._kql_client = KQLClient(self.config.eventhouse)
         await self._kql_client.connect()
 
+        # Test eventhouse connectivity before initializing Kafka sink
+        await self._test_eventhouse_connectivity()
+
         # Use provided sink or create default KafkaSink
         if self._sink is None:
             if self.config.kafka is None:
@@ -244,6 +247,83 @@ class KQLEventPoller:
         await self._sink.start()
         self._running = True
         logger.info("KQLEventPoller started", extra={"sink_type": type(self._sink).__name__})
+
+    async def _test_eventhouse_connectivity(self) -> None:
+        """Test eventhouse connectivity by reading a small sample of records.
+
+        Queries up to 10 records from the source table and streams them to
+        logging and stdout to confirm we can read data from the eventhouse
+        before attempting to initialize Kafka.
+        """
+        test_limit = 10
+        table = self.config.source_table
+        query = f"{table} | take {test_limit}"
+
+        logger.info(
+            "=== Eventhouse Connectivity Test ===",
+            extra={
+                "domain": self.config.domain,
+                "source_table": table,
+                "cluster_url": self.config.eventhouse.cluster_url,
+                "database": self.config.eventhouse.database,
+                "sample_size": test_limit,
+            },
+        )
+
+        try:
+            result = await self._kql_client.execute_query(query)
+
+            if not result.rows:
+                logger.warning(
+                    "Eventhouse connectivity test returned 0 rows. "
+                    "Connection succeeded but table may be empty.",
+                    extra={
+                        "source_table": table,
+                        "query_duration_ms": round(result.query_duration_ms, 2),
+                    },
+                )
+                print(
+                    f"[CONNECTIVITY TEST] Connected to eventhouse successfully. "
+                    f"Table '{table}' returned 0 rows (may be empty)."
+                )
+                return
+
+            logger.info(
+                "Eventhouse connectivity test PASSED",
+                extra={
+                    "rows_returned": len(result.rows),
+                    "query_duration_ms": round(result.query_duration_ms, 2),
+                    "source_table": table,
+                },
+            )
+            print(
+                f"[CONNECTIVITY TEST] SUCCESS - Read {len(result.rows)} records "
+                f"from '{table}' in {result.query_duration_ms:.0f}ms"
+            )
+            print(f"[CONNECTIVITY TEST] Columns: {list(result.rows[0].keys())}")
+
+            for i, row in enumerate(result.rows):
+                logger.info(
+                    f"Eventhouse sample record {i + 1}/{len(result.rows)}",
+                    extra={"record": row},
+                )
+                print(f"[CONNECTIVITY TEST] Record {i + 1}: {json.dumps(row, default=str)}")
+
+            logger.info("=== Eventhouse Connectivity Test Complete ===")
+
+        except Exception as e:
+            logger.error(
+                "Eventhouse connectivity test FAILED",
+                extra={
+                    "source_table": table,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
+            print(
+                f"[CONNECTIVITY TEST] FAILED - Could not read from '{table}': {e}"
+            )
+            raise
 
     # FIXED: Restored Asynchronous Context Manager Protocol
     async def __aenter__(self) -> "KQLEventPoller":
