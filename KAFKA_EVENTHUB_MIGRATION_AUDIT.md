@@ -1,32 +1,38 @@
-# Kafka-to-EventHub Migration Audit: Technical Debt Inventory
+# Kafka-to-EventHub Migration: Full Migration Work Plan
 
 > **Date**: 2026-01-31
 > **Branch**: `claude/kafka-eventhub-migration-audit-VVwPu`
-> **Scope**: Full codebase audit identifying all work required to eliminate Kafka
-> and run entirely on Azure EventHub while maintaining functional parity.
+> **Scope**: Complete work plan for migrating the entire pipeline from Kafka
+> to Azure EventHub. The proof-of-concept phase (2 external event source
+> entities on EventHub) is complete. This document covers everything
+> required to migrate the remaining 21+ internal topics and fully
+> eliminate the Kafka dependency.
 
 ---
 
 ## Executive Summary
 
-The pipeline currently runs a **hybrid architecture**: EventHub handles only
-the external event source (2 entities), while **all internal worker-to-worker
-routing (21+ topics) still runs on Kafka via `aiokafka`**. The EventHub adapter
-layer exists but is incomplete -- it lacks DLQ routing, has no checkpoint
-persistence, and tightly couples to `aiokafka` types. Eliminating Kafka
-requires work across 7 categories detailed below.
+The proof of concept is done -- the two external event source entities
+(`verisk_events`, `claimx_events`) are running on EventHub successfully.
+Now we need to migrate the remaining **21+ internal worker-to-worker
+topics** and close the gaps in the EventHub adapter layer (DLQ routing,
+checkpoint persistence, error classification) to reach full functional
+parity. Once complete, the `aiokafka` dependency and all Kafka
+infrastructure can be removed.
 
-### Debt at a Glance
+Work falls into 7 categories:
 
-| Category | Severity | Files Affected | Effort |
-|----------|----------|----------------|--------|
-| 1. Missing EventHub DLQ routing | **Critical** | 1 core + all consumers | Medium |
-| 2. Internal topics still on Kafka | **Critical** | 21+ topics, all workers | Large |
-| 3. `aiokafka` type coupling | High | 62 files | Medium |
-| 4. Kafka-named modules & classes | Medium | 12 source files | Medium |
-| 5. Error classification is Kafka-only | High | 2 core files | Medium |
-| 6. Observability references Kafka | Medium | 8 config/dashboard files | Small |
-| 7. Dependency & infra cleanup | Medium | 6 config/docker files | Small |
+### Work Items at a Glance
+
+| # | Category | Severity | Files Affected | Effort |
+|---|----------|----------|----------------|--------|
+| 1 | EventHub DLQ routing (not yet implemented) | **Critical** | 1 core + all consumers | Medium |
+| 2 | Migrate 21+ internal topics to EventHub | **Critical** | All workers, runners, config | Large |
+| 3 | Decouple `aiokafka` types from pipeline | High | 62 files | Medium |
+| 4 | Rename Kafka-named modules & classes | Medium | 12 source files | Medium |
+| 5 | Add EventHub error classification | High | 2 core files | Medium |
+| 6 | Update observability to drop Kafka naming | Medium | 8 config/dashboard files | Small |
+| 7 | Remove Kafka dependencies & infrastructure | Medium | 6 config/docker files | Small |
 
 ---
 
@@ -71,15 +77,16 @@ if error_category == ErrorCategory.PERMANENT:
 
 ---
 
-## 2. CRITICAL: All Internal Pipeline Topics Still on Kafka
+## 2. CRITICAL: Migrate All 21+ Internal Topics to EventHub
 
-**Impact**: The pipeline cannot run without a Kafka cluster. EventHub is
-only used for the 2 external event source entities. All 21+ internal
-worker-to-worker topics are routed through local Kafka.
+The proof-of-concept phase established EventHub for the 2 external event
+source entities. The remaining 21+ internal worker-to-worker topics
+(enrichment, downloads, upload, retry, DLQ, plugin topics) are the core
+of this migration.
 
-### Evidence
+### Current wiring
 
-`src/config/config.yaml:236-238` explicitly states:
+`src/config/config.yaml:236-238` documents the POC boundary:
 ```yaml
 # Currently Event Hub is only used as the external event source.
 # Internal pipeline routing (downloads, enrichment, DLQ) uses local Kafka.
@@ -88,7 +95,7 @@ worker-to-worker topics are routed through local Kafka.
 
 The runner registry (`src/kafka_pipeline/runners/registry.py`) hardcodes
 `local_kafka_config` for every internal worker, never passing `topic_key`
-to the transport factory.
+to the transport factory. This is the main wiring that needs to change.
 
 ### Topics Requiring EventHub Entity Definitions
 
