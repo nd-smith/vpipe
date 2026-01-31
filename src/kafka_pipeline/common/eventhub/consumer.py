@@ -16,7 +16,7 @@ import socket
 import time
 from typing import Awaitable, Callable, List, Optional
 
-from azure.eventhub import EventData, EventPosition, TransportType
+from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord
@@ -291,7 +291,7 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    starting_position=EventPosition("-1"),  # Start from beginning (like earliest)
+                    starting_position="-1",  # Start from beginning (like earliest)
                 )
         except Exception as e:
             log_exception(logger, e, "Error in Event Hub receive loop")

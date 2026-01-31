@@ -5,10 +5,10 @@ with the BaseKafkaProducer and BaseKafkaConsumer interfaces.
 
 Uses azure-eventhub SDK with AMQP over WebSocket transport for compatibility
 with Azure Private Link endpoints.
-"""
 
-from kafka_pipeline.common.eventhub.producer import EventHubProducer, EventHubRecordMetadata
-from kafka_pipeline.common.eventhub.consumer import EventHubConsumer, EventHubConsumerRecord
+Imports are lazy to avoid pulling in consumer dependencies (e.g. EventPosition)
+when only the producer is needed.
+"""
 
 __all__ = [
     "EventHubProducer",
@@ -16,3 +16,13 @@ __all__ = [
     "EventHubConsumer",
     "EventHubConsumerRecord",
 ]
+
+
+def __getattr__(name):
+    if name in ("EventHubProducer", "EventHubRecordMetadata"):
+        from kafka_pipeline.common.eventhub.producer import EventHubProducer, EventHubRecordMetadata
+        return EventHubProducer if name == "EventHubProducer" else EventHubRecordMetadata
+    if name in ("EventHubConsumer", "EventHubConsumerRecord"):
+        from kafka_pipeline.common.eventhub.consumer import EventHubConsumer, EventHubConsumerRecord
+        return EventHubConsumer if name == "EventHubConsumer" else EventHubConsumerRecord
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
