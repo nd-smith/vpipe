@@ -66,7 +66,6 @@ def monolithic_config_content() -> Dict[str, Any]:
                     "downloads_cached": "xact.downloads.cached",
                     "downloads_results": "xact.downloads.results",
                     "dlq": "xact.downloads.dlq",
-                    "events_ingested": "xact.events.ingested",
                 },
                 "consumer_group_prefix": "xact",
                 "retry_delays": [300, 600],
@@ -200,7 +199,6 @@ def split_config_files() -> Dict[str, Dict[str, Any]]:
                         "downloads_cached": "xact.downloads.cached",
                         "downloads_results": "xact.downloads.results",
                         "dlq": "xact.downloads.dlq",
-                        "events_ingested": "xact.events.ingested",
                     },
                     "consumer_group_prefix": "xact",
                     "retry_delays": [300, 600],
@@ -665,7 +663,6 @@ kafka:
       downloads_cached: "xact.downloads.cached"
       downloads_results: "xact.downloads.results"
       dlq: "xact.downloads.dlq"
-      events_ingested: "xact.events.ingested"
     consumer_group_prefix: "xact"
     retry_delays: [300, 600]
     max_retries: 4

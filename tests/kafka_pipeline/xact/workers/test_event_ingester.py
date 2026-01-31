@@ -28,7 +28,7 @@ def kafka_config():
     def get_topic(domain, topic_key):
         topics = {
             "events": "xact.events.raw",
-            "events_ingested": "xact.events.ingested",
+            "enrichment_pending": "xact.enrichment.pending",
             "downloads_pending": "xact.downloads.pending",
         }
         return topics.get(topic_key, f"xact.{topic_key}")
@@ -148,28 +148,12 @@ class TestEventIngesterWorker:
                 # Process the message
                 await worker._handle_event_message(sample_consumer_record)
 
-        # Verify producer.send was called for:
-        # 1. events_ingested topic (1 call)
-        # 2. downloads_pending topic (2 calls for 2 attachments)
-        assert mock_producer.send.call_count == 3
+        # Verify producer.send was called once for enrichment_pending topic
+        assert mock_producer.send.call_count == 1
 
-        # Find the download task calls (not the ingested event call)
-        download_calls = [
-            call for call in mock_producer.send.call_args_list
-            if call.kwargs.get("topic") == "xact.downloads.pending"
-        ]
-        assert len(download_calls) == 2
-
-        # Verify first download task
-        first_call = download_calls[0]
-        assert first_call.kwargs["key"] == "evt-123"
-
-        # Verify download task content
-        download_task = first_call.kwargs["value"]
-        assert isinstance(download_task, DownloadTaskMessage)
-        assert download_task.trace_id == "evt-123"
-        assert download_task.event_type == "xact"
-        assert download_task.retry_count == 0
+        call = mock_producer.send.call_args
+        assert call.kwargs["topic"] == "xact.enrichment.pending"
+        assert call.kwargs["key"] == "evt-123"
 
     async def test_handle_event_without_attachments(self, kafka_config):
         """Test that events without attachments skip download task creation."""
@@ -210,10 +194,11 @@ class TestEventIngesterWorker:
         # Process the message
         await worker._handle_event_message(record)
 
-        # Verify only one call for events_ingested topic (no download tasks)
+        # Verify one call for enrichment_pending topic (events without attachments
+        # still go to enrichment for plugin execution)
         assert mock_producer.send.call_count == 1
         call = mock_producer.send.call_args
-        assert call.kwargs["topic"] == "xact.events.ingested"
+        assert call.kwargs["topic"] == "xact.enrichment.pending"
 
     async def test_handle_event_missing_assignment_id(self, kafka_config):
         """Test that events without assignment_id skip download task creation."""
@@ -254,10 +239,8 @@ class TestEventIngesterWorker:
         # Process the message
         await worker._handle_event_message(record)
 
-        # Verify only one call for events_ingested topic (no download tasks)
-        assert mock_producer.send.call_count == 1
-        call = mock_producer.send.call_args
-        assert call.kwargs["topic"] == "xact.events.ingested"
+        # No sends: missing assignmentId means no enrichment task created
+        assert mock_producer.send.call_count == 0
 
     async def test_handle_event_invalid_url(self, kafka_config):
         """Test that invalid URLs are skipped with warning."""
@@ -301,10 +284,10 @@ class TestEventIngesterWorker:
             # Process the message
             await worker._handle_event_message(record)
 
-        # Verify only one call for events_ingested topic (no download tasks for invalid URLs)
+        # Enrichment task still created (URL validation is handled downstream)
         assert mock_producer.send.call_count == 1
         call = mock_producer.send.call_args
-        assert call.kwargs["topic"] == "xact.events.ingested"
+        assert call.kwargs["topic"] == "xact.enrichment.pending"
 
     async def test_handle_event_invalid_json(self, kafka_config):
         """Test that invalid JSON raises exception."""

@@ -7,7 +7,8 @@ Entry point to the enrichment and download pipeline:
 3. Produces to enrichment.pending topic for plugin execution
 
 Note: The enrichment worker will then create download tasks and execute plugins.
-Delta Lake writes are handled separately by DeltaEventsWorker.
+Delta Lake writes are handled separately by DeltaEventsWorker (also consuming
+from events.raw with its own consumer group).
 
 Consumer group: {prefix}-event-ingester
 Input topic: events.raw
@@ -114,7 +115,6 @@ class EventIngesterWorker:
                 "worker_name": "event_ingester",
                 "instance_id": instance_id,
                 "events_topic": config.get_topic(domain, "events"),
-                "ingested_topic": self.producer_config.get_topic(domain, "events_ingested"),
                 "enrichment_topic": self.producer_config.get_topic(domain, "enrichment_pending"),
                 "pipeline_domain": self.domain,
                 "separate_producer_config": producer_config is not None,
@@ -252,46 +252,6 @@ class EventIngesterWorker:
                 },
             )
             return
-
-        # Produce to ingested topic (ALL events)
-        # CRITICAL: Must await send confirmation before allowing offset commit
-        try:
-            metadata = await self.producer.send(
-                topic=self.producer_config.get_topic(self.domain, "events_ingested"),
-                key=event.trace_id,
-                value=event,
-                headers={"trace_id": event.trace_id, "event_id": event_id},
-            )
-            logger.debug(
-                "Event produced to ingested topic",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event_id,
-                    "partition": metadata.partition,
-                    "offset": metadata.offset,
-                },
-            )
-        except Exception as e:
-            # Record send failure metric
-            record_processing_error(
-                topic=self.producer_config.get_topic(self.domain, "events_ingested"),
-                consumer_group=f"{self.domain}-event-ingester",
-                error_type="SEND_FAILED",
-            )
-
-            logger.error(
-                "Failed to produce to ingested topic - will retry on next poll",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event_id,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                },
-                exc_info=True,
-            )
-            # Re-raise to prevent offset commit - message will be retried
-            # This ensures at-least-once semantics: if send fails, we retry
-            raise
 
         logger.info(
             "Ingested event",

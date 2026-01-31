@@ -226,7 +226,7 @@ class DeltaEventsWorker:
             config=self.config,
             domain=self.domain,
             worker_name="delta_events_writer",
-            topics=[self.config.get_topic(self.domain, "events_ingested")],
+            topics=[self.config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
             enable_message_commit=False,
             instance_id=self.instance_id,

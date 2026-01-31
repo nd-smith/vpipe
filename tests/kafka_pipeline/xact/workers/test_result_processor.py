@@ -32,7 +32,6 @@ def kafka_config():
     def get_topic(domain, topic_key):
         topics = {
             "events": "xact.events.raw",
-            "events_ingested": "xact.events.ingested",
             "downloads_pending": "xact.downloads.pending",
             "downloads_cached": "xact.downloads.cached",
             "downloads_results": "xact.downloads.results",
