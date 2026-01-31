@@ -21,6 +21,7 @@ exist in .env (gitignored) or be set manually for local testing.
 import logging
 import os
 import ssl
+import _ssl
 import sys
 
 logger = logging.getLogger(__name__)
@@ -66,28 +67,41 @@ def apply_ssl_dev_bypass() -> None:
         # In Python 3.13, SSLContext is a C extension type where the protocol
         # parameter is handled in __new__, not __init__. The __init__ is
         # effectively object.__init__() and accepts no extra arguments.
-        # We only override __init__ to disable verification after construction.
+        #
+        # IMPORTANT: We must use the C-level descriptors from _ssl._SSLContext
+        # to set check_hostname and verify_mode. The Python-level setters in
+        # ssl.SSLContext use super(SSLContext, SSLContext) which resolves the
+        # name "SSLContext" from the ssl module's globals. After we replace
+        # ssl.SSLContext with this subclass, that super() call resolves back
+        # to _UnverifiedSSLContext, causing infinite recursion.
         def __init__(self, *args, **kwargs):
-            self.check_hostname = False
-            self.verify_mode = ssl.CERT_NONE
+            _ssl._SSLContext.check_hostname.__set__(self, False)
+            _ssl._SSLContext.verify_mode.__set__(self, ssl.CERT_NONE)
 
     ssl.SSLContext = _UnverifiedSSLContext
 
     # Patch modules that already imported SSLContext before this ran.
+    # Skip the ssl module itself — its verify_mode/check_hostname setters
+    # use super(SSLContext, SSLContext) which must keep referring to the
+    # original class to avoid recursion.
     for mod in list(sys.modules.values()):
         try:
-            if getattr(mod, "SSLContext", None) is _OriginalSSLContext:
+            if mod is not ssl and getattr(mod, "SSLContext", None) is _OriginalSSLContext:
                 mod.SSLContext = _UnverifiedSSLContext
         except Exception:
             pass
+
+    # Helper to disable verification using C-level descriptors (recursion-safe).
+    def _disable_ctx_verification(ctx):
+        _ssl._SSLContext.check_hostname.__set__(ctx, False)
+        _ssl._SSLContext.verify_mode.__set__(ctx, ssl.CERT_NONE)
 
     # Layer 1: Patch ssl.create_default_context (covers aiohttp, aiokafka, etc.)
     _original_create_default_context = ssl.create_default_context
 
     def _patched_create_default_context(*args, **kwargs):
         ctx = _original_create_default_context(*args, **kwargs)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        _disable_ctx_verification(ctx)
         return ctx
 
     ssl.create_default_context = _patched_create_default_context
@@ -103,8 +117,7 @@ def apply_ssl_dev_bypass() -> None:
 
         def _patched_create_urllib3_context(*args, **kwargs):
             ctx = _original_create_urllib3_context(*args, **kwargs)
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            _disable_ctx_verification(ctx)
             return ctx
 
         urllib3_ssl.create_urllib3_context = _patched_create_urllib3_context
