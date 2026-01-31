@@ -3,6 +3,10 @@
 When DISABLE_SSL_VERIFY=true is set (typically in .env, which is gitignored),
 this module patches SSL verification at multiple layers:
 
+0. ssl.SSLContext - replaced with subclass that disables verification on every
+   new context. Covers ALL libraries (AMQP, WebSocket, etc.) that create SSL
+   contexts directly. ssl.SSLContext is a C extension type whose methods cannot
+   be monkey-patched, so subclassing is the only way to intercept construction.
 1. ssl.create_default_context - covers libraries that use the stdlib default context
 2. urllib3 SSL context creation - covers libraries using urllib3 directly
 3. requests.Session - covers the Azure SDKs (Kusto, Identity, etc.) which use requests
@@ -17,6 +21,7 @@ exist in .env (gitignored) or be set manually for local testing.
 import logging
 import os
 import ssl
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,30 @@ def apply_ssl_dev_bypass() -> None:
             "Refusing to disable SSL verification in production."
         )
         return
+
+    # Layer 0: Replace ssl.SSLContext with a subclass that disables verification.
+    # ssl.SSLContext is a C extension type — its methods (like __init__) are
+    # immutable and cannot be monkey-patched. Subclassing is the only way to
+    # intercept context creation. This covers libraries that call
+    # ssl.SSLContext(PROTOCOL_TLS_CLIENT) directly (e.g. azure-eventhub's
+    # pyamqp WebSocket transport, websocket-client).
+    _OriginalSSLContext = ssl.SSLContext
+
+    class _UnverifiedSSLContext(_OriginalSSLContext):
+        def __init__(self, protocol=ssl.PROTOCOL_TLS_CLIENT, *args, **kwargs):
+            super().__init__(protocol, *args, **kwargs)
+            self.check_hostname = False
+            self.verify_mode = ssl.CERT_NONE
+
+    ssl.SSLContext = _UnverifiedSSLContext
+
+    # Patch modules that already imported SSLContext before this ran.
+    for mod in list(sys.modules.values()):
+        try:
+            if getattr(mod, "SSLContext", None) is _OriginalSSLContext:
+                mod.SSLContext = _UnverifiedSSLContext
+        except Exception:
+            pass
 
     # Layer 1: Patch ssl.create_default_context (covers aiohttp, aiokafka, etc.)
     _original_create_default_context = ssl.create_default_context
@@ -108,6 +137,6 @@ def apply_ssl_dev_bypass() -> None:
 
     logger.warning(
         "SSL verification DISABLED (DISABLE_SSL_VERIFY=true). "
-        "Patched: ssl.create_default_context, urllib3 context, requests.Session. "
-        "Do NOT use this in production."
+        "Patched: ssl.SSLContext, ssl.create_default_context, urllib3 context, "
+        "requests.Session. Do NOT use this in production."
     )
