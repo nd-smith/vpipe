@@ -175,7 +175,7 @@ class TestEventHubConsumerInit:
         """Consumer initializes with required parameters."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -195,7 +195,7 @@ class TestEventHubConsumerInit:
         """Consumer initializes with optional parameters."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -211,7 +211,7 @@ class TestEventHubConsumerInit:
         """Consumer initializes DLQ entity mapping."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -229,7 +229,7 @@ class TestEventHubConsumerDLQMapping:
         """Test _build_dlq_entity_map returns correct mappings."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -248,7 +248,7 @@ class TestEventHubConsumerDLQMapping:
         """Test _get_dlq_entity_name resolves XACT topic correctly."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -276,7 +276,7 @@ class TestEventHubConsumerDLQMapping:
         """Test _get_dlq_entity_name returns None for unknown topic."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -297,7 +297,7 @@ class TestEventHubConsumerDLQProducer:
         """Test _ensure_dlq_producer creates new producer on first call."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -313,7 +313,7 @@ class TestEventHubConsumerDLQProducer:
             # Producer was created
             mock_producer_class.assert_called_once_with(
                 connection_string=consumer.connection_string,
-                domain="xact",
+                domain="verisk",
                 worker_name="test_worker",
                 eventhub_name="xact-dlq",
             )
@@ -331,7 +331,7 @@ class TestEventHubConsumerDLQProducer:
         """Test _ensure_dlq_producer reuses existing producer for same entity."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -360,7 +360,7 @@ class TestEventHubConsumerDLQProducer:
         """Test _ensure_dlq_producer recreates producer for different entity."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -403,7 +403,7 @@ class TestEventHubConsumerDLQSend:
         """Test _send_to_dlq constructs DLQ message with all required fields."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -480,7 +480,7 @@ class TestEventHubConsumerDLQSend:
         """Test _send_to_dlq returns False when no DLQ mapping exists."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -513,7 +513,7 @@ class TestEventHubConsumerDLQSend:
         """Test _send_to_dlq returns False when DLQ producer initialization fails."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -548,7 +548,7 @@ class TestEventHubConsumerDLQSend:
         """Test _send_to_dlq returns False when send fails."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -585,7 +585,7 @@ class TestEventHubConsumerDLQSend:
         """Test _send_to_dlq records DLQ metrics on success."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -626,7 +626,7 @@ class TestEventHubConsumerErrorHandling:
         """Test that PERMANENT errors trigger DLQ routing."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -666,7 +666,7 @@ class TestEventHubConsumerErrorHandling:
         """Test that failed DLQ write prevents checkpoint by re-raising."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -702,7 +702,7 @@ class TestEventHubConsumerErrorHandling:
         """Test that TRANSIENT errors do not trigger DLQ routing."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -743,7 +743,7 @@ class TestEventHubConsumerCheckpointing:
         """Test checkpoint advances after successful DLQ write."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -786,7 +786,7 @@ class TestEventHubConsumerCheckpointing:
         """Test checkpoint does not advance when DLQ write fails."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -832,7 +832,7 @@ class TestEventHubConsumerCleanup:
         """Test stop() properly cleans up DLQ producer."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -860,7 +860,7 @@ class TestEventHubConsumerCleanup:
         """Test stop() handles DLQ producer cleanup errors gracefully."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -887,7 +887,7 @@ class TestEventHubConsumerCleanup:
         """Test stop() works when no DLQ producer exists."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -913,7 +913,7 @@ class TestEventHubConsumerCheckpointStore:
 
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -927,7 +927,7 @@ class TestEventHubConsumerCheckpointStore:
         """Test consumer initializes without checkpoint_store (defaults to None)."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -945,7 +945,7 @@ class TestEventHubConsumerCheckpointStore:
 
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -976,7 +976,7 @@ class TestEventHubConsumerCheckpointStore:
         """Test that None is passed to EventHubConsumerClient when checkpoint_store not configured."""
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -1011,7 +1011,7 @@ class TestEventHubConsumerCheckpointStore:
 
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",
@@ -1042,7 +1042,7 @@ class TestEventHubConsumerCheckpointStore:
 
         consumer = EventHubConsumer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="verisk_events",
             consumer_group="$Default",

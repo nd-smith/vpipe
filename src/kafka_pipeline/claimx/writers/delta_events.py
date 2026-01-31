@@ -5,7 +5,7 @@ Writes ClaimX events to the claimx_events Delta table with:
 - Async/non-blocking writes
 - Schema compatibility with verisk_pipeline claimx_events table
 
-Unlike xact events, ClaimX events are not flattened - they maintain
+Unlike verisk events, ClaimX events are not flattened - they maintain
 the simple event structure from Eventhouse/webhooks.
 
 Note: Deduplication handled by daily Fabric maintenance job.
@@ -38,7 +38,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
     """
     Writer for claimx_events Delta table with async support.
 
-    ClaimX events have a simpler structure than xact events - no flattening needed.
+    ClaimX events have a simpler structure than verisk events - no flattening needed.
     Events are written directly from Eventhouse rows to the Delta table.
 
     Features:

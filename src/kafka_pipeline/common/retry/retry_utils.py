@@ -78,7 +78,7 @@ def create_retry_headers(
         worker_type: Type of worker for observability
         original_key: Original Kafka partition key
         error_category: Classification of the error
-        domain: Domain identifier (e.g., "xact", "claimx")
+        domain: Domain identifier (e.g., "verisk", "claimx")
 
     Returns:
         Dict of header key-value pairs
@@ -214,7 +214,7 @@ def record_retry_metrics(
     Retries are now tracked via DLQ messages and processing errors.
 
     Args:
-        domain: Domain identifier (e.g., "xact", "claimx")
+        domain: Domain identifier (e.g., "verisk", "claimx")
         error_category: Classification of the error
         delay_seconds: Delay before retry in seconds
         worker_type: Optional worker type for additional granularity
@@ -232,7 +232,7 @@ def record_dlq_metrics(
     Record DLQ routing metrics.
 
     Args:
-        domain: Domain identifier (e.g., "xact", "claimx")
+        domain: Domain identifier (e.g., "verisk", "claimx")
         reason: Reason for DLQ routing ("permanent", "exhausted")
         error_category: Optional error classification for exhausted retries
     """

@@ -138,7 +138,7 @@ class TestEventHubProducerInit:
         """Producer initializes with required parameters."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -154,7 +154,7 @@ class TestEventHubProducerInit:
         """Producer logs initialization with transport type."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -172,7 +172,7 @@ class TestEventHubProducerStartStop:
         """Test start() creates EventHubProducerClient."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -199,7 +199,7 @@ class TestEventHubProducerStartStop:
         """Test start() gets EventHub properties to verify connection."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -217,7 +217,7 @@ class TestEventHubProducerStartStop:
         """Test start() is idempotent - duplicate calls are ignored."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -236,7 +236,7 @@ class TestEventHubProducerStartStop:
         """Test stop() closes EventHub client."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -257,7 +257,7 @@ class TestEventHubProducerStartStop:
         """Test stop() when producer not started is safe."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -274,7 +274,7 @@ class TestEventHubProducerSend:
         """Test send() with bytes value."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -303,7 +303,7 @@ class TestEventHubProducerSend:
         """Test send() with Pydantic model value."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -331,7 +331,7 @@ class TestEventHubProducerSend:
         """Test send() with dict value."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -355,7 +355,7 @@ class TestEventHubProducerSend:
         """Test send() with headers."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -385,7 +385,7 @@ class TestEventHubProducerSend:
         """Test send() without key."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -409,7 +409,7 @@ class TestEventHubProducerSend:
         """Test send() returns ProduceResult with default partition/offset."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -435,7 +435,7 @@ class TestEventHubProducerSend:
         """Test send() raises error when producer not started."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -456,7 +456,7 @@ class TestEventHubProducerSendBatch:
         """Test send_batch() sends multiple messages."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -493,7 +493,7 @@ class TestEventHubProducerSendBatch:
         """Test send_batch() with headers."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -524,7 +524,7 @@ class TestEventHubProducerSendBatch:
         """Test send_batch() with empty message list."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -550,7 +550,7 @@ class TestEventHubProducerSendBatch:
         """Test send_batch() raises error when producer not started."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -574,7 +574,7 @@ class TestEventHubProducerFlush:
         """Test flush() is a no-op for EventHub (synchronous sends)."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -592,7 +592,7 @@ class TestEventHubProducerFlush:
         """Test flush() raises error when producer not started."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -608,7 +608,7 @@ class TestEventHubProducerProperties:
         """Test is_started property is False initially."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -620,7 +620,7 @@ class TestEventHubProducerProperties:
         """Test is_started property is True after start()."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )
@@ -637,7 +637,7 @@ class TestEventHubProducerProperties:
         """Test is_started property is False after stop()."""
         producer = EventHubProducer(
             connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             eventhub_name="test-hub",
         )

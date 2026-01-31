@@ -246,7 +246,7 @@ async def run_all_workers(
     Architecture: events.raw → EventIngester → downloads.pending → DownloadWorker → ...
                   events.raw → DeltaEventsWorker → Delta table (parallel)"""
     from config.pipeline_config import EventSourceType
-    from kafka_pipeline.runners import xact_runners
+    from kafka_pipeline.runners import verisk_runners
 
     logger.info("Starting all pipeline workers...")
 
@@ -257,7 +257,7 @@ async def run_all_workers(
 
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
         events_table_path = (
-            pipeline_config.xact_eventhouse.xact_events_table_path
+            pipeline_config.verisk_eventhouse.xact_events_table_path
             or pipeline_config.events_table_path
         )
     else:
@@ -266,13 +266,13 @@ async def run_all_workers(
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
         tasks.append(
             asyncio.create_task(
-                xact_runners.run_eventhouse_poller(pipeline_config, shutdown_event),
+                verisk_runners.run_eventhouse_poller(pipeline_config, shutdown_event),
                 name="eventhouse-poller",
             )
         )
         tasks.append(
             asyncio.create_task(
-                xact_runners.run_local_event_ingester(
+                verisk_runners.run_local_event_ingester(
                     local_kafka_config,
                     shutdown_event,
                     domain=pipeline_config.domain,
@@ -285,7 +285,7 @@ async def run_all_workers(
         eventhub_config = pipeline_config.eventhub.to_kafka_config()
         tasks.append(
             asyncio.create_task(
-                xact_runners.run_event_ingester(
+                verisk_runners.run_event_ingester(
                     eventhub_config,
                     local_kafka_config,
                     shutdown_event,
@@ -299,7 +299,7 @@ async def run_all_workers(
     if enable_delta_writes and events_table_path:
         tasks.append(
             asyncio.create_task(
-                xact_runners.run_delta_events_worker(
+                verisk_runners.run_delta_events_worker(
                     local_kafka_config, events_table_path, shutdown_event
                 ),
                 name="xact-delta-writer",
@@ -309,7 +309,7 @@ async def run_all_workers(
 
         tasks.append(
             asyncio.create_task(
-                xact_runners.run_xact_retry_scheduler(local_kafka_config, shutdown_event),
+                verisk_runners.run_xact_retry_scheduler(local_kafka_config, shutdown_event),
                 name="xact-retry-scheduler",
             )
         )
@@ -318,15 +318,15 @@ async def run_all_workers(
     tasks.extend(
         [
             asyncio.create_task(
-                xact_runners.run_download_worker(local_kafka_config, shutdown_event),
+                verisk_runners.run_download_worker(local_kafka_config, shutdown_event),
                 name="xact-download",
             ),
             asyncio.create_task(
-                xact_runners.run_upload_worker(local_kafka_config, shutdown_event),
+                verisk_runners.run_upload_worker(local_kafka_config, shutdown_event),
                 name="xact-upload",
             ),
             asyncio.create_task(
-                xact_runners.run_result_processor(
+                verisk_runners.run_result_processor(
                     local_kafka_config,
                     shutdown_event,
                     enable_delta_writes,

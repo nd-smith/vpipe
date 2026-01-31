@@ -38,7 +38,7 @@ Usage:
     ...     config=config,
     ...     producer=producer,
     ...     table_path="abfss://workspace@onelake/lakehouse/Tables/xact_events",
-    ...     domain="xact"
+    ...     domain="verisk"
     ... )
     >>>
     >>> # Handle a failed batch
@@ -61,7 +61,7 @@ from kafka_pipeline.common.metrics import (
     record_dlq_message,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.xact.schemas.delta_batch import FailedDeltaBatch
+from kafka_pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class DeltaRetryHandler:
         config: Kafka configuration
         producer: Kafka producer for retry/DLQ messages
         table_path: Delta table path for writes
-        domain: Domain identifier (e.g., "xact")
+        domain: Domain identifier (e.g., "verisk")
         retry_delays: List of retry delays in seconds
         retry_topic_prefix: Prefix for retry topics
         dlq_topic: Dead-letter queue topic name
@@ -96,7 +96,7 @@ class DeltaRetryHandler:
         ...     retry_delays=[300, 600, 1200, 2400],
         ...     retry_topic_prefix="com.allstate.pcesdopodappv1.delta-events.retry",
         ...     dlq_topic="com.allstate.pcesdopodappv1.delta-events.dlq",
-        ...     domain="xact"
+        ...     domain="verisk"
         ... )
     """
 
@@ -120,7 +120,7 @@ class DeltaRetryHandler:
             retry_delays: List of retry delays in seconds (default: [300, 600, 1200, 2400])
             retry_topic_prefix: Prefix for retry topics (default: "com.allstate.pcesdopodappv1.delta-events.retry")
             dlq_topic: Dead-letter queue topic name (default: "com.allstate.pcesdopodappv1.delta-events.dlq")
-            domain: Domain identifier (default: "xact")
+            domain: Domain identifier (default: "verisk")
         """
         self.config = config
         self.producer = producer

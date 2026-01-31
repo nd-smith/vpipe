@@ -54,7 +54,7 @@ config:
         # Publish to unified tracking topic
         # Worker will consume from this topic, enrich with ClaimX API data,
         # and write to Delta table for historical analysis
-        publish_to_topic: itel.cabinet.task.tracking
+        publish_to_topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking
 
         log:
           level: info

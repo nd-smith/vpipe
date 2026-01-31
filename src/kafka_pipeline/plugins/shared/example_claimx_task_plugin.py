@@ -1,7 +1,7 @@
 """
 Example plugin demonstrating CREATE_CLAIMX_TASK action usage.
 
-This is a reference implementation showing both ClaimX and XACT domain usage.
+This is a reference implementation showing both ClaimX and Verisk domain usage.
 """
 
 from kafka_pipeline.plugins.shared.base import (
@@ -50,7 +50,7 @@ class ExampleClaimXTaskPlugin(Plugin):
 
 class ExampleXACTTaskPlugin(Plugin):
     """
-    Example plugin for XACT domain - creates ClaimX task using claim_number.
+    Example plugin for Verisk domain - creates ClaimX task using claim_number.
     """
 
     name = "example_xact_task_plugin"
@@ -132,7 +132,7 @@ class ExampleConditionalTaskPlugin(Plugin):
                 ],
             )
 
-        else:  # XACT domain
+        else:  # Verisk domain
             claim_number = getattr(context.message, "claim_number", None)
             if not claim_number:
                 return PluginResult.skip("No claim number in XACT context")

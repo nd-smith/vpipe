@@ -43,7 +43,7 @@ config:
         # Publish to unified tracking topic
         # Worker will consume from this topic, enrich with ClaimX API data,
         # and publish to success topic
-        publish_to_topic: com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking
+        publish_to_topic: pcesdopodappv1-ghrn-mitigation-pending
 
         log:
           level: info
@@ -61,7 +61,7 @@ config:
       # Trigger on COMPLETED status only
       on_completed:
         # Publish to same unified tracking topic
-        publish_to_topic: com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking
+        publish_to_topic: pcesdopodappv1-ghrn-mitigation-pending
 
         log:
           level: info

@@ -13,7 +13,7 @@ from core.types import ErrorCategory
 from kafka_pipeline.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
-from kafka_pipeline.xact.schemas.delta_batch import FailedDeltaBatch
+from kafka_pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def retry_handler(kafka_config, mock_producer):
         retry_delays=[300, 600, 1200, 2400],
         retry_topic_prefix="delta-events.retry",
         dlq_topic="delta-events.dlq",
-        domain="xact",
+        domain="verisk",
     )
 
 
@@ -91,7 +91,7 @@ class TestDeltaRetryHandlerInit:
             retry_delays=[300, 600, 1200, 2400],
             retry_topic_prefix="delta-events.retry",
             dlq_topic="delta-events.dlq",
-            domain="xact",
+            domain="verisk",
         )
 
         assert handler.config == kafka_config
@@ -109,7 +109,7 @@ class TestDeltaRetryHandlerInit:
             config=kafka_config,
             producer=mock_producer,
             table_path="abfss://workspace@onelake/lakehouse/Tables/xact_events",
-            domain="xact",
+            domain="verisk",
         )
 
         assert handler._retry_delays == [300, 600, 1200, 2400]
@@ -524,7 +524,7 @@ class TestDeltaRetryHandlerHelpers:
             table_path="abfss://test",
             retry_delays=[60, 120, 240],
             retry_topic_prefix="custom.retry",
-            domain="xact",
+            domain="verisk",
         )
 
         topics = handler.get_all_retry_topics()

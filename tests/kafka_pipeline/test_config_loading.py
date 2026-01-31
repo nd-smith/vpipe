@@ -399,7 +399,7 @@ class TestMergePrecedence:
         pytest.skip("Waiting for merge implementation")
 
         # config = load_config_from_directory(config_dir=temp_config_dir)
-        # assert config.xact["retry_delays"] == [300, 600]  # NOT [300, 600, 1200, 2400]
+        # assert config.verisk["retry_delays"] == [300, 600]  # NOT [300, 600, 1200, 2400]
 
 
 # =============================================================================

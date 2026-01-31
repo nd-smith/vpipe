@@ -12,8 +12,8 @@ from aiokafka.structs import ConsumerRecord
 
 from kafka_pipeline.config import KafkaConfig
 from kafka_pipeline.common.dlq.handler import DLQHandler
-from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.schemas.results import FailedDownloadMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
 
 @pytest.fixture
@@ -93,7 +93,7 @@ class TestDLQHandlerInit:
 
     def test_init_with_config(self, kafka_config):
         """DLQ handler initializes with config."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         assert handler.config == kafka_config
         assert handler._consumer is None
@@ -103,7 +103,7 @@ class TestDLQHandlerInit:
     def test_init_logs_configuration(self, kafka_config, caplog):
         """DLQ handler logs configuration on init."""
         with caplog.at_level(logging.INFO):
-            handler = DLQHandler(kafka_config, domain="xact")
+            handler = DLQHandler(kafka_config, domain="verisk")
 
             assert "Initialized DLQ handler" in caplog.text
 
@@ -127,7 +127,7 @@ class TestDLQHandlerStartStop:
         mock_consumer.start = AsyncMock()
         mock_consumer_class.return_value = mock_consumer
 
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Start in background task since consumer.start() blocks
         start_task = None
@@ -144,7 +144,7 @@ class TestDLQHandlerStartStop:
             mock_consumer_class.assert_called_once()
             call_kwargs = mock_consumer_class.call_args.kwargs
             assert call_kwargs["config"] == kafka_config
-            assert call_kwargs["topics"] == [kafka_config.get_topic("xact", "dlq")]
+            assert call_kwargs["topics"] == [kafka_config.get_topic("verisk", "dlq")]
             assert callable(call_kwargs["message_handler"])
 
         finally:
@@ -174,7 +174,7 @@ class TestDLQHandlerStartStop:
         mock_consumer.stop = AsyncMock()
         mock_consumer_class.return_value = mock_consumer
 
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Manually set consumer/producer (simulating started state)
         handler._consumer = mock_consumer
@@ -192,7 +192,7 @@ class TestDLQHandlerStartStop:
     @pytest.mark.asyncio
     async def test_stop_safe_when_not_started(self, kafka_config):
         """Stop is safe to call when handler not started."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Should not raise
         await handler.stop()
@@ -206,7 +206,7 @@ class TestDLQHandlerParsing:
 
     def test_parse_dlq_message_success(self, kafka_config, sample_dlq_message):
         """Parse valid DLQ message from ConsumerRecord."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = create_consumer_record_from_dlq(sample_dlq_message)
 
         parsed = handler.parse_dlq_message(record)
@@ -219,7 +219,7 @@ class TestDLQHandlerParsing:
 
     def test_parse_dlq_message_empty_value(self, kafka_config):
         """Parse raises ValueError for empty message value."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = ConsumerRecord(
             topic="test.dlq",
             partition=0,
@@ -239,7 +239,7 @@ class TestDLQHandlerParsing:
 
     def test_parse_dlq_message_invalid_json(self, kafka_config):
         """Parse raises ValueError for invalid JSON."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = ConsumerRecord(
             topic="test.dlq",
             partition=0,
@@ -259,7 +259,7 @@ class TestDLQHandlerParsing:
 
     def test_parse_dlq_message_invalid_schema(self, kafka_config):
         """Parse raises ValueError for JSON that doesn't match schema."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = ConsumerRecord(
             topic="test.dlq",
             partition=0,
@@ -286,7 +286,7 @@ class TestDLQHandlerReplay:
         self, kafka_config, sample_dlq_message, caplog
     ):
         """Replay sends message back to pending topic with reset retry count."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Mock producer
         mock_producer = MagicMock()
@@ -306,7 +306,7 @@ class TestDLQHandlerReplay:
         call_kwargs = mock_producer.send.call_args.kwargs
 
         # Verify correct topic
-        assert call_kwargs["topic"] == kafka_config.get_topic("xact", "downloads_pending")
+        assert call_kwargs["topic"] == kafka_config.get_topic("verisk", "downloads_pending")
 
         # Verify key matches trace_id
         assert call_kwargs["key"] == sample_dlq_message.trace_id
@@ -335,7 +335,7 @@ class TestDLQHandlerReplay:
         self, kafka_config, sample_dlq_message
     ):
         """Replay raises RuntimeError if producer not started."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = create_consumer_record_from_dlq(sample_dlq_message)
 
         with pytest.raises(RuntimeError, match="Producer not started"):
@@ -344,7 +344,7 @@ class TestDLQHandlerReplay:
     @pytest.mark.asyncio
     async def test_replay_message_invalid_record(self, kafka_config):
         """Replay raises ValueError for invalid DLQ message."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Mock producer
         mock_producer = MagicMock()
@@ -378,7 +378,7 @@ class TestDLQHandlerAcknowledge:
         self, kafka_config, sample_dlq_message, caplog
     ):
         """Acknowledge commits offset for message."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Mock consumer with underlying aiokafka consumer
         mock_aiokafka = MagicMock()
@@ -407,7 +407,7 @@ class TestDLQHandlerAcknowledge:
         self, kafka_config, sample_dlq_message
     ):
         """Acknowledge raises RuntimeError if consumer not started."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = create_consumer_record_from_dlq(sample_dlq_message)
 
         with pytest.raises(RuntimeError, match="Consumer not started"):
@@ -422,7 +422,7 @@ class TestDLQHandlerMessageHandler:
         self, kafka_config, sample_dlq_message, caplog
     ):
         """Default handler logs DLQ messages for review."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         record = create_consumer_record_from_dlq(sample_dlq_message)
 
         with caplog.at_level(logging.INFO):
@@ -436,7 +436,7 @@ class TestDLQHandlerMessageHandler:
         self, kafka_config, caplog
     ):
         """Default handler logs error for invalid messages but doesn't fail."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Create invalid record
         record = ConsumerRecord(
@@ -464,12 +464,12 @@ class TestDLQHandlerIsRunning:
 
     def test_is_running_false_when_not_started(self, kafka_config):
         """is_running is False when handler not started."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
         assert not handler.is_running
 
     def test_is_running_true_when_both_started(self, kafka_config):
         """is_running is True when both consumer and producer started."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Mock both consumer and producer as started
         mock_consumer = MagicMock()
@@ -484,7 +484,7 @@ class TestDLQHandlerIsRunning:
 
     def test_is_running_false_when_consumer_not_running(self, kafka_config):
         """is_running is False when consumer not running."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Mock consumer not running
         mock_consumer = MagicMock()
@@ -499,7 +499,7 @@ class TestDLQHandlerIsRunning:
 
     def test_is_running_false_when_producer_not_started(self, kafka_config):
         """is_running is False when producer not started."""
-        handler = DLQHandler(kafka_config, domain="xact")
+        handler = DLQHandler(kafka_config, domain="verisk")
 
         # Mock producer not started
         mock_consumer = MagicMock()

@@ -80,7 +80,7 @@ def producer(kafka_config):
     """Create producer with mocked dependencies."""
     return BaseKafkaProducer(
         kafka_config,
-        domain="xact",
+        domain="verisk",
         worker_name="test_worker",
     )
 
@@ -92,7 +92,7 @@ class TestBaseKafkaProducerInit:
         """Producer initializes with config and circuit breaker."""
         producer = BaseKafkaProducer(
             kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             circuit_breaker=mock_circuit_breaker,
         )
@@ -112,7 +112,7 @@ class TestBaseKafkaProducerInit:
 
             producer = BaseKafkaProducer(
                 kafka_config,
-                domain="xact",
+                domain="verisk",
                 worker_name="test_worker",
             )
 

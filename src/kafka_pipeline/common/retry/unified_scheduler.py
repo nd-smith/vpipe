@@ -70,7 +70,7 @@ class UnifiedRetryScheduler:
         >>> config = KafkaConfig.from_env()
         >>> producer = BaseKafkaProducer(
         ...     config=config,
-        ...     domain="xact",
+        ...     domain="verisk",
         ...     worker_name="unified_retry_scheduler"
         ... )
         >>> await producer.start()
@@ -78,7 +78,7 @@ class UnifiedRetryScheduler:
         >>> scheduler = UnifiedRetryScheduler(
         ...     config=config,
         ...     producer=producer,
-        ...     domain="xact"
+        ...     domain="verisk"
         ... )
         >>> await scheduler.start()
         >>> # Scheduler runs until stopped
@@ -98,7 +98,7 @@ class UnifiedRetryScheduler:
         Args:
             config: Kafka configuration
             producer: Kafka producer for routing messages
-            domain: Domain name ("xact" or "claimx")
+            domain: Domain name ("verisk" or "claimx")
             persistence_interval_seconds: How often to persist queue to disk (default 10s)
         """
         self.config = config

@@ -12,8 +12,8 @@ from aiokafka.structs import ConsumerRecord
 
 from kafka_pipeline.config import KafkaConfig
 from kafka_pipeline.common.dlq.cli import CLITaskManager, DLQCLIManager
-from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.schemas.results import FailedDownloadMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
 
 @pytest.fixture

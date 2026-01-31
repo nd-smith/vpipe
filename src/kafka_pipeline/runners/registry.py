@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Any, Callable, Dict, Optional
 
-from kafka_pipeline.runners import claimx_runners, xact_runners
+from kafka_pipeline.runners import claimx_runners, verisk_runners
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def build_xact_delta_writer_args(
         events_table_path = pipeline_config.events_table_path
         if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
             events_table_path = (
-                pipeline_config.xact_eventhouse.xact_events_table_path or events_table_path
+                pipeline_config.verisk_eventhouse.xact_events_table_path or events_table_path
             )
 
     if not events_table_path:
@@ -262,25 +262,25 @@ def build_claimx_entity_writer_args(
 WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
     # XACT workers
     "xact-poller": {
-        "runner": xact_runners.run_eventhouse_poller,
+        "runner": verisk_runners.run_eventhouse_poller,
         "args_builder": build_xact_poller_args,
         "requires_eventhouse": True,
     },
     "xact-json-poller": {
-        "runner": xact_runners.run_eventhouse_json_poller,
+        "runner": verisk_runners.run_eventhouse_json_poller,
         "args_builder": build_xact_json_poller_args,
         "requires_eventhouse": True,
     },
     "xact-event-ingester": {
         "runner": lambda **kwargs: (
-            xact_runners.run_local_event_ingester(**kwargs)
+            verisk_runners.run_local_event_ingester(**kwargs)
             if "local_kafka_config" in kwargs and "eventhub_config" not in kwargs
-            else xact_runners.run_event_ingester(**kwargs)
+            else verisk_runners.run_event_ingester(**kwargs)
         ),
         "args_builder": build_xact_event_ingester_args,
     },
     "xact-local-ingester": {
-        "runner": xact_runners.run_local_event_ingester,
+        "runner": verisk_runners.run_local_event_ingester,
         "args_builder": lambda pc, se, **kw: {
             "local_kafka_config": kw.get("local_kafka_config"),
             "shutdown_event": se,
@@ -288,18 +288,18 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
     },
     "xact-delta-writer": {
-        "runner": xact_runners.run_delta_events_worker,
+        "runner": verisk_runners.run_delta_events_worker,
         "args_builder": build_xact_delta_writer_args,
     },
     "xact-retry-scheduler": {
-        "runner": xact_runners.run_xact_retry_scheduler,
+        "runner": verisk_runners.run_xact_retry_scheduler,
         "args_builder": lambda pc, se, **kw: {
             "kafka_config": kw.get("local_kafka_config"),
             "shutdown_event": se,
         },
     },
     "xact-enricher": {
-        "runner": xact_runners.run_xact_enrichment_worker,
+        "runner": verisk_runners.run_xact_enrichment_worker,
         "args_builder": lambda pc, se, **kw: (
             lambda sim_mode: {
                 "kafka_config": kw.get("local_kafka_config"),
@@ -315,14 +315,14 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         )(kw.get("simulation_mode", False)),
     },
     "xact-download": {
-        "runner": xact_runners.run_download_worker,
+        "runner": verisk_runners.run_download_worker,
         "args_builder": lambda pc, se, **kw: {
             "kafka_config": kw.get("local_kafka_config"),
             "shutdown_event": se,
         },
     },
     "xact-upload": {
-        "runner": xact_runners.run_upload_worker,
+        "runner": verisk_runners.run_upload_worker,
         "args_builder": lambda pc, se, **kw: (
             lambda sim_mode: {
                 "kafka_config": kw.get("local_kafka_config"),
@@ -338,7 +338,7 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         )(kw.get("simulation_mode", False)),
     },
     "xact-result-processor": {
-        "runner": xact_runners.run_result_processor,
+        "runner": verisk_runners.run_result_processor,
         "args_builder": build_xact_result_processor_args,
     },
     # ClaimX workers

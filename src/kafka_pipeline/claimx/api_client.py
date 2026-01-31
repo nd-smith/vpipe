@@ -341,7 +341,7 @@ class ClaimXApiClient(LoggedClass):
         """
         Get ClaimX project ID from claim number.
 
-        Useful for XACT domain events that have claim number but need ClaimX project ID.
+        Useful for Verisk domain events that have claim number but need ClaimX project ID.
 
         Args:
             claim_number: The claim number (e.g., "ABC123456")

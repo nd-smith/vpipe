@@ -37,7 +37,7 @@ class ItelCabinetPipeline:
         self.kafka = kafka_producer
         self.config = config
         self.claimx_connection = config.get("claimx_connection", "claimx_api")
-        self.output_topic = config.get("output_topic", "com.allstate.pcesdopodappv1.itel.cabinet.completed")
+        self.output_topic = config.get("output_topic", "pcesdopodappv1-itel-cabinet-completed")
 
         logger.info(
             "ItelCabinetPipeline initialized",

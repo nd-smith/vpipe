@@ -439,7 +439,7 @@ async def test_resource_limits_under_load(
                 await producer.start()
 
                 try:
-                    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                     for event in test_events:
                         for attachment_url in event.attachments:

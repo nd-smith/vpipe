@@ -107,7 +107,7 @@ class TestBaseKafkaConsumerInit:
         """Consumer initializes with config and circuit breaker."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -135,7 +135,7 @@ class TestBaseKafkaConsumerInit:
 
             consumer = BaseKafkaConsumer(
                 config=kafka_config,
-                domain="xact",
+                domain="verisk",
                 worker_name="test_worker",
                 topics=["test-topic"],
                 message_handler=mock_message_handler,
@@ -151,7 +151,7 @@ class TestBaseKafkaConsumerInit:
         topics = ["topic-1", "topic-2", "topic-3"]
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=topics,
             message_handler=mock_message_handler,
@@ -165,7 +165,7 @@ class TestBaseKafkaConsumerInit:
         with pytest.raises(ValueError, match="At least one topic must be specified"):
             BaseKafkaConsumer(
                 config=kafka_config,
-                domain="xact",
+                domain="verisk",
                 worker_name="test_worker",
                 topics=[],
                 message_handler=mock_message_handler,
@@ -193,7 +193,7 @@ class TestBaseKafkaConsumerStartStop:
 
                 consumer = BaseKafkaConsumer(
                     config=kafka_config,
-                    domain="xact",
+                    domain="verisk",
                     worker_name="test_worker",
                     topics=["test-topic"],
                     message_handler=mock_message_handler,
@@ -224,7 +224,7 @@ class TestBaseKafkaConsumerStartStop:
         """Starting consumer multiple times is safe."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -249,7 +249,7 @@ class TestBaseKafkaConsumerStartStop:
         """Consumer stops successfully and commits offsets."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -274,7 +274,7 @@ class TestBaseKafkaConsumerStartStop:
         """Stopping consumer multiple times is safe."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -306,7 +306,7 @@ class TestBaseKafkaConsumerMessageProcessing:
 
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -350,7 +350,7 @@ class TestBaseKafkaConsumerMessageProcessing:
 
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -385,7 +385,7 @@ class TestBaseKafkaConsumerMessageProcessing:
         """Consume loop fetches and processes messages."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -440,7 +440,7 @@ class TestBaseKafkaConsumerMessageProcessing:
         # circuit_breaker.call_async) but records success/failure manually
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -476,7 +476,7 @@ class TestBaseKafkaConsumerMessageProcessing:
         """Consume loop handles asyncio cancellation gracefully."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -507,7 +507,7 @@ class TestBaseKafkaConsumerMessageProcessing:
         """Consume loop continues processing after errors."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -557,7 +557,7 @@ class TestBaseKafkaConsumerDLQ:
 
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,
@@ -632,7 +632,7 @@ class TestBaseKafkaConsumerUtilities:
         """is_running property reflects consumer state."""
         consumer = BaseKafkaConsumer(
             config=kafka_config,
-            domain="xact",
+            domain="verisk",
             worker_name="test_worker",
             topics=["test-topic"],
             message_handler=mock_message_handler,

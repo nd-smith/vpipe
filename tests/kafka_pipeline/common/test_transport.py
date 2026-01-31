@@ -90,7 +90,7 @@ class TestCreateConsumerCheckpointStore:
 
                 consumer = await create_consumer(
                     config=mock_kafka_config,
-                    domain="xact",
+                    domain="verisk",
                     worker_name="test_worker",
                     topics=["verisk_events"],
                     message_handler=mock_handler,
@@ -129,7 +129,7 @@ class TestCreateConsumerCheckpointStore:
 
                 consumer = await create_consumer(
                     config=mock_kafka_config,
-                    domain="xact",
+                    domain="verisk",
                     worker_name="test_worker",
                     topics=["verisk_events"],
                     message_handler=mock_handler,
@@ -169,7 +169,7 @@ class TestCreateConsumerCheckpointStore:
                 with caplog.at_level(logging.ERROR):
                     consumer = await create_consumer(
                         config=mock_kafka_config,
-                        domain="xact",
+                        domain="verisk",
                         worker_name="test_worker",
                         topics=["verisk_events"],
                         message_handler=mock_handler,
@@ -213,7 +213,7 @@ class TestCreateConsumerCheckpointStore:
                 with caplog.at_level(logging.INFO):
                     await create_consumer(
                         config=mock_kafka_config,
-                        domain="xact",
+                        domain="verisk",
                         worker_name="test_worker",
                         topics=["verisk_events"],
                         message_handler=mock_handler,
@@ -248,7 +248,7 @@ class TestCreateConsumerCheckpointStore:
                 with caplog.at_level(logging.INFO):
                     await create_consumer(
                         config=mock_kafka_config,
-                        domain="xact",
+                        domain="verisk",
                         worker_name="test_worker",
                         topics=["verisk_events"],
                         message_handler=mock_handler,
@@ -280,7 +280,7 @@ class TestCreateConsumerCheckpointStore:
 
                 consumer = await create_consumer(
                     config=mock_kafka_config,
-                    domain="xact",
+                    domain="verisk",
                     worker_name="test_worker",
                     topics=["verisk_events"],
                     message_handler=mock_handler,
@@ -330,7 +330,7 @@ class TestCreateConsumerCheckpointStore:
 
                     consumer = await create_consumer(
                         config=mock_kafka_config,
-                        domain="xact",
+                        domain="verisk",
                         worker_name="test_worker",
                         topics=["verisk_events"],  # This is ignored when topic_key is provided
                         message_handler=mock_handler,

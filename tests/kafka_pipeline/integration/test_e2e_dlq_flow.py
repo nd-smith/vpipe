@@ -37,8 +37,8 @@ from core.types import ErrorCategory
 from kafka_pipeline.config import KafkaConfig
 from kafka_pipeline.common.dlq.cli import DLQCLIManager
 from kafka_pipeline.common.dlq.handler import DLQHandler
-from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.schemas.results import FailedDownloadMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
 from .fixtures.generators import create_download_task_message
 from .helpers import (

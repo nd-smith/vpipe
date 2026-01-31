@@ -127,13 +127,13 @@ class EventHubConfig:
         Creates a hierarchical KafkaConfig matching the new config.yaml structure.
         Used only when Kafka protocol is needed (not AMQP transport).
         """
-        # Build xact domain config for Event Hub source
-        xact_config = {
+        # Build verisk domain config for Event Hub source
+        verisk_config = {
             "topics": {
                 "events": self.events_topic,
             },
             "consumer_group_prefix": (
-                self.consumer_group.rsplit("-", 1)[0] if "-" in self.consumer_group else "xact"
+                self.consumer_group.rsplit("-", 1)[0] if "-" in self.consumer_group else "verisk"
             ),
             "event_ingester": {
                 "consumer": {
@@ -151,7 +151,7 @@ class EventHubConfig:
             consumer_defaults={
                 "auto_offset_reset": self.auto_offset_reset,
             },
-            xact=xact_config,
+            xact=verisk_config,
         )
 
 
@@ -176,7 +176,7 @@ class LocalKafkaConfig:
     dlq_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.dlq"
 
     # Consumer group prefix
-    consumer_group_prefix: str = "xact"
+    consumer_group_prefix: str = "verisk"
 
     # Retry configuration (delays in seconds)
     retry_delays: List[int] = field(default_factory=lambda: [300, 600, 1200, 2400])
@@ -195,8 +195,8 @@ class LocalKafkaConfig:
     # ClaimX domain config (loaded from yaml)
     claimx_config: Dict[str, Any] = field(default_factory=dict)
 
-    # XACT domain config (loaded from yaml) - preserves full yaml structure
-    xact_config: Dict[str, Any] = field(default_factory=dict)
+    # Verisk domain config (loaded from yaml) - preserves full yaml structure
+    verisk_config: Dict[str, Any] = field(default_factory=dict)
 
     # ClaimX API settings
     claimx_api_url: str = ""
@@ -220,7 +220,7 @@ class LocalKafkaConfig:
             KAFKA_DOWNLOADS_RESULTS_TOPIC: Results topic (default: com.allstate.pcesdopodappv1.xact.downloads.results)
             KAFKA_DLQ_TOPIC: DLQ topic (default: com.allstate.pcesdopodappv1.xact.downloads.dlq)
             ONELAKE_BASE_PATH: OneLake path for uploads (fallback)
-            ONELAKE_XACT_PATH: OneLake path for xact domain
+            ONELAKE_VERISK_PATH: OneLake path for verisk domain
             ONELAKE_CLAIMX_PATH: OneLake path for claimx domain
             DELTA_EVENTS_BATCH_SIZE: Events per batch for Delta writes (default: 1000)
         """
@@ -228,12 +228,12 @@ class LocalKafkaConfig:
         yaml_data = _load_config_data(resolved_path)
         kafka_data = yaml_data.get("kafka", {})
         connection_data = kafka_data.get("connection", kafka_data)
-        xact_config = kafka_data.get("xact", {})
-        topics_data = xact_config.get("topics", {})
+        verisk_config = kafka_data.get("verisk", {})
+        topics_data = verisk_config.get("topics", {})
         claimx_config = kafka_data.get("claimx", {})
         claimx_root = yaml_data.get("claimx", {})
         claimx_api_data = claimx_root.get("api", {})
-        retry_delays_default = xact_config.get(
+        retry_delays_default = verisk_config.get(
             "retry_delays", kafka_data.get("retry_delays", [300, 600, 1200, 2400])
         )
         retry_delays_str = os.getenv("RETRY_DELAYS", ",".join(str(d) for d in retry_delays_default))
@@ -260,8 +260,8 @@ class LocalKafkaConfig:
 
         # Build domain paths from merged storage config and environment variables
         onelake_domain_paths: Dict[str, str] = storage_data.get("onelake_domain_paths", {}).copy()
-        if os.getenv("ONELAKE_XACT_PATH"):
-            onelake_domain_paths["xact"] = os.getenv("ONELAKE_XACT_PATH", "")
+        if os.getenv("ONELAKE_VERISK_PATH"):
+            onelake_domain_paths["verisk"] = os.getenv("ONELAKE_VERISK_PATH", "")
         if os.getenv("ONELAKE_CLAIMX_PATH"):
             onelake_domain_paths["claimx"] = os.getenv("ONELAKE_CLAIMX_PATH", "")
 
@@ -315,15 +315,15 @@ class LocalKafkaConfig:
             ),
             consumer_group_prefix=os.getenv(
                 "KAFKA_CONSUMER_GROUP_PREFIX",
-                xact_config.get(
-                    "consumer_group_prefix", kafka_data.get("consumer_group_prefix", "xact")
+                verisk_config.get(
+                    "consumer_group_prefix", kafka_data.get("consumer_group_prefix", "verisk")
                 ),
             ),
             retry_delays=retry_delays,
             max_retries=int(
                 os.getenv(
                     "MAX_RETRIES",
-                    str(xact_config.get("max_retries", kafka_data.get("max_retries", 4))),
+                    str(verisk_config.get("max_retries", kafka_data.get("max_retries", 4))),
                 )
             ),
             onelake_base_path=os.getenv(
@@ -339,7 +339,7 @@ class LocalKafkaConfig:
                 )
             ),
             claimx_config=claimx_config,
-            xact_config=xact_config,
+            verisk_config=verisk_config,
             # ClaimX API settings (loaded from root claimx.api section)
             claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH") or os.getenv("CLAIMX_API_URL") or claimx_api_data.get("base_url", ""),
             claimx_api_token=os.getenv("CLAIMX_API_TOKEN", claimx_api_data.get("token", "")),
@@ -361,12 +361,12 @@ class LocalKafkaConfig:
         Flat fields provide fallbacks for topics if not in yaml.
         """
         # Start with full yaml xact config, ensure topics have fallbacks from flat fields
-        xact_config = self.xact_config.copy() if self.xact_config else {}
+        verisk_config = self.verisk_config.copy() if self.verisk_config else {}
 
         # Ensure topics exist with fallbacks from flat fields
-        if "topics" not in xact_config:
-            xact_config["topics"] = {}
-        topics = xact_config["topics"]
+        if "topics" not in verisk_config:
+            verisk_config["topics"] = {}
+        topics = verisk_config["topics"]
         topics.setdefault("events", self.events_topic)
         topics.setdefault("downloads_pending", self.downloads_pending_topic)
         topics.setdefault("downloads_cached", self.downloads_cached_topic)
@@ -374,16 +374,16 @@ class LocalKafkaConfig:
         topics.setdefault("dlq", self.dlq_topic)
 
         # Ensure other required fields have fallbacks
-        xact_config.setdefault("consumer_group_prefix", self.consumer_group_prefix)
-        xact_config.setdefault("retry_delays", self.retry_delays)
-        xact_config.setdefault("max_retries", self.max_retries)
+        verisk_config.setdefault("consumer_group_prefix", self.consumer_group_prefix)
+        verisk_config.setdefault("retry_delays", self.retry_delays)
+        verisk_config.setdefault("max_retries", self.max_retries)
 
         # Ensure delta_events_writer has processing defaults
-        if "delta_events_writer" not in xact_config:
-            xact_config["delta_events_writer"] = {}
-        if "processing" not in xact_config["delta_events_writer"]:
-            xact_config["delta_events_writer"]["processing"] = {}
-        delta_processing = xact_config["delta_events_writer"]["processing"]
+        if "delta_events_writer" not in verisk_config:
+            verisk_config["delta_events_writer"] = {}
+        if "processing" not in verisk_config["delta_events_writer"]:
+            verisk_config["delta_events_writer"]["processing"] = {}
+        delta_processing = verisk_config["delta_events_writer"]["processing"]
         delta_processing.setdefault("batch_size", self.delta_events_batch_size)
         delta_processing.setdefault("retry_delays", self.retry_delays)
         delta_processing.setdefault("max_retries", self.max_retries)
@@ -396,7 +396,7 @@ class LocalKafkaConfig:
             sasl_mechanism=self.sasl_mechanism,
             sasl_plain_username=self.sasl_plain_username,
             sasl_plain_password=self.sasl_plain_password,
-            xact=xact_config,
+            xact=verisk_config,
             claimx=self.claimx_config,
             onelake_base_path=self.onelake_base_path,
             onelake_domain_paths=self.onelake_domain_paths,
@@ -428,8 +428,8 @@ class EventhouseSourceConfig:
     query_timeout_seconds: int = 120
 
     # Deduplication configuration
-    xact_events_table_path: str = ""
-    xact_events_window_hours: int = 24
+    verisk_events_table_path: str = ""
+    verisk_events_window_hours: int = 24
     eventhouse_query_window_hours: int = 1
     overlap_minutes: int = 5
 
@@ -447,18 +447,18 @@ class EventhouseSourceConfig:
 
         Configuration priority (highest to lowest):
         1. Environment variables
-        2. Config files in config/ directory (under 'xact_eventhouse:' key, fallback to 'eventhouse:')
+        2. Config files in config/ directory (under 'verisk_eventhouse:' key, fallback to 'eventhouse:')
         3. Dataclass defaults
 
         Optional env var overrides:
-            XACT_EVENTHOUSE_CLUSTER_URL: Kusto cluster URL
-            XACT_EVENTHOUSE_DATABASE: Database name
-            XACT_EVENTHOUSE_SOURCE_TABLE: KQL source table name (default: Events)
+            VERISK_EVENTHOUSE_CLUSTER_URL: Kusto cluster URL
+            VERISK_EVENTHOUSE_DATABASE: Database name
+            VERISK_EVENTHOUSE_SOURCE_TABLE: KQL source table name (default: Events)
             EVENTHOUSE_SOURCE_TABLE: Legacy env var for source table (fallback)
             POLL_INTERVAL_SECONDS: Poll interval (default: 30)
             POLL_BATCH_SIZE: Max events per poll (default: 1000)
             EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
-            XACT_EVENTS_TABLE_PATH: Path to xact_events Delta table
+            VERISK_EVENTS_TABLE_PATH: Path to verisk_events Delta table
         """
         # Use default config directory if not specified
         resolved_path = config_path or DEFAULT_CONFIG_FILE
@@ -466,31 +466,31 @@ class EventhouseSourceConfig:
         # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
 
-        # Check for xact_eventhouse first, fallback to legacy eventhouse
-        eventhouse_data = yaml_data.get("xact_eventhouse", yaml_data.get("eventhouse", {}))
+        # Check for verisk_eventhouse first, fallback to legacy eventhouse
+        eventhouse_data = yaml_data.get("verisk_eventhouse", yaml_data.get("eventhouse", {}))
         poller_data = eventhouse_data.get("poller", {})
         dedup_data = eventhouse_data.get("dedup", {})
 
         cluster_url = os.getenv(
-            "XACT_EVENTHOUSE_CLUSTER_URL",
+            "VERISK_EVENTHOUSE_CLUSTER_URL",
             os.getenv("EVENTHOUSE_CLUSTER_URL", eventhouse_data.get("cluster_url", "")),
         )
         database = os.getenv(
-            "XACT_EVENTHOUSE_DATABASE",
+            "VERISK_EVENTHOUSE_DATABASE",
             os.getenv("EVENTHOUSE_DATABASE", eventhouse_data.get("database", "")),
         )
 
         if not cluster_url:
             raise ValueError(
                 "Xact Eventhouse cluster_url is required. "
-                "Set in config.yaml under 'xact_eventhouse:' (or 'eventhouse:') "
-                "or via XACT_EVENTHOUSE_CLUSTER_URL env var."
+                "Set in config.yaml under 'verisk_eventhouse:' (or 'eventhouse:') "
+                "or via VERISK_EVENTHOUSE_CLUSTER_URL env var."
             )
         if not database:
             raise ValueError(
                 "Xact Eventhouse database is required. "
-                "Set in config.yaml under 'xact_eventhouse:' (or 'eventhouse:') "
-                "or via XACT_EVENTHOUSE_DATABASE env var."
+                "Set in config.yaml under 'verisk_eventhouse:' (or 'eventhouse:') "
+                "or via VERISK_EVENTHOUSE_DATABASE env var."
             )
 
         # Parse bulk_backfill boolean
@@ -503,7 +503,7 @@ class EventhouseSourceConfig:
             cluster_url=cluster_url,
             database=database,
             source_table=os.getenv(
-                "XACT_EVENTHOUSE_SOURCE_TABLE",
+                "VERISK_EVENTHOUSE_SOURCE_TABLE",
                 os.getenv("EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")),
             ),
             poll_interval_seconds=int(
@@ -518,13 +518,13 @@ class EventhouseSourceConfig:
                     str(eventhouse_data.get("query_timeout_seconds", 120)),
                 )
             ),
-            xact_events_table_path=os.getenv(
-                "XACT_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
+            verisk_events_table_path=os.getenv(
+                "VERISK_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
             ),
-            xact_events_window_hours=int(
+            verisk_events_window_hours=int(
                 os.getenv(
-                    "DEDUP_XACT_EVENTS_WINDOW_HOURS",
-                    str(dedup_data.get("xact_events_window_hours", 24)),
+                    "DEDUP_VERISK_EVENTS_WINDOW_HOURS",
+                    str(dedup_data.get("verisk_events_window_hours", 24)),
                 )
             ),
             eventhouse_query_window_hours=int(
@@ -716,8 +716,8 @@ class PipelineConfig:
     eventhub: Optional[EventHubConfig] = None
 
     # Eventhouse config (only populated if event_source == eventhouse)
-    # This is the Xact domain Eventhouse config (legacy name: eventhouse, new name: xact_eventhouse)
-    xact_eventhouse: Optional[EventhouseSourceConfig] = None
+    # This is the Verisk domain Eventhouse config (legacy name: eventhouse, new name: verisk_eventhouse)
+    verisk_eventhouse: Optional[EventhouseSourceConfig] = None
 
     # ClaimX Eventhouse config (optional, can run alongside xact)
     claimx_eventhouse: Optional[ClaimXEventhouseSourceConfig] = None
@@ -725,8 +725,8 @@ class PipelineConfig:
     # Local Kafka for internal pipeline communication
     local_kafka: LocalKafkaConfig = field(default_factory=LocalKafkaConfig)
 
-    # Domain identifier for OneLake routing (e.g., "xact", "claimx")
-    domain: str = "xact"
+    # Domain identifier for OneLake routing (e.g., "verisk", "claimx")
+    domain: str = "verisk"
 
     # Delta Lake configuration
     enable_delta_writes: bool = True
@@ -807,7 +807,7 @@ class PipelineConfig:
 
         # Load delta configuration from yaml with env var override
         delta_config = yaml_data.get("delta", {})
-        domain = os.getenv("PIPELINE_DOMAIN", "xact")
+        domain = os.getenv("PIPELINE_DOMAIN", "verisk")
         domain_delta_config = delta_config.get(domain, {})
 
         # Enable delta writes: env var > yaml > default True
@@ -831,27 +831,27 @@ class PipelineConfig:
         return cls(
             event_source=event_source,
             eventhub=eventhub_config,
-            xact_eventhouse=eventhouse_config,
+            verisk_eventhouse=eventhouse_config,
             claimx_eventhouse=claimx_eventhouse_config,
             local_kafka=local_kafka,
             domain=domain,
             enable_delta_writes=enable_delta_writes,
             # XACT table paths - check domain-specific env vars first, then generic
             events_table_path=(
-                os.getenv("XACT_EVENTS_TABLE_PATH")
-                or os.getenv("XACT_DELTA_EVENTS_TABLE")
+                os.getenv("VERISK_EVENTS_TABLE_PATH")
+                or os.getenv("VERISK_DELTA_EVENTS_TABLE")
                 or os.getenv("DELTA_EVENTS_TABLE_PATH")
                 or domain_delta_config.get("events_table_path", "")
             ),
             inventory_table_path=(
-                os.getenv("XACT_INVENTORY_TABLE_PATH")
-                or os.getenv("XACT_DELTA_INVENTORY_TABLE")
+                os.getenv("VERISK_INVENTORY_TABLE_PATH")
+                or os.getenv("VERISK_DELTA_INVENTORY_TABLE")
                 or os.getenv("DELTA_INVENTORY_TABLE_PATH")
                 or domain_delta_config.get("inventory_table_path", "")
             ),
             failed_table_path=(
-                os.getenv("XACT_FAILED_TABLE_PATH")
-                or os.getenv("XACT_DELTA_FAILED_TABLE")
+                os.getenv("VERISK_FAILED_TABLE_PATH")
+                or os.getenv("VERISK_DELTA_FAILED_TABLE")
                 or os.getenv("DELTA_FAILED_TABLE_PATH")
                 or domain_delta_config.get("failed_table_path", "")
             ),

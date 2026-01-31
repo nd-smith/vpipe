@@ -153,7 +153,7 @@ def _resolve_eventhub_name(
     4. Fallback: construct from domain
 
     Args:
-        domain: Pipeline domain (e.g., "xact", "claimx")
+        domain: Pipeline domain (e.g., "verisk", "claimx")
         topic_key: Topic key matching config.yaml (e.g., "events", "downloads_pending")
         worker_name: Worker name for env var lookup
 
@@ -264,7 +264,7 @@ def create_producer(
 
     Args:
         config: KafkaConfig with connection details
-        domain: Pipeline domain (e.g., "xact", "claimx")
+        domain: Pipeline domain (e.g., "verisk", "claimx")
         worker_name: Worker name for logging
         transport_type: Optional override for transport type (defaults to env var)
         topic: Optional explicit Event Hub name (overrides config-based detection)
@@ -337,7 +337,7 @@ async def create_consumer(
 
     Args:
         config: KafkaConfig with connection details
-        domain: Pipeline domain (e.g., "xact", "claimx")
+        domain: Pipeline domain (e.g., "verisk", "claimx")
         worker_name: Worker name for logging
         topics: List of topics to consume from
         message_handler: Async function to process each message

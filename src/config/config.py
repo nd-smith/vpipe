@@ -2,7 +2,7 @@
 
 Loads from config/config.yaml with all settings in one place:
 - Shared connection settings and defaults
-- XACT domain configuration
+- Verisk domain configuration
 - ClaimX domain configuration
 - Storage, Delta, Eventhouse, and observability settings
 
@@ -69,7 +69,7 @@ class KafkaConfig:
           connection: {...}           # Shared connection settings
           consumer_defaults: {...}    # Default consumer settings
           producer_defaults: {...}    # Default producer settings
-          xact:                       # XACT domain
+          xact:                       # Verisk domain
             topics: {...}
             event_ingester:
               consumer: {...}
@@ -477,7 +477,7 @@ def load_config(
 
     logger.debug(f"Configuration loaded successfully:")
     logger.debug(f"  - Bootstrap servers: {config.bootstrap_servers}")
-    logger.debug(f"  - XACT domain configured: {bool(config.xact)}")
+    logger.debug(f"  - Verisk domain configured: {bool(config.verisk)}")
     logger.debug(f"  - ClaimX domain configured: {bool(config.claimx)}")
 
     logger.debug("Validating configuration...")
@@ -598,8 +598,8 @@ Examples:
             else:
                 print("✓ Configuration validation passed")
                 print("  - Configuration structure: OK")
-                if config.xact:
-                    print("  - XACT domain: OK")
+                if config.verisk:
+                    print("  - Verisk domain: OK")
                 if config.claimx:
                     print("  - ClaimX domain: OK")
                 print("  - All settings validated: OK")

@@ -70,7 +70,7 @@ def create_simulation_enrichment_worker(
             },
         )
     elif domain == "xact":
-        from kafka_pipeline.xact.workers.enrichment_worker import XACTEnrichmentWorker
+        from kafka_pipeline.verisk.workers.enrichment_worker import XACTEnrichmentWorker
 
         # XACT enrichment doesn't use external APIs, so no mocking needed
         worker = XACTEnrichmentWorker(config=config, domain=domain, **kwargs)
@@ -142,7 +142,7 @@ def create_simulation_upload_worker(
             **kwargs,
         )
     elif domain == "xact":
-        from kafka_pipeline.xact.workers.upload_worker import UploadWorker
+        from kafka_pipeline.verisk.workers.upload_worker import UploadWorker
 
         worker = UploadWorker(
             config=config,

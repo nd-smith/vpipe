@@ -483,7 +483,7 @@ class RealisticDataGenerator:
         event_subtype: str = "documentsReceived",
     ) -> Dict[str, Any]:
         """
-        Generate an XACT domain event message.
+        Generate an Verisk domain event message.
 
         Returns dict compatible with EventMessage schema.
         """

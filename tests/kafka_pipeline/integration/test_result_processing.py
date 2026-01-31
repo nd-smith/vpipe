@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from kafka_pipeline.xact.schemas.results import DownloadResultMessage
-from kafka_pipeline.xact.workers.result_processor import ResultProcessor
+from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
+from kafka_pipeline.verisk.workers.result_processor import ResultProcessor
 
 
 @pytest.mark.asyncio

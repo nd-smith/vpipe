@@ -24,7 +24,7 @@ async def resolve_claimx_project_id(
     """
     Helper function to resolve ClaimX project ID from claim number.
 
-    Useful for plugins in XACT domain that need to work with ClaimX but only
+    Useful for plugins in Verisk domain that need to work with ClaimX but only
     have the claim number available.
 
     Args:
@@ -324,7 +324,7 @@ class PluginResult:
                 }
             )
 
-            # With claim number (XACT domain events)
+            # With claim number (Verisk domain events)
             PluginResult.create_claimx_task(
                 claim_number="ABC123456",
                 task_type="CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",

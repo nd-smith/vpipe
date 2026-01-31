@@ -200,7 +200,7 @@ async def test_download_worker_throughput(
                     produce_start = datetime.now(timezone.utc)
 
                     # Convert events to download tasks
-                    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                     for event in test_events:
                         for attachment_url in event.attachments:
@@ -309,7 +309,7 @@ async def test_result_processor_throughput(
                 produce_start = datetime.now(timezone.utc)
 
                 # Convert events to result messages
-                from kafka_pipeline.xact.schemas.results import DownloadResultMessage
+                from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 
                 for event in test_events:
                     for attachment_url in event.attachments:

@@ -128,7 +128,7 @@ async def test_horizontal_scaling_1_consumer(
 
                 try:
                     logger.info(f"Testing with 1 consumer, {event_count} tasks")
-                    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                     for event in test_events:
                         for attachment_url in event.attachments:
@@ -227,7 +227,7 @@ async def test_horizontal_scaling_3_consumers(
         mock_download.side_effect = mock_download_impl
 
         # Create 3 download workers (same consumer group)
-        from kafka_pipeline.xact.workers.download_worker import DownloadWorker
+        from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
         workers = []
         worker_tasks = []
@@ -258,7 +258,7 @@ async def test_horizontal_scaling_3_consumers(
 
                 try:
                     logger.info(f"Testing with 3 consumers, {event_count} tasks")
-                    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                     for event in test_events:
                         for attachment_url in event.attachments:
@@ -362,7 +362,7 @@ async def test_consumer_failure_rebalancing(
         mock_download.side_effect = mock_download_impl
 
         # Create 3 download workers
-        from kafka_pipeline.xact.workers.download_worker import DownloadWorker
+        from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
         workers = []
         worker_tasks = []
@@ -393,7 +393,7 @@ async def test_consumer_failure_rebalancing(
 
                 try:
                     logger.info(f"Testing failure recovery with 3 consumers, {event_count} tasks")
-                    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                     # Produce half the tasks
                     half_count = event_count // 2
@@ -535,7 +535,7 @@ async def test_partition_distribution(
         mock_download.side_effect = mock_download_impl
 
         # Create 6 download workers for partition distribution test
-        from kafka_pipeline.xact.workers.download_worker import DownloadWorker
+        from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
         worker_count = 6
         workers = []
@@ -574,7 +574,7 @@ async def test_partition_distribution(
 
             try:
                 logger.info(f"Testing partition distribution with {worker_count} consumers, {event_count} tasks")
-                from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                 for event in test_events:
                     for attachment_url in event.attachments:

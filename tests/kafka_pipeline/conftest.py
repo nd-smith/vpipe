@@ -638,7 +638,7 @@ async def event_ingester_worker(
     monkeypatch,
 ) -> AsyncGenerator:
     """Provide event ingester worker with mocked Delta writer."""
-    from kafka_pipeline.xact.workers.event_ingester import EventIngesterWorker
+    from kafka_pipeline.verisk.workers.event_ingester import EventIngesterWorker
 
     monkeypatch.setattr(
         "kafka_pipeline.xact.workers.event_ingester.DeltaEventsWriter",
@@ -666,7 +666,7 @@ async def download_worker(
     Note: DownloadWorker no longer uses OneLakeClient directly.
     It caches files locally and produces CachedDownloadMessage for upload worker.
     """
-    from kafka_pipeline.xact.workers.download_worker import DownloadWorker
+    from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
     worker = DownloadWorker(
         config=test_kafka_config,
@@ -686,7 +686,7 @@ async def result_processor(
     monkeypatch,
 ) -> AsyncGenerator:
     """Provide result processor with mocked Delta writer."""
-    from kafka_pipeline.xact.workers.result_processor import ResultProcessor
+    from kafka_pipeline.verisk.workers.result_processor import ResultProcessor
 
     monkeypatch.setattr(
         "kafka_pipeline.xact.workers.result_processor.DeltaInventoryWriter",

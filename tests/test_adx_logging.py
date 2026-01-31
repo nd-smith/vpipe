@@ -33,7 +33,7 @@ def test_numeric_type_preservation():
 
     # Set some context
     set_log_context(
-        domain="xact",
+        domain="verisk",
         stage="download",
         worker_id="test-worker",
         trace_id="evt_test_123"

@@ -23,7 +23,7 @@ import pytest
 from aiokafka import AIOKafkaProducer
 
 from kafka_pipeline.config import KafkaConfig
-from kafka_pipeline.xact.schemas.events import EventMessage
+from kafka_pipeline.verisk.schemas.events import EventMessage
 
 from tests.kafka_pipeline.integration.helpers import wait_for_condition, start_worker_background, stop_worker_gracefully
 from tests.kafka_pipeline.performance.conftest import PerformanceMetrics, ResourceMonitor, monitor_performance, save_performance_report

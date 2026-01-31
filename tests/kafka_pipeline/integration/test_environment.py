@@ -238,7 +238,7 @@ async def test_topics_are_accessible(
     - Test isolation works (unique topics per test)
     """
     # Send message to pending topic
-    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
     from datetime import datetime, timezone
 
     task = DownloadTaskMessage(

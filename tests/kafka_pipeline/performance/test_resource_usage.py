@@ -228,7 +228,7 @@ async def test_download_concurrency(
                     logger.info(f"Producing {event_count} download tasks for concurrency test")
 
                     # Convert events to download tasks
-                    from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                    from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                     for event in test_events:
                         for attachment_url in event.attachments:

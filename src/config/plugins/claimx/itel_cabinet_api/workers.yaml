@@ -8,7 +8,7 @@
 # 2. API worker - Transforms and sends to iTel API
 #
 # Architecture:
-#   Plugin → Kafka (itel.cabinet.task.tracking)
+#   Plugin → Kafka (pcesdopodappv1-itel-cabinet-pending)
 #                ↓
 #        ┌───────┴────────┐
 #        ↓                ↓
@@ -28,7 +28,7 @@ workers:
   itel_cabinet_tracking:
     # Kafka settings
     kafka:
-      input_topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking
+      input_topic: pcesdopodappv1-itel-cabinet-pending
       consumer_group: itel_cabinet_tracking_group
 
     # Delta tables (table names, full paths constructed by worker)
@@ -39,7 +39,7 @@ workers:
     # Pipeline configuration
     pipeline:
       claimx_connection: claimx_api
-      output_topic: com.allstate.pcesdopodappv1.itel.cabinet.completed
+      output_topic: pcesdopodappv1-itel-cabinet-completed
 
   # ===========================================================================
   # iTel Cabinet API Worker
@@ -55,7 +55,7 @@ workers:
   itel_cabinet_api:
     # Kafka settings
     kafka:
-      input_topic: com.allstate.pcesdopodappv1.itel.cabinet.completed
+      input_topic: pcesdopodappv1-itel-cabinet-completed
       consumer_group: itel_cabinet_api_group
 
     # iTel API settings

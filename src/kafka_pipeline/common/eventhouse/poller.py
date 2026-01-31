@@ -118,7 +118,7 @@ class PollerConfig:
     eventhouse: EventhouseConfig
     kafka: Optional[KafkaConfig] = None  # Optional when using custom sink
     event_schema_class: Optional[Type] = None
-    domain: str = "xact"
+    domain: str = "verisk"
     poll_interval_seconds: int = 30
     batch_size: int = 1000
     source_table: str = "Events"
@@ -154,7 +154,7 @@ class KQLEventPoller:
         self._shutdown_event = asyncio.Event()
 
         if config.event_schema_class is None:
-            from kafka_pipeline.xact.schemas.events import EventMessage
+            from kafka_pipeline.verisk.schemas.events import EventMessage
 
             self._event_schema_class = EventMessage
         else:

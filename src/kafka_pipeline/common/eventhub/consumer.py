@@ -163,7 +163,7 @@ class EventHubConsumer:
 
         Args:
             connection_string: Namespace-level connection string (no EntityPath)
-            domain: Pipeline domain (e.g., "xact", "claimx")
+            domain: Pipeline domain (e.g., "verisk", "claimx")
             worker_name: Worker name for logging
             eventhub_name: Event Hub name (resolved from config.yaml by transport layer)
             consumer_group: Consumer group name (resolved from config.yaml by transport layer)
@@ -499,7 +499,7 @@ class EventHubConsumer:
         - claimx topics (claimx_events) -> claimx-dlq
         """
         return {
-            # XACT domain
+            # Verisk domain
             "verisk_events": "xact-dlq",
             # ClaimX domain
             "claimx_events": "claimx-dlq",

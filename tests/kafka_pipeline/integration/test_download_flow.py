@@ -30,9 +30,9 @@ from core.types import ErrorCategory
 from kafka_pipeline.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.xact.schemas.results import DownloadResultMessage, FailedDownloadMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
-from kafka_pipeline.xact.workers.download_worker import DownloadWorker
+from kafka_pipeline.verisk.schemas.results import DownloadResultMessage, FailedDownloadMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
 
 @pytest.fixture
@@ -100,7 +100,7 @@ async def test_successful_download_flow(
     - File is cached locally
     - CachedDownloadMessage is produced to cached topic
     """
-    from kafka_pipeline.xact.schemas.cached import CachedDownloadMessage
+    from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 
     pending_topic = kafka_config_with_downloads.downloads_pending_topic
     cached_topic = kafka_config_with_downloads.downloads_cached_topic

@@ -8,12 +8,12 @@ All generators support customization via keyword arguments for test-specific sce
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from kafka_pipeline.xact.schemas.events import EventMessage
-from kafka_pipeline.xact.schemas.results import (
+from kafka_pipeline.verisk.schemas.events import EventMessage
+from kafka_pipeline.verisk.schemas.results import (
     DownloadResultMessage,
     FailedDownloadMessage,
 )
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
 # ClaimX schemas
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage

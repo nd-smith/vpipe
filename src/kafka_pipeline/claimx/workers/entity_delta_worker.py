@@ -58,7 +58,7 @@ class ClaimXEntityDeltaWorker:
         """
         Initialize ClaimX entity delta worker.
         """
-        entity_rows_topic = entity_rows_topic or config.get_topic(domain, "entities_rows")
+        entity_rows_topic = entity_rows_topic or config.get_topic(domain, "enriched")
 
         # Composition: create consumer instance instead of inheriting
         self._consumer = BaseKafkaConsumer(

@@ -32,7 +32,7 @@ class DummySourceConfig:
     file_server: FileServerConfig = field(default_factory=FileServerConfig)
 
     # Which domains to generate events for
-    domains: List[str] = field(default_factory=lambda: ["xact", "claimx"])
+    domains: List[str] = field(default_factory=lambda: ["verisk", "claimx"])
 
     # Event generation settings
     events_per_minute: float = 10.0  # Events per minute per domain
@@ -273,10 +273,10 @@ class DummyDataSource:
             logger.warning(f"No producer for domain: {domain}")
             return
 
-        if domain == "xact":
+        if domain == "verisk":
             event_data = self._generator.generate_xact_event()
             # Import schema class
-            from kafka_pipeline.xact.schemas.events import EventMessage
+            from kafka_pipeline.verisk.schemas.events import EventMessage
 
             event = EventMessage(**event_data)
             key = event_data["traceId"]
@@ -348,7 +348,7 @@ class DummyDataSource:
         """
         events = []
         for _ in range(count):
-            if domain == "xact":
+            if domain == "verisk":
                 event_data = self._generator.generate_xact_event()
             elif domain == "claimx":
                 event_data = self._generator.generate_claimx_event(event_type=event_type)
@@ -414,7 +414,7 @@ def load_dummy_source_config(
         kafka=kafka_config,
         generator=generator_config,
         file_server=file_server_config,
-        domains=dummy_config.get("domains", ["xact", "claimx"]),
+        domains=dummy_config.get("domains", ["verisk", "claimx"]),
         events_per_minute=dummy_config.get("events_per_minute", 10.0),
         burst_mode=dummy_config.get("burst_mode", False),
         burst_size=dummy_config.get("burst_size", 50),

@@ -34,7 +34,7 @@ Load configuration:
     >>>
     >>> # Access configuration
     >>> bootstrap_servers = config.bootstrap_servers
-    >>> topic = config.get_topic("xact", "events")
+    >>> topic = config.get_topic("verisk", "events")
 
 Load pipeline configuration:
     >>> from config import get_pipeline_config

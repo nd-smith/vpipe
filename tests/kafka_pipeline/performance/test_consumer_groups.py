@@ -102,7 +102,7 @@ async def test_consumer_lag_recovery(
             logger.info(f"Producing {backlog_size} message backlog...")
             produce_start = datetime.now(timezone.utc)
 
-            from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+            from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
             # Batch produce for speed
             batch_size = 1000
@@ -243,7 +243,7 @@ async def test_consumer_group_coordination(
         mock_download.side_effect = mock_download_impl
 
         # Create multiple consumers in same group
-        from kafka_pipeline.xact.workers.download_worker import DownloadWorker
+        from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
         consumer_count = 4
         workers = []
@@ -276,7 +276,7 @@ async def test_consumer_group_coordination(
 
             try:
                 logger.info(f"Producing {event_count} tasks...")
-                from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+                from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
                 for event in test_events:
                     for attachment_url in event.attachments:
@@ -397,7 +397,7 @@ async def test_offset_commit_behavior(
         await producer.start()
 
         try:
-            from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+            from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
             for event in test_events:
                 for attachment_url in event.attachments:

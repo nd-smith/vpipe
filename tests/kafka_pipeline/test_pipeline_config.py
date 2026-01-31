@@ -48,8 +48,8 @@ class TestEventhouseSourceConfig:
         assert config.poll_interval_seconds == 30
         assert config.batch_size == 1000
         assert config.query_timeout_seconds == 120
-        assert config.xact_events_table_path == ""
-        assert config.xact_events_window_hours == 24
+        assert config.verisk_events_table_path == ""
+        assert config.verisk_events_window_hours == 24
         assert config.eventhouse_query_window_hours == 1
         assert config.overlap_minutes == 5
 
@@ -74,8 +74,8 @@ class TestEventhouseSourceConfig:
         assert config.poll_interval_seconds == 60
         assert config.batch_size == 500
         assert config.query_timeout_seconds == 180
-        assert config.xact_events_table_path == "abfss://container@storage.dfs.core.windows.net/xact_events"
-        assert config.xact_events_window_hours == 48
+        assert config.verisk_events_table_path == "abfss://container@storage.dfs.core.windows.net/xact_events"
+        assert config.verisk_events_window_hours == 48
         assert config.eventhouse_query_window_hours == 2
         assert config.overlap_minutes == 10
 
@@ -103,8 +103,8 @@ class TestEventhouseSourceConfig:
         assert config.poll_interval_seconds == 45
         assert config.batch_size == 750
         assert config.query_timeout_seconds == 150
-        assert config.xact_events_table_path == "abfss://test/xact_events"
-        assert config.xact_events_window_hours == 36
+        assert config.verisk_events_table_path == "abfss://test/xact_events"
+        assert config.verisk_events_window_hours == 36
         assert config.eventhouse_query_window_hours == 3
         assert config.overlap_minutes == 8
 
@@ -274,7 +274,7 @@ kafka:
 
         assert config.event_source == EventSourceType.EVENTHUB
         assert config.eventhub is not None
-        assert config.xact_eventhouse is None
+        assert config.verisk_eventhouse is None
         assert config.is_eventhub_source is True
 
     def test_load_config_eventhub_explicit(self):
@@ -317,7 +317,7 @@ kafka:
 
         assert config.event_source == EventSourceType.EVENTHOUSE
         assert config.eventhub is None
-        assert config.xact_eventhouse is not None
+        assert config.verisk_eventhouse is not None
         assert config.is_eventhouse_source is True
 
     def test_load_config_invalid_source(self):
@@ -474,9 +474,9 @@ class TestLocalKafkaConfig:
         assert kafka_config.bootstrap_servers == "localhost:9092"
         assert kafka_config.security_protocol == "PLAINTEXT"
         # New API: topics are accessed via get_topic(domain, topic_key)
-        assert kafka_config.get_topic("xact", "downloads_pending") == "xact.downloads.pending"
+        assert kafka_config.get_topic("verisk", "downloads_pending") == "xact.downloads.pending"
         # batch_size is in the delta_events_writer section
-        delta_writer = kafka_config.xact.get("delta_events_writer", {})
+        delta_writer = kafka_config.verisk.get("delta_events_writer", {})
         delta_processing = delta_writer.get("processing", {})
         assert delta_processing.get("batch_size", 1000) == 1000
 

@@ -327,7 +327,7 @@ async def load_generator(test_kafka_config: KafkaConfig):
     Returns:
         dict: Load generation utilities
     """
-    from kafka_pipeline.xact.schemas.events import EventMessage
+    from kafka_pipeline.verisk.schemas.events import EventMessage
     from tests.kafka_pipeline.integration.fixtures.generators import create_event_message
 
     async def generate_events(

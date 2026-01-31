@@ -96,7 +96,7 @@ class EventHubProducer:
 
         Args:
             connection_string: Namespace-level connection string (no EntityPath)
-            domain: Pipeline domain (e.g., "xact", "claimx")
+            domain: Pipeline domain (e.g., "verisk", "claimx")
             worker_name: Worker name for logging
             eventhub_name: Event Hub name (resolved from config.yaml by transport layer)
         """

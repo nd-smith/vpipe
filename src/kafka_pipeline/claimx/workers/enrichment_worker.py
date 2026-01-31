@@ -101,7 +101,7 @@ class ClaimXEnrichmentWorker:
         self.instance_id = instance_id
         self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
         self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
-        self.entity_rows_topic = config.get_topic(domain, "entities_rows")
+        self.entity_rows_topic = config.get_topic(domain, "enriched")
         self.enable_delta_writes = enable_delta_writes
 
         # Create worker_id with instance suffix (coolname) if provided

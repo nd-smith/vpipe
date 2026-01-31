@@ -34,8 +34,8 @@ from core.download.models import DownloadOutcome
 from core.types import ErrorCategory
 from kafka_pipeline.config import KafkaConfig
 from kafka_pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
-from kafka_pipeline.xact.schemas.results import DownloadResultMessage, FailedDownloadMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.schemas.results import DownloadResultMessage, FailedDownloadMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
 from .fixtures.generators import create_download_task_message
 from .helpers import (
@@ -227,7 +227,7 @@ async def test_scheduler_redelivers_after_delay(
         scheduler = UnifiedRetryScheduler(
             config=test_kafka_config,
             producer=producer,
-            domain="xact",
+            domain="verisk",
         )
 
         scheduler_task = await start_worker_background(scheduler)

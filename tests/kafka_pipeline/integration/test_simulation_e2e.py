@@ -382,7 +382,7 @@ async def test_xact_simulation_e2e_basic(test_harness: SimulationTestHarness):
 
     # Generate 10 test events
     await test_harness.run_dummy_producer(
-        domains=["xact"],
+        domains=["verisk"],
         event_count=10,
         events_per_minute=120,
     )

@@ -27,9 +27,9 @@ import pytest
 from aiokafka import AIOKafkaProducer
 
 from kafka_pipeline.config import KafkaConfig
-from kafka_pipeline.xact.schemas.events import EventMessage
-from kafka_pipeline.xact.schemas.results import DownloadResultMessage
-from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
+from kafka_pipeline.verisk.schemas.events import EventMessage
+from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
+from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
 from .fixtures.generators import create_event_message
 from .helpers import (
