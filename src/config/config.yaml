@@ -203,16 +203,22 @@ transport:
 # Compatible with Azure Private Link endpoints
 #
 # Architecture:
-#   One Event Hub NAMESPACE contains multiple Event Hubs (entities).
+#   One Event Hub NAMESPACE contains multiple Event Hubs.
 #   A single namespace-level connection string (no EntityPath) provides
-#   access to all entities. Each entity is specified separately per-topic.
+#   access to all Event Hubs. Each is specified separately per-topic below.
 #
 # Connection string format (namespace-level — NO EntityPath):
 #   Endpoint=sb://<namespace>.servicebus.windows.net/;
 #   SharedAccessKeyName=<policy>;SharedAccessKey=<key>
 #
 # Jenkins/deployment injects ONE secret: EVENTHUB_NAMESPACE_CONNECTION_STRING
-# Entity names and consumer groups are defined below per-topic.
+# Event Hub names and consumer groups are defined below per-domain.
+#
+# Consumer group notes:
+#   A consumer group is per-application, NOT per-process.
+#   Multiple instances of the same app share ONE consumer group to
+#   balance partitions across processes (horizontal scaling).
+#   Use separate consumer groups for independent readers of the same stream.
 eventhub:
   # Namespace-level connection string (no EntityPath)
   # Falls back to EVENTHUB_CONNECTION_STRING for backward compatibility
@@ -226,61 +232,23 @@ eventhub:
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
   # ---------------------------------------------------------------------------
-  # XACT Domain — Event Hub entities (parallels kafka.xact.topics)
+  # XACT Domain
   # ---------------------------------------------------------------------------
-  # Each key matches a kafka topic key. Values define the Event Hub entity
-  # name and consumer group for that topic.
+  # Currently Event Hub is only used as the external event source.
+  # Internal pipeline routing (downloads, enrichment, DLQ) uses local Kafka.
+  # Add more entries here if/when those stages migrate to Event Hub.
   xact:
     events:
-      entity_name: pcesdopodappv1
-      consumer_group: xact-pipeline
-    events_ingested:
-      entity_name: pcesdopodappv1-xact-ingested
-      consumer_group: xact-ingested
-    enrichment_pending:
-      entity_name: pcesdopodappv1-xact-enrichment
-      consumer_group: xact-enrichment
-    downloads_pending:
-      entity_name: pcesdopodappv1-xact-dl-pending
-      consumer_group: xact-dl-pending
-    downloads_cached:
-      entity_name: pcesdopodappv1-xact-dl-cached
-      consumer_group: xact-dl-cached
-    downloads_results:
-      entity_name: pcesdopodappv1-xact-dl-results
-      consumer_group: xact-dl-results
-    dlq:
-      entity_name: pcesdopodappv1-xact-dlq
-      consumer_group: xact-dlq
+      eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
+      consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
 
   # ---------------------------------------------------------------------------
-  # ClaimX Domain — Event Hub entities (parallels kafka.claimx.topics)
+  # ClaimX Domain
   # ---------------------------------------------------------------------------
   claimx:
     events:
-      entity_name: pcesdopodappv1-claimx
-      consumer_group: claimx-pipeline
-    enrichment_pending:
-      entity_name: pcesdopodappv1-claimx-enrichment
-      consumer_group: claimx-enrichment
-    enrichment_dlq:
-      entity_name: pcesdopodappv1-claimx-enrichment-dlq
-      consumer_group: claimx-enrichment-dlq
-    entities_rows:
-      entity_name: pcesdopodappv1-claimx-entities
-      consumer_group: claimx-entities
-    downloads_pending:
-      entity_name: pcesdopodappv1-claimx-dl-pending
-      consumer_group: claimx-dl-pending
-    downloads_cached:
-      entity_name: pcesdopodappv1-claimx-dl-cached
-      consumer_group: claimx-dl-cached
-    downloads_results:
-      entity_name: pcesdopodappv1-claimx-dl-results
-      consumer_group: claimx-dl-results
-    dlq:
-      entity_name: pcesdopodappv1-claimx-dlq
-      consumer_group: claimx-dlq
+      eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+      consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
 
 # =============================================================================
 # LOGGING & MONITORING

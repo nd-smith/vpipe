@@ -86,8 +86,8 @@ eventhub:
   namespace_connection_string: ${EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
   xact:
     events:
-      entity_name: pcesdopodappv1
-      consumer_group: xact-pipeline
+      eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
+      consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
 ```
 
 ## Key Differences: Event Hub vs Kafka
@@ -113,22 +113,23 @@ eventhub:
    EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key"
    ```
 
-2. **Per-topic entity mapping** in `config.yaml` (parallels kafka topics):
+2. **Per-domain Event Hub mapping** in `config.yaml`:
    ```yaml
    eventhub:
      xact:
        events:
-         entity_name: pcesdopodappv1
-         consumer_group: xact-pipeline
-       downloads_pending:
-         entity_name: pcesdopodappv1-xact-dl-pending
-         consumer_group: xact-dl-pending
+         eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
+         consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
+     claimx:
+       events:
+         eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+         consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
    ```
 
 3. **Transport factory** resolves entity name via `topic_key` parameter:
    ```python
    producer = create_producer(config, domain="xact", worker_name="writer", topic_key="events")
-   # → Uses eventhub_name="pcesdopodappv1" from config.yaml
+   # → Uses eventhub_name="verisk_events" from config.yaml
    ```
 
 **Alternative**: Hybrid approach — Event Hub for external input, local Kafka for internal pipeline.
@@ -300,7 +301,7 @@ echo "DISABLE_SSL_VERIFY=true" >> .env
 
 **Solution**:
 ```bash
-# Check entity name in config.yaml under eventhub.{domain}.{topic_key}.entity_name
+# Check eventhub_name in config.yaml under eventhub.{domain}.{topic_key}.eventhub_name
 # Verify it matches the Event Hub name in Azure Portal
 # Or set env var override:
 export EVENTHUB_ENTITY_NAME=your-entity-name

@@ -5,7 +5,7 @@ with AMQP over WebSocket transport for compatibility with Azure Private Link.
 
 Architecture notes:
 - Namespace connection string (no EntityPath) + eventhub_name parameter
-- Entity names and consumer groups are resolved per-topic from config.yaml
+- Event Hub names and consumer groups are resolved per-topic from config.yaml
 - Event Hub uses checkpoint store for offset management (vs Kafka consumer groups)
 - Partition assignment is automatic (no manual partition assignment like Kafka)
 - Uses async iteration instead of poll-based consumption
@@ -40,8 +40,8 @@ logger = get_logger(__name__)
 class EventHubConsumerRecord:
     """Adapts EventData to look like ConsumerRecord for compatibility."""
 
-    def __init__(self, event_data: EventData, entity_name: str, partition: str):
-        self.topic = entity_name
+    def __init__(self, event_data: EventData, eventhub_name: str, partition: str):
+        self.topic = eventhub_name
         self.partition = int(partition) if partition else 0
         self.offset = event_data.offset if hasattr(event_data, 'offset') else 0
         self.timestamp = int(event_data.enqueued_time.timestamp() * 1000) if event_data.enqueued_time else 0
@@ -71,7 +71,7 @@ class EventHubConsumer:
         connection_string: str,
         domain: str,
         worker_name: str,
-        entity_name: str,
+        eventhub_name: str,
         consumer_group: str,
         message_handler: Callable[[ConsumerRecord], Awaitable[None]],
         enable_message_commit: bool = True,
@@ -83,7 +83,7 @@ class EventHubConsumer:
             connection_string: Namespace-level connection string (no EntityPath)
             domain: Pipeline domain (e.g., "xact", "claimx")
             worker_name: Worker name for logging
-            entity_name: Event Hub entity name (resolved from config.yaml by transport layer)
+            eventhub_name: Event Hub name (resolved from config.yaml by transport layer)
             consumer_group: Consumer group name (resolved from config.yaml by transport layer)
             message_handler: Async function to process each message
             enable_message_commit: Whether to commit offsets after processing
@@ -93,7 +93,7 @@ class EventHubConsumer:
         self.domain = domain
         self.worker_name = worker_name
         self.instance_id = instance_id
-        self.entity_name = entity_name
+        self.eventhub_name = eventhub_name
         self.consumer_group = consumer_group
         self.message_handler = message_handler
         self._consumer: Optional[EventHubConsumerClient] = None
@@ -108,7 +108,7 @@ class EventHubConsumer:
             "Initialized Event Hub consumer",
             domain=domain,
             worker_name=worker_name,
-            entity=entity_name,
+            entity=eventhub_name,
             consumer_group=consumer_group,
             enable_message_commit=enable_message_commit,
         )
@@ -122,7 +122,7 @@ class EventHubConsumer:
             logger,
             logging.INFO,
             "Starting Event Hub consumer",
-            entity=self.entity_name,
+            entity=self.eventhub_name,
             consumer_group=self.consumer_group,
         )
 
@@ -137,7 +137,7 @@ class EventHubConsumer:
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
-                eventhub_name=self.entity_name,
+                eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
             )
 
@@ -148,7 +148,7 @@ class EventHubConsumer:
                 logger,
                 logging.INFO,
                 "Event Hub consumer started successfully",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
                 consumer_group=self.consumer_group,
             )
 
@@ -218,7 +218,7 @@ class EventHubConsumer:
             logger,
             logging.INFO,
             "Starting message consumption loop",
-            entity=self.entity_name,
+            entity=self.eventhub_name,
             consumer_group=self.consumer_group,
         )
 
@@ -233,7 +233,7 @@ class EventHubConsumer:
             self._current_partition_context[partition_id] = partition_context
 
             # Convert EventData to ConsumerRecord for compatibility
-            record = EventHubConsumerRecord(event, self.entity_name, partition_id)
+            record = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
 
             # Process the message
             await self._process_message(record)
@@ -249,7 +249,7 @@ class EventHubConsumer:
                 logger,
                 logging.INFO,
                 "Partition assigned",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
                 consumer_group=self.consumer_group,
                 partition_id=partition_id,
             )
@@ -264,7 +264,7 @@ class EventHubConsumer:
                 logger,
                 logging.INFO,
                 "Partition revoked",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
                 consumer_group=self.consumer_group,
                 partition_id=partition_id,
                 reason=reason,
@@ -281,7 +281,7 @@ class EventHubConsumer:
                 logger,
                 error,
                 "Error in Event Hub consumption",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
                 consumer_group=self.consumer_group,
                 partition_id=partition_id,
             )

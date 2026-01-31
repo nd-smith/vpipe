@@ -39,14 +39,14 @@ def _get_connection_string() -> str:
     return ";".join(parts)
 
 
-def _get_entity_name(args_entity: str = "") -> str:
-    """Get entity name from args, env, or config."""
+def _get_eventhub_name(args_entity: str = "") -> str:
+    """Get Event Hub name from args, env, or config."""
     if args_entity:
         return args_entity
-    return os.getenv("EVENTHUB_ENTITY_NAME", "pcesdopodappv1")
+    return os.getenv("EVENTHUB_ENTITY_NAME", "verisk_events")
 
 
-def test_producer_sync(connection_string: str, entity_name: str):
+def test_producer_sync(connection_string: str, eventhub_name: str):
     """Test Event Hub producer (synchronous API)."""
     print("\n=== Testing Event Hub Producer (Sync) ===")
 
@@ -58,12 +58,12 @@ def test_producer_sync(connection_string: str, entity_name: str):
         apply_ssl_dev_bypass()
 
     try:
-        print(f"Connecting to Event Hub entity: {entity_name}")
+        print(f"Connecting to Event Hub entity: {eventhub_name}")
 
         # Create producer with namespace connection string + eventhub_name
         producer = EventHubProducerClient.from_connection_string(
             conn_str=connection_string,
-            eventhub_name=entity_name,
+            eventhub_name=eventhub_name,
             transport_type=TransportType.AmqpOverWebsocket,
         )
 
@@ -99,7 +99,7 @@ def test_producer_sync(connection_string: str, entity_name: str):
         return False
 
 
-async def test_consumer_async(connection_string: str, entity_name: str, consumer_group: str):
+async def test_consumer_async(connection_string: str, eventhub_name: str, consumer_group: str):
     """Test Event Hub consumer (async API)."""
     print("\n=== Testing Event Hub Consumer (Async) ===")
 
@@ -110,13 +110,13 @@ async def test_consumer_async(connection_string: str, entity_name: str, consumer
         apply_ssl_dev_bypass()
 
     try:
-        print(f"Creating consumer: entity={entity_name}, group={consumer_group}")
+        print(f"Creating consumer: entity={eventhub_name}, group={consumer_group}")
 
         # Create consumer with namespace connection string + eventhub_name
         consumer = EventHubConsumerClient.from_connection_string(
             conn_str=connection_string,
             consumer_group=consumer_group,
-            eventhub_name=entity_name,
+            eventhub_name=eventhub_name,
             transport_type=TransportType.AmqpOverWebsocket,
         )
 
@@ -208,7 +208,7 @@ def main():
         print("  export EVENTHUB_CONNECTION_STRING='Endpoint=sb://...;EntityPath=...'")
         sys.exit(1)
 
-    entity_name = _get_entity_name(args.entity)
+    eventhub_name = _get_eventhub_name(args.entity)
     consumer_group = args.consumer_group or os.getenv("EVENTHUB_CONSUMER_GROUP", "$Default")
 
     # Extract connection info for display
@@ -218,16 +218,16 @@ def main():
             print(f"  Namespace: {part.split('=', 1)[1]}")
         elif part.startswith("SharedAccessKeyName="):
             print(f"  Policy: {part.split('=', 1)[1]}")
-    print(f"  Entity: {entity_name}")
+    print(f"  Entity: {eventhub_name}")
     print(f"  Consumer Group: {consumer_group}")
 
     # Run tests
-    producer_ok = test_producer_sync(connection_string, entity_name)
+    producer_ok = test_producer_sync(connection_string, eventhub_name)
 
     # Only run consumer test if producer succeeded
     consumer_ok = False
     if producer_ok:
-        consumer_ok = asyncio.run(test_consumer_async(connection_string, entity_name, consumer_group))
+        consumer_ok = asyncio.run(test_consumer_async(connection_string, eventhub_name, consumer_group))
 
     # Summary
     print("\n" + "=" * 60)
