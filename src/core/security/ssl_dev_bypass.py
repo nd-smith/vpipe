@@ -63,8 +63,11 @@ def apply_ssl_dev_bypass() -> None:
     _OriginalSSLContext = ssl.SSLContext
 
     class _UnverifiedSSLContext(_OriginalSSLContext):
-        def __init__(self, protocol=ssl.PROTOCOL_TLS_CLIENT, *args, **kwargs):
-            super().__init__(protocol, *args, **kwargs)
+        # In Python 3.13, SSLContext is a C extension type where the protocol
+        # parameter is handled in __new__, not __init__. The __init__ is
+        # effectively object.__init__() and accepts no extra arguments.
+        # We only override __init__ to disable verification after construction.
+        def __init__(self, *args, **kwargs):
             self.check_hostname = False
             self.verify_mode = ssl.CERT_NONE
 
