@@ -79,19 +79,23 @@ def apply_ssl_dev_bypass() -> None:
     except (ImportError, AttributeError):
         pass
 
-    # Layer 3: Patch requests.Session to default verify=False
+    # Layer 3: Patch requests.Session.request to force verify=False
     # Azure SDKs (Kusto, Identity/MSAL) use requests.Session internally
     # and don't expose a way to pass verify=False through their APIs.
+    # Patching Session.__init__ to set self.verify is NOT sufficient because
+    # merge_environment_settings() can override it depending on the requests
+    # version. Patching .request() directly ensures verify=False is always
+    # passed regardless of how the SDK calls it.
     try:
         import requests
 
-        _original_session_init = requests.Session.__init__
+        _original_session_request = requests.Session.request
 
-        def _patched_session_init(self, *args, **kwargs):
-            _original_session_init(self, *args, **kwargs)
-            self.verify = False
+        def _patched_session_request(self, *args, **kwargs):
+            kwargs["verify"] = False
+            return _original_session_request(self, *args, **kwargs)
 
-        requests.Session.__init__ = _patched_session_init
+        requests.Session.request = _patched_session_request
 
         # Suppress InsecureRequestWarning noise when verify=False
         import urllib3
