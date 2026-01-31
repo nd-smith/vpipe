@@ -188,11 +188,31 @@ itel_cabinet:
   attachments_path: ${ITEL_ATTACHMENTS_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/itel_cabinet_form/attachments}
 
 # =============================================================================
-# EVENT HUB (EXTERNAL KAFKA SOURCE)
+# TRANSPORT LAYER CONFIGURATION
 # =============================================================================
-# Connection string loaded from EVENTHUB_CONNECTION_STRING env var
+# Select transport protocol: "eventhub" (default) or "kafka"
+# Event Hub is required for Azure Private Link (AMQP port 443)
+# Kafka protocol (port 9093) is not exposed by Private Link endpoints
+transport:
+  type: ${PIPELINE_TRANSPORT:-eventhub}
+
+# =============================================================================
+# EVENT HUB (AMQP TRANSPORT - DEFAULT)
+# =============================================================================
+# Azure Event Hub using AMQP over WebSocket (port 443)
+# Compatible with Azure Private Link endpoints
+# Connection string format:
+#   Endpoint=sb://<namespace>.servicebus.windows.net/;
+#   SharedAccessKeyName=<policy>;SharedAccessKey=<key>;EntityPath=<entity>
 eventhub:
+  # Connection string loaded from EVENTHUB_CONNECTION_STRING env var
   connection_string: ${EVENTHUB_CONNECTION_STRING:-}
+  # Entity name (Event Hub name, maps to Kafka topic concept)
+  entity_name: ${EVENTHUB_ENTITY_NAME:-pcesdopodappv1}
+  # Consumer group for offset management
+  consumer_group: ${EVENTHUB_CONSUMER_GROUP:-xact-pipeline}
+  # Transport type: AmqpOverWebsocket (required for Private Link)
+  transport_type: AmqpOverWebsocket
 
 # =============================================================================
 # LOGGING & MONITORING

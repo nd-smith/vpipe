@@ -128,7 +128,7 @@ async def execute_worker_with_producer(
 
     Args:
         worker_class: Worker class to instantiate
-        producer_class: Producer class to instantiate
+        producer_class: Producer class to instantiate (DEPRECATED - use transport factory)
         kafka_config: Kafka configuration
         domain: Domain name (xact/claimx)
         stage_name: Name for logging context
@@ -136,6 +136,10 @@ async def execute_worker_with_producer(
         worker_kwargs: Additional kwargs for worker instantiation
         producer_worker_name: Name for producer (defaults to stage_name)
         instance_id: Instance identifier for multi-instance deployments (optional)
+
+    Note: producer_class parameter is deprecated. The function now uses the
+    transport factory to create the appropriate producer (Event Hub or Kafka)
+    based on PIPELINE_TRANSPORT environment variable.
     """
     # Set log context with instance_id if provided
     context = {"stage": stage_name}
@@ -157,7 +161,10 @@ async def execute_worker_with_producer(
         producer_worker_name = f"{producer_worker_name}_{instance_id}"
         worker_kwargs["instance_id"] = instance_id
 
-    producer = producer_class(
+    # Use transport factory to create producer (Event Hub or Kafka)
+    from kafka_pipeline.common.transport import create_producer
+
+    producer = create_producer(
         config=kafka_config,
         domain=domain,
         worker_name=producer_worker_name,

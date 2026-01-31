@@ -23,6 +23,9 @@ aiohttp>=3.9.2,<4.0.0
 aiokafka[lz4]>=0.11.0,<1.0.0
 gssapi>=1.8.0,<2.0.0  # Kerberos (GSSAPI) SASL auth; wheel pre-built in vendor/
 
+# Azure Event Hub (AMQP alternative transport)
+azure-eventhub>=5.11.0,<6.0.0
+
 prometheus-client>=0.19.0,<1.0.0  # Metrics
 
 # Validation
