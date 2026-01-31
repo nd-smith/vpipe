@@ -84,7 +84,7 @@ class KafkaSink:
         Uses create_producer() which checks PIPELINE_TRANSPORT env var to
         select between aiokafka (Kafka protocol) and azure-eventhub (AMQP).
         """
-        from kafka_pipeline.common.transport import create_producer
+        from kafka_pipeline.common.transport import create_producer, get_transport_type, TransportType
 
         self._producer = create_producer(
             config=self.config.kafka_config,
@@ -97,7 +97,9 @@ class KafkaSink:
         # Resolve the correct topic/entity name for send() calls:
         # - Event Hub: use the resolved eventhub_name (e.g. "verisk_events")
         # - Kafka: use the Kafka topic name (e.g. "com.allstate...xact.events.raw")
-        if hasattr(self._producer, 'eventhub_name'):
+        if get_transport_type() == TransportType.EVENTHUB:
+            from kafka_pipeline.common.eventhub.producer import EventHubProducer
+            assert isinstance(self._producer, EventHubProducer)
             self._topic = self._producer.eventhub_name
         else:
             self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
