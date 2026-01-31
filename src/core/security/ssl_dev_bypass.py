@@ -3,13 +3,17 @@
 When DISABLE_SSL_VERIFY=true is set (typically in .env, which is gitignored),
 this module patches SSL verification at multiple layers:
 
-0. ssl.SSLContext - replaced with subclass that disables verification on every
-   new context. Covers ALL libraries (AMQP, WebSocket, etc.) that create SSL
-   contexts directly. ssl.SSLContext is a C extension type whose methods cannot
-   be monkey-patched, so subclassing is the only way to intercept construction.
+0. azure-eventhub pyamqp WebSocket transport - injects sslopt to disable
+   cert verification for AMQP over WebSocket connections
 1. ssl.create_default_context - covers libraries that use the stdlib default context
 2. urllib3 SSL context creation - covers libraries using urllib3 directly
 3. requests.Session - covers the Azure SDKs (Kusto, Identity, etc.) which use requests
+
+Note: subclassing ssl.SSLContext is NOT viable on Python 3.13. The Python-
+level property setters (verify_mode, check_hostname, minimum_version, etc.)
+all use super(SSLContext, SSLContext) where "SSLContext" is resolved from
+ssl module globals at call time. Replacing ssl.SSLContext breaks every setter
+with infinite recursion.
 
 This is required when a corporate proxy intercepts TLS with a self-signed CA
 that is not in Python's trust store.
@@ -27,6 +31,17 @@ import sys
 logger = logging.getLogger(__name__)
 
 _patched = False
+
+
+def _disable_ctx_verification(ctx):
+    """Disable verification on an SSLContext using C-level descriptors.
+
+    Must use _ssl._SSLContext descriptors directly because the Python-level
+    property setters on ssl.SSLContext use super(SSLContext, SSLContext)
+    which can recurse if SSLContext has been replaced in ssl module globals.
+    """
+    _ssl._SSLContext.check_hostname.__set__(ctx, False)
+    _ssl._SSLContext.verify_mode.__set__(ctx, ssl.CERT_NONE)
 
 
 def apply_ssl_dev_bypass() -> None:
@@ -55,46 +70,26 @@ def apply_ssl_dev_bypass() -> None:
         )
         return
 
-    # Layer 0: Replace ssl.SSLContext with a subclass that disables verification.
-    # ssl.SSLContext is a C extension type — its methods (like __init__) are
-    # immutable and cannot be monkey-patched. Subclassing is the only way to
-    # intercept context creation. This covers libraries that call
-    # ssl.SSLContext(PROTOCOL_TLS_CLIENT) directly (e.g. azure-eventhub's
-    # pyamqp WebSocket transport, websocket-client).
-    _OriginalSSLContext = ssl.SSLContext
+    # Layer 0: Patch azure-eventhub pyamqp WebSocket transport.
+    # The pyamqp transport creates ssl.SSLContext(PROTOCOL_TLS_CLIENT) directly
+    # which cannot be intercepted by patching ssl.create_default_context or
+    # urllib3. It passes sslopt to websocket-client's create_connection().
+    # We patch the transport's connect() to inject cert_reqs=CERT_NONE.
+    try:
+        from azure.eventhub._pyamqp import _transport as pyamqp_transport
 
-    class _UnverifiedSSLContext(_OriginalSSLContext):
-        # In Python 3.13, SSLContext is a C extension type where the protocol
-        # parameter is handled in __new__, not __init__. The __init__ is
-        # effectively object.__init__() and accepts no extra arguments.
-        #
-        # IMPORTANT: We must use the C-level descriptors from _ssl._SSLContext
-        # to set check_hostname and verify_mode. The Python-level setters in
-        # ssl.SSLContext use super(SSLContext, SSLContext) which resolves the
-        # name "SSLContext" from the ssl module's globals. After we replace
-        # ssl.SSLContext with this subclass, that super() call resolves back
-        # to _UnverifiedSSLContext, causing infinite recursion.
-        def __init__(self, *args, **kwargs):
-            _ssl._SSLContext.check_hostname.__set__(self, False)
-            _ssl._SSLContext.verify_mode.__set__(self, ssl.CERT_NONE)
+        _OriginalWsConnect = pyamqp_transport.WebSocketTransport.connect
 
-    ssl.SSLContext = _UnverifiedSSLContext
+        def _patched_ws_connect(self):
+            if not hasattr(self, "_sslopt") or self._sslopt is None:
+                self._sslopt = {}
+            self._sslopt["cert_reqs"] = ssl.CERT_NONE
+            self._sslopt["check_hostname"] = False
+            return _OriginalWsConnect(self)
 
-    # Patch modules that already imported SSLContext before this ran.
-    # Skip the ssl module itself — its verify_mode/check_hostname setters
-    # use super(SSLContext, SSLContext) which must keep referring to the
-    # original class to avoid recursion.
-    for mod in list(sys.modules.values()):
-        try:
-            if mod is not ssl and getattr(mod, "SSLContext", None) is _OriginalSSLContext:
-                mod.SSLContext = _UnverifiedSSLContext
-        except Exception:
-            pass
-
-    # Helper to disable verification using C-level descriptors (recursion-safe).
-    def _disable_ctx_verification(ctx):
-        _ssl._SSLContext.check_hostname.__set__(ctx, False)
-        _ssl._SSLContext.verify_mode.__set__(ctx, ssl.CERT_NONE)
+        pyamqp_transport.WebSocketTransport.connect = _patched_ws_connect
+    except (ImportError, AttributeError):
+        pass
 
     # Layer 1: Patch ssl.create_default_context (covers aiohttp, aiokafka, etc.)
     _original_create_default_context = ssl.create_default_context
@@ -153,6 +148,6 @@ def apply_ssl_dev_bypass() -> None:
 
     logger.warning(
         "SSL verification DISABLED (DISABLE_SSL_VERIFY=true). "
-        "Patched: ssl.SSLContext, ssl.create_default_context, urllib3 context, "
+        "Patched: pyamqp transport, ssl.create_default_context, urllib3 context, "
         "requests.Session. Do NOT use this in production."
     )
