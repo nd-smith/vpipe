@@ -156,7 +156,6 @@ class LocalKafkaConfig:
 
     # Topics for internal pipeline
     events_topic: str = "com.allstate.pcesdopodappv1.xact.events.raw"  # Raw events from source
-    events_ingested_topic: str = "com.allstate.pcesdopodappv1.xact.events.ingested"  # Ingested events for Delta
     downloads_pending_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.pending"
     downloads_cached_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.cached"
     downloads_results_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.results"
@@ -275,13 +274,6 @@ class LocalKafkaConfig:
                 "KAFKA_EVENTS_TOPIC",
                 topics_data.get("events", kafka_data.get("events_topic", "com.allstate.pcesdopodappv1.xact.events.raw")),
             ),
-            events_ingested_topic=os.getenv(
-                "KAFKA_EVENTS_INGESTED_TOPIC",
-                topics_data.get(
-                    "events_ingested",
-                    kafka_data.get("events_ingested_topic", "com.allstate.pcesdopodappv1.xact.events.ingested"),
-                ),
-            ),
             downloads_pending_topic=os.getenv(
                 "KAFKA_DOWNLOADS_PENDING_TOPIC",
                 topics_data.get(
@@ -362,7 +354,6 @@ class LocalKafkaConfig:
             xact_config["topics"] = {}
         topics = xact_config["topics"]
         topics.setdefault("events", self.events_topic)
-        topics.setdefault("events_ingested", self.events_ingested_topic)
         topics.setdefault("downloads_pending", self.downloads_pending_topic)
         topics.setdefault("downloads_cached", self.downloads_cached_topic)
         topics.setdefault("downloads_results", self.downloads_results_topic)

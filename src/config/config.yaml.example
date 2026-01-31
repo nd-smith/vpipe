@@ -160,7 +160,6 @@ kafka:
     # -------------------------------------------------------------------------
     topics:
       events: "com.allstate.pcesdopodappv1.xact.events.raw"                  # Raw events from Event Hub/Eventhouse
-      events_ingested: "com.allstate.pcesdopodappv1.xact.events.ingested"    # Ingested/parsed events ready for Delta
       enrichment_pending: "com.allstate.pcesdopodappv1.xact.enrichment.pending"  # Events awaiting enrichment
       downloads_pending: "com.allstate.pcesdopodappv1.xact.downloads.pending"  # Download tasks awaiting processing
       downloads_cached: "com.allstate.pcesdopodappv1.xact.downloads.cached"    # Downloads cached locally, awaiting upload
@@ -181,8 +180,8 @@ kafka:
     # -------------------------------------------------------------------------
     # Event Ingester Worker
     # Consumes: com.allstate.pcesdopodappv1.xact.events.raw
-    # Produces to: com.allstate.pcesdopodappv1.xact.events.ingested, com.allstate.pcesdopodappv1.xact.downloads.pending
-    # Purpose: Parse events, extract attachment metadata, create download tasks
+    # Produces to: com.allstate.pcesdopodappv1.xact.enrichment.pending
+    # Purpose: Parse events, create enrichment tasks for plugin execution
     # -------------------------------------------------------------------------
     event_ingester:
       consumer:

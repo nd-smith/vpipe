@@ -46,7 +46,6 @@ kafka:
   xact:
     topics:
       events: "com.allstate.pcesdopodappv1.xact.events.raw"
-      events_ingested: "com.allstate.pcesdopodappv1.xact.events.ingested"
       enrichment_pending: "com.allstate.pcesdopodappv1.xact.enrichment.pending"
       downloads_pending: "com.allstate.pcesdopodappv1.xact.downloads.pending"
       downloads_cached: "com.allstate.pcesdopodappv1.xact.downloads.cached"
