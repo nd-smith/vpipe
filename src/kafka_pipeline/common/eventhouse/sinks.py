@@ -79,18 +79,23 @@ class KafkaSink:
         self._topic: Optional[str] = None
 
     async def start(self) -> None:
-        """Initialize Kafka producer."""
-        from kafka_pipeline.common.producer import BaseKafkaProducer
+        """Initialize producer via transport factory.
 
-        self._producer = BaseKafkaProducer(
+        Uses create_producer() which checks PIPELINE_TRANSPORT env var to
+        select between aiokafka (Kafka protocol) and azure-eventhub (AMQP).
+        """
+        from kafka_pipeline.common.transport import create_producer
+
+        # Resolve topic first so Event Hub producer gets the correct entity name
+        self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
+
+        self._producer = create_producer(
             config=self.config.kafka_config,
             domain=self.config.domain,
             worker_name=self.config.worker_name,
+            topic=self._topic,
         )
         await self._producer.start()
-
-        # Resolve topic name
-        self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
         logger.info("KafkaSink started", extra={"domain": self.config.domain, "topic": self._topic})
 
     async def stop(self) -> None:
