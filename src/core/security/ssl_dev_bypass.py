@@ -1,7 +1,12 @@
 """SSL verification bypass for local development behind corporate proxies.
 
 When DISABLE_SSL_VERIFY=true is set (typically in .env, which is gitignored),
-this module patches ssl.create_default_context to skip certificate verification.
+this module patches SSL verification at multiple layers:
+
+1. ssl.create_default_context - covers libraries that use the stdlib default context
+2. urllib3 SSL context creation - covers libraries using urllib3 directly
+3. requests.Session - covers the Azure SDKs (Kusto, Identity, etc.) which use requests
+
 This is required when a corporate proxy intercepts TLS with a self-signed CA
 that is not in Python's trust store.
 
@@ -44,6 +49,7 @@ def apply_ssl_dev_bypass() -> None:
         )
         return
 
+    # Layer 1: Patch ssl.create_default_context (covers aiohttp, aiokafka, etc.)
     _original_create_default_context = ssl.create_default_context
 
     def _patched_create_default_context(*args, **kwargs):
@@ -53,9 +59,51 @@ def apply_ssl_dev_bypass() -> None:
         return ctx
 
     ssl.create_default_context = _patched_create_default_context
+
+    # Layer 2: Patch urllib3 SSL context creation
+    # urllib3 uses its own create_urllib3_context() which calls
+    # SSLContext(PROTOCOL_TLS_CLIENT) directly, bypassing ssl.create_default_context.
+    # This is the path used by requests -> urllib3 -> Azure Kusto SDK.
+    try:
+        import urllib3.util.ssl_ as urllib3_ssl
+
+        _original_create_urllib3_context = urllib3_ssl.create_urllib3_context
+
+        def _patched_create_urllib3_context(*args, **kwargs):
+            ctx = _original_create_urllib3_context(*args, **kwargs)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            return ctx
+
+        urllib3_ssl.create_urllib3_context = _patched_create_urllib3_context
+    except (ImportError, AttributeError):
+        pass
+
+    # Layer 3: Patch requests.Session to default verify=False
+    # Azure SDKs (Kusto, Identity/MSAL) use requests.Session internally
+    # and don't expose a way to pass verify=False through their APIs.
+    try:
+        import requests
+
+        _original_session_init = requests.Session.__init__
+
+        def _patched_session_init(self, *args, **kwargs):
+            _original_session_init(self, *args, **kwargs)
+            self.verify = False
+
+        requests.Session.__init__ = _patched_session_init
+
+        # Suppress InsecureRequestWarning noise when verify=False
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except (ImportError, AttributeError):
+        pass
+
     _patched = True
 
     logger.warning(
         "SSL verification DISABLED (DISABLE_SSL_VERIFY=true). "
+        "Patched: ssl.create_default_context, urllib3 context, requests.Session. "
         "Do NOT use this in production."
     )
