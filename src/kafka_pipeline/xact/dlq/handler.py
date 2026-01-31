@@ -11,11 +11,10 @@ import json
 import logging
 from typing import Optional
 
-from aiokafka.structs import ConsumerRecord
-
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
 from kafka_pipeline.xact.schemas.tasks import DownloadTaskMessage
 
@@ -38,7 +37,7 @@ class DLQHandler:
         >>> await handler.start()
         >>>
         >>> # In message handler
-        >>> async def handle_dlq_message(record: ConsumerRecord):
+        >>> async def handle_dlq_message(record: PipelineMessage):
         ...     dlq_msg = handler.parse_dlq_message(record)
         ...     print(f"DLQ message: {dlq_msg.trace_id}")
         ...     # Review and decide
@@ -131,7 +130,7 @@ class DLQHandler:
 
         logger.info("XACT DLQ handler stopped successfully")
 
-    async def _handle_dlq_message(self, record: ConsumerRecord) -> None:
+    async def _handle_dlq_message(self, record: PipelineMessage) -> None:
         """
         Default message handler for DLQ consumption.
 
@@ -140,7 +139,7 @@ class DLQHandler:
         or the handler would be used in a manual review workflow.
 
         Args:
-            record: ConsumerRecord from DLQ topic
+            record: PipelineMessage from DLQ topic
         """
         try:
             dlq_msg = self.parse_dlq_message(record)
@@ -176,9 +175,9 @@ class DLQHandler:
             )
             # Don't re-raise - we don't want to fail processing of other DLQ messages
 
-    def parse_dlq_message(self, record: ConsumerRecord) -> FailedDownloadMessage:
+    def parse_dlq_message(self, record: PipelineMessage) -> FailedDownloadMessage:
         """
-        Parse DLQ message from ConsumerRecord.
+        Parse DLQ message from PipelineMessage.
 
         Raises ValueError if message cannot be parsed.
         """
@@ -197,7 +196,7 @@ class DLQHandler:
         except Exception as e:
             raise ValueError(f"Failed to parse DLQ message: {e}")
 
-    async def replay_message(self, record: ConsumerRecord) -> None:
+    async def replay_message(self, record: PipelineMessage) -> None:
         """
         Replay a DLQ message back to the pending topic.
 
@@ -269,7 +268,7 @@ class DLQHandler:
 
         # Don't commit offset here - let caller decide when to acknowledge
 
-    async def acknowledge_message(self, record: ConsumerRecord) -> None:
+    async def acknowledge_message(self, record: PipelineMessage) -> None:
         """
         Acknowledge a DLQ message as processed (commit offset).
 

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord
+from aiokafka.structs import ConsumerRecord as AIOConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
@@ -31,6 +31,7 @@ from core.logging.utilities import format_cycle_output, log_worker_error
 from config.config import KafkaConfig
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from kafka_pipeline.common.storage import OneLakeClient
@@ -49,7 +50,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class UploadResult:
-    message: ConsumerRecord
+    message: PipelineMessage
     cached_message: ClaimXCachedDownloadMessage
     processing_time_ms: int
     success: bool
@@ -512,7 +513,7 @@ class ClaimXUploadWorker:
                     update_assigned_partitions(consumer_group, len(assignment))
 
                 # Fetch batch of messages
-                batch: Dict[str, List[ConsumerRecord]] = await self._consumer.getmany(
+                batch: Dict[str, List[AIOConsumerRecord]] = await self._consumer.getmany(
                     timeout_ms=1000,
                     max_records=self.batch_size,
                 )
@@ -520,10 +521,11 @@ class ClaimXUploadWorker:
                 if not batch:
                     continue
 
-                # Flatten messages from all partitions
+                # Flatten messages from all partitions and convert to PipelineMessage
                 messages = []
                 for topic_partition, records in batch.items():
-                    messages.extend(records)
+                    for record in records:
+                        messages.append(from_consumer_record(record))
 
                 if messages:
                     await self._process_batch(messages)
@@ -535,7 +537,7 @@ class ClaimXUploadWorker:
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[ConsumerRecord]) -> None:
+    async def _process_batch(self, messages: List[PipelineMessage]) -> None:
         """
         Process a batch of messages concurrently.
 
@@ -604,14 +606,14 @@ class ClaimXUploadWorker:
                 },
             )
 
-    async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
+    async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
         async with self._semaphore:
             return await self._process_single_upload(message)
 
-    async def _process_single_upload(self, message: ConsumerRecord) -> UploadResult:
+    async def _process_single_upload(self, message: PipelineMessage) -> UploadResult:
         start_time = time.time()
         media_id = "unknown"
 

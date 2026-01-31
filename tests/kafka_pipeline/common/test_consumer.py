@@ -301,7 +301,9 @@ class TestBaseKafkaConsumerMessageProcessing:
         mock_circuit_breaker,
         mock_aiokafka_consumer,
     ):
-        """Message handler called and offset committed on success."""
+        """Message handler called with PipelineMessage and offset committed on success."""
+        from kafka_pipeline.common.types import PipelineMessage
+
         consumer = BaseKafkaConsumer(
             config=kafka_config,
             domain="xact",
@@ -318,8 +320,19 @@ class TestBaseKafkaConsumerMessageProcessing:
         # Process message
         await consumer._process_message(message)
 
-        # Handler called with message
-        mock_message_handler.assert_called_once_with(message)
+        # Handler called with PipelineMessage (not ConsumerRecord)
+        mock_message_handler.assert_called_once()
+        call_args = mock_message_handler.call_args[0]
+        assert isinstance(call_args[0], PipelineMessage)
+
+        # Verify PipelineMessage has correct values from ConsumerRecord
+        pipeline_msg = call_args[0]
+        assert pipeline_msg.topic == message.topic
+        assert pipeline_msg.partition == message.partition
+        assert pipeline_msg.offset == message.offset
+        assert pipeline_msg.timestamp == message.timestamp
+        assert pipeline_msg.key == message.key
+        assert pipeline_msg.value == message.value
 
         # Offset committed after successful processing
         mock_aiokafka_consumer.commit.assert_called_once()
@@ -333,6 +346,8 @@ class TestBaseKafkaConsumerMessageProcessing:
         mock_aiokafka_consumer,
     ):
         """Offset not committed when handler raises error."""
+        from kafka_pipeline.common.types import PipelineMessage
+
         consumer = BaseKafkaConsumer(
             config=kafka_config,
             domain="xact",
@@ -351,8 +366,10 @@ class TestBaseKafkaConsumerMessageProcessing:
         # Processing should NOT raise (error handling added in WP-207)
         await consumer._process_message(message)
 
-        # Handler was called
-        mock_message_handler.assert_called_once_with(message)
+        # Handler was called with PipelineMessage
+        mock_message_handler.assert_called_once()
+        call_args = mock_message_handler.call_args[0]
+        assert isinstance(call_args[0], PipelineMessage)
 
         # Offset NOT committed
         mock_aiokafka_consumer.commit.assert_not_called()
@@ -521,6 +538,89 @@ class TestBaseKafkaConsumerMessageProcessing:
 
         # Called twice (error + successful)
         assert call_count == 2
+
+
+class TestBaseKafkaConsumerDLQ:
+    """Tests for DLQ routing with PipelineMessage."""
+
+    @pytest.mark.asyncio
+    async def test_send_to_dlq_with_pipeline_message(
+        self,
+        kafka_config,
+        mock_message_handler,
+        mock_aiokafka_consumer,
+    ):
+        """Test that DLQ routing uses PipelineMessage fields."""
+        from kafka_pipeline.common.types import PipelineMessage
+        from core.errors.exceptions import ErrorCategory
+        from aiokafka.structs import RecordMetadata
+
+        consumer = BaseKafkaConsumer(
+            config=kafka_config,
+            domain="xact",
+            worker_name="test_worker",
+            topics=["test-topic"],
+            message_handler=mock_message_handler,
+        )
+        consumer._consumer = mock_aiokafka_consumer
+
+        # Create PipelineMessage
+        pipeline_msg = PipelineMessage(
+            topic="test-topic",
+            partition=0,
+            offset=12345,
+            timestamp=1234567890,
+            key=b"test-key",
+            value=b'{"test": "data"}',
+            headers=[("header1", b"value1")],
+        )
+
+        # Mock DLQ producer
+        mock_dlq_producer = MagicMock()
+        mock_dlq_producer.send_and_wait = AsyncMock(
+            return_value=RecordMetadata(
+                topic="test-topic.dlq",
+                partition=0,
+                topic_partition=None,
+                offset=100,
+                timestamp=1234567890,
+                timestamp_type=0,
+                log_start_offset=0,
+            )
+        )
+        consumer._dlq_producer = mock_dlq_producer
+
+        # Send to DLQ
+        error = ValueError("Test error")
+        await consumer._send_to_dlq(pipeline_msg, error, ErrorCategory.PERMANENT)
+
+        # Verify DLQ producer called
+        mock_dlq_producer.send_and_wait.assert_called_once()
+        call_args = mock_dlq_producer.send_and_wait.call_args
+
+        # Verify DLQ topic
+        assert call_args[0][0] == "test-topic.dlq"
+
+        # Verify DLQ key preserved from PipelineMessage
+        assert call_args[1]["key"] == b"test-key"
+
+        # Verify DLQ headers include source info
+        headers = call_args[1]["headers"]
+        header_dict = {k: v for k, v in headers}
+        assert "dlq_source_topic" in header_dict
+        assert header_dict["dlq_source_topic"] == b"test-topic"
+        assert "dlq_error_category" in header_dict
+
+        # Verify DLQ value contains original message info
+        import json
+        dlq_value = json.loads(call_args[1]["value"])
+        assert dlq_value["original_topic"] == "test-topic"
+        assert dlq_value["original_partition"] == 0
+        assert dlq_value["original_offset"] == 12345
+        assert dlq_value["original_key"] == "test-key"
+        assert dlq_value["original_value"] == '{"test": "data"}'
+        assert dlq_value["error_type"] == "ValueError"
+        assert dlq_value["error_category"] == "permanent"
 
 
 class TestBaseKafkaConsumerUtilities:

@@ -11,6 +11,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord, TopicPartition
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from core.logging import get_logger, log_with_context, log_exception, KafkaLogContext
 from core.errors.exceptions import CircuitOpenError, ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
@@ -18,6 +19,7 @@ from config.config import KafkaConfig
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
+    record_dlq_message,
     update_connection_status,
     update_assigned_partitions,
     update_consumer_lag,
@@ -37,7 +39,7 @@ class BaseKafkaConsumer:
         domain: str,
         worker_name: str,
         topics: List[str],
-        message_handler: Callable[[ConsumerRecord], Awaitable[None]],
+        message_handler: Callable[[PipelineMessage], Awaitable[None]],
         enable_message_commit: bool = True,
         instance_id: Optional[str] = None,
     ):
@@ -350,7 +352,9 @@ class BaseKafkaConsumer:
                 message_size = len(message.value) if message.value else 0
 
                 try:
-                    await self.message_handler(message)
+                    # Convert ConsumerRecord to PipelineMessage for handler
+                    pipeline_message = from_consumer_record(message)
+                    await self.message_handler(pipeline_message)
 
                     duration = time.perf_counter() - start_time
                     message_processing_duration_seconds.labels(
@@ -386,10 +390,12 @@ class BaseKafkaConsumer:
                     span.set_tag("error", True)
                     span.log_kv({"event": "error", "error.object": str(e)})
 
-                    await self._handle_processing_error(message, e, duration)
+                    # Pass PipelineMessage to error handler
+                    pipeline_message = from_consumer_record(message)
+                    await self._handle_processing_error(pipeline_message, message, e, duration)
 
     async def _handle_processing_error(
-        self, message: ConsumerRecord, error: Exception, duration: float
+        self, pipeline_message: PipelineMessage, message: ConsumerRecord, error: Exception, duration: float
     ) -> None:
         """Error classification with DLQ routing for PERMANENT errors, retry for others."""
         classified_error = KafkaErrorClassifier.classify_consumer_error(
@@ -420,7 +426,7 @@ class BaseKafkaConsumer:
             )
 
             try:
-                await self._send_to_dlq(message, error, error_category)
+                await self._send_to_dlq(pipeline_message, error, error_category)
 
                 # Commit offset after DLQ routing to advance past poison pill
                 if self._enable_message_commit:
@@ -558,12 +564,12 @@ class BaseKafkaConsumer:
         )
 
     async def _send_to_dlq(
-        self, message: ConsumerRecord, error: Exception, error_category: ErrorCategory
+        self, pipeline_message: PipelineMessage, error: Exception, error_category: ErrorCategory
     ) -> None:
         """Send failed message to {topic}.dlq with full context (original message + error details)."""
         await self._ensure_dlq_producer()
 
-        dlq_topic = f"{message.topic}.dlq"
+        dlq_topic = f"{pipeline_message.topic}.dlq"
 
         try:
             worker_id = socket.gethostname()
@@ -571,16 +577,16 @@ class BaseKafkaConsumer:
             worker_id = "unknown"
 
         dlq_message = {
-            "original_topic": message.topic,
-            "original_partition": message.partition,
-            "original_offset": message.offset,
-            "original_key": message.key.decode("utf-8") if message.key else None,
-            "original_value": message.value.decode("utf-8") if message.value else None,
+            "original_topic": pipeline_message.topic,
+            "original_partition": pipeline_message.partition,
+            "original_offset": pipeline_message.offset,
+            "original_key": pipeline_message.key.decode("utf-8") if pipeline_message.key else None,
+            "original_value": pipeline_message.value.decode("utf-8") if pipeline_message.value else None,
             "original_headers": {
                 k: v.decode("utf-8") if isinstance(v, bytes) else v
-                for k, v in (message.headers or [])
+                for k, v in (pipeline_message.headers or [])
             },
-            "original_timestamp": message.timestamp,
+            "original_timestamp": pipeline_message.timestamp,
             "error_type": type(error).__name__,
             "error_message": str(error),
             "error_category": error_category.value,
@@ -592,10 +598,10 @@ class BaseKafkaConsumer:
         }
 
         dlq_value = json.dumps(dlq_message).encode("utf-8")
-        dlq_key = message.key or f"dlq-{message.offset}".encode("utf-8")
+        dlq_key = pipeline_message.key or f"dlq-{pipeline_message.offset}".encode("utf-8")
 
         dlq_headers = [
-            ("dlq_source_topic", message.topic.encode("utf-8")),
+            ("dlq_source_topic", pipeline_message.topic.encode("utf-8")),
             ("dlq_error_category", error_category.value.encode("utf-8")),
             ("dlq_consumer_group", self.group_id.encode("utf-8")),
         ]
@@ -615,17 +621,15 @@ class BaseKafkaConsumer:
                 dlq_topic=dlq_topic,
                 dlq_partition=metadata.partition,
                 dlq_offset=metadata.offset,
-                original_topic=message.topic,
-                original_partition=message.partition,
-                original_offset=message.offset,
+                original_topic=pipeline_message.topic,
+                original_partition=pipeline_message.partition,
+                original_offset=pipeline_message.offset,
                 error_category=error_category.value,
                 error_type=type(error).__name__,
             )
 
-            if error_category == ErrorCategory.PERMANENT:
-                record_dlq_permanent(message.topic, self.group_id)
-            else:
-                record_dlq_transient(message.topic, self.group_id)
+            # Record DLQ routing metric
+            record_dlq_message(self.domain, error_category.value)
 
         except Exception as dlq_error:
             log_exception(
@@ -633,9 +637,9 @@ class BaseKafkaConsumer:
                 dlq_error,
                 "Failed to send message to DLQ - message will be retried",
                 dlq_topic=dlq_topic,
-                original_topic=message.topic,
-                original_partition=message.partition,
-                original_offset=message.offset,
+                original_topic=pipeline_message.topic,
+                original_partition=pipeline_message.partition,
+                original_offset=pipeline_message.offset,
                 error_category=error_category.value,
             )
 

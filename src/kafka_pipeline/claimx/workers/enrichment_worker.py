@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord, TopicPartition
+from aiokafka.structs import TopicPartition
 from pydantic import ValidationError
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
@@ -39,6 +39,7 @@ from kafka_pipeline.common.metrics import (
     update_assigned_partitions,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from kafka_pipeline.claimx.handlers import get_handler_registry, HandlerRegistry
 from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
@@ -620,7 +621,7 @@ class ClaimXEnrichmentWorker:
                 exc_info=True,
             )
 
-    async def _handle_enrichment_task(self, record: ConsumerRecord) -> None:
+    async def _handle_enrichment_task(self, record: PipelineMessage) -> None:
         """Process enrichment task. No batching at enricher level - delta writer handles batching."""
         try:
             message_data = json.loads(record.value.decode("utf-8"))

@@ -76,13 +76,12 @@ def mock_aiokafka_producer():
 
 
 @pytest.fixture
-def producer(kafka_config, mock_circuit_breaker):
+def producer(kafka_config):
     """Create producer with mocked dependencies."""
     return BaseKafkaProducer(
         kafka_config,
         domain="xact",
         worker_name="test_worker",
-        circuit_breaker=mock_circuit_breaker,
     )
 
 
@@ -196,14 +195,16 @@ class TestBaseKafkaProducerSend:
     """Tests for single message send."""
 
     @pytest.mark.asyncio
-    async def test_send_success(self, producer, mock_aiokafka_producer, mock_circuit_breaker):
-        """Send message successfully returns metadata."""
+    async def test_send_success(self, producer, mock_aiokafka_producer):
+        """Send message successfully returns ProduceResult (not RecordMetadata)."""
+        from kafka_pipeline.common.types import ProduceResult
+
         with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
             with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
                 await producer.start()
 
-                # Setup mock metadata
-                expected_metadata = RecordMetadata(
+                # Setup mock RecordMetadata from aiokafka
+                record_metadata = RecordMetadata(
                     topic="test-topic",
                     partition=0,
                     topic_partition=None,
@@ -212,11 +213,11 @@ class TestBaseKafkaProducerSend:
                     timestamp_type=0,
                     log_start_offset=0,
                 )
-                mock_aiokafka_producer.send_and_wait.return_value = expected_metadata
+                mock_aiokafka_producer.send_and_wait.return_value = record_metadata
 
                 # Send message
                 message = SampleMessage(id="msg-1", content="test content")
-                metadata = await producer.send(
+                result = await producer.send(
                     topic="test-topic",
                     key="key-1",
                     value=message,
@@ -231,11 +232,11 @@ class TestBaseKafkaProducerSend:
                 assert b'"id":"msg-1"' in call_args[1]["value"]
                 assert call_args[1]["headers"] == [("trace_id", b"evt-123")]
 
-                # Verify circuit breaker used
-                mock_circuit_breaker.call_async.assert_called_once()
-
-                # Verify metadata returned
-                assert metadata == expected_metadata
+                # Verify ProduceResult returned (not RecordMetadata)
+                assert isinstance(result, ProduceResult)
+                assert result.topic == "test-topic"
+                assert result.partition == 0
+                assert result.offset == 123
 
     @pytest.mark.asyncio
     async def test_send_without_headers(self, producer, mock_aiokafka_producer):
@@ -271,19 +272,31 @@ class TestBaseKafkaProducerSend:
             await producer.send(topic="test-topic", key="key-1", value=message)
 
     @pytest.mark.asyncio
-    async def test_send_circuit_open(self, producer, mock_aiokafka_producer, mock_circuit_breaker):
-        """Send raises CircuitOpenError when circuit is open."""
+    async def test_send_with_none_key(self, producer, mock_aiokafka_producer):
+        """Send message with None key (should be allowed)."""
+        from kafka_pipeline.common.types import ProduceResult
+
         with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
             with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
                 await producer.start()
 
-                # Circuit breaker open
-                mock_circuit_breaker.call_async.side_effect = CircuitOpenError("kafka_producer", 30.0)
+                record_metadata = RecordMetadata(
+                    topic="test-topic",
+                    partition=0,
+                    topic_partition=None,
+                    offset=123,
+                    timestamp=1234567890,
+                    timestamp_type=0,
+                    log_start_offset=0,
+                )
+                mock_aiokafka_producer.send_and_wait.return_value = record_metadata
 
                 message = SampleMessage(id="msg-1", content="test")
+                result = await producer.send(topic="test-topic", key=None, value=message)
 
-                with pytest.raises(CircuitOpenError):
-                    await producer.send(topic="test-topic", key="key-1", value=message)
+                # Verify result
+                assert isinstance(result, ProduceResult)
+                assert result.topic == "test-topic"
 
 
 class TestBaseKafkaProducerSendBatch:
@@ -291,12 +304,14 @@ class TestBaseKafkaProducerSendBatch:
 
     @pytest.mark.asyncio
     async def test_send_batch_success(self, producer, mock_aiokafka_producer):
-        """Send batch of messages successfully."""
+        """Send batch of messages successfully returns List[ProduceResult]."""
+        from kafka_pipeline.common.types import ProduceResult
+
         with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
             with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
                 await producer.start()
 
-                # Setup mock metadata
+                # Setup mock RecordMetadata from aiokafka
                 metadata_list = []
                 for i in range(3):
                     metadata = RecordMetadata(
@@ -335,9 +350,13 @@ class TestBaseKafkaProducerSendBatch:
                 # Verify send called for each message
                 assert mock_aiokafka_producer.send.call_count == 3
 
-                # Verify results
+                # Verify results are ProduceResult (not RecordMetadata)
                 assert len(results) == 3
-                assert results == metadata_list
+                for i, result in enumerate(results):
+                    assert isinstance(result, ProduceResult)
+                    assert result.topic == "test-topic"
+                    assert result.partition == i % 2
+                    assert result.offset == 100 + i
 
     @pytest.mark.asyncio
     async def test_send_batch_empty(self, producer, mock_aiokafka_producer):
@@ -358,6 +377,148 @@ class TestBaseKafkaProducerSendBatch:
 
         with pytest.raises(RuntimeError, match="Producer not started"):
             await producer.send_batch(topic="test-topic", messages=messages)
+
+
+class TestProduceResultConversion:
+    """Tests for RecordMetadata to ProduceResult conversion."""
+
+    @pytest.mark.asyncio
+    async def test_record_metadata_to_produce_result_fields(self, producer, mock_aiokafka_producer):
+        """Test all fields are correctly converted from RecordMetadata to ProduceResult."""
+        from kafka_pipeline.common.types import ProduceResult
+
+        with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
+            with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
+                await producer.start()
+
+                # Create RecordMetadata with specific values
+                record_metadata = RecordMetadata(
+                    topic="events.processed",
+                    partition=7,
+                    topic_partition=None,
+                    offset=999999,
+                    timestamp=1609459200000,
+                    timestamp_type=0,
+                    log_start_offset=0,
+                )
+                mock_aiokafka_producer.send_and_wait.return_value = record_metadata
+
+                # Send message
+                message = SampleMessage(id="test", content="data")
+                result = await producer.send(topic="events.processed", key="key", value=message)
+
+                # Verify all fields converted correctly
+                assert isinstance(result, ProduceResult)
+                assert result.topic == "events.processed"
+                assert result.partition == 7
+                assert result.offset == 999999
+
+    @pytest.mark.asyncio
+    async def test_produce_result_different_partitions(self, producer, mock_aiokafka_producer):
+        """Test ProduceResult correctly reports different partitions."""
+        from kafka_pipeline.common.types import ProduceResult
+
+        with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
+            with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
+                await producer.start()
+
+                # Test different partition numbers
+                for partition_num in [0, 1, 5, 10, 100]:
+                    record_metadata = RecordMetadata(
+                        topic="test-topic",
+                        partition=partition_num,
+                        topic_partition=None,
+                        offset=1000,
+                        timestamp=1234567890,
+                        timestamp_type=0,
+                        log_start_offset=0,
+                    )
+                    mock_aiokafka_producer.send_and_wait.return_value = record_metadata
+
+                    message = SampleMessage(id="test", content="data")
+                    result = await producer.send(topic="test-topic", key="key", value=message)
+
+                    assert result.partition == partition_num
+
+    @pytest.mark.asyncio
+    async def test_produce_result_sequential_offsets(self, producer, mock_aiokafka_producer):
+        """Test ProduceResult correctly reports sequential offsets."""
+        from kafka_pipeline.common.types import ProduceResult
+
+        with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
+            with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
+                await producer.start()
+
+                # Test sequential offsets
+                for offset in range(100, 110):
+                    record_metadata = RecordMetadata(
+                        topic="test-topic",
+                        partition=0,
+                        topic_partition=None,
+                        offset=offset,
+                        timestamp=1234567890,
+                        timestamp_type=0,
+                        log_start_offset=0,
+                    )
+                    mock_aiokafka_producer.send_and_wait.return_value = record_metadata
+
+                    message = SampleMessage(id="test", content="data")
+                    result = await producer.send(topic="test-topic", key="key", value=message)
+
+                    assert result.offset == offset
+
+    @pytest.mark.asyncio
+    async def test_batch_returns_list_of_produce_results(self, producer, mock_aiokafka_producer):
+        """Test send_batch returns List[ProduceResult] with correct field mapping."""
+        from kafka_pipeline.common.types import ProduceResult
+
+        with patch("kafka_pipeline.common.producer.AIOKafkaProducer", return_value=mock_aiokafka_producer):
+            with patch("kafka_pipeline.common.producer.create_kafka_oauth_callback"):
+                await producer.start()
+
+                # Create multiple RecordMetadata instances
+                metadata_list = [
+                    RecordMetadata(
+                        topic="test-topic",
+                        partition=0,
+                        topic_partition=None,
+                        offset=100,
+                        timestamp=1234567890,
+                        timestamp_type=0,
+                        log_start_offset=0,
+                    ),
+                    RecordMetadata(
+                        topic="test-topic",
+                        partition=1,
+                        topic_partition=None,
+                        offset=200,
+                        timestamp=1234567890,
+                        timestamp_type=0,
+                        log_start_offset=0,
+                    ),
+                ]
+
+                async def create_future(meta):
+                    return meta
+
+                futures = [create_future(meta) for meta in metadata_list]
+                mock_aiokafka_producer.send.side_effect = futures
+
+                # Send batch
+                messages = [
+                    ("key-1", SampleMessage(id="msg-1", content="test")),
+                    ("key-2", SampleMessage(id="msg-2", content="test")),
+                ]
+                results = await producer.send_batch(topic="test-topic", messages=messages)
+
+                # Verify each result is ProduceResult with correct fields
+                assert len(results) == 2
+                assert results[0].topic == "test-topic"
+                assert results[0].partition == 0
+                assert results[0].offset == 100
+                assert results[1].topic == "test-topic"
+                assert results[1].partition == 1
+                assert results[1].offset == 200
 
 
 class TestBaseKafkaProducerUtilities:

@@ -15,12 +15,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
-from aiokafka.structs import ConsumerRecord
-
 from config.config import KafkaConfig
 from core.logging.setup import get_logger
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -248,7 +247,7 @@ class UnifiedRetryScheduler:
 
         logger.info("UnifiedRetryScheduler stopped successfully")
 
-    async def _handle_retry_message(self, message: ConsumerRecord) -> None:
+    async def _handle_retry_message(self, message: PipelineMessage) -> None:
         """
         Handle a message from the retry topic.
 
@@ -257,7 +256,7 @@ class UnifiedRetryScheduler:
         in-memory queue for later processing.
 
         Args:
-            message: ConsumerRecord from retry topic
+            message: PipelineMessage from retry topic
 
         Note:
             This method commits offsets immediately after processing, whether
@@ -280,7 +279,7 @@ class UnifiedRetryScheduler:
             )
             raise
 
-    async def _handle_retry_message_impl(self, message: ConsumerRecord) -> None:
+    async def _handle_retry_message_impl(self, message: PipelineMessage) -> None:
         """Implementation of retry message handling."""
         # Parse headers
         headers = self._parse_headers(message)
@@ -454,12 +453,12 @@ class UnifiedRetryScheduler:
             original_topic=message.topic,
         )
 
-    def _parse_headers(self, message: ConsumerRecord) -> Dict[str, str]:
+    def _parse_headers(self, message: PipelineMessage) -> Dict[str, str]:
         """
         Parse Kafka message headers into a dictionary.
 
         Args:
-            message: ConsumerRecord with headers
+            message: PipelineMessage with headers
 
         Returns:
             Dictionary of header key-value pairs
@@ -485,7 +484,7 @@ class UnifiedRetryScheduler:
 
     async def _send_to_dlq(
         self,
-        message: ConsumerRecord,
+        message: PipelineMessage,
         reason: str,
         headers: Dict[str, str],
     ) -> None:
@@ -493,7 +492,7 @@ class UnifiedRetryScheduler:
         Send malformed message to DLQ.
 
         Args:
-            message: Original ConsumerRecord
+            message: Original PipelineMessage
             reason: Reason for DLQ routing
             headers: Parsed headers (may be incomplete)
         """

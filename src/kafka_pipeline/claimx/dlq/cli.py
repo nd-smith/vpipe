@@ -43,8 +43,6 @@ from dotenv import load_dotenv
 # cli.py is at src/kafka_pipeline/claimx/dlq/cli.py, so root is 5 levels up
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
-from aiokafka.structs import ConsumerRecord
-
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from config.config import KafkaConfig
 from kafka_pipeline.claimx.schemas.results import (

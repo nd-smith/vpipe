@@ -22,7 +22,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from aiokafka.structs import ConsumerRecord
 from pydantic import ValidationError
 
 from core.logging.context import set_log_context
@@ -34,6 +33,7 @@ from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.xact.schemas.events import EventMessage
 from kafka_pipeline.xact.schemas.tasks import XACTEnrichmentTask
 from kafka_pipeline.common.metrics import (
@@ -196,7 +196,7 @@ class EventIngesterWorker:
 
         logger.info("EventIngesterWorker stopped successfully")
 
-    async def _handle_event_message(self, record: ConsumerRecord) -> None:
+    async def _handle_event_message(self, record: PipelineMessage) -> None:
         # Start timing for metrics
         start_time = time.perf_counter()
 

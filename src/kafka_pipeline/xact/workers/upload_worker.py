@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
+from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context

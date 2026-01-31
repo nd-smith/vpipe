@@ -42,6 +42,7 @@ from core.types import ErrorCategory
 from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.simulation.config import SimulationConfig
 from kafka_pipeline.xact.retry.download_handler import RetryHandler
 from kafka_pipeline.xact.schemas.cached import CachedDownloadMessage
@@ -60,7 +61,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class TaskResult:
-    message: ConsumerRecord
+    message: PipelineMessage
     task_message: DownloadTaskMessage
     outcome: DownloadOutcome
     processing_time_ms: int
@@ -486,9 +487,10 @@ class DownloadWorker:
                 if not data:
                     continue
 
-                messages: List[ConsumerRecord] = []
+                messages: List[PipelineMessage] = []
                 for topic_partition, records in data.items():
-                    messages.extend(records)
+                    # Convert ConsumerRecord to PipelineMessage
+                    messages.extend([from_consumer_record(record) for record in records])
 
                 if not messages:
                     continue
@@ -525,8 +527,8 @@ class DownloadWorker:
                 )
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[ConsumerRecord]) -> List[TaskResult]:
-        async def bounded_process(message: ConsumerRecord) -> TaskResult:
+    async def _process_batch(self, messages: List[PipelineMessage]) -> List[TaskResult]:
+        async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
 
@@ -567,7 +569,7 @@ class DownloadWorker:
 
         return [r for r in processed_results if r is not None]
 
-    async def _process_single_task(self, message: ConsumerRecord) -> TaskResult:
+    async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
         start_time = time.perf_counter()
 
         try:

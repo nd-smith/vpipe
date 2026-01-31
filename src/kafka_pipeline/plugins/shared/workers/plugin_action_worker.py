@@ -19,6 +19,7 @@ from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaError
 
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.plugins.shared.connections import ConnectionManager, ConnectionConfig
 from kafka_pipeline.plugins.shared.enrichment import (
     EnrichmentPipeline,
@@ -244,7 +245,9 @@ class PluginActionWorker:
             # Process messages
             for topic_partition, messages in data.items():
                 for message in messages:
-                    await self._process_message(message)
+                    # Convert ConsumerRecord to PipelineMessage
+                    pipeline_message = from_consumer_record(message)
+                    await self._process_message(pipeline_message)
 
             # Commit offsets if not auto-committing
             if not self.config.enable_auto_commit:
@@ -254,11 +257,11 @@ class PluginActionWorker:
             logger.error(f"Kafka error in process batch: {e}")
             await asyncio.sleep(1)  # Backoff on error
 
-    async def _process_message(self, message) -> None:
+    async def _process_message(self, message: PipelineMessage) -> None:
         """Process a single message.
 
         Args:
-            message: Kafka message
+            message: PipelineMessage from Kafka
         """
         self.messages_processed += 1
 

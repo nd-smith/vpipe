@@ -30,6 +30,7 @@ from aiokafka.errors import KafkaError
 from dotenv import load_dotenv
 
 from core.logging import setup_logging, get_logger, log_worker_startup
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 # Project root directory (where .env file is located)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -129,13 +130,16 @@ class MitigationTrackingWorker:
         logger.info("Worker running - waiting for messages")
 
         try:
-            async for message in self.consumer:
+            async for record in self.consumer:
                 # Check for shutdown
                 if self._shutdown_event.is_set():
                     logger.info("Shutdown signal received, stopping consumer")
                     break
 
                 try:
+                    # Convert ConsumerRecord to PipelineMessage
+                    message = from_consumer_record(record)
+
                     # Process message through pipeline
                     result = await self.pipeline.process(message.value)
 
@@ -154,13 +158,13 @@ class MitigationTrackingWorker:
 
                 except ValueError as e:
                     # Validation error - log and skip message
-                    logger.error(f"Validation error: {e}", extra={"offset": message.offset})
+                    logger.error(f"Validation error: {e}", extra={"offset": record.offset})
                     await self.consumer.commit()  # Skip bad message
 
                 except Exception as e:
                     # Processing error - log, commit to skip, and continue
                     logger.exception(
-                        f"Failed to process message: {e}", extra={"offset": message.offset}
+                        f"Failed to process message: {e}", extra={"offset": record.offset}
                     )
                     # Commit to skip failed message and continue polling
                     await self.consumer.commit()

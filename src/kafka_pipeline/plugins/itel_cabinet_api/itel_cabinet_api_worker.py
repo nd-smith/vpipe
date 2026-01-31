@@ -36,6 +36,7 @@ from aiokafka.errors import KafkaError
 from dotenv import load_dotenv
 
 from core.logging import setup_logging, get_logger
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 # Project root directory (where .env file is located)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -164,12 +165,14 @@ class ItelCabinetApiWorker:
         logger.info("Worker running - waiting for messages")
 
         try:
-            async for message in self.consumer:
+            async for record in self.consumer:
                 if self._shutdown_event.is_set():
                     logger.info("Shutdown signal received")
                     break
 
                 try:
+                    # Convert ConsumerRecord to PipelineMessage
+                    message = from_consumer_record(record)
                     payload = message.value
 
                     # Transform to iTel API format
@@ -197,7 +200,7 @@ class ItelCabinetApiWorker:
 
                 except Exception as e:
                     logger.exception(
-                        f"Failed to process message: {e}", extra={"offset": message.offset}
+                        f"Failed to process message: {e}", extra={"offset": record.offset}
                     )
                     # Don't commit - will retry
 

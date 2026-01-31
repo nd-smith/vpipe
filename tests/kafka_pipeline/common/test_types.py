@@ -425,6 +425,148 @@ class TestFromConsumerRecord:
         assert messages[2].key == b"key3"
 
 
+class TestFromConsumerRecordEdgeCases:
+    """Additional tests for from_consumer_record() edge cases."""
+
+    def test_conversion_with_binary_data(self):
+        """Test conversion preserves binary data correctly."""
+        binary_value = b"\x00\x01\x02\x03\xff\xfe\xfd"
+        binary_key = b"\x80\x81\x82"
+
+        record = ConsumerRecord(
+            topic="binary-topic",
+            partition=0,
+            offset=100,
+            timestamp=1234567890,
+            timestamp_type=0,
+            key=binary_key,
+            value=binary_value,
+            headers=[],
+            checksum=None,
+            serialized_key_size=len(binary_key),
+            serialized_value_size=len(binary_value),
+        )
+
+        msg = from_consumer_record(record)
+
+        assert msg.key == binary_key
+        assert msg.value == binary_value
+
+    def test_conversion_with_large_headers(self):
+        """Test conversion with many headers."""
+        headers = [(f"header-{i}", f"value-{i}".encode("utf-8")) for i in range(20)]
+
+        record = ConsumerRecord(
+            topic="test-topic",
+            partition=0,
+            offset=100,
+            timestamp=1234567890,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=headers,
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        msg = from_consumer_record(record)
+
+        assert len(msg.headers) == 20
+        assert msg.headers == headers
+
+    def test_conversion_with_unicode_headers(self):
+        """Test conversion with unicode header values."""
+        headers = [
+            ("header1", "Hello 世界".encode("utf-8")),
+            ("header2", "Привет мир".encode("utf-8")),
+        ]
+
+        record = ConsumerRecord(
+            topic="test-topic",
+            partition=0,
+            offset=100,
+            timestamp=1234567890,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=headers,
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        msg = from_consumer_record(record)
+
+        assert msg.headers == headers
+        # Verify we can decode the unicode
+        assert headers[0][1].decode("utf-8") == "Hello 世界"
+
+    def test_conversion_timestamp_milliseconds(self):
+        """Test conversion preserves millisecond timestamp precision."""
+        # Kafka timestamps are in milliseconds
+        timestamp_ms = 1609459200123  # 2021-01-01 00:00:00.123 UTC
+
+        record = ConsumerRecord(
+            topic="test-topic",
+            partition=0,
+            offset=100,
+            timestamp=timestamp_ms,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        msg = from_consumer_record(record)
+
+        # Timestamp should be preserved exactly
+        assert msg.timestamp == timestamp_ms
+
+    def test_conversion_zero_offset(self):
+        """Test conversion with offset=0 (first message in partition)."""
+        record = ConsumerRecord(
+            topic="test-topic",
+            partition=0,
+            offset=0,
+            timestamp=1234567890,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        msg = from_consumer_record(record)
+
+        assert msg.offset == 0
+
+    def test_conversion_high_partition_number(self):
+        """Test conversion with high partition number."""
+        record = ConsumerRecord(
+            topic="test-topic",
+            partition=999,
+            offset=100,
+            timestamp=1234567890,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        msg = from_consumer_record(record)
+
+        assert msg.partition == 999
+
+
 class TestTypeCompatibility:
     """Tests for type compatibility and usage patterns."""
 

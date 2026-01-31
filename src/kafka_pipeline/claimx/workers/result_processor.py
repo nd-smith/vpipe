@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
 import polars as pl
-from aiokafka.structs import ConsumerRecord
 from pydantic import ValidationError
 
 from core.logging.context import set_log_context
@@ -34,6 +33,7 @@ from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
 )
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 
 logger = get_logger(__name__)
@@ -275,7 +275,7 @@ class ClaimXResultProcessor:
         # but typical usage is that the caller will call stop() after this.
         pass
 
-    async def _handle_result_message(self, record: ConsumerRecord) -> None:
+    async def _handle_result_message(self, record: PipelineMessage) -> None:
         """
         Process a single upload result message from Kafka.
 
@@ -283,7 +283,7 @@ class ClaimXResultProcessor:
         Triggers flush if batch size threshold is reached.
 
         Args:
-            record: ConsumerRecord containing ClaimXUploadResultMessage JSON
+            record: PipelineMessage containing ClaimXUploadResultMessage JSON
         """
         # Decode and parse ClaimXUploadResultMessage
         from kafka_pipeline.common.telemetry import get_tracer

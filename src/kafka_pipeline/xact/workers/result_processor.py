@@ -22,8 +22,6 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from aiokafka.structs import ConsumerRecord
-
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
@@ -33,6 +31,7 @@ from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import record_delta_write
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
+from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.xact.schemas.results import DownloadResultMessage
 from kafka_pipeline.xact.writers.delta_inventory import (
     DeltaInventoryWriter,
@@ -318,7 +317,7 @@ class ResultProcessor:
             )
             raise
 
-    async def _handle_result(self, message: ConsumerRecord) -> None:
+    async def _handle_result(self, message: PipelineMessage) -> None:
         """
         Handle a single result message.
 

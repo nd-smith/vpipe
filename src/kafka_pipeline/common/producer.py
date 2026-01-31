@@ -19,6 +19,7 @@ from kafka_pipeline.common.metrics import (
     update_connection_status,
     message_processing_duration_seconds,
 )
+from kafka_pipeline.common.types import ProduceResult
 
 logger = get_logger(__name__)
 
@@ -195,7 +196,7 @@ class BaseKafkaProducer:
         key: Optional[Union[str, bytes]],
         value: Union[BaseModel, Dict[str, Any], bytes],
         headers: Optional[Dict[str, str]] = None,
-    ) -> RecordMetadata:
+    ) -> ProduceResult:
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
 
@@ -249,7 +250,12 @@ class BaseKafkaProducer:
                 offset=metadata.offset,
             )
 
-            return metadata
+            # Convert RecordMetadata to transport-agnostic ProduceResult
+            return ProduceResult(
+                topic=metadata.topic,
+                partition=metadata.partition,
+                offset=metadata.offset,
+            )
 
         except Exception as e:
             record_message_produced(topic, len(value_bytes), success=False)
@@ -262,7 +268,7 @@ class BaseKafkaProducer:
         topic: str,
         messages: List[Tuple[str, BaseModel]],
         headers: Optional[Dict[str, str]] = None,
-    ) -> List[RecordMetadata]:
+    ) -> List[ProduceResult]:
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
 
@@ -301,7 +307,13 @@ class BaseKafkaProducer:
             results = []
             for future in futures:
                 metadata = await future
-                results.append(metadata)
+                # Convert RecordMetadata to transport-agnostic ProduceResult
+                result = ProduceResult(
+                    topic=metadata.topic,
+                    partition=metadata.partition,
+                    offset=metadata.offset,
+                )
+                results.append(result)
 
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(topic=topic).observe(duration)
@@ -350,6 +362,6 @@ class BaseKafkaProducer:
 __all__ = [
     "BaseKafkaProducer",
     "AIOKafkaProducer",
-    "RecordMetadata",
+    "ProduceResult",
     "create_kafka_oauth_callback",
 ]

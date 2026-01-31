@@ -13,12 +13,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Set
 
-from aiokafka.structs import ConsumerRecord
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 from config.config import KafkaConfig
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.xact.dlq.handler import DLQHandler
 from kafka_pipeline.xact.schemas.results import FailedDownloadMessage
 
@@ -117,7 +117,7 @@ class DLQCLIManager:
     def __init__(self, config: KafkaConfig):
         self.config = config
         self.handler = DLQHandler(config)
-        self._messages: List[ConsumerRecord] = []
+        self._messages: List[PipelineMessage] = []
 
     async def start(self) -> None:
         logger.info("Starting XACT DLQ CLI manager")
@@ -129,7 +129,7 @@ class DLQCLIManager:
 
     async def fetch_messages(
         self, limit: int = 100, timeout_ms: int = 5000
-    ) -> List[ConsumerRecord]:
+    ) -> List[PipelineMessage]:
         if not self.handler._consumer or not self.handler._consumer._consumer:
             raise RuntimeError("DLQ handler not started. Call start() first.")
 
@@ -139,7 +139,8 @@ class DLQCLIManager:
         data = await consumer.getmany(timeout_ms=timeout_ms, max_records=limit)
 
         for topic_partition, records in data.items():
-            messages.extend(records)
+            # Convert ConsumerRecord to PipelineMessage
+            messages.extend([from_consumer_record(record) for record in records])
             if len(messages) >= limit:
                 break
 
@@ -278,7 +279,7 @@ class DLQCLIManager:
             print(f"✗ Failed to resolve message: {e}")
             logger.error(f"Failed to resolve message {trace_id}", exc_info=True)
 
-    def _find_message_by_trace_id(self, trace_id: str) -> Optional[ConsumerRecord]:
+    def _find_message_by_trace_id(self, trace_id: str) -> Optional[PipelineMessage]:
         for record in self._messages:
             try:
                 dlq_msg = self.handler.parse_dlq_message(record)

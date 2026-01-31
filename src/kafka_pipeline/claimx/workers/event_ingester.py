@@ -13,7 +13,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Set
 
-from aiokafka.structs import ConsumerRecord
 from pydantic import ValidationError
 
 from core.logging.context import set_log_context
@@ -26,6 +25,7 @@ from kafka_pipeline.common.metrics import (
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 
@@ -276,7 +276,7 @@ class ClaimXEventIngesterWorker:
                 exc_info=True,
             )
 
-    async def _handle_event_message(self, record: ConsumerRecord) -> None:
+    async def _handle_event_message(self, record: PipelineMessage) -> None:
         start_time = time.perf_counter()
         from kafka_pipeline.common.telemetry import get_tracer, SpanKind
 

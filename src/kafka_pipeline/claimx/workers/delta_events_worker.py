@@ -27,8 +27,6 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from aiokafka.structs import ConsumerRecord
-
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
@@ -38,6 +36,7 @@ from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.metrics import record_delta_write
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.writers import ClaimXEventsDeltaWriter
 
 logger = get_logger(__name__)
@@ -257,7 +256,7 @@ class ClaimXDeltaEventsWorker:
 
         logger.info("ClaimXDeltaEventsWorker stopped successfully")
 
-    async def _handle_event_message(self, record: ConsumerRecord) -> None:
+    async def _handle_event_message(self, record: PipelineMessage) -> None:
         """
         Process a single event message.
         """

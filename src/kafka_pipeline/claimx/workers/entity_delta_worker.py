@@ -9,8 +9,6 @@ import asyncio
 import json
 from typing import List, Optional
 
-from aiokafka.structs import ConsumerRecord
-
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
@@ -20,6 +18,7 @@ from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import record_delta_write
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
 
@@ -224,7 +223,7 @@ class ClaimXEntityDeltaWorker:
         """Commit consumer offsets after successful batch processing."""
         await self._consumer.commit()
 
-    async def _handle_message(self, record: ConsumerRecord) -> None:
+    async def _handle_message(self, record: PipelineMessage) -> None:
         """
         Handle a single message (add to batch).
         """
