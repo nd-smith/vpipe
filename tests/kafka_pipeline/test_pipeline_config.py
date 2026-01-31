@@ -214,8 +214,7 @@ class TestPipelineConfig:
         config = PipelineConfig(
             event_source=EventSourceType.EVENTHUB,
             eventhub=EventHubConfig(
-                bootstrap_servers="namespace.servicebus.windows.net:9093",
-                sasl_password="connection-string",
+                namespace_connection_string="Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key",
             ),
         )
 
@@ -266,8 +265,7 @@ kafka:
 """)
 
         env = {
-            "EVENTHUB_BOOTSTRAP_SERVERS": "namespace.servicebus.windows.net:9093",
-            "EVENTHUB_CONNECTION_STRING": "Endpoint=sb://...",
+            "EVENTHUB_NAMESPACE_CONNECTION_STRING": "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key",
             "LOCAL_KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
         }
 
@@ -283,8 +281,7 @@ kafka:
         """Test loading Event Hub config with explicit EVENT_SOURCE."""
         env = {
             "EVENT_SOURCE": "eventhub",
-            "EVENTHUB_BOOTSTRAP_SERVERS": "namespace.servicebus.windows.net:9093",
-            "EVENTHUB_CONNECTION_STRING": "Endpoint=sb://...",
+            "EVENTHUB_NAMESPACE_CONNECTION_STRING": "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key",
         }
 
         with patch.dict(os.environ, env, clear=True):
@@ -292,6 +289,20 @@ kafka:
 
         assert config.event_source == EventSourceType.EVENTHUB
         assert config.is_eventhub_source is True
+
+    def test_load_config_eventhub_legacy_connection_string(self):
+        """Test loading Event Hub config with legacy EVENTHUB_CONNECTION_STRING."""
+        env = {
+            "EVENT_SOURCE": "eventhub",
+            "EVENTHUB_CONNECTION_STRING": "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=p;SharedAccessKey=k;EntityPath=entity",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = PipelineConfig.load_config()
+
+        assert config.event_source == EventSourceType.EVENTHUB
+        assert config.is_eventhub_source is True
+        assert config.eventhub is not None
 
     def test_load_config_eventhouse(self):
         """Test loading Eventhouse config."""

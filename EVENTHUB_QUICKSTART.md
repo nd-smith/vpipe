@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 # 2. Configure Event Hub
 cp .env.example .env
-nano .env  # Edit EVENTHUB_CONNECTION_STRING
+nano .env  # Edit EVENTHUB_NAMESPACE_CONNECTION_STRING
 
 # 3. Enable SSL bypass (if behind corporate proxy)
 echo "DISABLE_SSL_VERIFY=true" >> .env
@@ -30,22 +30,26 @@ python -m kafka_pipeline.main
 **Required** in `.env`:
 
 ```bash
-EVENTHUB_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key;EntityPath=entity"
+# Namespace-level connection string (NO EntityPath)
+EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key"
 DISABLE_SSL_VERIFY=true  # Only for local dev!
 ```
 
+Entity names and consumer groups are defined per-topic in `config.yaml` (no env vars needed).
+
 ## Connection String Format
 
-From task description:
+Namespace-level (no EntityPath):
 
 ```
 Endpoint=sb://eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net/;
 SharedAccessKeyName=eventhub-auth-rule-pcesdopodappv1;
-SharedAccessKey=<your-key-here>;
-EntityPath=pcesdopodappv1
+SharedAccessKey=<your-key-here>
 ```
 
-**Get from**: Azure Portal → Event Hub → Shared access policies → Connection string
+**Get from**: Azure Portal → Event Hub Namespace → Shared access policies → Connection string
+
+**Note**: Do NOT include `EntityPath` — entities are resolved per-topic from `config.yaml`.
 
 ## Test Connection
 
@@ -73,7 +77,7 @@ LOCAL_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 |---------|----------|
 | SSL certificate error | Set `DISABLE_SSL_VERIFY=true` in `.env` |
 | Connection timeout | Check namespace in connection string |
-| Entity not found | Verify `EntityPath` matches Event Hub name |
+| Entity not found | Verify entity name in `config.yaml` matches Event Hub name |
 | Import error | Run `pip install -r requirements.txt` |
 
 ## Architecture
@@ -130,17 +134,16 @@ INFO: Event Hub producer started successfully
 ```bash
 # Configure in Jenkins/deployment:
 PIPELINE_TRANSPORT=eventhub
-EVENTHUB_CONNECTION_STRING=<from-key-vault>
+EVENTHUB_NAMESPACE_CONNECTION_STRING=<from-key-vault>
 # DO NOT set DISABLE_SSL_VERIFY=true in production!
 ```
 
 ## Summary
 
-✅ Event Hub is **default** (no action needed)
-✅ Set `EVENTHUB_CONNECTION_STRING` in `.env`
-✅ Run test script to verify
-✅ Pipeline works with zero code changes
+- Event Hub is **default** (no action needed)
+- Set `EVENTHUB_NAMESPACE_CONNECTION_STRING` in `.env`
+- Entity names and consumer groups defined per-topic in `config.yaml`
+- Run test script to verify
+- Pipeline works with zero code changes
 
-**Time to setup**: ~2 minutes
-**Migration complexity**: Low
 **Rollback**: Change `PIPELINE_TRANSPORT=kafka`

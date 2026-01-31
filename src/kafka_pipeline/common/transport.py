@@ -8,12 +8,20 @@ Architecture:
 - PIPELINE_TRANSPORT env var selects transport: "eventhub" (default) or "kafka"
 - Event Hub is the default for Azure Private Link compatibility
 - Kafka transport remains available as fallback
+
+Event Hub entity resolution:
+- One namespace connection string provides access to all entities
+- Entity names and consumer groups are defined per-topic in config.yaml
+  under eventhub.{domain}.{topic_key}.entity_name / consumer_group
+- The Azure SDK `eventhub_name` parameter is used instead of
+  baking EntityPath into the connection string
 """
 
 import logging
 import os
 from enum import Enum
-from typing import Awaitable, Callable, List, Optional, Union
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from aiokafka.structs import ConsumerRecord
 
@@ -49,12 +57,206 @@ def get_transport_type() -> TransportType:
         return TransportType.EVENTHUB
 
 
+# =============================================================================
+# Event Hub configuration loading (cached)
+# =============================================================================
+
+_eventhub_config: Optional[Dict[str, Any]] = None
+
+
+def _load_eventhub_config() -> Dict[str, Any]:
+    """Load and cache the eventhub section from config.yaml.
+
+    Returns the expanded eventhub config dict with entity mappings.
+    """
+    global _eventhub_config
+    if _eventhub_config is not None:
+        return _eventhub_config
+
+    from config.config import load_yaml, _expand_env_vars, DEFAULT_CONFIG_FILE
+
+    if DEFAULT_CONFIG_FILE.exists():
+        data = load_yaml(DEFAULT_CONFIG_FILE)
+        data = _expand_env_vars(data)
+        _eventhub_config = data.get("eventhub", {})
+    else:
+        _eventhub_config = {}
+
+    return _eventhub_config
+
+
+def _get_namespace_connection_string() -> str:
+    """Get Event Hub namespace-level connection string.
+
+    Priority:
+    1. EVENTHUB_NAMESPACE_CONNECTION_STRING env var
+    2. EVENTHUB_CONNECTION_STRING env var (backward compat, EntityPath stripped)
+    3. eventhub.namespace_connection_string from config.yaml
+
+    Returns:
+        Namespace connection string with EntityPath removed (if present).
+
+    Raises:
+        ValueError: If no connection string is configured.
+    """
+    # 1. New env var (preferred)
+    conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING")
+    if conn:
+        return _strip_entity_path(conn)
+
+    # 2. Legacy env var (backward compat)
+    conn = os.getenv("EVENTHUB_CONNECTION_STRING")
+    if conn:
+        logger.debug(
+            "Using legacy EVENTHUB_CONNECTION_STRING. "
+            "Consider migrating to EVENTHUB_NAMESPACE_CONNECTION_STRING."
+        )
+        return _strip_entity_path(conn)
+
+    # 3. Config file
+    config = _load_eventhub_config()
+    conn = config.get("namespace_connection_string", "")
+    if conn:
+        return _strip_entity_path(conn)
+
+    raise ValueError(
+        "Event Hub namespace connection string is required. "
+        "Set EVENTHUB_NAMESPACE_CONNECTION_STRING environment variable."
+    )
+
+
+def _strip_entity_path(connection_string: str) -> str:
+    """Remove EntityPath from a connection string if present.
+
+    This normalizes entity-level connection strings to namespace-level
+    so the SDK's `eventhub_name` parameter can be used instead.
+    """
+    parts = [
+        part for part in connection_string.split(";")
+        if part.strip() and not part.startswith("EntityPath=")
+    ]
+    return ";".join(parts)
+
+
+def _resolve_eventhub_entity(
+    domain: str,
+    topic_key: Optional[str],
+    worker_name: str,
+) -> str:
+    """Resolve Event Hub entity name for a given domain/topic.
+
+    Priority:
+    1. config.yaml: eventhub.{domain}.{topic_key}.entity_name
+    2. Worker-specific env var: EVENTHUB_ENTITY_{WORKER_NAME}
+    3. Default entity env var: EVENTHUB_ENTITY_NAME
+    4. Fallback: construct from domain
+
+    Args:
+        domain: Pipeline domain (e.g., "xact", "claimx")
+        topic_key: Topic key matching config.yaml (e.g., "events", "downloads_pending")
+        worker_name: Worker name for env var lookup
+
+    Returns:
+        Event Hub entity name
+    """
+    # 1. Config file lookup (preferred)
+    if topic_key:
+        config = _load_eventhub_config()
+        domain_config = config.get(domain, {})
+        topic_config = domain_config.get(topic_key, {})
+        entity_name = topic_config.get("entity_name")
+        if entity_name:
+            logger.debug(
+                f"Resolved entity from config: eventhub.{domain}.{topic_key}.entity_name={entity_name}"
+            )
+            return entity_name
+
+    # 2. Worker-specific env var
+    worker_env_var = f"EVENTHUB_ENTITY_{worker_name.upper().replace('-', '_')}"
+    entity_name = os.getenv(worker_env_var)
+    if entity_name:
+        logger.debug(f"Using entity name from {worker_env_var}: {entity_name}")
+        return entity_name
+
+    # 3. Default entity env var
+    entity_name = os.getenv("EVENTHUB_ENTITY_NAME")
+    if entity_name:
+        logger.debug(f"Using entity name from EVENTHUB_ENTITY_NAME: {entity_name}")
+        return entity_name
+
+    # 4. Fallback
+    entity_name = f"com.allstate.pcesdopodappv1.{domain}.events.raw"
+    logger.warning(
+        f"No entity name configured for domain='{domain}', topic_key='{topic_key}', "
+        f"worker='{worker_name}'. Using fallback: {entity_name}. "
+        f"Configure in config.yaml under eventhub.{domain}.{topic_key}."
+    )
+    return entity_name
+
+
+def _resolve_eventhub_consumer_group(
+    domain: str,
+    topic_key: Optional[str],
+    worker_name: str,
+    kafka_config: KafkaConfig,
+) -> str:
+    """Resolve Event Hub consumer group for a given domain/topic.
+
+    Priority:
+    1. config.yaml: eventhub.{domain}.{topic_key}.consumer_group
+    2. KafkaConfig.get_consumer_group (existing Kafka consumer group logic)
+    3. eventhub.default_consumer_group from config.yaml
+    4. Fallback: $Default
+
+    Args:
+        domain: Pipeline domain
+        topic_key: Topic key matching config.yaml
+        worker_name: Worker name
+        kafka_config: KafkaConfig for fallback consumer group resolution
+
+    Returns:
+        Consumer group name
+    """
+    # 1. Config file lookup (preferred)
+    if topic_key:
+        config = _load_eventhub_config()
+        domain_config = config.get(domain, {})
+        topic_config = domain_config.get(topic_key, {})
+        consumer_group = topic_config.get("consumer_group")
+        if consumer_group:
+            logger.debug(
+                f"Resolved consumer group from config: "
+                f"eventhub.{domain}.{topic_key}.consumer_group={consumer_group}"
+            )
+            return consumer_group
+
+    # 2. KafkaConfig consumer group (existing logic)
+    try:
+        return kafka_config.get_consumer_group(domain, worker_name)
+    except (ValueError, KeyError):
+        pass
+
+    # 3. Default from config
+    config = _load_eventhub_config()
+    default_group = config.get("default_consumer_group")
+    if default_group:
+        return default_group
+
+    # 4. Fallback
+    return "$Default"
+
+
+# =============================================================================
+# Factory functions
+# =============================================================================
+
 def create_producer(
     config: KafkaConfig,
     domain: str,
     worker_name: str,
     transport_type: Optional[TransportType] = None,
     topic: Optional[str] = None,
+    topic_key: Optional[str] = None,
 ):
     """Create a producer instance based on transport configuration.
 
@@ -64,38 +266,31 @@ def create_producer(
         worker_name: Worker name for logging
         transport_type: Optional override for transport type (defaults to env var)
         topic: Optional explicit topic/entity name (overrides config-based detection)
+        topic_key: Optional topic key for Event Hub entity resolution from config.yaml
+                   (e.g., "events", "downloads_pending"). When provided, the entity
+                   name is looked up from eventhub.{domain}.{topic_key}.entity_name.
 
     Returns:
         BaseKafkaProducer or EventHubProducer instance
 
     Note for Event Hub:
-        Since Event Hub only supports one entity per connection, the entity name
-        must be specified. This can be done via:
+        Entity name resolution priority:
         1. Explicit 'topic' parameter
-        2. Worker-specific env var: EVENTHUB_ENTITY_<WORKER_NAME>
-        3. Default entity from EVENTHUB_ENTITY_NAME env var
-        4. EntityPath in EVENTHUB_CONNECTION_STRING
+        2. config.yaml lookup via topic_key: eventhub.{domain}.{topic_key}.entity_name
+        3. Worker-specific env var: EVENTHUB_ENTITY_{WORKER_NAME}
+        4. Default entity from EVENTHUB_ENTITY_NAME env var
+        5. Fallback: construct from domain
     """
     transport = transport_type or get_transport_type()
 
     if transport == TransportType.EVENTHUB:
         from kafka_pipeline.common.eventhub.producer import EventHubProducer
 
-        # Get base Event Hub connection string
-        base_connection_string = os.getenv("EVENTHUB_CONNECTION_STRING")
-        if not base_connection_string:
-            raise ValueError(
-                "EVENTHUB_CONNECTION_STRING environment variable is required "
-                "when PIPELINE_TRANSPORT=eventhub"
-            )
+        # Get namespace connection string
+        namespace_connection_string = _get_namespace_connection_string()
 
-        # Determine entity name (topic equivalent)
-        entity_name = topic or _get_entity_name(domain, worker_name, base_connection_string)
-
-        # Build connection string with correct EntityPath
-        connection_string = _build_eventhub_connection_string(
-            base_connection_string, entity_name
-        )
+        # Determine entity name
+        entity_name = topic or _resolve_eventhub_entity(domain, topic_key, worker_name)
 
         logger.info(
             f"Creating Event Hub producer: domain={domain}, worker={worker_name}, "
@@ -103,7 +298,7 @@ def create_producer(
         )
 
         return EventHubProducer(
-            connection_string=connection_string,
+            connection_string=namespace_connection_string,
             domain=domain,
             worker_name=worker_name,
             entity_name=entity_name,
@@ -133,6 +328,7 @@ def create_consumer(
     enable_message_commit: bool = True,
     instance_id: Optional[str] = None,
     transport_type: Optional[TransportType] = None,
+    topic_key: Optional[str] = None,
 ):
     """Create a consumer instance based on transport configuration.
 
@@ -145,6 +341,8 @@ def create_consumer(
         enable_message_commit: Whether to commit offsets after processing
         instance_id: Optional instance identifier for parallel consumers
         transport_type: Optional override for transport type (defaults to env var)
+        topic_key: Optional topic key for Event Hub entity/consumer_group resolution
+                   from config.yaml (e.g., "events", "downloads_pending").
 
     Returns:
         BaseKafkaConsumer or EventHubConsumer instance
@@ -160,24 +358,21 @@ def create_consumer(
     if transport == TransportType.EVENTHUB:
         from kafka_pipeline.common.eventhub.consumer import EventHubConsumer
 
-        # Get base Event Hub connection string
-        base_connection_string = os.getenv("EVENTHUB_CONNECTION_STRING")
-        if not base_connection_string:
-            raise ValueError(
-                "EVENTHUB_CONNECTION_STRING environment variable is required "
-                "when PIPELINE_TRANSPORT=eventhub"
-            )
+        # Get namespace connection string
+        namespace_connection_string = _get_namespace_connection_string()
 
-        # Use first topic as entity name (Event Hub only supports one entity per consumer)
-        # The topic name is the actual Kafka topic we're consuming from
-        entity_name = topics[0]
+        # Resolve entity name: use topic_key config lookup, or fall back to topics[0]
+        if topic_key:
+            entity_name = _resolve_eventhub_entity(domain, topic_key, worker_name)
+        else:
+            # Backward compat: use the Kafka topic name as entity name
+            # (works when entity names match topic names)
+            entity_name = topics[0]
 
-        # Build connection string with correct EntityPath
-        connection_string = _build_eventhub_connection_string(
-            base_connection_string, entity_name
+        # Resolve consumer group from config
+        consumer_group = _resolve_eventhub_consumer_group(
+            domain, topic_key, worker_name, config
         )
-
-        consumer_group = config.get_consumer_group(domain, worker_name)
 
         logger.info(
             f"Creating Event Hub consumer: domain={domain}, worker={worker_name}, "
@@ -185,7 +380,7 @@ def create_consumer(
         )
 
         return EventHubConsumer(
-            connection_string=connection_string,
+            connection_string=namespace_connection_string,
             domain=domain,
             worker_name=worker_name,
             entity_name=entity_name,
@@ -214,79 +409,10 @@ def create_consumer(
         )
 
 
-def _get_entity_name(domain: str, worker_name: str, connection_string: str) -> str:
-    """Determine Event Hub entity name for a worker.
-
-    Priority order:
-    1. Worker-specific env var: EVENTHUB_ENTITY_{WORKER_NAME}
-    2. Default entity env var: EVENTHUB_ENTITY_NAME
-    3. EntityPath in connection string
-    4. Fallback: construct from domain
-
-    Args:
-        domain: Pipeline domain
-        worker_name: Worker name
-        connection_string: Event Hub connection string
-
-    Returns:
-        Entity name (Event Hub name)
-    """
-    # 1. Check worker-specific env var
-    worker_env_var = f"EVENTHUB_ENTITY_{worker_name.upper().replace('-', '_')}"
-    entity_name = os.getenv(worker_env_var)
-    if entity_name:
-        logger.debug(f"Using entity name from {worker_env_var}: {entity_name}")
-        return entity_name
-
-    # 2. Check default entity env var
-    entity_name = os.getenv("EVENTHUB_ENTITY_NAME")
-    if entity_name:
-        logger.debug(f"Using entity name from EVENTHUB_ENTITY_NAME: {entity_name}")
-        return entity_name
-
-    # 3. Try to extract from connection string
-    for part in connection_string.split(";"):
-        if part.startswith("EntityPath="):
-            entity_name = part.split("=", 1)[1]
-            logger.debug(f"Using entity name from connection string: {entity_name}")
-            return entity_name
-
-    # 4. Fallback: construct from domain
-    entity_name = f"com.allstate.pcesdopodappv1.{domain}.events.raw"
-    logger.warning(
-        f"No entity name configured for worker '{worker_name}'. "
-        f"Using fallback: {entity_name}. "
-        f"Set {worker_env_var} or EVENTHUB_ENTITY_NAME to configure."
-    )
-    return entity_name
-
-
-def _build_eventhub_connection_string(base_connection_string: str, entity_name: str) -> str:
-    """Build Event Hub connection string with correct EntityPath.
-
-    Args:
-        base_connection_string: Base connection string (may or may not have EntityPath)
-        entity_name: Entity name to use
-
-    Returns:
-        Connection string with EntityPath set to entity_name
-    """
-    # Parse connection string and replace/add EntityPath
-    parts = []
-    has_entity_path = False
-
-    for part in base_connection_string.split(";"):
-        if part.startswith("EntityPath="):
-            parts.append(f"EntityPath={entity_name}")
-            has_entity_path = True
-        elif part.strip():  # Skip empty parts
-            parts.append(part)
-
-    # Add EntityPath if not present
-    if not has_entity_path:
-        parts.append(f"EntityPath={entity_name}")
-
-    return ";".join(parts)
+def reset_eventhub_config() -> None:
+    """Reset the cached eventhub config (for testing)."""
+    global _eventhub_config
+    _eventhub_config = None
 
 
 __all__ = [
@@ -294,4 +420,5 @@ __all__ = [
     "get_transport_type",
     "create_producer",
     "create_consumer",
+    "reset_eventhub_config",
 ]

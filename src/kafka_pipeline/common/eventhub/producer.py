@@ -5,9 +5,9 @@ with AMQP over WebSocket transport for compatibility with Azure Private Link.
 
 Architecture notes:
 - Event Hub uses AMQP protocol (port 5671 or WebSocket on 443)
-- Connection string format: Endpoint=sb://<namespace>.servicebus.windows.net/;...;EntityPath=<entity>
-- EntityPath in connection string is the Event Hub name (maps to Kafka topic)
-- Each Event Hub is a single entity (no topic multiplexing like Kafka)
+- Namespace connection string (no EntityPath) + eventhub_name parameter
+- Each Event Hub entity is specified separately via the SDK's eventhub_name arg
+- Entity names are resolved per-topic from config.yaml by the transport layer
 """
 
 import json
@@ -47,7 +47,8 @@ class EventHubProducer:
     compatibility with Azure Private Link endpoints.
 
     Note: Event Hub does not support multiple topics per connection.
-    The entity name (topic) is embedded in the connection string.
+    The entity name is passed via the SDK's `eventhub_name` parameter,
+    separate from the namespace connection string.
     """
 
     def __init__(
@@ -55,24 +56,22 @@ class EventHubProducer:
         connection_string: str,
         domain: str,
         worker_name: str,
-        entity_name: Optional[str] = None,
+        entity_name: str,
     ):
         """Initialize Event Hub producer.
 
         Args:
-            connection_string: Event Hub connection string (includes EntityPath)
+            connection_string: Namespace-level connection string (no EntityPath)
             domain: Pipeline domain (e.g., "xact", "claimx")
             worker_name: Worker name for logging
-            entity_name: Optional override for entity name (if not in connection string)
+            entity_name: Event Hub entity name (resolved from config.yaml by transport layer)
         """
         self.connection_string = connection_string
         self.domain = domain
         self.worker_name = worker_name
+        self.entity_name = entity_name
         self._producer: Optional[EventHubProducerClient] = None
         self._started = False
-
-        # Extract entity name from connection string or use override
-        self.entity_name = entity_name or self._extract_entity_name(connection_string)
 
         log_with_context(
             logger,
@@ -83,13 +82,6 @@ class EventHubProducer:
             entity_name=self.entity_name,
             transport="AmqpOverWebsocket",
         )
-
-    def _extract_entity_name(self, connection_string: str) -> str:
-        """Extract EntityPath from connection string."""
-        for part in connection_string.split(";"):
-            if part.startswith("EntityPath="):
-                return part.split("=", 1)[1]
-        raise ValueError("EntityPath not found in Event Hub connection string")
 
     async def start(self) -> None:
         if self._started:
@@ -105,9 +97,11 @@ class EventHubProducer:
             apply_ssl_dev_bypass()
 
             # Create producer with AMQP over WebSocket transport
+            # Namespace connection string + eventhub_name parameter
             # This is required for Azure Private Link endpoints
             self._producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
+                eventhub_name=self.entity_name,
                 transport_type=TransportType.AmqpOverWebsocket,
             )
 

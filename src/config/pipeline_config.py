@@ -62,20 +62,27 @@ class EventSourceType(str, Enum):
 
 @dataclass
 class EventHubConfig:
-    """Configuration for Azure Event Hub connection (Kafka-compatible).
+    """Configuration for Azure Event Hub connection.
 
-    Event Hubs uses Kafka protocol with SASL_SSL + OAUTHBEARER or SASL_PLAIN.
-    Connection string format for SASL_PLAIN:
-        Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=...
+    Supports two modes:
+    1. AMQP transport (default): Namespace connection string + per-entity config from config.yaml
+    2. Kafka protocol (legacy): Full connection string with SASL_PLAIN authentication
+
+    For AMQP transport, entity names and consumer groups are defined per-topic
+    in config.yaml under eventhub.{domain}.{topic_key}.
     """
 
-    bootstrap_servers: str
-    security_protocol: str = "SASL_SSL"
-    sasl_mechanism: str = "PLAIN"  # Event Hubs uses PLAIN with connection string
-    sasl_username: str = "$ConnectionString"
-    sasl_password: str = ""  # Full connection string
+    # Namespace-level connection string (no EntityPath)
+    namespace_connection_string: str = ""
 
-    # Consumer settings
+    # Kafka-compatible settings (legacy, for Kafka protocol fallback)
+    bootstrap_servers: str = ""
+    security_protocol: str = "SASL_SSL"
+    sasl_mechanism: str = "PLAIN"
+    sasl_username: str = "$ConnectionString"
+    sasl_password: str = ""  # Full connection string for Kafka protocol
+
+    # Consumer settings (defaults, can be overridden per-topic in config.yaml)
     events_topic: str = "com.allstate.pcesdopodappv1.xact.events.raw"
     consumer_group: str = "xact-event-ingester"
     auto_offset_reset: str = "earliest"
@@ -84,25 +91,31 @@ class EventHubConfig:
     def from_env(cls) -> "EventHubConfig":
         """Load Event Hub configuration from environment variables.
 
-        Required:
-            EVENTHUB_BOOTSTRAP_SERVERS: Event Hub namespace (e.g., namespace.servicebus.windows.net:9093)
-            EVENTHUB_CONNECTION_STRING: Full Event Hub connection string
+        Required (at least one):
+            EVENTHUB_NAMESPACE_CONNECTION_STRING: Namespace-level connection string (preferred)
+            EVENTHUB_CONNECTION_STRING: Full connection string (backward compat)
 
-        Optional:
-            EVENTHUB_EVENTS_TOPIC: Topic name (default: com.allstate.pcesdopodappv1.xact.events.raw)
-            EVENTHUB_CONSUMER_GROUP: Consumer group (default: xact-event-ingester)
+        Optional (legacy, for Kafka protocol):
+            EVENTHUB_BOOTSTRAP_SERVERS: Event Hub namespace bootstrap servers
+            EVENTHUB_EVENTS_TOPIC: Topic name
+            EVENTHUB_CONSUMER_GROUP: Consumer group
         """
-        bootstrap_servers = os.getenv("EVENTHUB_BOOTSTRAP_SERVERS")
-        connection_string = os.getenv("EVENTHUB_CONNECTION_STRING")
+        # Prefer namespace connection string, fall back to legacy
+        namespace_conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING", "")
+        legacy_conn = os.getenv("EVENTHUB_CONNECTION_STRING", "")
+        bootstrap_servers = os.getenv("EVENTHUB_BOOTSTRAP_SERVERS", "")
 
-        if not bootstrap_servers:
-            raise ValueError("EVENTHUB_BOOTSTRAP_SERVERS environment variable is required")
-        if not connection_string:
-            raise ValueError("EVENTHUB_CONNECTION_STRING environment variable is required")
+        if not namespace_conn and not legacy_conn:
+            raise ValueError(
+                "Event Hub connection string is required. "
+                "Set EVENTHUB_NAMESPACE_CONNECTION_STRING (preferred) "
+                "or EVENTHUB_CONNECTION_STRING environment variable."
+            )
 
         return cls(
+            namespace_connection_string=namespace_conn or legacy_conn,
             bootstrap_servers=bootstrap_servers,
-            sasl_password=connection_string,
+            sasl_password=legacy_conn or namespace_conn,
             events_topic=os.getenv("EVENTHUB_EVENTS_TOPIC", "com.allstate.pcesdopodappv1.xact.events.raw"),
             consumer_group=os.getenv("EVENTHUB_CONSUMER_GROUP", "xact-event-ingester"),
             auto_offset_reset=os.getenv("EVENTHUB_AUTO_OFFSET_RESET", "earliest"),
@@ -112,6 +125,7 @@ class EventHubConfig:
         """Convert to KafkaConfig for use with BaseKafkaConsumer.
 
         Creates a hierarchical KafkaConfig matching the new config.yaml structure.
+        Used only when Kafka protocol is needed (not AMQP transport).
         """
         # Build xact domain config for Event Hub source
         xact_config = {

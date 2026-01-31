@@ -40,20 +40,21 @@ src/kafka_pipeline/common/
 # Transport selection (default: eventhub)
 PIPELINE_TRANSPORT=eventhub
 
-# Event Hub connection string with SharedAccessKey authentication
-EVENTHUB_CONNECTION_STRING="Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=<policy>;SharedAccessKey=<key>;EntityPath=<entity>"
+# Namespace-level connection string (NO EntityPath)
+# One secret manages access to ALL Event Hubs in the namespace
+EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=<policy>;SharedAccessKey=<key>"
 ```
 
 #### Optional
 
 ```bash
-# Default entity name (overrides EntityPath in connection string)
-EVENTHUB_ENTITY_NAME=pcesdopodappv1
+# Default consumer group (when not specified per-topic in config.yaml)
+EVENTHUB_DEFAULT_CONSUMER_GROUP=$Default
 
-# Consumer group for offset tracking
-EVENTHUB_CONSUMER_GROUP=xact-pipeline
+# Legacy connection string (backward compat — EntityPath stripped automatically)
+# EVENTHUB_CONNECTION_STRING="Endpoint=sb://...;EntityPath=..."
 
-# Worker-specific entity names (for multi-topic scenarios)
+# Worker-specific entity name overrides (config.yaml per-topic mapping is preferred)
 EVENTHUB_ENTITY_DELTA_EVENTS_WRITER=xact-events-raw
 EVENTHUB_ENTITY_RESULT_PROCESSOR=xact-downloads-results
 
@@ -63,19 +64,30 @@ DISABLE_SSL_VERIFY=true  # NEVER use in production!
 
 ### Connection String Format
 
+Namespace-level (no EntityPath):
+
 ```
 Endpoint=sb://<namespace>.servicebus.windows.net/;
 SharedAccessKeyName=<policy-name>;
-SharedAccessKey=<access-key>;
-EntityPath=<event-hub-name>
+SharedAccessKey=<access-key>
 ```
 
-**Example** (from task description):
+**Example**:
 ```
 Endpoint=sb://eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net/;
 SharedAccessKeyName=eventhub-auth-rule-pcesdopodappv1;
-SharedAccessKey=<your-key>;
-EntityPath=pcesdopodappv1
+SharedAccessKey=<your-key>
+```
+
+Entity names and consumer groups are defined per-topic in `config.yaml`:
+
+```yaml
+eventhub:
+  namespace_connection_string: ${EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
+  xact:
+    events:
+      entity_name: pcesdopodappv1
+      consumer_group: xact-pipeline
 ```
 
 ## Key Differences: Event Hub vs Kafka
@@ -94,26 +106,32 @@ EntityPath=pcesdopodappv1
 
 **Problem**: Kafka allows consuming from multiple topics with one consumer. Event Hub requires one connection per entity.
 
-**Solutions**:
+**Solution**: One namespace connection string + per-topic entity mapping in `config.yaml`:
 
-1. **Multiple Event Hubs**: Create separate Event Hub entities for each pipeline topic
-   - `xact-events-raw` → Event Hub entity
-   - `xact-downloads-pending` → Event Hub entity
-   - `xact-downloads-results` → Event Hub entity
-
-2. **Dynamic EntityPath**: Use the same namespace but different entities
+1. **Namespace connection string** (one secret in Key Vault / Jenkins):
    ```bash
-   # Base connection string (without EntityPath)
-   EVENTHUB_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key"
-
-   # Worker-specific entity names
-   EVENTHUB_ENTITY_DELTA_EVENTS_WRITER=xact-events-raw
-   EVENTHUB_ENTITY_RESULT_PROCESSOR=xact-downloads-results
+   EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key"
    ```
 
-3. **Hybrid Approach**: Use Event Hub for external input, keep local Kafka for internal pipeline
-   - External → Event Hub (Private Link)
-   - Internal pipeline → Local Kafka (Docker Compose for dev, corporate Kafka for prod)
+2. **Per-topic entity mapping** in `config.yaml` (parallels kafka topics):
+   ```yaml
+   eventhub:
+     xact:
+       events:
+         entity_name: pcesdopodappv1
+         consumer_group: xact-pipeline
+       downloads_pending:
+         entity_name: pcesdopodappv1-xact-dl-pending
+         consumer_group: xact-dl-pending
+   ```
+
+3. **Transport factory** resolves entity name via `topic_key` parameter:
+   ```python
+   producer = create_producer(config, domain="xact", worker_name="writer", topic_key="events")
+   # → Uses eventhub_name="pcesdopodappv1" from config.yaml
+   ```
+
+**Alternative**: Hybrid approach — Event Hub for external input, local Kafka for internal pipeline.
 
 ## SSL Certificate Handling
 
@@ -223,7 +241,8 @@ if __name__ == "__main__":
 
 - [ ] Install `azure-eventhub>=5.11.0` dependency
 - [ ] Set `PIPELINE_TRANSPORT=eventhub` in `.env`
-- [ ] Configure `EVENTHUB_CONNECTION_STRING` with correct EntityPath
+- [ ] Configure `EVENTHUB_NAMESPACE_CONNECTION_STRING` (namespace-level, no EntityPath)
+- [ ] Verify entity names in `config.yaml` match your Event Hub entities
 - [ ] Enable `DISABLE_SSL_VERIFY=true` for local dev (if behind corporate proxy)
 - [ ] Test producer connection with quick test script
 - [ ] Verify consumer can read messages
@@ -232,15 +251,11 @@ if __name__ == "__main__":
 ### For DevOps/Production
 
 - [ ] Provision Event Hub namespace in Azure
-- [ ] Create Event Hub entities for each pipeline topic:
-  - `xact-events-raw`
-  - `xact-downloads-pending`
-  - `xact-downloads-cached`
-  - `xact-downloads-results`
+- [ ] Create Event Hub entities for each pipeline topic (see `config.yaml` entity mapping)
 - [ ] Configure Private Link endpoint if needed
-- [ ] Create Shared Access Policy with Send/Listen permissions
-- [ ] Store connection string in Key Vault
-- [ ] Inject `EVENTHUB_CONNECTION_STRING` via Jenkins/environment
+- [ ] Create Shared Access Policy with Send/Listen permissions at namespace level
+- [ ] Store namespace connection string in Key Vault
+- [ ] Inject `EVENTHUB_NAMESPACE_CONNECTION_STRING` via Jenkins/environment
 - [ ] Set `PIPELINE_TRANSPORT=eventhub` in deployment config
 - [ ] **DO NOT** set `DISABLE_SSL_VERIFY` in production
 
@@ -281,12 +296,13 @@ echo "DISABLE_SSL_VERIFY=true" >> .env
 
 **Symptom**: `EventHubError: The messaging entity 'X' could not be found`
 
-**Cause**: Entity name mismatch
+**Cause**: Entity name mismatch between `config.yaml` and Azure
 
 **Solution**:
 ```bash
-# Check EntityPath in connection string
-# OR set explicit entity name
+# Check entity name in config.yaml under eventhub.{domain}.{topic_key}.entity_name
+# Verify it matches the Event Hub name in Azure Portal
+# Or set env var override:
 export EVENTHUB_ENTITY_NAME=your-entity-name
 ```
 
