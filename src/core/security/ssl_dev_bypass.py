@@ -73,18 +73,19 @@ def apply_ssl_dev_bypass() -> None:
     # Layer 0: Patch azure-eventhub pyamqp WebSocket transport.
     # The pyamqp transport creates ssl.SSLContext(PROTOCOL_TLS_CLIENT) directly
     # which cannot be intercepted by patching ssl.create_default_context or
-    # urllib3. It passes sslopt to websocket-client's create_connection().
-    # We patch the transport's connect() to inject cert_reqs=CERT_NONE.
+    # urllib3. WebSocketTransport stores SSL options in self.sslopts (dict) and
+    # passes them as sslopt= to websocket-client's create_connection().
+    # We patch connect() to inject cert_reqs=CERT_NONE into self.sslopts.
     try:
         from azure.eventhub._pyamqp import _transport as pyamqp_transport
 
         _OriginalWsConnect = pyamqp_transport.WebSocketTransport.connect
 
         def _patched_ws_connect(self):
-            if not hasattr(self, "_sslopt") or self._sslopt is None:
-                self._sslopt = {}
-            self._sslopt["cert_reqs"] = ssl.CERT_NONE
-            self._sslopt["check_hostname"] = False
+            if not hasattr(self, "sslopts") or self.sslopts is None:
+                self.sslopts = {}
+            self.sslopts["cert_reqs"] = ssl.CERT_NONE
+            self.sslopts["check_hostname"] = False
             return _OriginalWsConnect(self)
 
         pyamqp_transport.WebSocketTransport.connect = _patched_ws_connect
