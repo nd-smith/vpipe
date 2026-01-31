@@ -9,6 +9,12 @@ Architecture notes:
 - Event Hub uses checkpoint store for offset management (vs Kafka consumer groups)
 - Partition assignment is automatic (no manual partition assignment like Kafka)
 - Uses async iteration instead of poll-based consumption
+
+Checkpoint persistence:
+- If checkpoint_store is provided: offsets are persisted to Azure Blob Storage,
+  enabling durable progress tracking across restarts and partition rebalancing
+- If checkpoint_store is None: offsets are stored in-memory only and lost on restart,
+  consumer will restart from beginning (starting_position="-1")
 """
 
 import asyncio
@@ -20,6 +26,7 @@ from typing import Awaitable, Callable, List, Optional
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
+from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord
 
@@ -64,8 +71,9 @@ class EventHubConsumer:
     Uses azure-eventhub SDK with TransportType.AmqpOverWebsocket for
     compatibility with Azure Private Link endpoints.
 
-    Note: Event Hub checkpointing is handled automatically after successful
-    message processing (when commit() is called).
+    Checkpoint persistence behavior:
+    - With checkpoint_store: offsets persisted to Azure Blob Storage (durable)
+    - Without checkpoint_store: offsets stored in-memory only (lost on restart)
     """
 
     def __init__(
@@ -78,6 +86,7 @@ class EventHubConsumer:
         message_handler: Callable[[ConsumerRecord], Awaitable[None]],
         enable_message_commit: bool = True,
         instance_id: Optional[str] = None,
+        checkpoint_store: Optional[BlobCheckpointStore] = None,
     ):
         """Initialize Event Hub consumer.
 
@@ -90,6 +99,8 @@ class EventHubConsumer:
             message_handler: Async function to process each message
             enable_message_commit: Whether to commit offsets after processing
             instance_id: Optional instance identifier for parallel consumers
+            checkpoint_store: Optional BlobCheckpointStore for durable offset persistence.
+                If None, offsets are stored in-memory only and lost on restart.
         """
         self.connection_string = connection_string
         self.domain = domain
@@ -98,6 +109,7 @@ class EventHubConsumer:
         self.eventhub_name = eventhub_name
         self.consumer_group = consumer_group
         self.message_handler = message_handler
+        self.checkpoint_store = checkpoint_store
         self._consumer: Optional[EventHubConsumerClient] = None
         self._running = False
         self._enable_message_commit = enable_message_commit
@@ -116,19 +128,31 @@ class EventHubConsumer:
             entity=eventhub_name,
             consumer_group=consumer_group,
             enable_message_commit=enable_message_commit,
+            checkpoint_persistence="blob_storage" if checkpoint_store else "in_memory",
         )
 
     async def start(self) -> None:
+        """Start the Event Hub consumer.
+
+        Creates EventHubConsumerClient and begins consuming messages.
+        If checkpoint_store was provided during initialization, it will be
+        passed to the client for durable offset persistence in Azure Blob Storage.
+
+        Raises:
+            Exception: If consumer initialization or connection fails
+        """
         if self._running:
             logger.warning("Consumer already running, ignoring duplicate start call")
             return
 
+        checkpoint_mode = "with blob storage checkpoint persistence" if self.checkpoint_store else "with in-memory checkpoints only"
         log_with_context(
             logger,
             logging.INFO,
-            "Starting Event Hub consumer",
+            f"Starting Event Hub consumer {checkpoint_mode}",
             entity=self.eventhub_name,
             consumer_group=self.consumer_group,
+            checkpoint_persistence="blob_storage" if self.checkpoint_store else "in_memory",
         )
 
         try:
@@ -139,11 +163,13 @@ class EventHubConsumer:
 
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
+            # Pass checkpoint_store if provided for durable offset persistence
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
+                checkpoint_store=self.checkpoint_store,
             )
 
             self._running = True
@@ -155,6 +181,7 @@ class EventHubConsumer:
                 "Event Hub consumer started successfully",
                 entity=self.eventhub_name,
                 consumer_group=self.consumer_group,
+                checkpoint_persistence="blob_storage" if self.checkpoint_store else "in_memory",
             )
 
             # Start consuming

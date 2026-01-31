@@ -1,1 +1,1 @@
-"""Tests for EventHub components."""
+"""Tests for EventHub integration."""

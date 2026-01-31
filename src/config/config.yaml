@@ -230,6 +230,13 @@ eventhub:
   # Default consumer group (used when not specified per-topic)
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
+  # Checkpoint store configuration for durable offset persistence.
+  # Azure Blob Storage is used to store consumer checkpoints, enabling
+  # graceful restarts and partition rebalancing across multiple consumers.
+  checkpoint_store:
+    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+    container_name: ${EVENTHUB_CHECKPOINT_CONTAINER_NAME:-eventhub-checkpoints}
+
   # ---------------------------------------------------------------------------
   # XACT Domain
   # ---------------------------------------------------------------------------

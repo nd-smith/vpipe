@@ -17,6 +17,8 @@ from aiokafka.structs import ConsumerRecord
 sys.modules['azure'] = MagicMock()
 sys.modules['azure.eventhub'] = MagicMock()
 sys.modules['azure.eventhub.aio'] = MagicMock()
+sys.modules['azure.eventhub.extensions'] = MagicMock()
+sys.modules['azure.eventhub.extensions.checkpointstoreblobaio'] = MagicMock()
 
 from core.errors.exceptions import ErrorCategory, PermanentError, TransientError
 from kafka_pipeline.common.eventhub.consumer import EventHubConsumer, EventHubConsumerRecord
@@ -899,3 +901,164 @@ class TestEventHubConsumerCleanup:
         await consumer.stop()
 
         assert consumer._dlq_producer is None
+
+
+class TestEventHubConsumerCheckpointStore:
+    """Test checkpoint store integration with EventHub consumer."""
+
+    def test_init_with_checkpoint_store(self, mock_message_handler):
+        """Test consumer initializes with checkpoint_store parameter."""
+        mock_checkpoint_store = MagicMock()
+
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+            checkpoint_store=mock_checkpoint_store,
+        )
+
+        assert consumer.checkpoint_store is mock_checkpoint_store
+
+    def test_init_without_checkpoint_store(self, mock_message_handler):
+        """Test consumer initializes without checkpoint_store (defaults to None)."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        assert consumer.checkpoint_store is None
+
+    @pytest.mark.asyncio
+    async def test_start_passes_checkpoint_store_to_client(
+        self, mock_message_handler, mock_eventhub_consumer_client
+    ):
+        """Test that checkpoint_store is passed to EventHubConsumerClient."""
+        mock_checkpoint_store = MagicMock()
+
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+            checkpoint_store=mock_checkpoint_store,
+        )
+
+        # Mock EventHubConsumerClient.from_connection_string
+        with patch("kafka_pipeline.common.eventhub.consumer.EventHubConsumerClient") as mock_client_class:
+            mock_client_class.from_connection_string.return_value = mock_eventhub_consumer_client
+
+            # Mock the consume loop to avoid infinite loop
+            async def mock_consume():
+                pass
+
+            with patch.object(consumer, "_consume_loop", side_effect=mock_consume):
+                await consumer.start()
+
+        # Verify checkpoint_store was passed to from_connection_string
+        mock_client_class.from_connection_string.assert_called_once()
+        call_kwargs = mock_client_class.from_connection_string.call_args.kwargs
+        assert call_kwargs["checkpoint_store"] is mock_checkpoint_store
+
+    @pytest.mark.asyncio
+    async def test_start_without_checkpoint_store_passes_none(
+        self, mock_message_handler, mock_eventhub_consumer_client
+    ):
+        """Test that None is passed to EventHubConsumerClient when checkpoint_store not configured."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+            checkpoint_store=None,
+        )
+
+        # Mock EventHubConsumerClient.from_connection_string
+        with patch("kafka_pipeline.common.eventhub.consumer.EventHubConsumerClient") as mock_client_class:
+            mock_client_class.from_connection_string.return_value = mock_eventhub_consumer_client
+
+            # Mock the consume loop to avoid infinite loop
+            async def mock_consume():
+                pass
+
+            with patch.object(consumer, "_consume_loop", side_effect=mock_consume):
+                await consumer.start()
+
+        # Verify checkpoint_store=None was passed
+        mock_client_class.from_connection_string.assert_called_once()
+        call_kwargs = mock_client_class.from_connection_string.call_args.kwargs
+        assert call_kwargs["checkpoint_store"] is None
+
+    @pytest.mark.asyncio
+    async def test_start_logs_checkpoint_mode_with_blob_storage(
+        self, mock_message_handler, mock_eventhub_consumer_client, caplog
+    ):
+        """Test that start() logs checkpoint mode when using blob storage."""
+        import logging
+
+        mock_checkpoint_store = MagicMock()
+
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+            checkpoint_store=mock_checkpoint_store,
+        )
+
+        with patch("kafka_pipeline.common.eventhub.consumer.EventHubConsumerClient") as mock_client_class:
+            mock_client_class.from_connection_string.return_value = mock_eventhub_consumer_client
+
+            async def mock_consume():
+                pass
+
+            with patch.object(consumer, "_consume_loop", side_effect=mock_consume):
+                with caplog.at_level(logging.INFO):
+                    await consumer.start()
+
+        # Check for log message mentioning blob storage checkpoint persistence
+        log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+        assert any("blob storage checkpoint persistence" in msg.lower() for msg in log_messages)
+
+    @pytest.mark.asyncio
+    async def test_start_logs_checkpoint_mode_with_in_memory(
+        self, mock_message_handler, mock_eventhub_consumer_client, caplog
+    ):
+        """Test that start() logs checkpoint mode when using in-memory checkpoints."""
+        import logging
+
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+            checkpoint_store=None,
+        )
+
+        with patch("kafka_pipeline.common.eventhub.consumer.EventHubConsumerClient") as mock_client_class:
+            mock_client_class.from_connection_string.return_value = mock_eventhub_consumer_client
+
+            async def mock_consume():
+                pass
+
+            with patch.object(consumer, "_consume_loop", side_effect=mock_consume):
+                with caplog.at_level(logging.INFO):
+                    await consumer.start()
+
+        # Check for log message mentioning in-memory checkpoints
+        log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+        assert any("in-memory checkpoints" in msg.lower() for msg in log_messages)

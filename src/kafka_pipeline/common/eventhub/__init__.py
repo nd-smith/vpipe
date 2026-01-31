@@ -15,6 +15,9 @@ __all__ = [
     "EventHubRecordMetadata",
     "EventHubConsumer",
     "EventHubConsumerRecord",
+    "get_checkpoint_store",
+    "close_checkpoint_store",
+    "reset_checkpoint_store",
 ]
 
 
@@ -25,4 +28,15 @@ def __getattr__(name):
     if name in ("EventHubConsumer", "EventHubConsumerRecord"):
         from kafka_pipeline.common.eventhub.consumer import EventHubConsumer, EventHubConsumerRecord
         return EventHubConsumer if name == "EventHubConsumer" else EventHubConsumerRecord
+    if name in ("get_checkpoint_store", "close_checkpoint_store", "reset_checkpoint_store"):
+        from kafka_pipeline.common.eventhub.checkpoint_store import (
+            get_checkpoint_store,
+            close_checkpoint_store,
+            reset_checkpoint_store,
+        )
+        return {
+            "get_checkpoint_store": get_checkpoint_store,
+            "close_checkpoint_store": close_checkpoint_store,
+            "reset_checkpoint_store": reset_checkpoint_store,
+        }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

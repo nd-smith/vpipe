@@ -27,6 +27,7 @@ from aiokafka.structs import ConsumerRecord
 
 from core.logging import get_logger
 from config.config import KafkaConfig
+from kafka_pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
 logger = get_logger(__name__)
 
@@ -321,7 +322,7 @@ def create_producer(
         )
 
 
-def create_consumer(
+async def create_consumer(
     config: KafkaConfig,
     domain: str,
     worker_name: str,
@@ -375,6 +376,29 @@ def create_consumer(
             domain, topic_key, worker_name, config
         )
 
+        # Get checkpoint store for durable offset persistence
+        checkpoint_store = None
+        try:
+            checkpoint_store = await get_checkpoint_store()
+            if checkpoint_store is None:
+                logger.info(
+                    f"Event Hub consumer will use in-memory checkpointing: "
+                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
+                    f"Configure checkpoint store in config.yaml for durable offset persistence."
+                )
+            else:
+                logger.info(
+                    f"Event Hub consumer initialized with blob checkpoint store: "
+                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize checkpoint store for Event Hub consumer: "
+                f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
+                f"Falling back to in-memory checkpointing. Error: {e}"
+            )
+            # Continue with None checkpoint_store (in-memory mode)
+
         logger.info(
             f"Creating Event Hub consumer: domain={domain}, worker={worker_name}, "
             f"eventhub={eventhub_name}, group={consumer_group}"
@@ -389,6 +413,7 @@ def create_consumer(
             message_handler=message_handler,
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
+            checkpoint_store=checkpoint_store,
         )
 
     else:  # TransportType.KAFKA

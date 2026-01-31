@@ -25,6 +25,7 @@ gssapi>=1.8.0,<2.0.0  # Kerberos (GSSAPI) SASL auth; wheel pre-built in vendor/
 
 # Azure Event Hub (AMQP alternative transport)
 azure-eventhub>=5.11.0,<6.0.0
+azure-eventhub-checkpointstoreblob-aio>=1.1.0,<2.0.0  # Durable checkpoint persistence
 
 prometheus-client>=0.19.0,<1.0.0  # Metrics
 
