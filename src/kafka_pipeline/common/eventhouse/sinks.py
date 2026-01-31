@@ -86,16 +86,22 @@ class KafkaSink:
         """
         from kafka_pipeline.common.transport import create_producer
 
-        # Resolve topic first so Event Hub producer gets the correct entity name
-        self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
-
         self._producer = create_producer(
             config=self.config.kafka_config,
             domain=self.config.domain,
             worker_name=self.config.worker_name,
-            topic=self._topic,
+            topic_key="events",
         )
         await self._producer.start()
+
+        # Resolve the correct topic/entity name for send() calls:
+        # - Event Hub: use the resolved eventhub_name (e.g. "verisk_events")
+        # - Kafka: use the Kafka topic name (e.g. "com.allstate...xact.events.raw")
+        if hasattr(self._producer, 'eventhub_name'):
+            self._topic = self._producer.eventhub_name
+        else:
+            self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
+
         logger.info("KafkaSink started", extra={"domain": self.config.domain, "topic": self._topic})
 
     async def stop(self) -> None:
