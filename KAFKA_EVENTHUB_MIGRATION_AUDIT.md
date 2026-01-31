@@ -235,31 +235,31 @@ when the transport is EventHub.
 
 ### Inventory of Kafka-Named Artifacts
 
-| Current Name | File | Proposed Name |
-|-------------|------|---------------|
-| `kafka_pipeline/` (package) | top-level package | `pipeline/` |
-| `BaseKafkaProducer` | `common/producer.py:26` | `BaseProducer` |
-| `BaseKafkaConsumer` | `common/consumer.py:31` | `BaseConsumer` |
-| `KafkaConfig` | `config/config.py` | `PipelineTransportConfig` |
-| `KafkaLogContext` | `core/logging/kafka_context.py:77` | `MessageLogContext` |
-| `set_kafka_context()` | `core/logging/kafka_context.py:14` | `set_message_context()` |
-| `get_kafka_context()` | `core/logging/kafka_context.py:43` | `get_message_context()` |
-| `clear_kafka_context()` | `core/logging/kafka_context.py:68` | `clear_message_context()` |
-| `_kafka_topic` (ContextVar) | `core/logging/kafka_context.py:7` | `_message_topic` |
-| `kafka_classifier.py` | `core/errors/kafka_classifier.py` | `transport_classifier.py` |
-| `KafkaErrorClassifier` | `core/errors/kafka_classifier.py:81` | `TransportErrorClassifier` |
-| `kafka_oauth.py` | `core/auth/kafka_oauth.py` | `eventhub_oauth.py` |
-| `KafkaOAuthError` | `core/auth/kafka_oauth.py:49` | `TransportOAuthError` |
-| `LocalKafkaConfig` | `config/pipeline_config.py:159` | `InternalTransportConfig` |
+| Current Name | File | Proposed Name | Status |
+|-------------|------|---------------|--------|
+| `kafka_pipeline/` (package) | top-level package | `pipeline/` | Pending |
+| `BaseKafkaProducer` | `common/producer.py:26` | `BaseProducer` | Pending |
+| `BaseKafkaConsumer` | `common/consumer.py:31` | `BaseConsumer` | Pending |
+| `KafkaConfig` | `config/config.py` | `PipelineTransportConfig` | Pending |
+| `KafkaLogContext` | `core/logging/message_context.py:77` | `MessageLogContext` | ✓ Complete |
+| `set_kafka_context()` | `core/logging/message_context.py:14` | `set_message_context()` | ✓ Complete |
+| `get_kafka_context()` | `core/logging/message_context.py:43` | `get_message_context()` | ✓ Complete |
+| `clear_kafka_context()` | `core/logging/message_context.py:68` | `clear_message_context()` | ✓ Complete |
+| `_kafka_topic` (ContextVar) | `core/logging/message_context.py:7` | `_message_topic` | ✓ Complete |
+| `kafka_classifier.py` | `core/errors/kafka_classifier.py` | `transport_classifier.py` | Pending |
+| `KafkaErrorClassifier` | `core/errors/kafka_classifier.py:81` | `TransportErrorClassifier` | Pending |
+| `kafka_oauth.py` | `core/auth/kafka_oauth.py` | `eventhub_oauth.py` | Pending |
+| `KafkaOAuthError` | `core/auth/kafka_oauth.py:49` | `TransportOAuthError` | Pending |
+| `LocalKafkaConfig` | `config/pipeline_config.py:159` | `InternalTransportConfig` | Pending |
 
 ### Files to Rename
 
-- `src/core/errors/kafka_classifier.py` -> `transport_classifier.py`
-- `src/core/logging/kafka_context.py` -> `message_context.py`
-- `src/core/auth/kafka_oauth.py` -> `eventhub_oauth.py` (this actually targets EventHub already)
-- `tests/core/errors/test_kafka_classifier.py` -> `test_transport_classifier.py`
-- `tests/core/logging/test_kafka_context.py` -> `test_message_context.py`
-- `tests/core/auth/test_kafka_oauth.py` -> `test_eventhub_oauth.py`
+- `src/core/errors/kafka_classifier.py` -> `transport_classifier.py` (Pending)
+- ~~`src/core/logging/kafka_context.py` -> `message_context.py`~~ ✓ Complete
+- `src/core/auth/kafka_oauth.py` -> `eventhub_oauth.py` (Pending - this actually targets EventHub already)
+- `tests/core/errors/test_kafka_classifier.py` -> `test_transport_classifier.py` (Pending)
+- ~~`tests/core/logging/test_kafka_context.py` -> `test_message_context.py`~~ ✓ Complete
+- `tests/core/auth/test_kafka_oauth.py` -> `test_eventhub_oauth.py` (Pending)
 
 ---
 
@@ -372,10 +372,10 @@ for any `kafka_` prefixes that should become transport-agnostic.
 
 ### Logging Context
 
-`src/core/logging/kafka_context.py` emits structured log fields prefixed with
-`kafka_` (e.g., `kafka_topic`, `kafka_partition`, `kafka_offset`,
-`kafka_consumer_group`). These appear in all structured JSON logs regardless
-of which transport is active.
+`src/core/logging/message_context.py` emits structured log fields prefixed with
+`message_` (e.g., `message_topic`, `message_partition`, `message_offset`,
+`message_consumer_group`). These appear in all structured JSON logs regardless
+of which transport is active. ✓ Updated to transport-agnostic naming.
 
 ---
 

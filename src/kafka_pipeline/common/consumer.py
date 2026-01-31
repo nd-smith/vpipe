@@ -12,7 +12,7 @@ from aiokafka.structs import ConsumerRecord, TopicPartition
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from core.logging import get_logger, log_with_context, log_exception, KafkaLogContext
+from core.logging import get_logger, log_with_context, log_exception, MessageLogContext
 from core.errors.exceptions import CircuitOpenError, ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
 from config.config import KafkaConfig
@@ -334,7 +334,7 @@ class BaseKafkaConsumer:
             )
             span.set_tag("span.kind", "consumer")
 
-            with KafkaLogContext(
+            with MessageLogContext(
                 topic=message.topic,
                 partition=message.partition,
                 offset=message.offset,

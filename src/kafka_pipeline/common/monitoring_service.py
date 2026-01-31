@@ -89,8 +89,8 @@ class PrometheusClient:
 
         Returns list of consumer lag dicts with keys: consumer_group, topic, partition, lag.
         """
-        # Query the kafka_consumer_lag metric
-        result = await self.query("kafka_consumer_lag")
+        # Query the pipeline_consumer_lag metric
+        result = await self.query("pipeline_consumer_lag")
 
         lags = []
         for metric in result.get("result", []):

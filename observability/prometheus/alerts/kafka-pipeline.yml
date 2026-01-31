@@ -12,7 +12,7 @@ groups:
     rules:
       # Consumer Lag Alert
       - alert: KafkaConsumerLagHigh
-        expr: kafka_consumer_lag > 10000
+        expr: consumer_lag > 10000
         for: 5m
         labels:
           severity: critical
@@ -35,7 +35,7 @@ groups:
 
       # Consumer Lag Warning (early detection)
       - alert: KafkaConsumerLagWarning
-        expr: kafka_consumer_lag > 5000
+        expr: consumer_lag > 5000
         for: 10m
         labels:
           severity: warning
@@ -52,7 +52,7 @@ groups:
 
       # Consumer Disconnected Alert
       - alert: KafkaConsumerDisconnected
-        expr: kafka_connection_status{component="consumer"} == 0
+        expr: connection_status{component="consumer"} == 0
         for: 1m
         labels:
           severity: critical
@@ -74,7 +74,7 @@ groups:
 
       # No Partitions Assigned
       - alert: KafkaConsumerNoPartitions
-        expr: kafka_consumer_assigned_partitions == 0
+        expr: consumer_assigned_partitions == 0
         for: 3m
         labels:
           severity: warning
@@ -94,7 +94,7 @@ groups:
     rules:
       # DLQ Growth Alert (rapid increase)
       - alert: KafkaDLQGrowthRapid
-        expr: rate(kafka_messages_produced_total{topic="xact.downloads.dlq"}[5m]) > 10
+        expr: rate(messages_produced_total{topic="xact.downloads.dlq"}[5m]) > 10
         for: 5m
         labels:
           severity: critical
@@ -118,7 +118,7 @@ groups:
 
       # DLQ Growth Warning
       - alert: KafkaDLQGrowthWarning
-        expr: rate(kafka_messages_produced_total{topic="xact.downloads.dlq"}[10m]) > 5
+        expr: rate(messages_produced_total{topic="xact.downloads.dlq"}[10m]) > 5
         for: 10m
         labels:
           severity: warning
@@ -134,7 +134,7 @@ groups:
 
       # DLQ Size Alert (absolute count)
       - alert: KafkaDLQSizeHigh
-        expr: sum(kafka_consumer_lag{topic="xact.downloads.dlq"}) > 1000
+        expr: sum(consumer_lag{topic="xact.downloads.dlq"}) > 1000
         for: 30m
         labels:
           severity: warning
@@ -156,8 +156,8 @@ groups:
       - alert: KafkaErrorRateHigh
         expr: |
           (
-            sum(rate(kafka_processing_errors_total[5m])) /
-            sum(rate(kafka_messages_consumed_total[5m]))
+            sum(rate(processing_errors_total[5m])) /
+            sum(rate(messages_consumed_total[5m]))
           ) > 0.01
         for: 5m
         labels:
@@ -183,8 +183,8 @@ groups:
       - alert: KafkaDownloadFailureRateHigh
         expr: |
           (
-            sum(rate(kafka_processing_errors_total{topic=~"xact.downloads.*"}[5m])) /
-            sum(rate(kafka_messages_consumed_total{topic=~"xact.downloads.*"}[5m]))
+            sum(rate(processing_errors_total{topic=~"xact.downloads.*"}[5m])) /
+            sum(rate(messages_consumed_total{topic=~"xact.downloads.*"}[5m]))
           ) > 0.05
         for: 5m
         labels:
@@ -209,7 +209,7 @@ groups:
 
       # Producer Error Alert
       - alert: KafkaProducerErrorsHigh
-        expr: rate(kafka_producer_errors_total[5m]) > 1
+        expr: rate(producer_errors_total[5m]) > 1
         for: 5m
         labels:
           severity: warning
@@ -228,7 +228,7 @@ groups:
     rules:
       # Circuit Breaker Open Alert
       - alert: KafkaCircuitBreakerOpen
-        expr: kafka_circuit_breaker_state == 1
+        expr: circuit_breaker_state == 1
         for: 2m
         labels:
           severity: critical
@@ -252,7 +252,7 @@ groups:
 
       # Circuit Breaker Half-Open (informational)
       - alert: KafkaCircuitBreakerHalfOpen
-        expr: kafka_circuit_breaker_state == 2
+        expr: circuit_breaker_state == 2
         for: 1m
         labels:
           severity: info
@@ -269,7 +269,7 @@ groups:
 
       # Circuit Breaker Frequent Failures
       - alert: KafkaCircuitBreakerFailuresHigh
-        expr: rate(kafka_circuit_breaker_failures_total[10m]) > 5
+        expr: rate(circuit_breaker_failures_total[10m]) > 5
         for: 5m
         labels:
           severity: warning
@@ -291,7 +291,7 @@ groups:
       - alert: KafkaProcessingLatencyHigh
         expr: |
           histogram_quantile(0.95,
-            rate(kafka_message_processing_duration_seconds_bucket[5m])
+            rate(message_processing_duration_seconds_bucket[5m])
           ) > 10
         for: 5m
         labels:
@@ -318,7 +318,7 @@ groups:
       - alert: KafkaProcessingLatencyWarning
         expr: |
           histogram_quantile(0.95,
-            rate(kafka_message_processing_duration_seconds_bucket[5m])
+            rate(message_processing_duration_seconds_bucket[5m])
           ) > 5
         for: 10m
         labels:
@@ -336,7 +336,7 @@ groups:
       # Low Throughput Alert
       - alert: KafkaThroughputLow
         expr: |
-          sum(rate(kafka_messages_consumed_total{status="success"}[5m])) < 100
+          sum(rate(messages_consumed_total{status="success"}[5m])) < 100
         for: 10m
         labels:
           severity: warning
@@ -423,7 +423,7 @@ groups:
     rules:
       # Producer Disconnected Alert
       - alert: KafkaProducerDisconnected
-        expr: kafka_connection_status{component="producer"} == 0
+        expr: connection_status{component="producer"} == 0
         for: 1m
         labels:
           severity: critical
@@ -449,7 +449,7 @@ groups:
       # Dead Worker Detection (no messages consumed)
       - alert: KafkaWorkerDead
         expr: |
-          sum(rate(kafka_messages_consumed_total[5m])) by (consumer_group) == 0
+          sum(rate(messages_consumed_total[5m])) by (consumer_group) == 0
         for: 10m
         labels:
           severity: critical

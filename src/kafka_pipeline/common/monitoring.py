@@ -176,14 +176,14 @@ class MonitoringServer:
             data.topics[name] = TopicStats(name=short_name)
 
         # Consumer lag per topic
-        for entry in metrics.get("kafka_consumer_lag", []):
+        for entry in metrics.get("pipeline_consumer_lag", []):
             topic = entry["labels"].get("topic", "")
             if topic in data.topics:
                 data.topics[topic].total_lag += int(entry["value"])
 
         # Partition count from lag metrics (count unique partitions)
         partition_counts: Dict[str, set] = {t: set() for t in topic_names}
-        for entry in metrics.get("kafka_consumer_lag", []):
+        for entry in metrics.get("pipeline_consumer_lag", []):
             topic = entry["labels"].get("topic", "")
             partition = entry["labels"].get("partition", "")
             if topic in partition_counts:
@@ -194,13 +194,13 @@ class MonitoringServer:
                 data.topics[topic].partitions = len(partitions)
 
         # Messages consumed (total counter)
-        for entry in metrics.get("kafka_messages_consumed_total", []):
+        for entry in metrics.get("pipeline_messages_consumed_total", []):
             topic = entry["labels"].get("topic", "")
             if topic in data.topics:
                 data.topics[topic].messages_consumed += int(entry["value"])
 
         # Messages produced (total counter)
-        for entry in metrics.get("kafka_messages_produced_total", []):
+        for entry in metrics.get("pipeline_messages_produced_total", []):
             topic = entry["labels"].get("topic", "")
             if topic in data.topics:
                 data.topics[topic].messages_produced += int(entry["value"])
@@ -216,7 +216,7 @@ class MonitoringServer:
             data.workers[name] = WorkerStats(name=display_name)
 
         # Connection status
-        for entry in metrics.get("kafka_connection_status", []):
+        for entry in metrics.get("pipeline_connection_status", []):
             component = entry["labels"].get("component", "")
             connected = entry["value"] == 1.0
             # Map component to worker
@@ -235,7 +235,7 @@ class MonitoringServer:
                 data.workers[worker].in_flight = int(entry["value"])
 
         # Processing errors
-        for entry in metrics.get("kafka_processing_errors_total", []):
+        for entry in metrics.get("pipeline_processing_errors_total", []):
             # Sum all errors - metrics don't have worker label, use topic to infer
             topic = entry["labels"].get("topic", "")
             if "pending" in topic or "retry" in topic:

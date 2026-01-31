@@ -30,7 +30,7 @@ from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 from aiokafka import AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord  # Keep for backward compatibility during migration
 
-from core.logging import get_logger, log_with_context, log_exception, KafkaLogContext
+from core.logging import get_logger, log_with_context, log_exception, MessageLogContext
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
 from kafka_pipeline.common.eventhub.producer import EventHubProducer
@@ -440,7 +440,7 @@ class EventHubConsumer:
             )
             span.set_tag("span.kind", "consumer")
 
-            with KafkaLogContext(
+            with MessageLogContext(
                 topic=message.topic,
                 partition=message.partition,
                 offset=message.offset,

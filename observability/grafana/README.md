@@ -11,7 +11,7 @@ This directory contains production-ready Grafana dashboards for monitoring the K
 Workers (Prometheus Client) → Prometheus (scrapes workers) → Grafana
 ```
 
-**Metric Naming Convention**: Metrics use standard Prometheus naming (e.g., `kafka_messages_consumed_total`).
+**Metric Naming Convention**: Metrics use standard Prometheus naming (e.g., `messages_consumed_total`).
 
 ---
 
@@ -304,19 +304,19 @@ Thresholds are pre-configured based on NFR requirements:
 
 ## Metrics Reference
 
-### Kafka Metrics
+### Pipeline Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `kafka_messages_consumed_total` | Counter | topic, consumer_group, status | Total messages consumed |
-| `kafka_messages_produced_total` | Counter | topic, status | Total messages produced |
-| `kafka_consumer_lag` | Gauge | topic, partition, consumer_group | Current lag in messages |
-| `kafka_consumer_offset` | Gauge | topic, partition, consumer_group | Current offset position |
-| `kafka_processing_errors_total` | Counter | topic, consumer_group, error_category | Processing errors by category |
-| `kafka_message_processing_duration_seconds` | Histogram | topic, consumer_group | Message processing time |
-| `kafka_circuit_breaker_state` | Gauge | component | Circuit breaker state (0/1/2) |
-| `kafka_connection_status` | Gauge | component | Connection status (0/1) |
-| `kafka_consumer_assigned_partitions` | Gauge | consumer_group | Assigned partitions count |
+| `messages_consumed_total` | Counter | topic, consumer_group, status | Total messages consumed |
+| `messages_produced_total` | Counter | topic, status | Total messages produced |
+| `consumer_lag` | Gauge | topic, partition, consumer_group | Current lag in messages |
+| `consumer_offset` | Gauge | topic, partition, consumer_group | Current offset position |
+| `processing_errors_total` | Counter | topic, consumer_group, error_category | Processing errors by category |
+| `message_processing_duration_seconds` | Histogram | topic, consumer_group | Message processing time |
+| `circuit_breaker_state` | Gauge | component | Circuit breaker state (0/1/2) |
+| `connection_status` | Gauge | component | Connection status (0/1) |
+| `consumer_assigned_partitions` | Gauge | consumer_group | Assigned partitions count |
 
 ### Delta Lake Metrics
 

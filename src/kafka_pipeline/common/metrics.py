@@ -1,5 +1,5 @@
 """
-Prometheus metrics for Kafka pipeline monitoring.
+Prometheus metrics for pipeline monitoring.
 
 Focused on essential metrics:
 - Message production and consumption counts
@@ -158,39 +158,39 @@ def _create_histogram(name: str, description: str, labelnames=None, buckets=None
 
 # Message counts
 messages_produced_counter = _create_counter(
-    "kafka_messages_produced_total",
-    "Total number of messages produced to Kafka topics",
+    "pipeline_messages_produced_total",
+    "Total number of messages produced to topics",
     labelnames=["topic"],
 )
 
 messages_consumed_counter = _create_counter(
-    "kafka_messages_consumed_total",
-    "Total number of messages consumed from Kafka topics",
+    "pipeline_messages_consumed_total",
+    "Total number of messages consumed from topics",
     labelnames=["topic", "consumer_group"],
 )
 
 # Consumer lag monitoring
 consumer_lag_gauge = _create_gauge(
-    "kafka_consumer_lag",
+    "pipeline_consumer_lag",
     "Current consumer lag (messages behind latest offset)",
     labelnames=["topic", "partition", "consumer_group"],
 )
 
 consumer_offset_gauge = _create_gauge(
-    "kafka_consumer_offset",
+    "pipeline_consumer_offset",
     "Current consumer offset position",
     labelnames=["topic", "partition", "consumer_group"],
 )
 
 # Error tracking
 processing_errors_counter = _create_counter(
-    "kafka_processing_errors_total",
+    "pipeline_processing_errors_total",
     "Total processing errors by error category",
     labelnames=["topic", "consumer_group", "error_category"],
 )
 
 producer_errors_counter = _create_counter(
-    "kafka_producer_errors_total",
+    "pipeline_producer_errors_total",
     "Total producer errors by error type",
     labelnames=["topic", "error_type"],
 )
@@ -202,28 +202,28 @@ delta_writes_counter = _create_counter(
 
 # DLQ tracking
 dlq_messages_counter = _create_counter(
-    "kafka_dlq_messages_total",
+    "pipeline_dlq_messages_total",
     "Total messages sent to dead letter queue",
     labelnames=["domain", "reason"],
 )
 
 # Connection health
 kafka_connection_status_gauge = _create_gauge(
-    "kafka_connection_status",
-    "Kafka connection status (1=connected, 0=disconnected)",
+    "pipeline_connection_status",
+    "Pipeline connection status (1=connected, 0=disconnected)",
     labelnames=["component"],
 )
 
 # Partition assignment
 consumer_assigned_partitions_gauge = _create_gauge(
-    "kafka_consumer_assigned_partitions",
+    "pipeline_consumer_assigned_partitions",
     "Number of partitions assigned to consumer",
     labelnames=["consumer_group"],
 )
 
 # Processing duration (keeping one histogram for performance monitoring)
 message_processing_duration_seconds = _create_histogram(
-    "kafka_message_processing_duration_seconds",
+    "pipeline_message_processing_duration_seconds",
     "Time spent processing individual messages",
     labelnames=["topic", "consumer_group"],
     buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
@@ -315,7 +315,7 @@ def update_consumer_offset(topic: str, partition: int, consumer_group: str, offs
 
 
 def update_connection_status(component: str, connected: bool) -> None:
-    """Update Kafka connection status."""
+    """Update pipeline connection status."""
     kafka_connection_status_gauge.labels(component=component).set(1 if connected else 0)
 
 

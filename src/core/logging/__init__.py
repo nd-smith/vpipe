@@ -17,11 +17,11 @@ from core.logging.context_managers import (
     log_phase,
 )
 from core.logging.formatters import ConsoleFormatter, JSONFormatter
-from core.logging.kafka_context import (
-    KafkaLogContext,
-    clear_kafka_context,
-    get_kafka_context,
-    set_kafka_context,
+from core.logging.message_context import (
+    MessageLogContext,
+    clear_message_context,
+    get_message_context,
+    set_message_context,
 )
 from core.logging.setup import (
     generate_cycle_id,
@@ -51,11 +51,11 @@ __all__ = [
     "set_log_context",
     "get_log_context",
     "clear_log_context",
-    # Kafka Context
-    "set_kafka_context",
-    "get_kafka_context",
-    "clear_kafka_context",
-    "KafkaLogContext",
+    # Message Context
+    "set_message_context",
+    "get_message_context",
+    "clear_message_context",
+    "MessageLogContext",
     # Context Managers
     "LogContext",
     "StageLogContext",
