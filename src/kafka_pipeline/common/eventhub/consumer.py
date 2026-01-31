@@ -4,6 +4,8 @@ Implements the same interface as BaseKafkaConsumer but uses azure-eventhub SDK
 with AMQP over WebSocket transport for compatibility with Azure Private Link.
 
 Architecture notes:
+- Namespace connection string (no EntityPath) + eventhub_name parameter
+- Entity names and consumer groups are resolved per-topic from config.yaml
 - Event Hub uses checkpoint store for offset management (vs Kafka consumer groups)
 - Partition assignment is automatic (no manual partition assignment like Kafka)
 - Uses async iteration instead of poll-based consumption
@@ -78,11 +80,11 @@ class EventHubConsumer:
         """Initialize Event Hub consumer.
 
         Args:
-            connection_string: Event Hub connection string
+            connection_string: Namespace-level connection string (no EntityPath)
             domain: Pipeline domain (e.g., "xact", "claimx")
             worker_name: Worker name for logging
-            entity_name: Event Hub entity name
-            consumer_group: Consumer group name
+            entity_name: Event Hub entity name (resolved from config.yaml by transport layer)
+            consumer_group: Consumer group name (resolved from config.yaml by transport layer)
             message_handler: Async function to process each message
             enable_message_commit: Whether to commit offsets after processing
             instance_id: Optional instance identifier for parallel consumers
@@ -131,9 +133,11 @@ class EventHubConsumer:
             apply_ssl_dev_bypass()
 
             # Create consumer with AMQP over WebSocket transport
+            # Namespace connection string + eventhub_name parameter
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
+                eventhub_name=self.entity_name,
                 transport_type=TransportType.AmqpOverWebsocket,
             )
 

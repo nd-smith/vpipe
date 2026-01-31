@@ -32,19 +32,28 @@ src/kafka_pipeline/common/
 
 #### `config.yaml`
 
-Added transport configuration:
+Added transport and multi-entity Event Hub configuration:
 
 ```yaml
 # Transport selection (default: eventhub)
 transport:
   type: ${PIPELINE_TRANSPORT:-eventhub}
 
-# Event Hub configuration
+# Event Hub configuration — namespace-level connection + per-topic entities
 eventhub:
-  connection_string: ${EVENTHUB_CONNECTION_STRING:-}
-  entity_name: ${EVENTHUB_ENTITY_NAME:-pcesdopodappv1}
-  consumer_group: ${EVENTHUB_CONSUMER_GROUP:-xact-pipeline}
+  namespace_connection_string: ${EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
   transport_type: AmqpOverWebsocket
+  default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
+
+  # Per-topic entity mapping (parallels kafka.xact.topics / kafka.claimx.topics)
+  xact:
+    events:
+      entity_name: pcesdopodappv1
+      consumer_group: xact-pipeline
+    downloads_pending:
+      entity_name: pcesdopodappv1-xact-dl-pending
+      consumer_group: xact-dl-pending
+    # ... (see config.yaml for full mapping)
 ```
 
 #### `.env.example`
@@ -55,8 +64,9 @@ Created example configuration showing Event Hub setup:
 # Transport selection
 PIPELINE_TRANSPORT=eventhub
 
-# Event Hub connection
-EVENTHUB_CONNECTION_STRING="Endpoint=sb://...;SharedAccessKeyName=...;SharedAccessKey=...;EntityPath=..."
+# Namespace-level connection string (NO EntityPath)
+# One secret manages access to ALL Event Hubs in the namespace
+EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://...;SharedAccessKeyName=...;SharedAccessKey=..."
 
 # SSL bypass for local dev (corporate proxy)
 DISABLE_SSL_VERIFY=true
@@ -88,8 +98,8 @@ Modified `kafka_pipeline/runners/common.py`:
 2. **Configure Event Hub connection**:
    ```bash
    cp .env.example .env
-   # Edit .env and set your Event Hub connection string:
-   # EVENTHUB_CONNECTION_STRING="Endpoint=sb://...;SharedAccessKeyName=...;SharedAccessKey=...;EntityPath=..."
+   # Edit .env and set your namespace connection string:
+   # EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://...;SharedAccessKeyName=...;SharedAccessKey=..."
    ```
 
 3. **Enable SSL bypass for corporate proxy** (local dev only):
@@ -125,7 +135,7 @@ Modified `kafka_pipeline/runners/common.py`:
 3. **Configure deployment** (Jenkins/Azure DevOps):
    ```bash
    PIPELINE_TRANSPORT=eventhub
-   EVENTHUB_CONNECTION_STRING=<from-key-vault>
+   EVENTHUB_NAMESPACE_CONNECTION_STRING=<from-key-vault>
    # DO NOT set DISABLE_SSL_VERIFY in production!
    ```
 
@@ -140,28 +150,38 @@ Modified `kafka_pipeline/runners/common.py`:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PIPELINE_TRANSPORT` | No | `eventhub` | Transport type: `eventhub` or `kafka` |
-| `EVENTHUB_CONNECTION_STRING` | Yes* | - | Event Hub connection string with EntityPath |
-| `EVENTHUB_ENTITY_NAME` | No | `pcesdopodappv1` | Default entity name (overrides EntityPath) |
-| `EVENTHUB_CONSUMER_GROUP` | No | `xact-pipeline` | Consumer group for offset management |
+| `EVENTHUB_NAMESPACE_CONNECTION_STRING` | Yes* | - | Namespace-level connection string (no EntityPath) |
+| `EVENTHUB_CONNECTION_STRING` | No | - | Legacy fallback (EntityPath stripped automatically) |
+| `EVENTHUB_DEFAULT_CONSUMER_GROUP` | No | `$Default` | Default consumer group (when not per-topic) |
 | `DISABLE_SSL_VERIFY` | No | `false` | **Local dev only!** Bypass SSL verification |
 
 *Required when `PIPELINE_TRANSPORT=eventhub`
 
-### Worker-Specific Entity Names
+### Multi-Entity Configuration
 
-For multi-topic scenarios, you can configure entity names per worker:
+Entity names and consumer groups are defined per-topic in `config.yaml`:
 
-```bash
-# Base connection string (without EntityPath)
-EVENTHUB_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=policy;SharedAccessKey=key"
-
-# Worker-specific entities (optional)
-EVENTHUB_ENTITY_DELTA_EVENTS_WRITER=xact-events-raw
-EVENTHUB_ENTITY_RESULT_PROCESSOR=xact-downloads-results
-EVENTHUB_ENTITY_UPLOAD_WORKER=xact-downloads-cached
+```yaml
+eventhub:
+  namespace_connection_string: ${EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
+  xact:
+    events:
+      entity_name: pcesdopodappv1
+      consumer_group: xact-pipeline
+    downloads_pending:
+      entity_name: pcesdopodappv1-xact-dl-pending
+      consumer_group: xact-dl-pending
 ```
 
-The transport factory will automatically build the correct connection string with EntityPath for each worker.
+Worker-specific env var overrides are still supported as a fallback:
+
+```bash
+# Optional per-worker entity overrides (config.yaml is preferred)
+EVENTHUB_ENTITY_DELTA_EVENTS_WRITER=xact-events-raw
+EVENTHUB_ENTITY_RESULT_PROCESSOR=xact-downloads-results
+```
+
+The transport factory uses the Azure SDK's `eventhub_name` parameter instead of building connection strings with EntityPath.
 
 ## Architecture Notes
 
@@ -179,16 +199,16 @@ The transport factory will automatically build the correct connection string wit
 
 **Challenge**: Kafka consumers can read from multiple topics. Event Hub requires one connection per entity.
 
-**Solution**: The transport factory dynamically builds connection strings with the correct `EntityPath` for each worker:
+**Solution**: The transport factory resolves entity names per-topic from `config.yaml` and passes them via the SDK's `eventhub_name` parameter:
 
 ```python
-# Producer for "xact-events-raw" topic
-producer1 = create_producer(config, domain="xact", worker_name="delta_events_writer")
-# → Uses EntityPath=xact-events-raw
+# Producer for "events" topic → entity from config.yaml eventhub.xact.events.entity_name
+producer1 = create_producer(config, domain="xact", worker_name="delta_events_writer", topic_key="events")
+# → eventhub_name="pcesdopodappv1"
 
-# Producer for "xact-downloads-results" topic
-producer2 = create_producer(config, domain="xact", worker_name="result_processor")
-# → Uses EntityPath=xact-downloads-results
+# Producer for "downloads_results" topic → entity from config.yaml
+producer2 = create_producer(config, domain="xact", worker_name="result_processor", topic_key="downloads_results")
+# → eventhub_name="pcesdopodappv1-xact-dl-results"
 ```
 
 ### SSL Verification Bypass
