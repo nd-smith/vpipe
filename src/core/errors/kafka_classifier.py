@@ -61,6 +61,33 @@ KAFKA_ERROR_MAPPINGS = {
     ],
 }
 
+# Azure EventHub error classifications based on azure-eventhub SDK exceptions
+EVENTHUB_ERROR_MAPPINGS = {
+    # Transient errors (retry recommended)
+    "transient": [
+        "EventHubError",
+        "ConnectionLostError",
+        "ConnectError",
+        "OperationTimeoutError",
+        "AMQPConnectionError",
+    ],
+    # Auth errors (credential refresh needed)
+    "auth": [
+        "AuthenticationError",
+        "ClientAuthenticationError",
+    ],
+    # Permanent errors (don't retry)
+    "permanent": [
+        "EventDataSendError",
+        "EventDataError",
+        "SchemaError",
+    ],
+    # Throttling (backoff needed)
+    "throttling": [
+        "ServerBusyError",
+    ],
+}
+
 
 def classify_kafka_error_type(error_type_name: str) -> Optional[str]:
     """
@@ -75,6 +102,29 @@ def classify_kafka_error_type(error_type_name: str) -> Optional[str]:
     for category, error_types in KAFKA_ERROR_MAPPINGS.items():
         if error_type_name in error_types:
             return category
+    return None
+
+
+def classify_error_type(error_type_name: str) -> Optional[str]:
+    """
+    Classify error by exception type name, checking both Kafka and EventHub mappings.
+
+    Args:
+        error_type_name: Name of the exception class
+
+    Returns:
+        Error category: "transient", "auth", "permanent", "throttling", or None
+    """
+    # Check Kafka mappings first
+    for category, error_types in KAFKA_ERROR_MAPPINGS.items():
+        if error_type_name in error_types:
+            return category
+
+    # Check EventHub mappings if not found in Kafka
+    for category, error_types in EVENTHUB_ERROR_MAPPINGS.items():
+        if error_type_name in error_types:
+            return category
+
     return None
 
 
@@ -108,8 +158,8 @@ class KafkaErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Classify by exception type first
-        category = classify_kafka_error_type(error_type)
+        # Classify by exception type first (checks both Kafka and EventHub mappings)
+        category = classify_error_type(error_type)
 
         if category == "auth":
             return AuthError(
@@ -226,8 +276,8 @@ class KafkaErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Classify by exception type first
-        category = classify_kafka_error_type(error_type)
+        # Classify by exception type first (checks both Kafka and EventHub mappings)
+        category = classify_error_type(error_type)
 
         if category == "auth":
             return AuthError(

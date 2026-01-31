@@ -240,6 +240,9 @@ eventhub:
     events:
       eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
       consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
+    dlq:
+      eventhub_name: ${EVENTHUB_XACT_DLQ_NAME:-xact-dlq}
+      consumer_group: ${EVENTHUB_XACT_DLQ_CONSUMER_GROUP:-xact-dlq-pipeline}
 
   # ---------------------------------------------------------------------------
   # ClaimX Domain
@@ -248,6 +251,9 @@ eventhub:
     events:
       eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
       consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
+    dlq:
+      eventhub_name: ${EVENTHUB_CLAIMX_DLQ_NAME:-claimx-dlq}
+      consumer_group: ${EVENTHUB_CLAIMX_DLQ_CONSUMER_GROUP:-claimx-dlq-pipeline}
 
 # =============================================================================
 # LOGGING & MONITORING

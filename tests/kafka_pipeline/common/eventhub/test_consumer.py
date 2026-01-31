@@ -1,0 +1,901 @@
+"""
+Tests for EventHub consumer DLQ routing and error handling.
+
+These are unit tests that use mocks - no Azure EventHub required.
+"""
+
+import asyncio
+import json
+import pytest
+import sys
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+from aiokafka.structs import ConsumerRecord
+
+# Mock azure.eventhub before importing consumer module
+sys.modules['azure'] = MagicMock()
+sys.modules['azure.eventhub'] = MagicMock()
+sys.modules['azure.eventhub.aio'] = MagicMock()
+
+from core.errors.exceptions import ErrorCategory, PermanentError, TransientError
+from kafka_pipeline.common.eventhub.consumer import EventHubConsumer, EventHubConsumerRecord
+
+
+# Mock EventData class for testing
+class MockEventData:
+    """Mock EventData for testing."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+        self._properties = {}
+        self._enqueued_time = None
+        self.offset = "0"  # Use public attribute to match real EventData
+
+    @property
+    def properties(self):
+        return self._properties
+
+    @property
+    def enqueued_time(self):
+        return self._enqueued_time
+
+    def body_as_bytes(self):
+        return self._body
+
+
+@pytest.fixture
+def mock_eventhub_consumer_client():
+    """Create mock EventHubConsumerClient."""
+    client = MagicMock()
+    client.close = AsyncMock()
+    client.receive = AsyncMock()
+
+    # Make it async context manager
+    async def async_enter(self):
+        return self
+
+    async def async_exit(self, *args):
+        pass
+
+    client.__aenter__ = async_enter
+    client.__aexit__ = async_exit
+
+    return client
+
+
+@pytest.fixture
+def mock_eventhub_producer():
+    """Create mock EventHubProducer for DLQ."""
+    producer = MagicMock()
+    producer.start = AsyncMock()
+    producer.stop = AsyncMock()
+    producer.flush = AsyncMock()
+    producer.send = AsyncMock()
+    producer.eventhub_name = "xact-dlq"
+
+    # Mock send to return metadata
+    metadata = MagicMock()
+    metadata.partition = 0
+    metadata.offset = 123
+    producer.send.return_value = metadata
+
+    return producer
+
+
+@pytest.fixture
+def mock_message_handler():
+    """Create mock message handler."""
+    return AsyncMock()
+
+
+def create_event_data(
+    body: bytes = b'{"test": "value"}',
+    properties: dict = None,
+    enqueued_time: datetime = None,
+    offset: str = "100",
+) -> MockEventData:
+    """Helper to create EventData for testing."""
+    event = MockEventData(body)
+
+    if properties:
+        event._properties = properties
+    else:
+        event._properties = {"_key": "test-key"}
+
+    if enqueued_time:
+        event._enqueued_time = enqueued_time
+    else:
+        event._enqueued_time = datetime.now()
+
+    event.offset = offset  # Set public attribute
+
+    return event
+
+
+class TestEventHubConsumerRecordAdapter:
+    """Test EventHubConsumerRecord adapter class."""
+
+    def test_adapts_event_data_to_consumer_record(self):
+        """Test EventData is correctly adapted to ConsumerRecord interface."""
+        properties = {"_key": "my-key", "custom_header": "value"}
+        enqueued_time = datetime(2024, 1, 15, 12, 0, 0)
+        event = create_event_data(
+            body=b'{"field": "data"}',
+            properties=properties,
+            enqueued_time=enqueued_time,
+            offset="42",
+        )
+
+        record = EventHubConsumerRecord(event, "test-hub", "3")
+
+        assert record.topic == "test-hub"
+        assert record.partition == 3
+        assert record.offset == "42"
+        assert record.timestamp == int(enqueued_time.timestamp() * 1000)
+        assert record.key == b"my-key"
+        assert record.value == b'{"field": "data"}'
+
+        # Check headers (should exclude _key)
+        headers_dict = dict(record.headers)
+        assert "custom_header" in headers_dict
+        assert headers_dict["custom_header"] == b"value"
+        assert "_key" not in headers_dict
+
+    def test_handles_missing_properties(self):
+        """Test adapter handles EventData with no properties."""
+        event = MockEventData(b"test body")
+        event._enqueued_time = datetime.now()
+        event.offset = "0"
+        event._properties = None
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+
+        assert record.key is None
+        assert record.headers == []
+
+    def test_handles_missing_enqueued_time(self):
+        """Test adapter handles EventData with no enqueued time."""
+        event = MockEventData(b"test body")
+        event.offset = "0"
+        event._enqueued_time = None
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+
+        assert record.timestamp == 0
+
+
+class TestEventHubConsumerInit:
+    """Test EventHub consumer initialization."""
+
+    def test_init_with_required_params(self, mock_message_handler):
+        """Consumer initializes with required parameters."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        assert consumer.domain == "xact"
+        assert consumer.worker_name == "test_worker"
+        assert consumer.eventhub_name == "verisk_events"
+        assert consumer.consumer_group == "$Default"
+        assert consumer.message_handler == mock_message_handler
+        assert consumer._consumer is None
+        assert not consumer._running
+        assert consumer._enable_message_commit is True
+
+    def test_init_with_optional_params(self, mock_message_handler):
+        """Consumer initializes with optional parameters."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+            enable_message_commit=False,
+            instance_id="worker-1",
+        )
+
+        assert consumer.instance_id == "worker-1"
+        assert consumer._enable_message_commit is False
+
+    def test_init_builds_dlq_entity_map(self, mock_message_handler):
+        """Consumer initializes DLQ entity mapping."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        assert consumer._dlq_entity_map is not None
+        assert isinstance(consumer._dlq_entity_map, dict)
+
+
+class TestEventHubConsumerDLQMapping:
+    """Test DLQ entity mapping functions."""
+
+    def test_build_dlq_entity_map(self, mock_message_handler):
+        """Test _build_dlq_entity_map returns correct mappings."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        dlq_map = consumer._build_dlq_entity_map()
+
+        # Check XACT mapping
+        assert dlq_map["verisk_events"] == "xact-dlq"
+
+        # Check ClaimX mapping
+        assert dlq_map["claimx_events"] == "claimx-dlq"
+
+    def test_get_dlq_entity_name_for_xact(self, mock_message_handler):
+        """Test _get_dlq_entity_name resolves XACT topic correctly."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        dlq_entity = consumer._get_dlq_entity_name("verisk_events")
+        assert dlq_entity == "xact-dlq"
+
+    def test_get_dlq_entity_name_for_claimx(self, mock_message_handler):
+        """Test _get_dlq_entity_name resolves ClaimX topic correctly."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="claimx",
+            worker_name="test_worker",
+            eventhub_name="claimx_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        dlq_entity = consumer._get_dlq_entity_name("claimx_events")
+        assert dlq_entity == "claimx-dlq"
+
+    def test_get_dlq_entity_name_for_unknown_topic(self, mock_message_handler):
+        """Test _get_dlq_entity_name returns None for unknown topic."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        dlq_entity = consumer._get_dlq_entity_name("unknown_topic")
+        assert dlq_entity is None
+
+
+class TestEventHubConsumerDLQProducer:
+    """Test DLQ producer lazy initialization and management."""
+
+    @pytest.mark.asyncio
+    async def test_ensure_dlq_producer_creates_new_producer(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _ensure_dlq_producer creates new producer on first call."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        with patch(
+            "kafka_pipeline.common.eventhub.consumer.EventHubProducer",
+            return_value=mock_eventhub_producer,
+        ) as mock_producer_class:
+            await consumer._ensure_dlq_producer("xact-dlq")
+
+            # Producer was created
+            mock_producer_class.assert_called_once_with(
+                connection_string=consumer.connection_string,
+                domain="xact",
+                worker_name="test_worker",
+                eventhub_name="xact-dlq",
+            )
+
+            # Producer was started
+            mock_eventhub_producer.start.assert_called_once()
+
+            # Producer is stored
+            assert consumer._dlq_producer == mock_eventhub_producer
+
+    @pytest.mark.asyncio
+    async def test_ensure_dlq_producer_reuses_existing_producer(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _ensure_dlq_producer reuses existing producer for same entity."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        # Set up existing producer
+        consumer._dlq_producer = mock_eventhub_producer
+        mock_eventhub_producer.eventhub_name = "xact-dlq"
+
+        with patch(
+            "kafka_pipeline.common.eventhub.consumer.EventHubProducer"
+        ) as mock_producer_class:
+            await consumer._ensure_dlq_producer("xact-dlq")
+
+            # No new producer created
+            mock_producer_class.assert_not_called()
+
+            # Existing producer not restarted
+            mock_eventhub_producer.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ensure_dlq_producer_recreates_for_different_entity(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _ensure_dlq_producer recreates producer for different entity."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        # Set up existing producer for different entity
+        old_producer = MagicMock()
+        old_producer.eventhub_name = "old-dlq"
+        old_producer.stop = AsyncMock()
+        consumer._dlq_producer = old_producer
+
+        new_producer = MagicMock()
+        new_producer.eventhub_name = "xact-dlq"
+        new_producer.start = AsyncMock()
+
+        with patch(
+            "kafka_pipeline.common.eventhub.consumer.EventHubProducer",
+            return_value=new_producer,
+        ):
+            await consumer._ensure_dlq_producer("xact-dlq")
+
+            # Old producer was stopped
+            old_producer.stop.assert_called_once()
+
+            # New producer was created and started
+            new_producer.start.assert_called_once()
+
+            # New producer is stored
+            assert consumer._dlq_producer == new_producer
+
+
+class TestEventHubConsumerDLQSend:
+    """Test DLQ message sending."""
+
+    @pytest.mark.asyncio
+    async def test_send_to_dlq_constructs_proper_message(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _send_to_dlq constructs DLQ message with all required fields."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+        consumer._dlq_producer = mock_eventhub_producer
+
+        # Create test message
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=2,
+            offset=100,
+            timestamp=1234567890000,
+            timestamp_type=0,
+            key=b"test-key",
+            value=b'{"data": "value"}',
+            headers=[("header1", b"value1")],
+            checksum=None,
+            serialized_key_size=8,
+            serialized_value_size=17,
+        )
+
+        error = ValueError("Processing failed")
+
+        with patch("kafka_pipeline.common.eventhub.consumer.socket.gethostname", return_value="test-host"):
+            with patch("kafka_pipeline.common.eventhub.consumer.time.time", return_value=9999999.0):
+                success = await consumer._send_to_dlq(message, error, ErrorCategory.PERMANENT)
+
+        assert success is True
+
+        # Verify send was called
+        mock_eventhub_producer.send.assert_called_once()
+
+        # Extract the arguments
+        call_args = mock_eventhub_producer.send.call_args
+        sent_topic = call_args.kwargs["topic"]
+        sent_key = call_args.kwargs["key"]
+        sent_value = call_args.kwargs["value"]
+        sent_headers = call_args.kwargs["headers"]
+
+        # Verify topic
+        assert sent_topic == "xact-dlq"
+
+        # Verify key
+        assert sent_key == b"test-key"
+
+        # Verify message structure
+        dlq_message = json.loads(sent_value.decode("utf-8"))
+        assert dlq_message["original_topic"] == "verisk_events"
+        assert dlq_message["original_partition"] == 2
+        assert dlq_message["original_offset"] == 100
+        assert dlq_message["original_key"] == "test-key"
+        assert dlq_message["original_value"] == '{"data": "value"}'
+        assert dlq_message["original_headers"] == {"header1": "value1"}
+        assert dlq_message["original_timestamp"] == 1234567890000
+        assert dlq_message["error_type"] == "ValueError"
+        assert dlq_message["error_message"] == "Processing failed"
+        assert dlq_message["error_category"] == "permanent"
+        assert dlq_message["consumer_group"] == "$Default"
+        assert dlq_message["worker_id"] == "test-host"
+        assert dlq_message["domain"] == "xact"
+        assert dlq_message["worker_name"] == "test_worker"
+        assert dlq_message["dlq_timestamp"] == 9999999.0
+
+        # Verify headers
+        assert sent_headers["dlq_source_topic"] == "verisk_events"
+        assert sent_headers["dlq_error_category"] == "permanent"
+        assert sent_headers["dlq_consumer_group"] == "$Default"
+
+    @pytest.mark.asyncio
+    async def test_send_to_dlq_no_mapping_returns_false(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _send_to_dlq returns False when no DLQ mapping exists."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        message = ConsumerRecord(
+            topic="unknown_topic",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        error = ValueError("Test error")
+        success = await consumer._send_to_dlq(message, error, ErrorCategory.PERMANENT)
+
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_send_to_dlq_producer_init_failure_returns_false(
+        self, mock_message_handler
+    ):
+        """Test _send_to_dlq returns False when DLQ producer initialization fails."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        # Mock producer initialization to fail
+        with patch.object(consumer, "_ensure_dlq_producer", side_effect=RuntimeError("Init failed")):
+            error = ValueError("Test error")
+            success = await consumer._send_to_dlq(message, error, ErrorCategory.PERMANENT)
+
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_send_to_dlq_send_failure_returns_false(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _send_to_dlq returns False when send fails."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+        consumer._dlq_producer = mock_eventhub_producer
+
+        # Make send fail
+        mock_eventhub_producer.send.side_effect = RuntimeError("Send failed")
+
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        error = ValueError("Test error")
+        success = await consumer._send_to_dlq(message, error, ErrorCategory.PERMANENT)
+
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_send_to_dlq_records_metrics(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test _send_to_dlq records DLQ metrics on success."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+        consumer._dlq_producer = mock_eventhub_producer
+
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        error = ValueError("Test error")
+
+        with patch("kafka_pipeline.common.eventhub.consumer.record_dlq_message") as mock_record:
+            await consumer._send_to_dlq(message, error, ErrorCategory.PERMANENT)
+
+            # Verify metrics were recorded
+            mock_record.assert_called_once_with("xact", "permanent")
+
+
+class TestEventHubConsumerErrorHandling:
+    """Test error handling and DLQ routing integration."""
+
+    @pytest.mark.asyncio
+    async def test_permanent_error_triggers_dlq_routing(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test that PERMANENT errors trigger DLQ routing."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+        consumer._dlq_producer = mock_eventhub_producer
+
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        # Simulate permanent error
+        permanent_error = PermanentError("Unrecoverable error")
+
+        # Mock successful DLQ send
+        with patch.object(consumer, "_send_to_dlq", return_value=True) as mock_send_dlq:
+            # Should not raise - DLQ write successful
+            await consumer._handle_processing_error(message, permanent_error, 0.1)
+
+            # Verify DLQ was called
+            mock_send_dlq.assert_called_once_with(message, permanent_error, ErrorCategory.PERMANENT)
+
+    @pytest.mark.asyncio
+    async def test_permanent_error_failed_dlq_prevents_checkpoint(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test that failed DLQ write prevents checkpoint by re-raising."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        permanent_error = PermanentError("Unrecoverable error")
+
+        # Mock failed DLQ send
+        with patch.object(consumer, "_send_to_dlq", return_value=False):
+            # Should re-raise to prevent checkpoint
+            with pytest.raises(PermanentError):
+                await consumer._handle_processing_error(message, permanent_error, 0.1)
+
+    @pytest.mark.asyncio
+    async def test_transient_error_does_not_trigger_dlq(
+        self, mock_message_handler
+    ):
+        """Test that TRANSIENT errors do not trigger DLQ routing."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        message = ConsumerRecord(
+            topic="verisk_events",
+            partition=0,
+            offset=0,
+            timestamp=0,
+            timestamp_type=0,
+            key=b"key",
+            value=b"value",
+            headers=[],
+            checksum=None,
+            serialized_key_size=3,
+            serialized_value_size=5,
+        )
+
+        transient_error = TransientError("Temporary error")
+
+        with patch.object(consumer, "_send_to_dlq") as mock_send_dlq:
+            # Should not raise
+            await consumer._handle_processing_error(message, transient_error, 0.1)
+
+            # DLQ should not be called
+            mock_send_dlq.assert_not_called()
+
+
+class TestEventHubConsumerCheckpointing:
+    """Test checkpoint behavior with DLQ."""
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_after_successful_dlq_write(
+        self, mock_message_handler, mock_eventhub_producer
+    ):
+        """Test checkpoint advances after successful DLQ write."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+        consumer._dlq_producer = mock_eventhub_producer
+
+        # Mock partition context
+        partition_context = MagicMock()
+        partition_context.partition_id = "0"
+        partition_context.update_checkpoint = AsyncMock()
+
+        event = create_event_data()
+
+        # Simulate handler raising permanent error
+        mock_message_handler.side_effect = PermanentError("Permanent failure")
+
+        # Mock successful DLQ send
+        with patch.object(consumer, "_send_to_dlq", return_value=True):
+            # Simulate the on_event handler logic
+            record = EventHubConsumerRecord(event, "verisk_events", "0")
+
+            try:
+                await consumer._process_message(record)
+
+                # If we get here, processing "succeeded" (DLQ write successful)
+                # In real code, checkpoint would happen in on_event after _process_message
+                await partition_context.update_checkpoint(event)
+            except Exception:
+                # If exception, checkpoint should not happen
+                pass
+
+        # Verify checkpoint was called (DLQ write succeeded)
+        partition_context.update_checkpoint.assert_called_once_with(event)
+
+    @pytest.mark.asyncio
+    async def test_no_checkpoint_after_failed_dlq_write(
+        self, mock_message_handler
+    ):
+        """Test checkpoint does not advance when DLQ write fails."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        # Mock partition context
+        partition_context = MagicMock()
+        partition_context.partition_id = "0"
+        partition_context.update_checkpoint = AsyncMock()
+
+        event = create_event_data()
+
+        # Simulate handler raising permanent error
+        mock_message_handler.side_effect = PermanentError("Permanent failure")
+
+        # Mock failed DLQ send
+        with patch.object(consumer, "_send_to_dlq", return_value=False):
+            # Simulate the on_event handler logic
+            record = EventHubConsumerRecord(event, "verisk_events", "0")
+
+            try:
+                await consumer._process_message(record)
+
+                # Should not get here - exception should be raised
+                await partition_context.update_checkpoint(event)
+                pytest.fail("Expected exception to be raised")
+            except PermanentError:
+                # Exception raised - checkpoint should NOT happen
+                pass
+
+        # Verify checkpoint was NOT called (DLQ write failed)
+        partition_context.update_checkpoint.assert_not_called()
+
+
+class TestEventHubConsumerCleanup:
+    """Test consumer cleanup and resource management."""
+
+    @pytest.mark.asyncio
+    async def test_stop_cleans_up_dlq_producer(
+        self, mock_message_handler, mock_eventhub_consumer_client, mock_eventhub_producer
+    ):
+        """Test stop() properly cleans up DLQ producer."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        # Set up consumer as running with DLQ producer
+        consumer._running = True
+        consumer._consumer = mock_eventhub_consumer_client
+        consumer._dlq_producer = mock_eventhub_producer
+
+        await consumer.stop()
+
+        # Verify DLQ producer was flushed and stopped
+        mock_eventhub_producer.flush.assert_called_once()
+        mock_eventhub_producer.stop.assert_called_once()
+
+        # Verify DLQ producer reference is cleared
+        assert consumer._dlq_producer is None
+
+    @pytest.mark.asyncio
+    async def test_stop_handles_dlq_producer_error(
+        self, mock_message_handler, mock_eventhub_consumer_client, mock_eventhub_producer
+    ):
+        """Test stop() handles DLQ producer cleanup errors gracefully."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        consumer._running = True
+        consumer._consumer = mock_eventhub_consumer_client
+        consumer._dlq_producer = mock_eventhub_producer
+
+        # Make flush fail
+        mock_eventhub_producer.flush.side_effect = RuntimeError("Flush failed")
+
+        # Should not raise - error is logged
+        await consumer.stop()
+
+        # DLQ producer still cleared
+        assert consumer._dlq_producer is None
+
+    @pytest.mark.asyncio
+    async def test_stop_without_dlq_producer(
+        self, mock_message_handler, mock_eventhub_consumer_client
+    ):
+        """Test stop() works when no DLQ producer exists."""
+        consumer = EventHubConsumer(
+            connection_string="Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test123",
+            domain="xact",
+            worker_name="test_worker",
+            eventhub_name="verisk_events",
+            consumer_group="$Default",
+            message_handler=mock_message_handler,
+        )
+
+        consumer._running = True
+        consumer._consumer = mock_eventhub_consumer_client
+        consumer._dlq_producer = None
+
+        # Should not raise
+        await consumer.stop()
+
+        assert consumer._dlq_producer is None

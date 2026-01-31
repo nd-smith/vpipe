@@ -26,9 +26,11 @@ from aiokafka.structs import ConsumerRecord
 from core.logging import get_logger, log_with_context, log_exception, KafkaLogContext
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
+from kafka_pipeline.common.eventhub.producer import EventHubProducer
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
+    record_dlq_message,
     update_connection_status,
     update_assigned_partitions,
     message_processing_duration_seconds,
@@ -99,8 +101,11 @@ class EventHubConsumer:
         self._consumer: Optional[EventHubConsumerClient] = None
         self._running = False
         self._enable_message_commit = enable_message_commit
-        self._dlq_producer: Optional[AIOKafkaProducer] = None
+        self._dlq_producer: Optional[EventHubProducer] = None
         self._current_partition_context = {}  # Track partition contexts for checkpointing
+
+        # DLQ configuration mapping
+        self._dlq_entity_map = self._build_dlq_entity_map()
 
         log_with_context(
             logger,
@@ -236,11 +241,28 @@ class EventHubConsumer:
             record = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
 
             # Process the message
-            await self._process_message(record)
+            # This may raise an exception if DLQ write fails for a PERMANENT error
+            try:
+                await self._process_message(record)
 
-            # Checkpoint after successful processing
-            if self._enable_message_commit:
-                await partition_context.update_checkpoint(event)
+                # Checkpoint after successful processing
+                # (including successful DLQ writes for PERMANENT errors)
+                if self._enable_message_commit:
+                    await partition_context.update_checkpoint(event)
+
+            except Exception as processing_error:
+                # If processing failed and we couldn't send to DLQ,
+                # do not checkpoint - let Event Hub redeliver the message
+                log_exception(
+                    logger,
+                    processing_error,
+                    "Message processing failed - will not checkpoint",
+                    entity=self.eventhub_name,
+                    partition_id=partition_id,
+                    offset=record.offset,
+                )
+                # Do not re-raise - continue processing other messages
+                # Event Hub will redeliver this message on the next receive
 
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
@@ -369,6 +391,197 @@ class EventHubConsumer:
 
                     await self._handle_processing_error(message, e, duration)
 
+    def _build_dlq_entity_map(self) -> dict:
+        """Build mapping from source topic names to DLQ entity names.
+
+        Maps:
+        - xact topics (verisk_events) -> xact-dlq
+        - claimx topics (claimx_events) -> claimx-dlq
+        """
+        return {
+            # XACT domain
+            "verisk_events": "xact-dlq",
+            # ClaimX domain
+            "claimx_events": "claimx-dlq",
+        }
+
+    def _get_dlq_entity_name(self, source_topic: str) -> Optional[str]:
+        """Get DLQ entity name for a source topic.
+
+        Args:
+            source_topic: Source Event Hub entity name
+
+        Returns:
+            DLQ entity name or None if no DLQ configured
+        """
+        dlq_entity = self._dlq_entity_map.get(source_topic)
+        if dlq_entity is None:
+            logger.warning(
+                f"No DLQ entity mapping found for topic: {source_topic}. "
+                f"Available mappings: {list(self._dlq_entity_map.keys())}"
+            )
+        return dlq_entity
+
+    async def _ensure_dlq_producer(self, dlq_entity_name: str) -> None:
+        """Lazy-initialize DLQ producer to avoid unnecessary connections.
+
+        Args:
+            dlq_entity_name: Name of the DLQ Event Hub entity
+        """
+        if self._dlq_producer is not None:
+            # Check if we need to recreate for a different entity
+            if self._dlq_producer.eventhub_name == dlq_entity_name:
+                return
+            else:
+                # Need to close old producer and create new one
+                logger.info(
+                    f"Closing existing DLQ producer for {self._dlq_producer.eventhub_name} "
+                    f"to create new one for {dlq_entity_name}"
+                )
+                await self._dlq_producer.stop()
+                self._dlq_producer = None
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Initializing DLQ producer for permanent error routing",
+            domain=self.domain,
+            worker_name=self.worker_name,
+            dlq_entity=dlq_entity_name,
+        )
+
+        # Create EventHub producer for DLQ entity
+        self._dlq_producer = EventHubProducer(
+            connection_string=self.connection_string,
+            domain=self.domain,
+            worker_name=self.worker_name,
+            eventhub_name=dlq_entity_name,
+        )
+        await self._dlq_producer.start()
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "DLQ producer started successfully",
+            dlq_entity=dlq_entity_name,
+        )
+
+    async def _send_to_dlq(
+        self, message: ConsumerRecord, error: Exception, error_category: ErrorCategory
+    ) -> bool:
+        """Send failed message to DLQ Event Hub with full context.
+
+        Args:
+            message: Original message that failed processing
+            error: Exception that occurred during processing
+            error_category: Classification of the error (PERMANENT or TRANSIENT)
+
+        Returns:
+            True if successfully sent to DLQ, False otherwise
+        """
+        # Determine DLQ entity name
+        dlq_entity_name = self._get_dlq_entity_name(message.topic)
+        if dlq_entity_name is None:
+            log_exception(
+                logger,
+                error,
+                "Cannot route to DLQ - no DLQ entity configured for topic",
+                original_topic=message.topic,
+                error_category=error_category.value,
+            )
+            return False
+
+        # Ensure DLQ producer is initialized
+        try:
+            await self._ensure_dlq_producer(dlq_entity_name)
+        except Exception as init_error:
+            log_exception(
+                logger,
+                init_error,
+                "Failed to initialize DLQ producer",
+                dlq_entity=dlq_entity_name,
+            )
+            return False
+
+        # Get worker ID for context
+        try:
+            worker_id = socket.gethostname()
+        except Exception:
+            worker_id = "unknown"
+
+        # Construct DLQ message with full context
+        dlq_message = {
+            "original_topic": message.topic,
+            "original_partition": message.partition,
+            "original_offset": message.offset,
+            "original_key": message.key.decode("utf-8") if message.key else None,
+            "original_value": message.value.decode("utf-8") if message.value else None,
+            "original_headers": {
+                k: v.decode("utf-8") if isinstance(v, bytes) else v
+                for k, v in (message.headers or [])
+            },
+            "original_timestamp": message.timestamp,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "error_category": error_category.value,
+            "consumer_group": self.consumer_group,
+            "worker_id": worker_id,
+            "domain": self.domain,
+            "worker_name": self.worker_name,
+            "dlq_timestamp": time.time(),
+        }
+
+        dlq_value = json.dumps(dlq_message).encode("utf-8")
+        dlq_key = message.key or f"dlq-{message.offset}".encode("utf-8")
+
+        # Construct DLQ headers
+        dlq_headers = {
+            "dlq_source_topic": message.topic,
+            "dlq_error_category": error_category.value,
+            "dlq_consumer_group": self.consumer_group,
+        }
+
+        try:
+            # Send to DLQ Event Hub
+            metadata = await self._dlq_producer.send(
+                topic=dlq_entity_name,
+                key=dlq_key,
+                value=dlq_value,
+                headers=dlq_headers,
+            )
+
+            log_with_context(
+                logger,
+                logging.INFO,
+                "Message sent to DLQ successfully",
+                dlq_entity=dlq_entity_name,
+                dlq_partition=metadata.partition,
+                dlq_offset=metadata.offset,
+                original_topic=message.topic,
+                original_partition=message.partition,
+                original_offset=message.offset,
+                error_category=error_category.value,
+                error_type=type(error).__name__,
+            )
+
+            # Record metrics
+            record_dlq_message(self.domain, error_category.value)
+
+            return True
+
+        except Exception as dlq_error:
+            log_exception(
+                logger,
+                dlq_error,
+                "Failed to send message to DLQ - message will be retried",
+                dlq_entity=dlq_entity_name,
+                original_topic=message.topic,
+                original_partition=message.partition,
+                original_offset=message.offset,
+                error_category=error_category.value,
+            )
+            return False
+
     async def _handle_processing_error(
         self, message: ConsumerRecord, error: Exception, duration: float
     ) -> None:
@@ -399,8 +612,34 @@ class EventHubConsumer:
                 "Permanent error processing message - routing to DLQ",
                 **common_context,
             )
-            # DLQ routing would go here if needed
-            # For now, just log and continue
+
+            # Route to DLQ
+            dlq_success = await self._send_to_dlq(message, error, error_category)
+
+            if dlq_success:
+                # Successfully sent to DLQ
+                # Allow normal flow to continue - checkpoint will happen in on_event
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "Message sent to DLQ successfully - will checkpoint to skip",
+                    original_topic=message.topic,
+                    original_partition=message.partition,
+                    original_offset=message.offset,
+                )
+                # Do NOT re-raise - this allows checkpoint to happen
+            else:
+                # DLQ write failed - prevent checkpoint by re-raising
+                log_with_context(
+                    logger,
+                    logging.ERROR,
+                    "DLQ write failed - preventing checkpoint, message will be retried",
+                    original_topic=message.topic,
+                    original_partition=message.partition,
+                    original_offset=message.offset,
+                )
+                # Re-raise to prevent checkpoint
+                raise error
 
         elif error_category == ErrorCategory.TRANSIENT:
             log_exception(
