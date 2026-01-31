@@ -45,15 +45,15 @@ eventhub:
   transport_type: AmqpOverWebsocket
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
-  # Per-topic entity mapping (parallels kafka.xact.topics / kafka.claimx.topics)
+  # Per-domain Event Hub mapping
   xact:
     events:
-      entity_name: pcesdopodappv1
-      consumer_group: xact-pipeline
-    downloads_pending:
-      entity_name: pcesdopodappv1-xact-dl-pending
-      consumer_group: xact-dl-pending
-    # ... (see config.yaml for full mapping)
+      eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
+      consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
+  claimx:
+    events:
+      eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+      consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
 ```
 
 #### `.env.example`
@@ -159,18 +159,19 @@ Modified `kafka_pipeline/runners/common.py`:
 
 ### Multi-Entity Configuration
 
-Entity names and consumer groups are defined per-topic in `config.yaml`:
+Event Hub names and consumer groups are defined per-domain in `config.yaml`:
 
 ```yaml
 eventhub:
   namespace_connection_string: ${EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
   xact:
     events:
-      entity_name: pcesdopodappv1
-      consumer_group: xact-pipeline
-    downloads_pending:
-      entity_name: pcesdopodappv1-xact-dl-pending
-      consumer_group: xact-dl-pending
+      eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
+      consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
+  claimx:
+    events:
+      eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+      consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
 ```
 
 Worker-specific env var overrides are still supported as a fallback:
@@ -202,13 +203,9 @@ The transport factory uses the Azure SDK's `eventhub_name` parameter instead of 
 **Solution**: The transport factory resolves entity names per-topic from `config.yaml` and passes them via the SDK's `eventhub_name` parameter:
 
 ```python
-# Producer for "events" topic → entity from config.yaml eventhub.xact.events.entity_name
+# Producer for "events" topic → entity from config.yaml eventhub.xact.events.eventhub_name
 producer1 = create_producer(config, domain="xact", worker_name="delta_events_writer", topic_key="events")
-# → eventhub_name="pcesdopodappv1"
-
-# Producer for "downloads_results" topic → entity from config.yaml
-producer2 = create_producer(config, domain="xact", worker_name="result_processor", topic_key="downloads_results")
-# → eventhub_name="pcesdopodappv1-xact-dl-results"
+# → eventhub_name="verisk_events"
 ```
 
 ### SSL Verification Bypass

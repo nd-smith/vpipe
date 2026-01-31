@@ -203,16 +203,22 @@ transport:
 # Compatible with Azure Private Link endpoints
 #
 # Architecture:
-#   One Event Hub NAMESPACE contains multiple Event Hubs (entities).
+#   One Event Hub NAMESPACE contains multiple Event Hubs.
 #   A single namespace-level connection string (no EntityPath) provides
-#   access to all entities. Each entity is specified separately per-topic.
+#   access to all Event Hubs. Each is specified separately per-topic below.
 #
 # Connection string format (namespace-level — NO EntityPath):
 #   Endpoint=sb://<namespace>.servicebus.windows.net/;
 #   SharedAccessKeyName=<policy>;SharedAccessKey=<key>
 #
 # Jenkins/deployment injects ONE secret: EVENTHUB_NAMESPACE_CONNECTION_STRING
-# Entity names and consumer groups are defined below per-domain.
+# Event Hub names and consumer groups are defined below per-domain.
+#
+# Consumer group notes:
+#   A consumer group is per-application, NOT per-process.
+#   Multiple instances of the same app share ONE consumer group to
+#   balance partitions across processes (horizontal scaling).
+#   Use separate consumer groups for independent readers of the same stream.
 eventhub:
   # Namespace-level connection string (no EntityPath)
   # Falls back to EVENTHUB_CONNECTION_STRING for backward compatibility
@@ -226,23 +232,23 @@ eventhub:
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
   # ---------------------------------------------------------------------------
-  # XACT Domain — Event Hub entity for raw event ingestion
+  # XACT Domain
   # ---------------------------------------------------------------------------
   # Currently Event Hub is only used as the external event source.
   # Internal pipeline routing (downloads, enrichment, DLQ) uses local Kafka.
   # Add more entries here if/when those stages migrate to Event Hub.
   xact:
     events:
-      entity_name: ${EVENTHUB_XACT_ENTITY_NAME:-pcesdopodappv1}
-      consumer_group: ${EVENTHUB_XACT_CONSUMER_GROUP:-xact-pipeline}
+      eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
+      consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
 
   # ---------------------------------------------------------------------------
-  # ClaimX Domain — Event Hub entity for raw event ingestion
+  # ClaimX Domain
   # ---------------------------------------------------------------------------
   claimx:
     events:
-      entity_name: ${EVENTHUB_CLAIMX_ENTITY_NAME:-pcesdopodappv1}
-      consumer_group: ${EVENTHUB_CLAIMX_CONSUMER_GROUP:-claimx-pipeline}
+      eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+      consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
 
 # =============================================================================
 # LOGGING & MONITORING

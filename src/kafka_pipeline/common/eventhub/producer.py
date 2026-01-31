@@ -7,7 +7,7 @@ Architecture notes:
 - Event Hub uses AMQP protocol (port 5671 or WebSocket on 443)
 - Namespace connection string (no EntityPath) + eventhub_name parameter
 - Each Event Hub entity is specified separately via the SDK's eventhub_name arg
-- Entity names are resolved per-topic from config.yaml by the transport layer
+- Event Hub names are resolved per-topic from config.yaml by the transport layer
 """
 
 import json
@@ -56,7 +56,7 @@ class EventHubProducer:
         connection_string: str,
         domain: str,
         worker_name: str,
-        entity_name: str,
+        eventhub_name: str,
     ):
         """Initialize Event Hub producer.
 
@@ -64,12 +64,12 @@ class EventHubProducer:
             connection_string: Namespace-level connection string (no EntityPath)
             domain: Pipeline domain (e.g., "xact", "claimx")
             worker_name: Worker name for logging
-            entity_name: Event Hub entity name (resolved from config.yaml by transport layer)
+            eventhub_name: Event Hub name (resolved from config.yaml by transport layer)
         """
         self.connection_string = connection_string
         self.domain = domain
         self.worker_name = worker_name
-        self.entity_name = entity_name
+        self.eventhub_name = eventhub_name
         self._producer: Optional[EventHubProducerClient] = None
         self._started = False
 
@@ -79,7 +79,7 @@ class EventHubProducer:
             "Initialized Event Hub producer",
             domain=domain,
             worker_name=worker_name,
-            entity_name=self.entity_name,
+            eventhub_name=self.eventhub_name,
             transport="AmqpOverWebsocket",
         )
 
@@ -101,7 +101,7 @@ class EventHubProducer:
             # This is required for Azure Private Link endpoints
             self._producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
-                eventhub_name=self.entity_name,
+                eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
             )
 
@@ -119,7 +119,7 @@ class EventHubProducer:
                 logger,
                 logging.INFO,
                 "Event Hub producer started successfully",
-                entity_name=self.entity_name,
+                eventhub_name=self.eventhub_name,
                 transport="AmqpOverWebsocket",
             )
 
@@ -154,7 +154,7 @@ class EventHubProducer:
         """Send a single message to Event Hub.
 
         Args:
-            topic: Event Hub entity name (must match self.entity_name)
+            topic: Event Hub entity name (must match self.eventhub_name)
             key: Message key (stored in Event Hub properties)
             value: Message value (Pydantic model, dict, or bytes)
             headers: Optional message headers (stored in Event Hub properties)
@@ -166,10 +166,10 @@ class EventHubProducer:
             raise RuntimeError("Producer not started. Call start() first.")
 
         # Validate topic matches entity
-        if topic != self.entity_name:
+        if topic != self.eventhub_name:
             logger.warning(
-                f"Topic mismatch: requested '{topic}', producer connected to '{self.entity_name}'. "
-                f"Event Hub does not support multiple topics. Using entity '{self.entity_name}'."
+                f"Topic mismatch: requested '{topic}', producer connected to '{self.eventhub_name}'. "
+                f"Event Hub does not support multiple topics. Using entity '{self.eventhub_name}'."
             )
 
         # Serialize value
@@ -197,7 +197,7 @@ class EventHubProducer:
             logger,
             logging.DEBUG,
             "Sending message to Event Hub",
-            entity=self.entity_name,
+            entity=self.eventhub_name,
             key=key,
             headers=headers,
             value_size=len(value_bytes),
@@ -210,27 +210,27 @@ class EventHubProducer:
             batch.add(event_data)
             self._producer.send_batch(batch)
 
-            record_message_produced(self.entity_name, len(value_bytes), success=True)
+            record_message_produced(self.eventhub_name, len(value_bytes), success=True)
 
             log_with_context(
                 logger,
                 logging.DEBUG,
                 "Message sent successfully",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
             )
 
             # Return metadata for compatibility
             # Event Hub doesn't provide partition/offset info synchronously
             return EventHubRecordMetadata(
-                topic=self.entity_name,
+                topic=self.eventhub_name,
                 partition=0,  # Partition assignment is automatic
                 offset=0,  # Offset not available in Event Hub SDK
             )
 
         except Exception as e:
-            record_message_produced(self.entity_name, len(value_bytes), success=False)
-            record_producer_error(self.entity_name, type(e).__name__)
-            log_exception(logger, e, "Failed to send message", entity=self.entity_name, key=key)
+            record_message_produced(self.eventhub_name, len(value_bytes), success=False)
+            record_producer_error(self.eventhub_name, type(e).__name__)
+            log_exception(logger, e, "Failed to send message", entity=self.eventhub_name, key=key)
             raise
 
     async def send_batch(
@@ -242,7 +242,7 @@ class EventHubProducer:
         """Send a batch of messages to Event Hub.
 
         Args:
-            topic: Event Hub entity name (must match self.entity_name)
+            topic: Event Hub entity name (must match self.eventhub_name)
             messages: List of (key, value) tuples
             headers: Optional headers applied to all messages
 
@@ -257,16 +257,16 @@ class EventHubProducer:
             return []
 
         # Validate topic
-        if topic != self.entity_name:
+        if topic != self.eventhub_name:
             logger.warning(
-                f"Topic mismatch: requested '{topic}', using '{self.entity_name}'"
+                f"Topic mismatch: requested '{topic}', using '{self.eventhub_name}'"
             )
 
         log_with_context(
             logger,
             logging.INFO,
             "Sending batch to Event Hub",
-            entity=self.entity_name,
+            entity=self.eventhub_name,
             message_count=len(messages),
             headers=headers,
         )
@@ -295,39 +295,39 @@ class EventHubProducer:
             self._producer.send_batch(batch)
 
             duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(topic=self.entity_name).observe(duration)
+            message_processing_duration_seconds.labels(topic=self.eventhub_name).observe(duration)
 
             for _ in messages:
-                record_message_produced(self.entity_name, total_bytes // len(messages), success=True)
+                record_message_produced(self.eventhub_name, total_bytes // len(messages), success=True)
 
             log_with_context(
                 logger,
                 logging.INFO,
                 "Batch sent successfully",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
                 message_count=len(messages),
                 duration_ms=round(duration * 1000, 2),
             )
 
             # Return metadata list for compatibility
             return [
-                EventHubRecordMetadata(topic=self.entity_name, partition=0, offset=i)
+                EventHubRecordMetadata(topic=self.eventhub_name, partition=0, offset=i)
                 for i in range(len(messages))
             ]
 
         except Exception as e:
             duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(topic=self.entity_name).observe(duration)
+            message_processing_duration_seconds.labels(topic=self.eventhub_name).observe(duration)
 
             for _ in messages:
-                record_message_produced(self.entity_name, total_bytes // len(messages), success=False)
-            record_producer_error(self.entity_name, type(e).__name__)
+                record_message_produced(self.eventhub_name, total_bytes // len(messages), success=False)
+            record_producer_error(self.eventhub_name, type(e).__name__)
 
             log_exception(
                 logger,
                 e,
                 "Failed to send batch",
-                entity=self.entity_name,
+                entity=self.eventhub_name,
                 message_count=len(messages),
                 duration_ms=round(duration * 1000, 2),
             )
