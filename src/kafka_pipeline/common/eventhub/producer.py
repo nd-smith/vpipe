@@ -16,11 +16,12 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from azure.eventhub import EventData, EventHubProducerClient, TransportType
-from aiokafka.structs import RecordMetadata
+from aiokafka.structs import RecordMetadata  # Keep for backward compatibility during migration
 from pydantic import BaseModel
 
 from core.logging import get_logger, log_with_context, log_exception
 from core.utils.json_serializers import json_serializer
+from kafka_pipeline.common.types import ProduceResult
 from kafka_pipeline.common.metrics import (
     record_message_produced,
     record_producer_error,
@@ -32,12 +33,45 @@ logger = get_logger(__name__)
 
 
 class EventHubRecordMetadata:
-    """Mimics aiokafka RecordMetadata for compatibility."""
+    """Adapts EventHub send result to ProduceResult for transport-agnostic processing.
 
-    def __init__(self, topic: str, partition: int = 0, offset: int = 0):
-        self.topic = topic
-        self.partition = partition
-        self.offset = offset
+    Converts EventHub producer confirmation to the transport-agnostic ProduceResult type,
+    enabling the same code to work with both Kafka and Event Hub producer results.
+
+    Note: Event Hub SDK does not provide partition/offset info synchronously,
+    so we return placeholder values (partition=0, offset=0) for compatibility.
+    """
+
+    def __init__(self, topic: str, partition: int = 0, offset: int = 0) -> None:
+        """Create ProduceResult from EventHub send confirmation.
+
+        Args:
+            topic: Name of the Event Hub entity the message was sent to
+            partition: Partition number (0 for EventHub, assigned automatically)
+            offset: Offset (0 for EventHub, not available in SDK)
+        """
+        self._result = ProduceResult(
+            topic=topic,
+            partition=partition,
+            offset=offset,
+        )
+
+    # Expose ProduceResult fields for backward compatibility
+    @property
+    def topic(self) -> str:
+        return self._result.topic
+
+    @property
+    def partition(self) -> int:
+        return self._result.partition
+
+    @property
+    def offset(self) -> int:
+        return self._result.offset
+
+    def to_produce_result(self) -> ProduceResult:
+        """Get the underlying ProduceResult for code that accepts it directly."""
+        return self._result
 
 
 class EventHubProducer:
@@ -150,7 +184,7 @@ class EventHubProducer:
         key: Optional[Union[str, bytes]],
         value: Union[BaseModel, Dict[str, Any], bytes],
         headers: Optional[Dict[str, str]] = None,
-    ) -> RecordMetadata:
+    ) -> ProduceResult:
         """Send a single message to Event Hub.
 
         Args:
@@ -160,7 +194,7 @@ class EventHubProducer:
             headers: Optional message headers (stored in Event Hub properties)
 
         Returns:
-            EventHubRecordMetadata for compatibility with Kafka interface
+            ProduceResult with transport-agnostic confirmation metadata
         """
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
@@ -219,13 +253,14 @@ class EventHubProducer:
                 entity=self.eventhub_name,
             )
 
-            # Return metadata for compatibility
+            # Return ProduceResult for transport-agnostic interface
             # Event Hub doesn't provide partition/offset info synchronously
-            return EventHubRecordMetadata(
+            metadata = EventHubRecordMetadata(
                 topic=self.eventhub_name,
                 partition=0,  # Partition assignment is automatic
                 offset=0,  # Offset not available in Event Hub SDK
             )
+            return metadata.to_produce_result()
 
         except Exception as e:
             record_message_produced(self.eventhub_name, len(value_bytes), success=False)
@@ -238,7 +273,7 @@ class EventHubProducer:
         topic: str,
         messages: List[Tuple[str, BaseModel]],
         headers: Optional[Dict[str, str]] = None,
-    ) -> List[RecordMetadata]:
+    ) -> List[ProduceResult]:
         """Send a batch of messages to Event Hub.
 
         Args:
@@ -247,7 +282,7 @@ class EventHubProducer:
             headers: Optional headers applied to all messages
 
         Returns:
-            List of EventHubRecordMetadata for compatibility
+            List of ProduceResult with transport-agnostic confirmation metadata
         """
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
@@ -309,9 +344,9 @@ class EventHubProducer:
                 duration_ms=round(duration * 1000, 2),
             )
 
-            # Return metadata list for compatibility
+            # Return ProduceResult list for transport-agnostic interface
             return [
-                EventHubRecordMetadata(topic=self.eventhub_name, partition=0, offset=i)
+                EventHubRecordMetadata(topic=self.eventhub_name, partition=0, offset=i).to_produce_result()
                 for i in range(len(messages))
             ]
 

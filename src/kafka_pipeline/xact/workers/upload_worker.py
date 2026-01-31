@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context
@@ -45,13 +44,14 @@ from kafka_pipeline.common.metrics import (
     update_consumer_offset,
     message_processing_duration_seconds,
 )
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class UploadResult:
-    message: ConsumerRecord
+    message: PipelineMessage
     cached_message: CachedDownloadMessage
     processing_time_ms: int
     success: bool
@@ -522,10 +522,10 @@ class UploadWorker:
                 if not batch:
                     continue
 
-                # Flatten messages from all partitions
+                # Flatten messages from all partitions and convert to PipelineMessage
                 messages = []
                 for topic_partition, records in batch.items():
-                    messages.extend(records)
+                    messages.extend([from_consumer_record(r) for r in records])
 
                 if messages:
                     await self._process_batch(messages)
@@ -537,7 +537,7 @@ class UploadWorker:
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[ConsumerRecord]) -> None:
+    async def _process_batch(self, messages: List[PipelineMessage]) -> None:
         if self._consumer is None:
             raise RuntimeError("Consumer not initialized - call start() first")
         if self._semaphore is None:
@@ -566,14 +566,14 @@ class UploadWorker:
         except Exception as e:
             logger.error("Failed to commit offsets", extra={"error": str(e)}, exc_info=True)
 
-    async def _process_single_with_semaphore(self, message: ConsumerRecord) -> UploadResult:
+    async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
         async with self._semaphore:
             return await self._process_single_upload(message)
 
-    async def _process_single_upload(self, message: ConsumerRecord) -> UploadResult:
+    async def _process_single_upload(self, message: PipelineMessage) -> UploadResult:
         start_time = time.time()
         trace_id = "unknown"
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)

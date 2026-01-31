@@ -31,7 +31,6 @@ from typing import List, Optional, Set
 
 import aiohttp
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context
@@ -54,13 +53,14 @@ from kafka_pipeline.common.metrics import (
     update_connection_status,
     update_assigned_partitions,
 )
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class TaskResult:
-    message: ConsumerRecord
+    message: PipelineMessage
     task_message: ClaimXDownloadTask
     outcome: DownloadOutcome
     processing_time_ms: int
@@ -483,9 +483,10 @@ class ClaimXDownloadWorker:
                 if not data:
                     continue
 
-                messages: List[ConsumerRecord] = []
+                messages: List[PipelineMessage] = []
                 for topic_partition, records in data.items():
-                    messages.extend(records)
+                    # Convert ConsumerRecord to PipelineMessage
+                    messages.extend([from_consumer_record(r) for r in records])
 
                 if not messages:
                     continue
@@ -524,8 +525,8 @@ class ClaimXDownloadWorker:
                 )
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[ConsumerRecord]) -> List[TaskResult]:
-        async def bounded_process(message: ConsumerRecord) -> TaskResult:
+    async def _process_batch(self, messages: List[PipelineMessage]) -> List[TaskResult]:
+        async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
 
@@ -570,7 +571,7 @@ class ClaimXDownloadWorker:
 
         return [r for r in processed_results if r is not None]
 
-    async def _process_single_task(self, message: ConsumerRecord) -> TaskResult:
+    async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
         start_time = time.perf_counter()
 
         try:

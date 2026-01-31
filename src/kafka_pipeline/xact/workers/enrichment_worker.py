@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord, TopicPartition
+from aiokafka.structs import TopicPartition
 from pydantic import ValidationError
 
 from core.auth.kafka_oauth import create_kafka_oauth_callback
@@ -38,6 +38,7 @@ from kafka_pipeline.common.metrics import (
     update_assigned_partitions,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.simulation.config import SimulationConfig
 from kafka_pipeline.xact.retry import DownloadRetryHandler
@@ -390,7 +391,9 @@ class XACTEnrichmentWorker:
 
                 for partition, messages in msg_dict.items():
                     for msg in messages:
-                        await self._handle_enrichment_task(msg)
+                        # Convert ConsumerRecord to PipelineMessage
+                        pipeline_msg = from_consumer_record(msg)
+                        await self._handle_enrichment_task(pipeline_msg)
 
                 # Wait for all background tasks to complete before committing offsets
                 if self._pending_tasks:
@@ -524,18 +527,18 @@ class XACTEnrichmentWorker:
                 exc_info=True,
             )
 
-    async def _handle_enrichment_task(self, record: ConsumerRecord) -> None:
+    async def _handle_enrichment_task(self, message: PipelineMessage) -> None:
         """Process enrichment task - execute plugins and create download tasks."""
         try:
-            message_data = json.loads(record.value.decode("utf-8"))
+            message_data = json.loads(message.value.decode("utf-8"))
             task = XACTEnrichmentTask.model_validate(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse XACTEnrichmentTask",
                 extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
+                    "topic": message.topic,
+                    "partition": message.partition,
+                    "offset": message.offset,
                     "error": str(e),
                 },
                 exc_info=True,

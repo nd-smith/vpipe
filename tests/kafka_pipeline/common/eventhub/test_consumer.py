@@ -22,6 +22,7 @@ sys.modules['azure.eventhub.extensions.checkpointstoreblobaio'] = MagicMock()
 
 from core.errors.exceptions import ErrorCategory, PermanentError, TransientError
 from kafka_pipeline.common.eventhub.consumer import EventHubConsumer, EventHubConsumerRecord
+from kafka_pipeline.common.types import PipelineMessage
 
 
 # Mock EventData class for testing
@@ -154,7 +155,7 @@ class TestEventHubConsumerRecordAdapter:
         record = EventHubConsumerRecord(event, "test-hub", "0")
 
         assert record.key is None
-        assert record.headers == []
+        assert record.headers is None
 
     def test_handles_missing_enqueued_time(self):
         """Test adapter handles EventData with no enqueued time."""
@@ -1062,3 +1063,234 @@ class TestEventHubConsumerCheckpointStore:
         # Check for log message mentioning in-memory checkpoints
         log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
         assert any("in-memory checkpoints" in msg.lower() for msg in log_messages)
+
+
+class TestEventHubConsumerRecordToPipelineMessage:
+    """Test EventHubConsumerRecord to PipelineMessage conversion."""
+
+    def test_to_pipeline_message_basic_conversion(self):
+        """Test basic EventData to PipelineMessage conversion."""
+        enqueued_time = datetime(2024, 1, 15, 12, 0, 0)
+        event = create_event_data(
+            body=b'{"test": "data"}',
+            properties={"_key": "test-key"},
+            enqueued_time=enqueued_time,
+            offset="12345",
+        )
+
+        record = EventHubConsumerRecord(event, "test-hub", "3")
+        msg = record.to_pipeline_message()
+
+        assert isinstance(msg, PipelineMessage)
+        assert msg.topic == "test-hub"
+        assert msg.partition == 3
+        assert msg.offset == "12345"
+        assert msg.timestamp == int(enqueued_time.timestamp() * 1000)
+        assert msg.key == b"test-key"
+        assert msg.value == b'{"test": "data"}'
+
+    def test_to_pipeline_message_with_headers(self):
+        """Test conversion preserves headers (excluding _key)."""
+        properties = {
+            "_key": "entity-123",
+            "trace-id": "abc123",
+            "correlation-id": "xyz789",
+            "content-type": "application/json",
+        }
+        event = create_event_data(properties=properties)
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        # Verify headers were converted (excluding _key)
+        assert msg.headers is not None
+        headers_dict = {k: v for k, v in msg.headers}
+
+        assert b"trace-id" not in headers_dict  # Keys are strings, not bytes
+        assert "trace-id" in headers_dict
+        assert headers_dict["trace-id"] == b"abc123"
+        assert headers_dict["correlation-id"] == b"xyz789"
+        assert headers_dict["content-type"] == b"application/json"
+        assert "_key" not in headers_dict  # Should be excluded from headers
+
+    def test_to_pipeline_message_timestamp_conversion(self):
+        """Test datetime to milliseconds timestamp conversion."""
+        # Test specific datetime conversion
+        enqueued_time = datetime(2021, 1, 1, 0, 0, 0)  # 2021-01-01 00:00:00 UTC
+        expected_timestamp_ms = int(enqueued_time.timestamp() * 1000)
+
+        event = create_event_data(enqueued_time=enqueued_time)
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        assert msg.timestamp == expected_timestamp_ms
+        assert isinstance(msg.timestamp, int)
+
+    def test_to_pipeline_message_no_enqueued_time(self):
+        """Test conversion when EventData has no enqueued_time."""
+        event = MockEventData(b"test body")
+        event._enqueued_time = None
+        event.offset = "0"
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        assert msg.timestamp == 0
+
+    def test_to_pipeline_message_no_key(self):
+        """Test conversion when EventData has no key in properties."""
+        event = MockEventData(b"test body")
+        event._properties = {"other_property": "value"}  # No _key property
+        event._enqueued_time = datetime.now()
+        event.offset = "0"
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        assert msg.key is None
+
+    def test_to_pipeline_message_empty_key(self):
+        """Test conversion when EventData has empty key string."""
+        event = create_event_data(properties={"_key": ""})
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        assert msg.key is None
+
+    def test_to_pipeline_message_no_properties(self):
+        """Test conversion when EventData has no properties."""
+        event = MockEventData(b"test body")
+        event._properties = None
+        event._enqueued_time = datetime.now()
+        event.offset = "0"
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        assert msg.key is None
+        assert msg.headers is None
+
+    def test_to_pipeline_message_empty_headers(self):
+        """Test conversion when only _key property exists (no other headers)."""
+        event = create_event_data(properties={"_key": "test-key"})
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        # Headers should be None since only _key existed and it's excluded
+        assert msg.headers is None
+
+    def test_to_pipeline_message_immutability(self):
+        """Test that returned PipelineMessage is immutable."""
+        event = create_event_data()
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        # PipelineMessage is frozen - should not allow modification
+        with pytest.raises(Exception):
+            msg.topic = "modified-topic"
+
+    def test_to_pipeline_message_partition_conversion(self):
+        """Test partition ID conversion from string to int."""
+        event = create_event_data()
+
+        # Test various partition IDs
+        record1 = EventHubConsumerRecord(event, "test-hub", "0")
+        assert record1.to_pipeline_message().partition == 0
+
+        record2 = EventHubConsumerRecord(event, "test-hub", "5")
+        assert record2.to_pipeline_message().partition == 5
+
+        record3 = EventHubConsumerRecord(event, "test-hub", "15")
+        assert record3.to_pipeline_message().partition == 15
+
+    def test_backward_compatibility_property_access(self):
+        """Test backward compatibility - properties accessible directly on adapter."""
+        enqueued_time = datetime(2024, 1, 15, 12, 0, 0)
+        properties = {
+            "_key": "entity-123",
+            "trace-id": "abc123",
+        }
+        event = create_event_data(
+            body=b'{"test": "data"}',
+            properties=properties,
+            enqueued_time=enqueued_time,
+            offset="12345",
+        )
+
+        record = EventHubConsumerRecord(event, "test-hub", "3")
+
+        # Verify backward compatibility - properties accessible on adapter
+        assert record.topic == "test-hub"
+        assert record.partition == 3
+        assert record.offset == "12345"
+        assert record.timestamp == int(enqueued_time.timestamp() * 1000)
+        assert record.key == b"entity-123"
+        assert record.value == b'{"test": "data"}'
+        assert record.headers is not None
+
+        # Verify same values in PipelineMessage
+        msg = record.to_pipeline_message()
+        assert msg.topic == record.topic
+        assert msg.partition == record.partition
+        assert msg.offset == record.offset
+        assert msg.timestamp == record.timestamp
+        assert msg.key == record.key
+        assert msg.value == record.value
+        assert msg.headers == record.headers
+
+    def test_headers_conversion_format(self):
+        """Test headers are converted to List[Tuple[str, bytes]] format."""
+        properties = {
+            "_key": "test-key",
+            "string_value": "text",
+            "numeric_value": 123,
+            "bool_value": True,
+        }
+        event = create_event_data(properties=properties)
+
+        record = EventHubConsumerRecord(event, "test-hub", "0")
+        msg = record.to_pipeline_message()
+
+        # Verify headers format
+        assert isinstance(msg.headers, list)
+        for header in msg.headers:
+            assert isinstance(header, tuple)
+            assert len(header) == 2
+            assert isinstance(header[0], str)
+            assert isinstance(header[1], bytes)
+
+        # Verify all values are converted to bytes
+        headers_dict = {k: v for k, v in msg.headers}
+        assert headers_dict["string_value"] == b"text"
+        assert headers_dict["numeric_value"] == b"123"
+        assert headers_dict["bool_value"] == b"True"
+
+    def test_multiple_conversions_independent(self):
+        """Test multiple conversions produce independent PipelineMessage instances."""
+        event1 = create_event_data(
+            body=b"body1",
+            properties={"_key": "key1"},
+            offset="100",
+        )
+        event2 = create_event_data(
+            body=b"body2",
+            properties={"_key": "key2"},
+            offset="200",
+        )
+
+        record1 = EventHubConsumerRecord(event1, "test-hub", "0")
+        record2 = EventHubConsumerRecord(event2, "test-hub", "0")
+
+        msg1 = record1.to_pipeline_message()
+        msg2 = record2.to_pipeline_message()
+
+        # Verify messages are independent
+        assert msg1.value == b"body1"
+        assert msg2.value == b"body2"
+        assert msg1.key == b"key1"
+        assert msg2.key == b"key2"
+        assert msg1.offset == "100"
+        assert msg2.offset == "200"
+        assert msg1 != msg2

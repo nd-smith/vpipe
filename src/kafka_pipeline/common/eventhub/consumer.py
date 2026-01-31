@@ -22,18 +22,19 @@ import json
 import logging
 import socket
 import time
-from typing import Awaitable, Callable, List, Optional
+from typing import Awaitable, Callable, List, Optional, Tuple
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 from aiokafka import AIOKafkaProducer
-from aiokafka.structs import ConsumerRecord
+from aiokafka.structs import ConsumerRecord  # Keep for backward compatibility during migration
 
 from core.logging import get_logger, log_with_context, log_exception, KafkaLogContext
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
 from kafka_pipeline.common.eventhub.producer import EventHubProducer
+from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
@@ -47,22 +48,92 @@ logger = get_logger(__name__)
 
 
 class EventHubConsumerRecord:
-    """Adapts EventData to look like ConsumerRecord for compatibility."""
+    """Adapts EventData to PipelineMessage for transport-agnostic processing.
 
-    def __init__(self, event_data: EventData, eventhub_name: str, partition: str):
-        self.topic = eventhub_name
-        self.partition = int(partition) if partition else 0
-        self.offset = event_data.offset if hasattr(event_data, 'offset') else 0
-        self.timestamp = int(event_data.enqueued_time.timestamp() * 1000) if event_data.enqueued_time else 0
-        self.key = event_data.properties.get("_key", "").encode("utf-8") if event_data.properties else None
-        self.value = event_data.body_as_bytes()
+    Converts Azure Event Hub EventData to the transport-agnostic PipelineMessage type,
+    enabling the same message handlers to work with both Kafka and Event Hub.
 
-        # Convert properties back to headers format
-        self.headers = []
+    Conversion details:
+    - EventHub entity name -> PipelineMessage.topic
+    - Partition ID (string) -> PipelineMessage.partition (int)
+    - EventData.offset -> PipelineMessage.offset
+    - EventData.enqueued_time (datetime) -> PipelineMessage.timestamp (int milliseconds)
+    - EventData.properties["_key"] -> PipelineMessage.key (bytes)
+    - EventData.body -> PipelineMessage.value (bytes)
+    - EventData.properties (dict) -> PipelineMessage.headers (List[Tuple[str, bytes]])
+    """
+
+    def __init__(self, event_data: EventData, eventhub_name: str, partition: str) -> None:
+        """Convert EventData to PipelineMessage.
+
+        Args:
+            event_data: Azure Event Hub EventData object
+            eventhub_name: Name of the Event Hub entity (used as topic)
+            partition: Partition ID as string (converted to int)
+        """
+        # Convert timestamp: EventData uses datetime, PipelineMessage uses int milliseconds
+        timestamp_ms = 0
+        if event_data.enqueued_time:
+            timestamp_ms = int(event_data.enqueued_time.timestamp() * 1000)
+
+        # Extract key from properties (stored by EventHub producer)
+        key_bytes = None
+        if event_data.properties and "_key" in event_data.properties:
+            key_str = event_data.properties.get("_key", "")
+            if key_str:
+                key_bytes = key_str.encode("utf-8")
+
+        # Convert properties to headers format: dict -> List[Tuple[str, bytes]]
+        headers = []
         if event_data.properties:
             for k, v in event_data.properties.items():
                 if k != "_key":  # Skip internal key property
-                    self.headers.append((k, str(v).encode("utf-8")))
+                    headers.append((k, str(v).encode("utf-8")))
+
+        # Create transport-agnostic PipelineMessage
+        self._message = PipelineMessage(
+            topic=eventhub_name,
+            partition=int(partition) if partition else 0,
+            offset=event_data.offset if hasattr(event_data, 'offset') else 0,
+            timestamp=timestamp_ms,
+            key=key_bytes,
+            value=event_data.body_as_bytes(),
+            headers=headers if headers else None,
+        )
+
+    # Expose PipelineMessage fields for backward compatibility
+    # This allows existing code using .topic, .partition, etc. to continue working
+    @property
+    def topic(self) -> str:
+        return self._message.topic
+
+    @property
+    def partition(self) -> int:
+        return self._message.partition
+
+    @property
+    def offset(self) -> int:
+        return self._message.offset
+
+    @property
+    def timestamp(self) -> int:
+        return self._message.timestamp
+
+    @property
+    def key(self) -> Optional[bytes]:
+        return self._message.key
+
+    @property
+    def value(self) -> Optional[bytes]:
+        return self._message.value
+
+    @property
+    def headers(self) -> Optional[List[Tuple[str, bytes]]]:
+        return self._message.headers
+
+    def to_pipeline_message(self) -> PipelineMessage:
+        """Get the underlying PipelineMessage for handlers that accept it directly."""
+        return self._message
 
 
 class EventHubConsumer:
@@ -83,7 +154,7 @@ class EventHubConsumer:
         worker_name: str,
         eventhub_name: str,
         consumer_group: str,
-        message_handler: Callable[[ConsumerRecord], Awaitable[None]],
+        message_handler: Callable[[PipelineMessage], Awaitable[None]],
         enable_message_commit: bool = True,
         instance_id: Optional[str] = None,
         checkpoint_store: Optional[BlobCheckpointStore] = None,
@@ -96,7 +167,7 @@ class EventHubConsumer:
             worker_name: Worker name for logging
             eventhub_name: Event Hub name (resolved from config.yaml by transport layer)
             consumer_group: Consumer group name (resolved from config.yaml by transport layer)
-            message_handler: Async function to process each message
+            message_handler: Async function to process each PipelineMessage
             enable_message_commit: Whether to commit offsets after processing
             instance_id: Optional instance identifier for parallel consumers
             checkpoint_store: Optional BlobCheckpointStore for durable offset persistence.
@@ -264,13 +335,15 @@ class EventHubConsumer:
             partition_id = partition_context.partition_id
             self._current_partition_context[partition_id] = partition_context
 
-            # Convert EventData to ConsumerRecord for compatibility
-            record = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
+            # Convert EventData to transport-agnostic PipelineMessage
+            # This adapter handles all conversion from EventHub-specific types
+            record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
+            message = record_adapter.to_pipeline_message()
 
             # Process the message
             # This may raise an exception if DLQ write fails for a PERMANENT error
             try:
-                await self._process_message(record)
+                await self._process_message(message)
 
                 # Checkpoint after successful processing
                 # (including successful DLQ writes for PERMANENT errors)
@@ -286,7 +359,7 @@ class EventHubConsumer:
                     "Message processing failed - will not checkpoint",
                     entity=self.eventhub_name,
                     partition_id=partition_id,
-                    offset=record.offset,
+                    offset=message.offset,
                 )
                 # Do not re-raise - continue processing other messages
                 # Event Hub will redeliver this message on the next receive
@@ -350,8 +423,8 @@ class EventHubConsumer:
             log_exception(logger, e, "Error in Event Hub receive loop")
             raise
 
-    async def _process_message(self, message: ConsumerRecord) -> None:
-        """Process a single message (same logic as BaseKafkaConsumer)."""
+    async def _process_message(self, message: PipelineMessage) -> None:
+        """Process a single message using transport-agnostic PipelineMessage type."""
         from kafka_pipeline.common.telemetry import get_tracer
 
         tracer = get_tracer(__name__)
@@ -494,12 +567,12 @@ class EventHubConsumer:
         )
 
     async def _send_to_dlq(
-        self, message: ConsumerRecord, error: Exception, error_category: ErrorCategory
+        self, message: PipelineMessage, error: Exception, error_category: ErrorCategory
     ) -> bool:
         """Send failed message to DLQ Event Hub with full context.
 
         Args:
-            message: Original message that failed processing
+            message: Original PipelineMessage that failed processing
             error: Exception that occurred during processing
             error_category: Classification of the error (PERMANENT or TRANSIENT)
 
@@ -610,9 +683,9 @@ class EventHubConsumer:
             return False
 
     async def _handle_processing_error(
-        self, message: ConsumerRecord, error: Exception, duration: float
+        self, message: PipelineMessage, error: Exception, duration: float
     ) -> None:
-        """Error classification with DLQ routing (same as BaseKafkaConsumer)."""
+        """Error classification with DLQ routing using transport-agnostic PipelineMessage."""
         classified_error = KafkaErrorClassifier.classify_consumer_error(
             error,
             context={
