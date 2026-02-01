@@ -18,14 +18,14 @@ Features:
 """
 
 import asyncio
+import contextlib
 import time
 import uuid
-from typing import Any, Dict, List, Optional
 
+from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import record_delta_write
@@ -34,8 +34,8 @@ from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 from kafka_pipeline.verisk.writers.delta_inventory import (
-    DeltaInventoryWriter,
     DeltaFailedAttachmentsWriter,
+    DeltaInventoryWriter,
 )
 
 logger = get_logger(__name__)
@@ -92,11 +92,11 @@ class ResultProcessor:
         config: KafkaConfig,
         producer: BaseKafkaProducer,
         inventory_table_path: str,
-        failed_table_path: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        batch_timeout_seconds: Optional[float] = None,
-        max_batches: Optional[int] = None,
-        instance_id: Optional[str] = None,
+        failed_table_path: str | None = None,
+        batch_size: int | None = None,
+        batch_timeout_seconds: float | None = None,
+        max_batches: int | None = None,
+        instance_id: str | None = None,
     ):
         """
         Initialize result processor.
@@ -130,7 +130,7 @@ class ResultProcessor:
 
         # Delta writers
         self._inventory_writer = DeltaInventoryWriter(table_path=inventory_table_path)
-        self._failed_writer: Optional[DeltaFailedAttachmentsWriter] = None
+        self._failed_writer: DeltaFailedAttachmentsWriter | None = None
         if failed_table_path:
             self._failed_writer = DeltaFailedAttachmentsWriter(
                 table_path=failed_table_path
@@ -147,8 +147,8 @@ class ResultProcessor:
         )
 
         # Batching state - separate batches for success and failed
-        self._batch: List[DownloadResultMessage] = []
-        self._failed_batch: List[DownloadResultMessage] = []
+        self._batch: list[DownloadResultMessage] = []
+        self._failed_batch: list[DownloadResultMessage] = []
         self._batch_lock = asyncio.Lock()
         self._last_flush = time.monotonic()
 
@@ -180,7 +180,7 @@ class ResultProcessor:
         )
 
         # Background flush task
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
         self._running = False
 
         # Health check server - use worker-specific port from config
@@ -227,8 +227,9 @@ class ResultProcessor:
         self._running = True
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-result-processor",
@@ -278,10 +279,8 @@ class ResultProcessor:
             # Cancel periodic flush task
             if self._flush_task and not self._flush_task.done():
                 self._flush_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._flush_task
-                except asyncio.CancelledError:
-                    pass
 
             # Flush any pending batches
             async with self._batch_lock:

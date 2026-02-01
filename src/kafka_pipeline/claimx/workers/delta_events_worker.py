@@ -25,19 +25,19 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from config.config import KafkaConfig
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
-from config.config import KafkaConfig
+from kafka_pipeline.claimx.writers import ClaimXEventsDeltaWriter
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.metrics import record_delta_write
+from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from kafka_pipeline.claimx.writers import ClaimXEventsDeltaWriter
+from kafka_pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -81,7 +81,7 @@ class ClaimXDeltaEventsWorker:
         producer: BaseKafkaProducer,
         events_table_path: str,
         domain: str = "claimx",
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
     ):
         """
         Initialize ClaimX Delta events worker.
@@ -96,7 +96,7 @@ class ClaimXDeltaEventsWorker:
         self.domain = domain
         self.instance_id = instance_id
         self.events_table_path = events_table_path
-        self.consumer: Optional[BaseKafkaConsumer] = None
+        self.consumer: BaseKafkaConsumer | None = None
         self.producer = producer
 
         # Create worker_id with instance suffix (coolname) if provided
@@ -127,9 +127,9 @@ class ClaimXDeltaEventsWorker:
         )
 
         # Batch state
-        self._batch: List[Dict[str, Any]] = []
+        self._batch: list[dict[str, Any]] = []
         self._batch_lock = asyncio.Lock()
-        self._batch_timer: Optional[asyncio.Task] = None
+        self._batch_timer: asyncio.Task | None = None
         self._batches_written = 0
 
         # Cycle output tracking
@@ -139,7 +139,7 @@ class ClaimXDeltaEventsWorker:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
         self._running = False
 
         # Cycle-specific metrics (reset each cycle)
@@ -202,8 +202,9 @@ class ClaimXDeltaEventsWorker:
         self._running = True
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-delta-events-worker",
@@ -277,8 +278,8 @@ class ClaimXDeltaEventsWorker:
 
         try:
             message_data = json.loads(record.value.decode("utf-8"))
-        except json.JSONDecodeError as e:
-            logger.error("Failed to parse message JSON", exc_info=True)
+        except json.JSONDecodeError:
+            logger.exception("Failed to parse message JSON")
             return
 
         async with self._batch_lock:
@@ -334,7 +335,7 @@ class ClaimXDeltaEventsWorker:
             await self._handle_failed_batch(batch_to_write, e)
 
     async def _handle_failed_batch(
-        self, batch: List[Dict[str, Any]], error: Exception
+        self, batch: list[dict[str, Any]], error: Exception
     ) -> None:
         """
         Handle failed batch with error classification and DLQ routing.

@@ -20,39 +20,39 @@ Concurrent Processing:
 """
 
 import asyncio
-import base64
+import contextlib
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, List, Optional, Set
+from typing import Any
 
 import aiohttp
 from aiokafka import AIOKafkaConsumer
 
+from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
+from core.download.downloader import AttachmentDownloader
+from core.download.models import DownloadOutcome, DownloadTask
+from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from core.download.downloader import AttachmentDownloader
-from core.download.models import DownloadTask, DownloadOutcome
-from core.errors.exceptions import CircuitOpenError
 from core.types import ErrorCategory
-from config.config import KafkaConfig
-from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.claimx.api_client import ClaimXApiClient
-from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.retry import DownloadRetryHandler
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
-    update_connection_status,
     update_assigned_partitions,
+    update_connection_status,
 )
+from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 logger = get_logger(__name__)
@@ -65,7 +65,7 @@ class TaskResult:
     outcome: DownloadOutcome
     processing_time_ms: int
     success: bool
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
 
 class ClaimXDownloadWorker:
@@ -109,9 +109,9 @@ class ClaimXDownloadWorker:
         self,
         config: KafkaConfig,
         domain: str = "claimx",
-        temp_dir: Optional[Path] = None,
-        instance_id: Optional[str] = None,
-        simulation_config: Optional[Any] = None,
+        temp_dir: Path | None = None,
+        instance_id: str | None = None,
+        simulation_config: Any | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -141,13 +141,13 @@ class ClaimXDownloadWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [config.get_topic(domain, "downloads_pending")]
 
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._consumer: AIOKafkaConsumer | None = None
         self._running = False
 
-        self._semaphore: Optional[asyncio.Semaphore] = None
-        self._in_flight_tasks: Set[str] = set()
+        self._semaphore: asyncio.Semaphore | None = None
+        self._in_flight_tasks: set[str] = set()
         self._in_flight_lock = asyncio.Lock()
-        self._shutdown_event: Optional[asyncio.Event] = None
+        self._shutdown_event: asyncio.Event | None = None
 
         self._records_processed = 0
         self._records_succeeded = 0
@@ -155,13 +155,13 @@ class ClaimXDownloadWorker:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
         self._last_cycle_failed = 0
 
-        self._http_session: Optional[aiohttp.ClientSession] = None
+        self._http_session: aiohttp.ClientSession | None = None
 
         self.producer = BaseKafkaProducer(
             config=config,
@@ -170,8 +170,8 @@ class ClaimXDownloadWorker:
         )
 
         self.downloader = AttachmentDownloader()
-        self.api_client: Optional[ClaimXApiClient] = None
-        self.retry_handler: Optional[DownloadRetryHandler] = None
+        self.api_client: ClaimXApiClient | None = None
+        self.retry_handler: DownloadRetryHandler | None = None
 
         # Store simulation config if provided (already validated at startup)
         self._simulation_config = simulation_config
@@ -219,8 +219,9 @@ class ClaimXDownloadWorker:
         )
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-download-worker",
@@ -381,10 +382,8 @@ class ClaimXDownloadWorker:
 
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -500,8 +499,8 @@ class ClaimXDownloadWorker:
                 if not data:
                     continue
 
-                messages: List[PipelineMessage] = []
-                for topic_partition, records in data.items():
+                messages: list[PipelineMessage] = []
+                for _topic_partition, records in data.items():
                     # Convert ConsumerRecord to PipelineMessage
                     messages.extend([from_consumer_record(r) for r in records])
 
@@ -542,7 +541,7 @@ class ClaimXDownloadWorker:
                 )
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[PipelineMessage]) -> List[TaskResult]:
+    async def _process_batch(self, messages: list[PipelineMessage]) -> list[TaskResult]:
         async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
@@ -550,7 +549,7 @@ class ClaimXDownloadWorker:
         tasks = [bounded_process(msg) for msg in messages]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        processed_results: List[TaskResult] = []
+        processed_results: list[TaskResult] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 message = messages[i]
@@ -656,7 +655,7 @@ class ClaimXDownloadWorker:
             consumer_group = self.config.get_consumer_group(
                 self.domain, self.WORKER_NAME
             )
-            duration = time.perf_counter() - start_time
+            time.perf_counter() - start_time
             # Note: message_processing_duration_seconds metric not implemented
             # Note: claim_processing_seconds metric not implemented
 
@@ -698,7 +697,7 @@ class ClaimXDownloadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-    async def _handle_batch_results(self, results: List[TaskResult]) -> bool:
+    async def _handle_batch_results(self, results: list[TaskResult]) -> bool:
         """Returns False if circuit breaker errors present (don't commit, will reprocess)."""
         circuit_errors = [
             r for r in results if r.error and isinstance(r.error, CircuitOpenError)
@@ -766,10 +765,10 @@ class ClaimXDownloadWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = (
+                    (
                         self._records_processed - self._last_cycle_processed
                     )
-                    errors_cycle = self._records_failed - self._last_cycle_failed
+                    self._records_failed - self._last_cycle_failed
 
                     logger.info(
                         format_cycle_output(
@@ -841,31 +840,22 @@ class ClaimXDownloadWorker:
         )
 
         if outcome.bytes_downloaded:
-            media_type = "unknown"
             if task_message.file_type:
                 file_type_lower = task_message.file_type.lower()
                 if (
                     "image" in file_type_lower
                     or "jpg" in file_type_lower
                     or "png" in file_type_lower
-                ):
-                    media_type = "image"
-                elif (
+                ) or (
                     "video" in file_type_lower
                     or "mp4" in file_type_lower
                     or "mov" in file_type_lower
-                ):
-                    media_type = "video"
-                elif "pdf" in file_type_lower or "doc" in file_type_lower:
-                    media_type = "document"
+                ) or "pdf" in file_type_lower or "doc" in file_type_lower:
+                    pass
             elif outcome.content_type:
                 content_type_lower = outcome.content_type.lower()
-                if "image" in content_type_lower:
-                    media_type = "image"
-                elif "video" in content_type_lower:
-                    media_type = "video"
-                elif "pdf" in content_type_lower or "document" in content_type_lower:
-                    media_type = "document"
+                if "image" in content_type_lower or "video" in content_type_lower or "pdf" in content_type_lower or "document" in content_type_lower:
+                    pass
 
             # Note: claim_media_bytes_total metric not implemented
 
@@ -886,7 +876,7 @@ class ClaimXDownloadWorker:
             file_type=task_message.file_type,
             file_name=task_message.file_name,
             source_event_id=task_message.source_event_id,
-            downloaded_at=datetime.now(timezone.utc),
+            downloaded_at=datetime.now(UTC),
         )
 
         cached_topic = self.config.get_topic(self.domain, "downloads_cached")

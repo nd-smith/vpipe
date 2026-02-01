@@ -5,8 +5,8 @@ Contains Pydantic models for failed Delta batch writes that need
 retry via Kafka topics or dead-letter queue processing.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
@@ -46,7 +46,7 @@ class FailedDeltaBatch(BaseModel):
         default_factory=lambda: str(uuid4()),
         description="Unique identifier for this batch (UUID)",
     )
-    events: List[Dict[str, Any]] = Field(
+    events: list[dict[str, Any]] = Field(
         ...,
         description="List of event dictionaries that failed to write",
         min_length=1,
@@ -68,7 +68,7 @@ class FailedDeltaBatch(BaseModel):
         default="transient",
         description="Classification of the error (transient, permanent, auth, unknown)",
     )
-    retry_at: Optional[datetime] = Field(
+    retry_at: datetime | None = Field(
         default=None,
         description="Scheduled time for next retry attempt (None if going to DLQ)",
     )
@@ -107,7 +107,7 @@ class FailedDeltaBatch(BaseModel):
         return v.lower()
 
     @field_serializer("first_failure_at", "retry_at")
-    def serialize_timestamp(self, timestamp: Optional[datetime]) -> Optional[str]:
+    def serialize_timestamp(self, timestamp: datetime | None) -> str | None:
         """Serialize datetime to ISO 8601 format."""
         if timestamp is None:
             return None
@@ -131,13 +131,13 @@ class FailedDeltaBatch(BaseModel):
             first_failure_at=self.first_failure_at,
             last_error=error,
             error_category=self.error_category,
-            retry_at=datetime.now(timezone.utc)
+            retry_at=datetime.now(UTC)
             + __import__("datetime").timedelta(seconds=delay_seconds),
             table_path=self.table_path,
             event_count=self.event_count,
         )
 
-    def to_dlq_format(self) -> Dict[str, Any]:
+    def to_dlq_format(self) -> dict[str, Any]:
         """
         Convert to DLQ-friendly format for manual review.
 

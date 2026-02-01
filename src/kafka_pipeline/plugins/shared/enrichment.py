@@ -10,10 +10,10 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from kafka_pipeline.plugins.shared.connections import ConnectionManager
 from kafka_pipeline.common.logging import LoggedClass
+from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class EnrichmentContext:
     message: dict[str, Any]
     data: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    connection_manager: Optional[ConnectionManager] = None
+    connection_manager: ConnectionManager | None = None
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get value from data dict."""
@@ -55,9 +55,9 @@ class EnrichmentResult:
     """
 
     success: bool
-    data: Optional[dict[str, Any]] = None
+    data: dict[str, Any] | None = None
     skip: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
     @classmethod
     def ok(cls, data: dict[str, Any]) -> "EnrichmentResult":
@@ -67,13 +67,13 @@ class EnrichmentResult:
     @classmethod
     def skip_message(cls, reason: str) -> "EnrichmentResult":
         """Create skip result (don't process further)."""
-        logger.info(f"Skipping message: {reason}")
+        logger.info("Skipping message: %s", reason)
         return cls(success=True, skip=True)
 
     @classmethod
     def failed(cls, error: str) -> "EnrichmentResult":
         """Create failed result."""
-        logger.error(f"Enrichment failed: {error}")
+        logger.error("Enrichment failed: %s", error)
         return cls(success=False, error=error)
 
 
@@ -95,7 +95,7 @@ class EnrichmentHandler(LoggedClass, ABC):
     - self._log_exception(exc, msg, **extra): Exception logging with context
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize handler with configuration."""
         self.config = config or {}
         self.name = self.__class__.__name__
@@ -165,7 +165,7 @@ class TransformHandler(EnrichmentHandler):
         # Merge with existing data
         context.data.update(output)
 
-        logger.debug(f"Transformed {len(mappings)} fields")
+        logger.debug("Transformed %s fields", len(mappings))
         return EnrichmentResult.ok(context.data)
 
     def _get_nested(self, obj: dict, path: str) -> Any:
@@ -297,7 +297,7 @@ class LookupHandler(EnrichmentHandler):
           cache_ttl: 300  # Cache for 5 minutes
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self._cache: dict[str, Any] = {}
         self._cache_timestamps: dict[str, float] = {}
         super().__init__(config)
@@ -340,7 +340,7 @@ class LookupHandler(EnrichmentHandler):
 
             age = time.time() - self._cache_timestamps.get(cache_key, 0)
             if age < cache_ttl:
-                logger.debug(f"Cache hit for {endpoint} (age: {age:.1f}s)")
+                logger.debug("Cache hit for %s (age: %.1fs)", endpoint, age)
                 cached_data = self._cache[cache_key]
                 result_field = self.config.get("result_field", "lookup_result")
                 context.data[result_field] = cached_data
@@ -367,11 +367,11 @@ class LookupHandler(EnrichmentHandler):
                 self._cache[cache_key] = response_data
                 self._cache_timestamps[cache_key] = time.time()
 
-            logger.debug(f"Lookup successful: {endpoint}")
+            logger.debug("Lookup successful: %s", endpoint)
             return EnrichmentResult.ok(context.data)
 
         except Exception as e:
-            logger.exception(f"Lookup failed: {e}")
+            logger.exception("Lookup failed: %s", e)
             return EnrichmentResult.failed(f"Lookup exception: {str(e)}")
 
 
@@ -389,7 +389,7 @@ class BatchingHandler(EnrichmentHandler):
           batch_field: items
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self._batch: list[dict[str, Any]] = []
         self._batch_lock = asyncio.Lock()
         self._last_flush = asyncio.get_event_loop().time()
@@ -434,7 +434,7 @@ class BatchingHandler(EnrichmentHandler):
                     f"Added to batch ({len(self._batch)}/{batch_size})"
                 )
 
-    async def flush(self) -> Optional[dict[str, Any]]:
+    async def flush(self) -> dict[str, Any] | None:
         """Force flush current batch."""
         async with self._batch_lock:
             if not self._batch:
@@ -446,7 +446,7 @@ class BatchingHandler(EnrichmentHandler):
                 "batch_size": len(self._batch),
             }
 
-            logger.info(f"Force flushing batch of {len(self._batch)} messages")
+            logger.info("Force flushing batch of %s messages", len(self._batch))
 
             self._batch.clear()
             self._last_flush = asyncio.get_event_loop().time()
@@ -504,7 +504,7 @@ class EnrichmentPipeline:
     async def execute(
         self,
         message: dict[str, Any],
-        connection_manager: Optional[ConnectionManager] = None,
+        connection_manager: ConnectionManager | None = None,
     ) -> EnrichmentResult:
         """Execute all handlers in sequence."""
         context = EnrichmentContext(
@@ -518,11 +518,11 @@ class EnrichmentPipeline:
                 result = await handler.enrich(context)
 
                 if not result.success:
-                    logger.error(f"Handler {handler.name} failed: {result.error}")
+                    logger.error("Handler %s failed: %s", handler.name, result.error)
                     return result
 
                 if result.skip:
-                    logger.debug(f"Handler {handler.name} skipped message")
+                    logger.debug("Handler %s skipped message", handler.name)
                     return result
 
                 # Update context with enriched data
@@ -530,7 +530,7 @@ class EnrichmentPipeline:
                     context.data = result.data
 
             except Exception as e:
-                logger.exception(f"Handler {handler.name} raised exception: {e}")
+                logger.exception("Handler %s raised exception: %s", handler.name, e)
                 return EnrichmentResult.failed(f"Exception in {handler.name}: {str(e)}")
         return EnrichmentResult.ok(context.data)
 
@@ -539,9 +539,9 @@ class EnrichmentPipeline:
         for handler in self.handlers:
             try:
                 await handler.initialize()
-                logger.info(f"Initialized handler: {handler.name}")
+                logger.info("Initialized handler: %s", handler.name)
             except Exception as e:
-                logger.error(f"Failed to initialize handler {handler.name}: {e}")
+                logger.error("Failed to initialize handler %s: %s", handler.name, e)
                 raise
 
     async def cleanup(self) -> None:
@@ -549,6 +549,6 @@ class EnrichmentPipeline:
         for handler in self.handlers:
             try:
                 await handler.cleanup()
-                logger.info(f"Cleaned up handler: {handler.name}")
+                logger.info("Cleaned up handler: %s", handler.name)
             except Exception as e:
-                logger.error(f"Failed to cleanup handler {handler.name}: {e}")
+                logger.error("Failed to cleanup handler %s: %s", handler.name, e)

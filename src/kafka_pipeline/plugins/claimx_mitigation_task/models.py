@@ -6,8 +6,6 @@ No magic, no guessing - explicit types everywhere.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -30,12 +28,12 @@ class MitigationTaskEvent:
     task_status: str  # ASSIGNED, IN_PROGRESS, COMPLETED
 
     # Optional user tracking
-    assigned_to_user_id: Optional[int] = None
-    assigned_by_user_id: Optional[int] = None
+    assigned_to_user_id: int | None = None
+    assigned_by_user_id: int | None = None
 
     # Optional timestamps
-    task_created_at: Optional[str] = None
-    task_completed_at: Optional[str] = None
+    task_created_at: str | None = None
+    task_completed_at: str | None = None
 
     @classmethod
     def from_kafka_message(cls, raw: dict) -> "MitigationTaskEvent":
@@ -81,20 +79,20 @@ class MitigationSubmission:
     status: str
 
     # Project data from export/project API
-    master_filename: Optional[str] = None
-    type_of_loss: Optional[str] = None
-    claim_number: Optional[str] = None  # from projectNumber
-    policy_number: Optional[str] = None  # from secondaryNumber
+    master_filename: str | None = None
+    type_of_loss: str | None = None
+    claim_number: str | None = None  # from projectNumber
+    policy_number: str | None = None  # from secondaryNumber
 
     # Dates from API response
-    date_assigned: Optional[str] = None
-    date_completed: Optional[str] = None
+    date_assigned: str | None = None
+    date_completed: str | None = None
 
     # All project media metadata
-    media: Optional[list[dict]] = None
+    media: list[dict] | None = None
 
     # Processing metadata
-    ingested_at: Optional[str] = None
+    ingested_at: str | None = None
 
     def to_flat_dict(self) -> dict:
         """Convert to flat dictionary for Kafka publish."""
@@ -123,7 +121,7 @@ class ProcessedMitigationTask:
     """
 
     event: MitigationTaskEvent
-    submission: Optional[MitigationSubmission]
+    submission: MitigationSubmission | None
 
     def was_enriched(self) -> bool:
         """Check if task was fully enriched."""

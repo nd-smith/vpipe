@@ -30,13 +30,14 @@ Usage:
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
-from typing import Callable, Dict, Optional, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
-from core.types import ErrorCategory
 from core.errors.exceptions import CircuitOpenError
+from core.types import ErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,9 @@ class CircuitState(Enum):
 class MetricsCollector(Protocol):
     """Protocol for metrics collection (optional dependency)."""
 
-    def increment_counter(self, name: str, labels: Optional[dict] = None) -> None: ...
+    def increment_counter(self, name: str, labels: dict | None = None) -> None: ...
     def set_gauge(
-        self, name: str, value: float, labels: Optional[dict] = None
+        self, name: str, value: float, labels: dict | None = None
     ) -> None: ...
 
 
@@ -79,7 +80,7 @@ class CircuitBreakerConfig:
     half_open_max_calls: int = 3
 
     # Error categories that count as failures (None = all errors)
-    failure_categories: Optional[tuple] = None
+    failure_categories: tuple | None = None
 
     # If True, auth errors don't count toward failure threshold
     # (they should trigger token refresh, not circuit open)
@@ -145,9 +146,9 @@ class CircuitStats:
     failed_calls: int = 0
     rejected_calls: int = 0
     state_changes: int = 0
-    last_failure_time: Optional[float] = None
-    last_success_time: Optional[float] = None
-    last_state_change_time: Optional[float] = None
+    last_failure_time: float | None = None
+    last_success_time: float | None = None
+    last_state_change_time: float | None = None
     current_state: str = "closed"
 
 
@@ -168,10 +169,10 @@ class CircuitBreaker:
     def __init__(
         self,
         name: str,
-        config: Optional[CircuitBreakerConfig] = None,
-        on_state_change: Optional[Callable[[CircuitState, CircuitState], None]] = None,
-        metrics_collector: Optional[MetricsCollector] = None,
-        error_classifier: Optional[ErrorClassifier] = None,
+        config: CircuitBreakerConfig | None = None,
+        on_state_change: Callable[[CircuitState, CircuitState], None] | None = None,
+        metrics_collector: MetricsCollector | None = None,
+        error_classifier: ErrorClassifier | None = None,
     ):
         self.name = name
         self.config = config or CircuitBreakerConfig()
@@ -182,7 +183,7 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
-        self._last_failure_time: Optional[float] = None
+        self._last_failure_time: float | None = None
         self._half_open_calls = 0
 
         self._stats = CircuitStats()
@@ -255,19 +256,18 @@ class CircuitBreaker:
         )
 
     def _check_state_transition(self) -> None:
-        if self._state == CircuitState.OPEN:
-            if self._last_failure_time is not None:
-                elapsed = time.time() - self._last_failure_time
-                if elapsed >= self.config.timeout_seconds:
-                    logger.debug(
-                        "Circuit breaker timeout elapsed, transitioning to half-open: "
-                        "circuit_name=%s, elapsed_seconds=%.2f, timeout_seconds=%.2f, failure_count=%d",
-                        self.name,
-                        elapsed,
-                        self.config.timeout_seconds,
-                        self._failure_count,
-                    )
-                    self._transition_to(CircuitState.HALF_OPEN)
+        if self._state == CircuitState.OPEN and self._last_failure_time is not None:
+            elapsed = time.time() - self._last_failure_time
+            if elapsed >= self.config.timeout_seconds:
+                logger.debug(
+                    "Circuit breaker timeout elapsed, transitioning to half-open: "
+                    "circuit_name=%s, elapsed_seconds=%.2f, timeout_seconds=%.2f, failure_count=%d",
+                    self.name,
+                    elapsed,
+                    self.config.timeout_seconds,
+                    self._failure_count,
+                )
+                self._transition_to(CircuitState.HALF_OPEN)
 
     def _transition_to(self, new_state: CircuitState) -> None:
         old_state = self._state
@@ -540,15 +540,15 @@ class CircuitBreaker:
 # Circuit Breaker Registry
 # =============================================================================
 
-_breakers: Dict[str, CircuitBreaker] = {}
+_breakers: dict[str, CircuitBreaker] = {}
 _registry_lock = threading.Lock()
 
 
 def get_circuit_breaker(
     name: str,
-    config: Optional[CircuitBreakerConfig] = None,
-    metrics_collector: Optional[MetricsCollector] = None,
-    error_classifier: Optional[ErrorClassifier] = None,
+    config: CircuitBreakerConfig | None = None,
+    metrics_collector: MetricsCollector | None = None,
+    error_classifier: ErrorClassifier | None = None,
 ) -> CircuitBreaker:
     with _registry_lock:
         if name not in _breakers:
@@ -567,7 +567,7 @@ def get_circuit_breaker(
 
 def circuit_protected(
     name: str,
-    config: Optional[CircuitBreakerConfig] = None,
+    config: CircuitBreakerConfig | None = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:

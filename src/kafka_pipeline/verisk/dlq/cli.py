@@ -5,13 +5,10 @@ Provides: list, view, replay, and resolve commands.
 
 import argparse
 import asyncio
-import json
 import logging
 import signal
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Set
 
 from dotenv import load_dotenv
 
@@ -20,7 +17,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 from config.config import KafkaConfig
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.verisk.dlq.handler import DLQHandler
-from kafka_pipeline.verisk.schemas.results import FailedDownloadMessage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +28,7 @@ logger = logging.getLogger(__name__)
 class CLITaskManager:
 
     def __init__(self):
-        self.tasks: Set[asyncio.Task] = set()
+        self.tasks: set[asyncio.Task] = set()
         self._shutdown = False
         self._shutdown_event = asyncio.Event()
         self._original_handlers = {}
@@ -41,7 +37,7 @@ class CLITaskManager:
     def _setup_signal_handlers(self):
         def signal_handler(signum, frame):
             if not self._shutdown:
-                logger.info(f"Received signal {signum}, initiating shutdown...")
+                logger.info("Received signal %s, initiating shutdown...", signum)
                 self._shutdown = True
                 # Set the event in a thread-safe way
                 try:
@@ -75,7 +71,7 @@ class CLITaskManager:
         if not self.tasks:
             return
 
-        logger.info(f"Shutting down {len(self.tasks)} tasks...")
+        logger.info("Shutting down %s tasks...", len(self.tasks))
         for task in self.tasks:
             if not task.done():
                 task.cancel()
@@ -83,10 +79,10 @@ class CLITaskManager:
             await asyncio.wait_for(
                 asyncio.gather(*self.tasks, return_exceptions=True), timeout=timeout
             )
-        except asyncio.TimeoutError:
-            logger.warning(f"Task shutdown timed out after {timeout}s")
+        except TimeoutError:
+            logger.warning("Task shutdown timed out after %ss", timeout)
         except Exception as e:
-            logger.error(f"Error during task shutdown: {e}")
+            logger.exception("Error during task shutdown: %s", e)
 
         logger.info("Task shutdown complete")
 
@@ -101,8 +97,8 @@ class CLITaskManager:
                 )
             else:
                 return await asyncio.gather(*self.tasks, return_exceptions=True)
-        except asyncio.TimeoutError:
-            logger.warning(f"Wait timed out after {timeout}s")
+        except TimeoutError:
+            logger.warning("Wait timed out after %ss", timeout)
             raise
 
     def is_shutdown_requested(self):
@@ -117,7 +113,7 @@ class DLQCLIManager:
     def __init__(self, config: KafkaConfig):
         self.config = config
         self.handler = DLQHandler(config)
-        self._messages: List[PipelineMessage] = []
+        self._messages: list[PipelineMessage] = []
 
     async def start(self) -> None:
         logger.info("Starting XACT DLQ CLI manager")
@@ -129,7 +125,7 @@ class DLQCLIManager:
 
     async def fetch_messages(
         self, limit: int = 100, timeout_ms: int = 5000
-    ) -> List[PipelineMessage]:
+    ) -> list[PipelineMessage]:
         if not self.handler._consumer or not self.handler._consumer._consumer:
             raise RuntimeError("DLQ handler not started. Call start() first.")
 
@@ -140,13 +136,13 @@ class DLQCLIManager:
         consumer = self.handler._consumer._consumer
         data = await consumer.getmany(timeout_ms=timeout_ms, max_records=limit)
 
-        for topic_partition, records in data.items():
+        for _topic_partition, records in data.items():
             # Convert ConsumerRecord to PipelineMessage
             messages.extend([from_consumer_record(record) for record in records])
             if len(messages) >= limit:
                 break
 
-        logger.info(f"Fetched {len(messages)} messages from DLQ")
+        logger.info("Fetched %s messages from DLQ", len(messages))
         self._messages = messages
         return messages
 
@@ -193,7 +189,7 @@ class DLQCLIManager:
             print(f"DLQ Message Details: {trace_id}")
             print(f"{'='*80}\n")
 
-            print(f"Kafka Metadata:")
+            print("Kafka Metadata:")
             print(f"  Topic:     {record.topic}")
             print(f"  Partition: {record.partition}")
             print(f"  Offset:    {record.offset}")
@@ -202,7 +198,7 @@ class DLQCLIManager:
             )
             print()
 
-            print(f"Message Details:")
+            print("Message Details:")
             print(f"  Trace ID:       {dlq_msg.trace_id}")
             print(f"  Attachment URL: {dlq_msg.attachment_url}")
             print(f"  Retry Count:    {dlq_msg.retry_count}")
@@ -210,11 +206,11 @@ class DLQCLIManager:
             print(f"  Failed At:      {dlq_msg.failed_at}")
             print()
 
-            print(f"Error Information:")
+            print("Error Information:")
             print(f"  {dlq_msg.final_error}")
             print()
 
-            print(f"Original Task:")
+            print("Original Task:")
             print(f"  Event Type:        {dlq_msg.original_task.event_type}")
             print(f"  Event Subtype:     {dlq_msg.original_task.event_subtype}")
             print(f"  Blob Path:         {dlq_msg.original_task.blob_path}")
@@ -222,7 +218,7 @@ class DLQCLIManager:
             print()
 
             if dlq_msg.original_task.metadata:
-                print(f"Metadata:")
+                print("Metadata:")
                 for key, value in dlq_msg.original_task.metadata.items():
                     print(f"  {key}: {value}")
                 print()
@@ -231,7 +227,7 @@ class DLQCLIManager:
 
         except Exception as e:
             print(f"Error parsing message: {e}")
-            logger.error(f"Failed to view message {trace_id}", exc_info=True)
+            logger.error("Failed to view message %s", trace_id)
 
     async def replay_message(self, trace_id: str) -> None:
         record = self._find_message_by_trace_id(trace_id)
@@ -256,7 +252,7 @@ class DLQCLIManager:
 
         except Exception as e:
             print(f"✗ Failed to replay message: {e}")
-            logger.error(f"Failed to replay message {trace_id}", exc_info=True)
+            logger.exception("Failed to replay message %s", trace_id)
 
     async def resolve_message(self, trace_id: str) -> None:
         record = self._find_message_by_trace_id(trace_id)
@@ -281,9 +277,9 @@ class DLQCLIManager:
 
         except Exception as e:
             print(f"✗ Failed to resolve message: {e}")
-            logger.error(f"Failed to resolve message {trace_id}", exc_info=True)
+            logger.exception("Failed to resolve message %s", trace_id)
 
-    def _find_message_by_trace_id(self, trace_id: str) -> Optional[PipelineMessage]:
+    def _find_message_by_trace_id(self, trace_id: str) -> PipelineMessage | None:
         for record in self._messages:
             try:
                 dlq_msg = self.handler.parse_dlq_message(record)
@@ -318,7 +314,7 @@ async def main_list(args):
                 topics=[config.get_topic(domain, "dlq")],
                 message_handler=lambda r: asyncio.sleep(0),
             )
-            consumer_task = task_manager.create_task(
+            task_manager.create_task(
                 manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
@@ -329,7 +325,7 @@ async def main_list(args):
             print("\nOperation cancelled by user")
         except Exception as e:
             print(f"Error: {e}")
-            logger.error("List command failed", exc_info=True)
+            logger.exception("List command failed")
             sys.exit(1)
         finally:
             if manager.handler._consumer:
@@ -363,7 +359,7 @@ async def main_view(args):
                 message_handler=lambda r: asyncio.sleep(0),
             )
 
-            consumer_task = task_manager.create_task(
+            task_manager.create_task(
                 manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
@@ -375,7 +371,7 @@ async def main_view(args):
             print("\nOperation cancelled by user")
         except Exception as e:
             print(f"Error: {e}")
-            logger.error("View command failed", exc_info=True)
+            logger.exception("View command failed")
             sys.exit(1)
         finally:
             if manager.handler._consumer:
@@ -411,7 +407,7 @@ async def main_replay(args):
                 message_handler=lambda r: asyncio.sleep(0),
             )
 
-            consumer_task = task_manager.create_task(
+            task_manager.create_task(
                 manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
@@ -423,7 +419,7 @@ async def main_replay(args):
             print("\nOperation cancelled by user")
         except Exception as e:
             print(f"Error: {e}")
-            logger.error("Replay command failed", exc_info=True)
+            logger.exception("Replay command failed")
             sys.exit(1)
         finally:
             if manager.handler._consumer:
@@ -460,7 +456,7 @@ async def main_resolve(args):
                 message_handler=lambda r: asyncio.sleep(0),
             )
 
-            consumer_task = task_manager.create_task(
+            task_manager.create_task(
                 manager.handler._consumer.start(), name="dlq_consumer"
             )
             await asyncio.sleep(0.5)
@@ -472,7 +468,7 @@ async def main_resolve(args):
             print("\nOperation cancelled by user")
         except Exception as e:
             print(f"Error: {e}")
-            logger.error("Resolve command failed", exc_info=True)
+            logger.exception("Resolve command failed")
             sys.exit(1)
         finally:
             if manager.handler._consumer:

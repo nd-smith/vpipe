@@ -16,42 +16,42 @@ Delta tables: claimx_projects, claimx_contacts, claimx_attachment_metadata, clai
 """
 
 import asyncio
+import contextlib
 import json
-import uuid
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import TopicPartition
 from pydantic import ValidationError
 
+from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
-from config.config import KafkaConfig
-from kafka_pipeline.common.metrics import (
-    record_delta_write,
-    record_message_consumed,
-    record_processing_error,
-    update_connection_status,
-    update_assigned_partitions,
-)
-from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
-from kafka_pipeline.claimx.handlers import get_handler_registry, HandlerRegistry
+from kafka_pipeline.claimx.handlers import HandlerRegistry, get_handler_registry
 from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
-from kafka_pipeline.common.storage.delta import DeltaTableReader
-from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.claimx.retry import EnrichmentRetryHandler
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.claimx.schemas.tasks import (
-    ClaimXEnrichmentTask,
     ClaimXDownloadTask,
+    ClaimXEnrichmentTask,
 )
+from kafka_pipeline.claimx.workers.download_factory import DownloadTaskFactory
+from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.common.metrics import (
+    record_delta_write,
+    record_processing_error,
+    update_assigned_partitions,
+    update_connection_status,
+)
+from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.storage.delta import DeltaTableReader
+from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.plugins.shared.base import (
     Domain,
     PipelineStage,
@@ -63,7 +63,6 @@ from kafka_pipeline.plugins.shared.registry import (
     PluginOrchestrator,
     get_plugin_registry,
 )
-from kafka_pipeline.claimx.workers.download_factory import DownloadTaskFactory
 
 logger = get_logger(__name__)
 
@@ -90,10 +89,10 @@ class ClaimXEnrichmentWorker:
         enable_delta_writes: bool = True,
         enrichment_topic: str = "",
         download_topic: str = "",
-        producer_config: Optional[KafkaConfig] = None,
+        producer_config: KafkaConfig | None = None,
         projects_table_path: str = "",
-        instance_id: Optional[str] = None,
-        api_client: Optional[Any] = None,
+        instance_id: str | None = None,
+        api_client: Any | None = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -127,11 +126,11 @@ class ClaimXEnrichmentWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [self.enrichment_topic]
 
-        self.producer: Optional[BaseKafkaProducer] = None
-        self.consumer: Optional[AIOKafkaConsumer] = None
-        self.api_client: Optional[Any] = None
+        self.producer: BaseKafkaProducer | None = None
+        self.consumer: AIOKafkaConsumer | None = None
+        self.api_client: Any | None = None
         self._injected_api_client = api_client
-        self.retry_handler: Optional[EnrichmentRetryHandler] = None
+        self.retry_handler: EnrichmentRetryHandler | None = None
 
         self.handler_registry: HandlerRegistry = get_handler_registry()
 
@@ -142,8 +141,8 @@ class ClaimXEnrichmentWorker:
         self.project_cache = ProjectCache(ttl_seconds=cache_ttl)
 
         self.plugin_registry = get_plugin_registry()
-        self.plugin_orchestrator: Optional[PluginOrchestrator] = None
-        self.action_executor: Optional[ActionExecutor] = None
+        self.plugin_orchestrator: PluginOrchestrator | None = None
+        self.action_executor: ActionExecutor | None = None
 
         # port=0 for dynamic port assignment (avoids conflicts with multiple workers)
         health_port = self.processing_config.get("health_port", 0)
@@ -154,9 +153,9 @@ class ClaimXEnrichmentWorker:
             enabled=health_enabled,
         )
 
-        self._pending_tasks: Set[asyncio.Task] = set()
+        self._pending_tasks: set[asyncio.Task] = set()
         self._task_counter = 0
-        self._consume_task: Optional[asyncio.Task] = None
+        self._consume_task: asyncio.Task | None = None
         self._running = False
 
         self._records_processed = 0
@@ -165,7 +164,7 @@ class ClaimXEnrichmentWorker:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
@@ -251,8 +250,9 @@ class ClaimXEnrichmentWorker:
         logger.info("Starting ClaimXEnrichmentWorker")
         self._running = True
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-enrichment-worker",
@@ -404,10 +404,8 @@ class ClaimXEnrichmentWorker:
 
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
 
@@ -511,7 +509,7 @@ class ClaimXEnrichmentWorker:
                 if not msg_dict:
                     continue
 
-                for partition, messages in msg_dict.items():
+                for _partition, messages in msg_dict.items():
                     for msg in messages:
                         await self._handle_enrichment_task(msg)
 
@@ -540,7 +538,7 @@ class ClaimXEnrichmentWorker:
         self,
         coro,
         task_name: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> asyncio.Task:
         self._task_counter += 1
         full_name = f"{task_name}-{self._task_counter}"
@@ -843,7 +841,7 @@ class ClaimXEnrichmentWorker:
         5. Dispatch entity rows to Kafka
         6. Dispatch download tasks for media files
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Step 1: Ensure project exists in cache
         if task.project_id:
@@ -930,7 +928,7 @@ class ClaimXEnrichmentWorker:
 
             # Log completion
             elapsed_ms = (
-                datetime.now(timezone.utc) - start_time
+                datetime.now(UTC) - start_time
             ).total_seconds() * 1000
             logger.debug(
                 "Enrichment task complete",
@@ -1007,10 +1005,10 @@ class ClaimXEnrichmentWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = (
+                    (
                         self._records_processed - self._last_cycle_processed
                     )
-                    errors_cycle = self._records_failed - self._last_cycle_failed
+                    self._records_failed - self._last_cycle_failed
 
                     logger.info(
                         format_cycle_output(
@@ -1044,7 +1042,7 @@ class ClaimXEnrichmentWorker:
 
     async def _ensure_projects_exist(
         self,
-        project_ids: List[str],
+        project_ids: list[str],
     ) -> None:
         """
         Pre-flight check: Ensure projects exist to prevent referential integrity issues
@@ -1064,8 +1062,6 @@ class ClaimXEnrichmentWorker:
         )
 
         try:
-            import polars as pl
-            from deltalake import DeltaTable
 
             # Pre-flight check disabled in decoupled writer mode - project existence handled by downstream delta writer
             return
@@ -1083,7 +1079,7 @@ class ClaimXEnrichmentWorker:
     async def _produce_entity_rows(
         self,
         entity_rows: EntityRowsMessage,
-        tasks: List[ClaimXEnrichmentTask],
+        tasks: list[ClaimXEnrichmentTask],
     ) -> None:
         """Write entity rows to Kafka. On failure, routes all tasks to retry/DLQ."""
         batch_id = uuid.uuid4().hex[:8]
@@ -1132,7 +1128,7 @@ class ClaimXEnrichmentWorker:
 
     async def _produce_download_tasks(
         self,
-        download_tasks: List[ClaimXDownloadTask],
+        download_tasks: list[ClaimXDownloadTask],
     ) -> None:
         logger.info(
             "Producing download tasks",

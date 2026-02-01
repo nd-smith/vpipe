@@ -17,16 +17,15 @@ Event Hub resolution:
   baking EntityPath into the connection string
 """
 
-import logging
 import os
+from collections.abc import Awaitable, Callable
 from enum import Enum
-from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any
 
 from aiokafka.structs import ConsumerRecord
 
-from core.logging import get_logger
 from config.config import KafkaConfig
+from core.logging import get_logger
 from kafka_pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
 logger = get_logger(__name__)
@@ -63,10 +62,10 @@ def get_transport_type() -> TransportType:
 # Event Hub configuration loading (cached)
 # =============================================================================
 
-_eventhub_config: Optional[Dict[str, Any]] = None
+_eventhub_config: dict[str, Any] | None = None
 
 
-def _load_eventhub_config() -> Dict[str, Any]:
+def _load_eventhub_config() -> dict[str, Any]:
     """Load and cache the eventhub section from config.yaml.
 
     Returns the expanded eventhub config dict with Event Hub mappings.
@@ -75,7 +74,7 @@ def _load_eventhub_config() -> Dict[str, Any]:
     if _eventhub_config is not None:
         return _eventhub_config
 
-    from config.config import load_yaml, _expand_env_vars, DEFAULT_CONFIG_FILE
+    from config.config import DEFAULT_CONFIG_FILE, _expand_env_vars, load_yaml
 
     if DEFAULT_CONFIG_FILE.exists():
         data = load_yaml(DEFAULT_CONFIG_FILE)
@@ -143,7 +142,7 @@ def _strip_entity_path(connection_string: str) -> str:
 
 def _resolve_eventhub_name(
     domain: str,
-    topic_key: Optional[str],
+    topic_key: str | None,
     worker_name: str,
 ) -> str:
     """Resolve Event Hub name for a given domain/topic.
@@ -179,13 +178,13 @@ def _resolve_eventhub_name(
     worker_env_var = f"EVENTHUB_NAME_{worker_name.upper().replace('-', '_')}"
     eventhub_name = os.getenv(worker_env_var)
     if eventhub_name:
-        logger.debug(f"Using Event Hub name from {worker_env_var}: {eventhub_name}")
+        logger.debug("Using Event Hub name from %s: %s", worker_env_var, eventhub_name)
         return eventhub_name
 
     # 3. Legacy default env var
     eventhub_name = os.getenv("EVENTHUB_ENTITY_NAME")
     if eventhub_name:
-        logger.debug(f"Using Event Hub name from EVENTHUB_ENTITY_NAME: {eventhub_name}")
+        logger.debug("Using Event Hub name from EVENTHUB_ENTITY_NAME: %s", eventhub_name)
         return eventhub_name
 
     # 4. Fallback
@@ -200,7 +199,7 @@ def _resolve_eventhub_name(
 
 def _resolve_eventhub_consumer_group(
     domain: str,
-    topic_key: Optional[str],
+    topic_key: str | None,
     worker_name: str,
     kafka_config: KafkaConfig,
 ) -> str:
@@ -259,9 +258,9 @@ def create_producer(
     config: KafkaConfig,
     domain: str,
     worker_name: str,
-    transport_type: Optional[TransportType] = None,
-    topic: Optional[str] = None,
-    topic_key: Optional[str] = None,
+    transport_type: TransportType | None = None,
+    topic: str | None = None,
+    topic_key: str | None = None,
 ):
     """Create a producer instance based on transport configuration.
 
@@ -329,12 +328,12 @@ async def create_consumer(
     config: KafkaConfig,
     domain: str,
     worker_name: str,
-    topics: List[str],
+    topics: list[str],
     message_handler: Callable[[ConsumerRecord], Awaitable[None]],
     enable_message_commit: bool = True,
-    instance_id: Optional[str] = None,
-    transport_type: Optional[TransportType] = None,
-    topic_key: Optional[str] = None,
+    instance_id: str | None = None,
+    transport_type: TransportType | None = None,
+    topic_key: str | None = None,
 ):
     """Create a consumer instance based on transport configuration.
 

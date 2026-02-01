@@ -11,9 +11,9 @@ Uses the exception hierarchy to make itelligent retry decisions:
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Callable, Optional, Set, Type
 
 # Import ErrorCategory from core.errors.exceptions
 from core.errors.exceptions import ErrorCategory
@@ -37,10 +37,10 @@ class RetryConfig:
     respect_retry_after: bool = True
 
     # Optional set of exception types to always retry (overrides classification)
-    always_retry: Set[Type[Exception]] = field(default_factory=set)
+    always_retry: set[type[Exception]] = field(default_factory=set)
 
     # Optional set of exception types to never retry (overrides classification)
-    never_retry: Set[Type[Exception]] = field(default_factory=set)
+    never_retry: set[type[Exception]] = field(default_factory=set)
 
     def __post_init__(self):
         """Ensure proper types from YAML/env vars."""
@@ -59,7 +59,7 @@ class RetryConfig:
             else self.respect_retry_after
         )
 
-    def get_delay(self, attempt: int, error: Optional[Exception] = None) -> float:
+    def get_delay(self, attempt: int, error: Exception | None = None) -> float:
         """
         Calculate delay with equal jitter to prevent thundering herd.
 
@@ -147,7 +147,7 @@ class RetryStats:
 
     attempts: int = 0
     total_delay: float = 0.0
-    final_error: Optional[Exception] = None
+    final_error: Exception | None = None
     success: bool = False
 
     @property
@@ -157,9 +157,9 @@ class RetryStats:
 
 
 def with_retry(
-    config: Optional[RetryConfig] = None,
-    on_auth_error: Optional[Callable[[], None]] = None,
-    on_retry: Optional[Callable[[Exception, int, float], None]] = None,
+    config: RetryConfig | None = None,
+    on_auth_error: Callable[[], None] | None = None,
+    on_retry: Callable[[Exception, int, float], None] | None = None,
     wrap_errors: bool = True,
 ):
     """
@@ -194,7 +194,7 @@ def with_retry(
     def decorator(func: Callable):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            last_error: Optional[Exception] = None
+            last_error: Exception | None = None
 
             for attempt in range(config.max_attempts):
                 try:

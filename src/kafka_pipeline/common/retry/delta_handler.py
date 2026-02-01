@@ -52,8 +52,8 @@ Usage:
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from config.config import KafkaConfig
 from core.types import ErrorCategory
@@ -105,9 +105,9 @@ class DeltaRetryHandler:
         config: KafkaConfig,
         producer: BaseKafkaProducer,
         table_path: str,
-        retry_delays: Optional[List[int]] = None,
-        retry_topic_prefix: Optional[str] = None,
-        dlq_topic: Optional[str] = None,
+        retry_delays: list[int] | None = None,
+        retry_topic_prefix: str | None = None,
+        dlq_topic: str | None = None,
         domain: str = "xact",
     ):
         """
@@ -297,12 +297,12 @@ class DeltaRetryHandler:
 
     async def handle_batch_failure(
         self,
-        batch: List[Dict[str, Any]],
+        batch: list[dict[str, Any]],
         error: Exception,
         retry_count: int,
         error_category: str,
-        batch_id: Optional[str] = None,
-        first_failure_at: Optional[datetime] = None,
+        batch_id: str | None = None,
+        first_failure_at: datetime | None = None,
     ) -> None:
         """
         Route failed Delta batch to appropriate retry topic or DLQ.
@@ -404,12 +404,12 @@ class DeltaRetryHandler:
 
     async def _send_to_retry_topic(
         self,
-        batch: List[Dict[str, Any]],
+        batch: list[dict[str, Any]],
         error: Exception,
         error_category: ErrorCategory,
         retry_count: int,
-        batch_id: Optional[str] = None,
-        first_failure_at: Optional[datetime] = None,
+        batch_id: str | None = None,
+        first_failure_at: datetime | None = None,
     ) -> None:
         """
         Send batch to appropriate retry topic with updated metadata.
@@ -435,7 +435,7 @@ class DeltaRetryHandler:
         retry_topic = self.config.get_retry_topic(self.domain)
 
         # Calculate retry timestamp
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+        retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
 
         # NEW: Get target topic for routing (delta writes go to results topic)
         target_topic = self.config.get_topic(self.domain, "downloads_results")
@@ -445,7 +445,7 @@ class DeltaRetryHandler:
             batch_id=batch_id,
             events=batch,
             retry_count=retry_count + 1,
-            first_failure_at=first_failure_at or datetime.now(timezone.utc),
+            first_failure_at=first_failure_at or datetime.now(UTC),
             last_error=str(error)[:500],
             error_category=error_category.value,
             retry_at=retry_at,
@@ -503,12 +503,12 @@ class DeltaRetryHandler:
 
     async def _send_to_dlq(
         self,
-        batch: List[Dict[str, Any]],
+        batch: list[dict[str, Any]],
         error: Exception,
         error_category: ErrorCategory,
         retry_count: int,
-        batch_id: Optional[str] = None,
-        first_failure_at: Optional[datetime] = None,
+        batch_id: str | None = None,
+        first_failure_at: datetime | None = None,
     ) -> None:
         """
         Send batch to dead-letter queue (DLQ).
@@ -538,7 +538,7 @@ class DeltaRetryHandler:
             batch_id=batch_id,
             events=batch,
             retry_count=retry_count,
-            first_failure_at=first_failure_at or datetime.now(timezone.utc),
+            first_failure_at=first_failure_at or datetime.now(UTC),
             last_error=error_message,
             error_category=error_category.value,
             retry_at=None,  # No retry scheduled

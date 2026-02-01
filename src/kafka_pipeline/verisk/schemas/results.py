@@ -8,7 +8,7 @@ Schema aligned with verisk_pipeline Task.to_tracking_row() for compatibility.
 """
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
@@ -65,7 +65,7 @@ class DownloadResultMessage(BaseModel):
         ...,
         description="Outcome status: completed, failed (transient), or failed_permanent",
     )
-    http_status: Optional[int] = Field(
+    http_status: int | None = Field(
         default=None, description="HTTP response status code"
     )
     bytes_downloaded: int = Field(
@@ -74,14 +74,14 @@ class DownloadResultMessage(BaseModel):
     retry_count: int = Field(
         default=0, description="Number of retry attempts made", ge=0
     )
-    error_message: Optional[str] = Field(
+    error_message: str | None = Field(
         default=None, description="Error description if failed (truncated to 500 chars)"
     )
     created_at: datetime = Field(..., description="Timestamp when result was created")
-    expires_at: Optional[datetime] = Field(
+    expires_at: datetime | None = Field(
         default=None, description="URL expiration timestamp (optional)"
     )
-    expired_at_ingest: Optional[bool] = Field(
+    expired_at_ingest: bool | None = Field(
         default=None, description="Whether URL was expired at ingest time"
     )
 
@@ -103,14 +103,14 @@ class DownloadResultMessage(BaseModel):
 
     @field_validator("error_message")
     @classmethod
-    def truncate_error_message(cls, v: Optional[str]) -> Optional[str]:
+    def truncate_error_message(cls, v: str | None) -> str | None:
         """Truncate error message to prevent huge messages."""
         if v and len(v) > 500:
             return v[:497] + "..."
         return v
 
     @field_serializer("created_at", "expires_at")
-    def serialize_timestamp(self, timestamp: Optional[datetime]) -> Optional[str]:
+    def serialize_timestamp(self, timestamp: datetime | None) -> str | None:
         """Serialize datetime to ISO 8601 format."""
         if timestamp is None:
             return None

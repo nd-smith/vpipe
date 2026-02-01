@@ -5,10 +5,9 @@ Contains Pydantic models for raw ClaimX event messages consumed from source topi
 Schema aligned with verisk_pipeline ClaimXEvent for compatibility.
 """
 
-from datetime import datetime
 import hashlib
-import json
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -75,19 +74,19 @@ class ClaimXEventMessage(BaseModel):
     ingested_at: datetime = Field(
         ..., description="Timestamp when event was ingested from webhook"
     )
-    media_id: Optional[str] = Field(
+    media_id: str | None = Field(
         default=None, description="Media file ID (for file-related events)"
     )
-    task_assignment_id: Optional[str] = Field(
+    task_assignment_id: str | None = Field(
         default=None, description="Task assignment ID (for task events)"
     )
-    video_collaboration_id: Optional[str] = Field(
+    video_collaboration_id: str | None = Field(
         default=None, description="Video collaboration ID (for video events)"
     )
-    master_file_name: Optional[str] = Field(
+    master_file_name: str | None = Field(
         default=None, description="Master file name (for MFN events)"
     )
-    raw_data: Optional[Dict[str, Any]] = Field(
+    raw_data: dict[str, Any] | None = Field(
         default=None, description="Raw event payload for handler-specific parsing"
     )
 
@@ -100,7 +99,7 @@ class ClaimXEventMessage(BaseModel):
         return v.strip()
 
     @classmethod
-    def from_eventhouse_row(cls, row: Dict[str, Any]) -> "ClaimXEventMessage":
+    def from_eventhouse_row(cls, row: dict[str, Any]) -> "ClaimXEventMessage":
         """
         Create from raw Eventhouse row dict.
 

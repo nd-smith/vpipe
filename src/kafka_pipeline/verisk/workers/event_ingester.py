@@ -16,30 +16,28 @@ Output topic: enrichment.pending
 """
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
+from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from core.paths.resolver import generate_blob_path
-from core.security.url_validation import validate_download_url, sanitize_url
-from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.types import PipelineMessage
-from kafka_pipeline.verisk.schemas.events import EventMessage
-from kafka_pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 from kafka_pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_processing_error,
 )
+from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.types import PipelineMessage
+from kafka_pipeline.verisk.schemas.events import EventMessage
+from kafka_pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 
 logger = get_logger(__name__)
 
@@ -65,8 +63,8 @@ class EventIngesterWorker:
         self,
         config: KafkaConfig,
         domain: str = "verisk",
-        producer_config: Optional[KafkaConfig] = None,
-        instance_id: Optional[str] = None,
+        producer_config: KafkaConfig | None = None,
+        instance_id: str | None = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -79,8 +77,8 @@ class EventIngesterWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        self.producer: Optional[BaseKafkaProducer] = None
-        self.consumer: Optional[BaseKafkaConsumer] = None
+        self.producer: BaseKafkaProducer | None = None
+        self.consumer: BaseKafkaConsumer | None = None
 
         # Cycle output tracking
         self._records_processed = 0
@@ -89,7 +87,7 @@ class EventIngesterWorker:
         self._records_deduplicated = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
         self._running = False
 
         # In-memory dedup cache: trace_id -> event_id
@@ -135,8 +133,9 @@ class EventIngesterWorker:
         self._running = True
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-event-ingester",
@@ -182,10 +181,8 @@ class EventIngesterWorker:
         # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         # Stop consumer first (stops receiving new messages)
         if self.consumer:
@@ -334,7 +331,7 @@ class EventIngesterWorker:
                 estimate_version=event.estimate_version,
                 attachments=event.attachments or [],
                 retry_count=0,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 original_timestamp=original_timestamp,
             )
 
@@ -443,7 +440,7 @@ class EventIngesterWorker:
             logger.debug("Periodic cycle output task cancelled")
             raise
 
-    def _is_duplicate(self, trace_id: str) -> tuple[bool, Optional[str]]:
+    def _is_duplicate(self, trace_id: str) -> tuple[bool, str | None]:
         now = time.time()
 
         # Check if in cache and not expired

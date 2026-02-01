@@ -14,7 +14,7 @@ Entity Types:
     - video_collab: Video collaboration sessions
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -66,40 +66,40 @@ class EntityRowsMessage(BaseModel):
     """
 
     # Traceability fields - track origin event for debugging and retry handling
-    event_id: Optional[str] = Field(
+    event_id: str | None = Field(
         default=None, description="Original ClaimX event ID for end-to-end traceability"
     )
-    event_type: Optional[str] = Field(
+    event_type: str | None = Field(
         default=None,
         description="Original event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
     )
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         default=None, description="Project ID from the original event"
     )
 
-    projects: List[Dict[str, Any]] = Field(
+    projects: list[dict[str, Any]] = Field(
         default_factory=list, description="Project entity rows (table: claimx_projects)"
     )
-    contacts: List[Dict[str, Any]] = Field(
+    contacts: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Contact/policyholder entity rows (table: claimx_contacts)",
     )
-    media: List[Dict[str, Any]] = Field(
+    media: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Media/attachment metadata rows (table: claimx_attachment_metadata)",
     )
-    tasks: List[Dict[str, Any]] = Field(
+    tasks: list[dict[str, Any]] = Field(
         default_factory=list, description="Task entity rows (table: claimx_tasks)"
     )
-    task_templates: List[Dict[str, Any]] = Field(
+    task_templates: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Task template rows (table: claimx_task_templates)",
     )
-    external_links: List[Dict[str, Any]] = Field(
+    external_links: list[dict[str, Any]] = Field(
         default_factory=list,
         description="External link rows (table: claimx_external_links)",
     )
-    video_collab: List[Dict[str, Any]] = Field(
+    video_collab: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Video collaboration rows (table: claimx_video_collab)",
     )

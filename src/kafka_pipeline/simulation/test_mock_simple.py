@@ -10,7 +10,7 @@ import asyncio
 import hashlib
 import json
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -90,7 +90,7 @@ class SimpleMockClient:
     def _generate_fake_project(self, project_id: str) -> dict:
         seed = int(hashlib.sha256(project_id.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
-        now = datetime.now(timezone.utc)
+        datetime.now(UTC)
 
         return {
             "project_id": project_id,
@@ -113,7 +113,7 @@ async def main():
     # Initialize client
     client = SimpleMockClient(fixtures_dir)
 
-    print(f"\nLoaded:")
+    print("\nLoaded:")
     print(f"  Projects: {len(client._projects)}")
     print(f"  Media projects: {len(client._media)}")
     print(f"  Tasks: {len(client._tasks)}")

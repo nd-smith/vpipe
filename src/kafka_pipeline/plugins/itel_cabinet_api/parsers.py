@@ -10,11 +10,11 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field, fields, is_dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from datetime import UTC, datetime
+from typing import Union
 from urllib.parse import parse_qs, urlparse
 
-from .models import CabinetSubmission, CabinetAttachment
+from .models import CabinetAttachment, CabinetSubmission
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def camel_to_snake(name: str) -> str:
     return re.sub("([a-z0-9])([A-Z])", r"\1_\2", name).lower()
 
 
-def parse_date(date_str: str) -> Optional[datetime]:
+def parse_date(date_str: str) -> datetime | None:
     """Parse ISO format date string to datetime."""
     if not date_str or not isinstance(date_str, str):
         return None
@@ -107,13 +107,13 @@ def parse_url_expiration(url: str) -> dict:
 
         if system_date and expires_ms:
             expires_at_ms = system_date + expires_ms
-            expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
+            expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=UTC)
             return {
                 "expires_at": expires_at.isoformat(),
                 "ttl_seconds": expires_ms // 1000,
             }
     except (ValueError, IndexError, TypeError) as e:
-        logger.debug(f"Could not parse URL expiration: {e}")
+        logger.debug("Could not parse URL expiration: %s", e)
     return {}
 
 
@@ -135,10 +135,10 @@ class NumberAnswer:
 @dataclass
 class ResponseAnswerExport:
     type: str
-    text: Optional[str] = None
-    option_answer: Optional[OptionAnswer] = None
-    number_answer: Optional[NumberAnswer] = None
-    claim_media_ids: Optional[List[int]] = None
+    text: str | None = None
+    option_answer: OptionAnswer | None = None
+    number_answer: NumberAnswer | None = None
+    claim_media_ids: list[int] | None = None
 
 
 @dataclass
@@ -158,21 +158,21 @@ class QuestionAndAnswer:
 class Group:
     name: str
     group_id: str
-    question_and_answers: List[QuestionAndAnswer] = field(default_factory=list)
+    question_and_answers: list[QuestionAndAnswer] = field(default_factory=list)
 
 
 @dataclass
 class ResponseData:
-    groups: List[Group] = field(default_factory=list)
+    groups: list[Group] = field(default_factory=list)
 
 
 @dataclass
 class ExternalLinkData:
     url: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
 
 
 @dataclass
@@ -183,12 +183,12 @@ class ApiResponse:
     project_id: int
     form_id: str
     status: str
-    assignor_email: Optional[str] = None
-    form_response_id: Optional[str] = None
-    date_assigned: Optional[datetime] = None
-    date_completed: Optional[datetime] = None
-    external_link_data: Optional[ExternalLinkData] = None
-    response: Optional[ResponseData] = None
+    assignor_email: str | None = None
+    form_response_id: str | None = None
+    date_assigned: datetime | None = None
+    date_completed: datetime | None = None
+    external_link_data: ExternalLinkData | None = None
+    response: ResponseData | None = None
 
 
 # ==========================================
@@ -438,7 +438,7 @@ class DataBuilder:
             "customer_phone": (
                 api_obj.external_link_data.phone if api_obj.external_link_data else None
             ),
-            **{v: None for v in COLUMN_MAP.values()},  # Init mapped cols with None
+            **dict.fromkeys(COLUMN_MAP.values()),  # Init mapped cols with None
         }
 
         attachments_rows = []
@@ -740,7 +740,7 @@ def parse_cabinet_attachments(
     Returns:
         List of attachment records with URLs enriched
     """
-    logger.debug(f"Parsing attachments for assignment_id={assignment_id}")
+    logger.debug("Parsing attachments for assignment_id=%s", assignment_id)
 
     api_obj = from_dict(ApiResponse, task_data)
     _, attachments_rows, _ = DataBuilder.process(api_obj, event_id, media_url_map)
@@ -765,7 +765,7 @@ def parse_cabinet_attachments(
             )
         )
 
-    logger.debug(f"Parsed {len(attachments)} attachments")
+    logger.debug("Parsed %s attachments", len(attachments))
     return attachments
 
 

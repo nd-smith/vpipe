@@ -74,14 +74,14 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Optional
+from typing import Any
 
 import coolname
 from dotenv import load_dotenv
-from prometheus_client import start_http_server, REGISTRY
+from prometheus_client import REGISTRY, start_http_server
 
-from core.logging.context import set_log_context
 from core.logging.setup import (
     get_logger,
     setup_logging,
@@ -104,7 +104,7 @@ logger = logging.getLogger(__name__)
 
 # Global shutdown event for graceful batch completion
 # Set by signal handlers, checked by workers to finish current batch before exiting
-_shutdown_event: Optional[asyncio.Event] = None
+_shutdown_event: asyncio.Event | None = None
 
 
 def get_shutdown_event() -> asyncio.Event:
@@ -130,7 +130,7 @@ async def run_worker_pool(
     )
 
     tasks = []
-    for i in range(count):
+    for _i in range(count):
         # Generate unique coolname for this worker instance (e.g., "happy-tiger")
         instance_id = coolname.generate_slug(2)
 
@@ -574,7 +574,8 @@ def main():
                 logger.info("Running in PRODUCTION mode (Event Hub + local Kafka)")
                 eventhub_config = pipeline_config.eventhub.to_kafka_config()
         except ValueError as e:
-            logger.error("Configuration error", extra={"error": str(e)})
+            error_msg = str(e)
+            logger.exception("Configuration error", extra={"error": error_msg})
             logger.error(
                 "Use --dev flag for local development without Event Hub/Eventhouse"
             )
@@ -595,7 +596,7 @@ def main():
                     worker_name=args.worker,
                     enabled=True,
                 )
-                health_server.set_error(f"Configuration error: {e}")
+                health_server.set_error(f"Configuration error: {error_msg}")
 
                 await health_server.start()
                 logger.info(
@@ -603,12 +604,12 @@ def main():
                     extra={
                         "port": health_server.actual_port,
                         "worker": args.worker,
-                        "error": str(e),
+                        "error": error_msg,
                     },
                 )
 
                 # Upload crash logs in background thread so health server stays responsive
-                await asyncio.to_thread(upload_crash_logs, f"Configuration error: {e}")
+                await asyncio.to_thread(upload_crash_logs, f"Configuration error: {error_msg}")
 
                 # Wait for shutdown signal
                 await shutdown_event.wait()
@@ -737,7 +738,8 @@ def main():
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
-        logger.error("Fatal error", extra={"error": str(e)}, exc_info=True)
+        error_msg = str(e)
+        logger.error("Fatal error", extra={"error": error_msg})
         logger.warning("Entering ERROR MODE - health endpoint will remain alive")
 
         # Run in error mode: keep health endpoint alive but report not ready
@@ -751,7 +753,7 @@ def main():
                 worker_name=args.worker,
                 enabled=True,
             )
-            health_server.set_error(f"Fatal error: {e}")
+            health_server.set_error(f"Fatal error: {error_msg}")
 
             await health_server.start()
             logger.info(
@@ -759,12 +761,12 @@ def main():
                 extra={
                     "port": health_server.actual_port,
                     "worker": args.worker,
-                    "error": str(e),
+                    "error": error_msg,
                 },
             )
 
             # Upload crash logs in background thread so health server stays responsive
-            await asyncio.to_thread(upload_crash_logs, f"Fatal error: {e}")
+            await asyncio.to_thread(upload_crash_logs, f"Fatal error: {error_msg}")
 
             # Wait for shutdown signal
             await shutdown_event.wait()

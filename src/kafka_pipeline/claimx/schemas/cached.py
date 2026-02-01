@@ -6,7 +6,6 @@ successful download, before upload to OneLake.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
@@ -68,7 +67,7 @@ class ClaimXCachedDownloadMessage(BaseModel):
     bytes_downloaded: int = Field(
         ..., description="Size of the downloaded file in bytes", ge=0
     )
-    content_type: Optional[str] = Field(
+    content_type: str | None = Field(
         default=None, description="MIME type of the downloaded file (if available)"
     )
     file_type: str = Field(

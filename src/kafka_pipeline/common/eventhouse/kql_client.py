@@ -10,21 +10,20 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
-from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.data.exceptions import KustoServiceError
+
 from core.errors.classifiers import StorageErrorClassifier
 from core.errors.exceptions import KustoError, KustoQueryError
 from kafka_pipeline.common.storage.onelake import (
-    _register_file_credential,
-    _refresh_all_credentials,
     FileBackedTokenCredential,
+    _refresh_all_credentials,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,12 +50,12 @@ class EventhouseConfig:
     max_retries: int = 3  # Max retry attempts for transient failures
     retry_base_delay_seconds: float = 1.0  # Base delay between retries
     retry_max_delay_seconds: float = 30.0  # Max delay between retries
-    proxy_url: Optional[str] = None  # HTTP proxy URL (e.g., "http://proxy:8080")
+    proxy_url: str | None = None  # HTTP proxy URL (e.g., "http://proxy:8080")
 
     @classmethod
     def load_config(
         cls,
-        config_path: Optional[Path] = None,
+        config_path: Path | None = None,
     ) -> "EventhouseConfig":
         """Load configuration from YAML file with environment variable overrides.
 
@@ -67,9 +66,9 @@ class EventhouseConfig:
 
         """
         config_path = config_path or DEFAULT_CONFIG_PATH
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         if config_path.exists():
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 yaml_data = yaml.safe_load(f) or {}
             data = yaml_data.get("eventhouse", {})
 
@@ -157,8 +156,8 @@ class KQLClient:
     def __init__(self, config: EventhouseConfig):
         """Initialize KQL client with configuration."""
         self.config = config
-        self._client: Optional[KustoClient] = None
-        self._credential: Optional[DefaultAzureCredential] = None
+        self._client: KustoClient | None = None
+        self._credential: DefaultAzureCredential | None = None
 
     async def __aenter__(self) -> "KQLClient":
         """Async context manager entry."""
@@ -300,8 +299,8 @@ class KQLClient:
     async def execute_query(
         self,
         query: str,
-        database: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
+        database: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> KQLQueryResult:
         """Execute a KQL query with retry logic."""
         if self._client is None:
@@ -309,7 +308,7 @@ class KQLClient:
 
         db = database or self.config.database
         timeout = timeout_seconds or self.config.query_timeout_seconds
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(self.config.max_retries):
             try:

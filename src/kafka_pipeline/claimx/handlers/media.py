@@ -5,30 +5,27 @@ Handles: PROJECT_FILE_ADDED
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
+from core.logging import get_logger, log_exception, log_with_context
+from core.types import ErrorCategory
 from kafka_pipeline.claimx.api_client import ClaimXApiError
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
     register_handler,
 )
 from kafka_pipeline.claimx.handlers.utils import (
+    BaseTransformer,
+    elapsed_ms,
     safe_int,
     safe_str,
     safe_str_id,
-    safe_float,
-    elapsed_ms,
-    BaseTransformer,
 )
-
-from core.types import ErrorCategory
-from core.logging import get_logger, log_exception, log_with_context
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
-from kafka_pipeline.common.utils import extract_expires_at_iso
 
 logger = get_logger(__name__)
 
@@ -55,10 +52,10 @@ class MediaTransformer:
 
     @staticmethod
     def to_media_row(
-        media: Dict[str, Any],
+        media: dict[str, Any],
         project_id: Any,
         event_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Transform media item to row.
 
@@ -106,8 +103,8 @@ class MediaHandler(EventHandler):
     batch_key = "project_id"
 
     async def handle_batch(
-        self, events: List[ClaimXEventMessage]
-    ) -> List[EnrichmentResult]:
+        self, events: list[ClaimXEventMessage]
+    ) -> list[EnrichmentResult]:
         """Process batch of media events for same project."""
         if not events:
             return []
@@ -115,7 +112,7 @@ class MediaHandler(EventHandler):
         project_id = events[0].project_id
         media_ids = [event.media_id for event in events if event.media_id]
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             fetch_strategy = (
@@ -151,7 +148,7 @@ class MediaHandler(EventHandler):
             if not isinstance(media_list, list):
                 media_list = [media_list] if media_list else []
 
-            media_by_id: Dict[int, Dict] = {}
+            media_by_id: dict[int, dict] = {}
             for media in media_list:
                 mid = safe_int(media.get("mediaID"))
                 if mid is not None:
@@ -258,7 +255,7 @@ class MediaHandler(EventHandler):
     def _process_single_event(
         self,
         event: ClaimXEventMessage,
-        media_by_id: Dict[int, Dict],
+        media_by_id: dict[int, dict],
         project_id: int,
         batch_start_time: datetime,
     ) -> EnrichmentResult:

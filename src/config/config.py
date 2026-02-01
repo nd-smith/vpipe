@@ -17,7 +17,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -25,11 +25,11 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def load_yaml(path: Path) -> Dict[str, Any]:
+def load_yaml(path: Path) -> dict[str, Any]:
     """Load YAML file and return dict."""
     if not path.exists():
         return {}
-    with open(path, "r") as f:
+    with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -103,20 +103,20 @@ class KafkaConfig:
     # =========================================================================
     # DEFAULT SETTINGS (applied to all consumers/producers unless overridden)
     # =========================================================================
-    consumer_defaults: Dict[str, Any] = field(default_factory=dict)
-    producer_defaults: Dict[str, Any] = field(default_factory=dict)
+    consumer_defaults: dict[str, Any] = field(default_factory=dict)
+    producer_defaults: dict[str, Any] = field(default_factory=dict)
 
     # =========================================================================
     # DOMAIN CONFIGURATIONS (xact and claimx)
     # =========================================================================
-    xact: Dict[str, Any] = field(default_factory=dict)
-    claimx: Dict[str, Any] = field(default_factory=dict)
+    xact: dict[str, Any] = field(default_factory=dict)
+    claimx: dict[str, Any] = field(default_factory=dict)
 
     # =========================================================================
     # STORAGE CONFIGURATION
     # =========================================================================
     onelake_base_path: str = ""  # Fallback path
-    onelake_domain_paths: Dict[str, str] = field(default_factory=dict)
+    onelake_domain_paths: dict[str, str] = field(default_factory=dict)
     cache_dir: str = field(
         default_factory=lambda: str(
             Path(tempfile.gettempdir()) / "kafka_pipeline_cache"
@@ -136,7 +136,7 @@ class KafkaConfig:
         domain: str,
         worker_name: str,
         component: str,  # "consumer", "producer", or "processing"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get merged configuration for a specific worker's component.
 
         Merge priority (highest to lowest):
@@ -207,7 +207,7 @@ class KafkaConfig:
         # Fall back to standard naming: {domain}.retry
         return f"{domain}.retry"
 
-    def get_retry_delays(self, domain: str) -> List[int]:
+    def get_retry_delays(self, domain: str) -> list[int]:
         domain_config = self.xact if domain == "xact" else self.claimx
         return domain_config.get("retry_delays", [300, 600, 1200, 2400])
 
@@ -261,7 +261,7 @@ class KafkaConfig:
 
     @staticmethod
     def _validate_enum(
-        settings: Dict[str, Any], key: str, valid_values: List[Any], context: str
+        settings: dict[str, Any], key: str, valid_values: list[Any], context: str
     ) -> None:
         """Validate that a setting's value is in a list of valid values."""
         if key in settings and settings[key] not in valid_values:
@@ -272,7 +272,7 @@ class KafkaConfig:
 
     @staticmethod
     def _validate_min(
-        settings: Dict[str, Any],
+        settings: dict[str, Any],
         key: str,
         min_value: float,
         inclusive: bool,
@@ -290,7 +290,7 @@ class KafkaConfig:
 
     @staticmethod
     def _validate_range(
-        settings: Dict[str, Any],
+        settings: dict[str, Any],
         key: str,
         min_value: float,
         max_value: float,
@@ -305,7 +305,7 @@ class KafkaConfig:
                 )
 
     def _validate_kafka_settings(
-        self, settings: Dict[str, Any], context: str, setting_type: str
+        self, settings: dict[str, Any], context: str, setting_type: str
     ) -> None:
         """Generic validator for Kafka settings (consumer, producer, or processing).
 
@@ -385,25 +385,25 @@ class KafkaConfig:
             )
 
     def _validate_consumer_settings(
-        self, settings: Dict[str, Any], context: str
+        self, settings: dict[str, Any], context: str
     ) -> None:
         """Validate consumer settings against Kafka requirements and logical constraints."""
         self._validate_kafka_settings(settings, context, "consumer")
 
     def _validate_producer_settings(
-        self, settings: Dict[str, Any], context: str
+        self, settings: dict[str, Any], context: str
     ) -> None:
         """Validate producer settings."""
         self._validate_kafka_settings(settings, context, "producer")
 
     def _validate_processing_settings(
-        self, settings: Dict[str, Any], context: str
+        self, settings: dict[str, Any], context: str
     ) -> None:
         """Validate processing settings."""
         self._validate_kafka_settings(settings, context, "processing")
 
 
-def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Deep merge overlay into base dict."""
     result = base.copy()
     for key, value in overlay.items():
@@ -415,8 +415,8 @@ def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]
 
 
 def load_config(
-    config_path: Optional[Path] = None,
-    overrides: Optional[Dict[str, Any]] = None,
+    config_path: Path | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> KafkaConfig:
     """Load Kafka configuration from config.yaml file.
 
@@ -433,7 +433,7 @@ def load_config(
             f"Expected file: config/config.yaml"
         )
 
-    logger.info(f"Loading configuration from file: {config_path}")
+    logger.info("Loading configuration from file: %s", config_path)
     yaml_data = load_yaml(config_path)
     yaml_data = _expand_env_vars(yaml_data)
 
@@ -446,7 +446,7 @@ def load_config(
     kafka_config = yaml_data["kafka"]
 
     if overrides:
-        logger.debug(f"Applying overrides: {list(overrides.keys())}")
+        logger.debug("Applying overrides: %s", list(overrides.keys()))
         kafka_config = _deep_merge(kafka_config, overrides)
 
     connection = kafka_config.get("connection", {})
@@ -517,10 +517,10 @@ def load_config(
         ),
     )
 
-    logger.debug(f"Configuration loaded successfully:")
-    logger.debug(f"  - Bootstrap servers: {config.bootstrap_servers}")
-    logger.debug(f"  - Verisk domain configured: {bool(config.verisk)}")
-    logger.debug(f"  - ClaimX domain configured: {bool(config.claimx)}")
+    logger.debug("Configuration loaded successfully:")
+    logger.debug("  - Bootstrap servers: %s", config.bootstrap_servers)
+    logger.debug("  - Verisk domain configured: %s", bool(config.verisk))
+    logger.debug("  - ClaimX domain configured: %s", bool(config.claimx))
 
     logger.debug("Validating configuration...")
     config.validate()
@@ -529,7 +529,7 @@ def load_config(
     return config
 
 
-_kafka_config: Optional[KafkaConfig] = None
+_kafka_config: KafkaConfig | None = None
 
 
 def get_config() -> KafkaConfig:

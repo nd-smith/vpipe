@@ -18,10 +18,10 @@ WARNING: This must NEVER be enabled in production. The env var should only
 exist in .env (gitignored) or be set manually for local testing.
 """
 
+import _ssl
 import logging
 import os
 import ssl
-import _ssl
 import sys
 
 logger = logging.getLogger(__name__)

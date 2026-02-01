@@ -35,10 +35,11 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import wraps
-from typing import Callable, Optional, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +49,9 @@ T = TypeVar("T")
 class MetricsCollector(Protocol):
     """Protocol for metrics collection (optional dependency)."""
 
-    def increment_counter(self, name: str, labels: Optional[dict] = None) -> None: ...
+    def increment_counter(self, name: str, labels: dict | None = None) -> None: ...
     def observe_histogram(
-        self, name: str, value: float, labels: Optional[dict] = None
+        self, name: str, value: float, labels: dict | None = None
     ) -> None: ...
 
 
@@ -63,7 +64,7 @@ class RateLimiterConfig:
 
     # Maximum burst capacity (tokens that can accumulate)
     # If None, defaults to calls_per_second (allows 1 second of burst)
-    burst_capacity: Optional[float] = None
+    burst_capacity: float | None = None
 
     # Enable/disable rate limiting (for testing or gradual rollout)
     enabled: bool = True
@@ -109,10 +110,10 @@ class RateLimiter:
 
     def __init__(
         self,
-        config: Optional[RateLimiterConfig] = None,
-        calls_per_second: Optional[float] = None,
-        enabled: Optional[bool] = None,
-        metrics: Optional[MetricsCollector] = None,
+        config: RateLimiterConfig | None = None,
+        calls_per_second: float | None = None,
+        enabled: bool | None = None,
+        metrics: MetricsCollector | None = None,
     ):
         """
         Initialize rate limiter.
@@ -295,8 +296,8 @@ _rate_limiters: dict[str, RateLimiter] = {}
 
 def get_rate_limiter(
     name: str,
-    config: Optional[RateLimiterConfig] = None,
-    metrics: Optional[MetricsCollector] = None,
+    config: RateLimiterConfig | None = None,
+    metrics: MetricsCollector | None = None,
 ) -> RateLimiter:
     """
     Get or create a named rate limiter (singleton pattern).

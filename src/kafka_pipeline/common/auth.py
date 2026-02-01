@@ -8,14 +8,14 @@ Simplified version supporting:
 - Token caching with automatic refresh
 """
 
+import contextlib
 import json
 import logging
 import os
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from datetime import UTC, datetime, timedelta
 
 from core.logging import get_logger, log_with_context
 
@@ -35,7 +35,7 @@ class CachedToken:
 
     def is_valid(self, buffer_mins: int = TOKEN_REFRESH_MINS) -> bool:
         """Check if token is still valid with buffer."""
-        age = datetime.now(timezone.utc) - self.acquired_at
+        age = datetime.now(UTC) - self.acquired_at
         return age < timedelta(minutes=buffer_mins)
 
 
@@ -43,9 +43,9 @@ class TokenCache:
     """Token cache for multiple resources."""
 
     def __init__(self):
-        self._tokens: Dict[str, CachedToken] = {}
+        self._tokens: dict[str, CachedToken] = {}
 
-    def get(self, resource: str) -> Optional[str]:
+    def get(self, resource: str) -> str | None:
         """Get cached token if still valid."""
         cached = self._tokens.get(resource)
         if cached and cached.is_valid():
@@ -55,10 +55,10 @@ class TokenCache:
     def set(self, resource: str, token: str) -> None:
         """Cache a token."""
         self._tokens[resource] = CachedToken(
-            value=token, acquired_at=datetime.now(timezone.utc)
+            value=token, acquired_at=datetime.now(UTC)
         )
 
-    def clear(self, resource: Optional[str] = None) -> None:
+    def clear(self, resource: str | None = None) -> None:
         """Clear one or all cached tokens."""
         if resource:
             self._tokens.pop(resource, None)
@@ -88,9 +88,9 @@ class AzureAuth:
 
     STORAGE_RESOURCE = "https://storage.azure.com/"
 
-    def __init__(self, cache: Optional[TokenCache] = None):
+    def __init__(self, cache: TokenCache | None = None):
         self._cache = cache or TokenCache()
-        self._token_file_mtime: Optional[float] = None
+        self._token_file_mtime: float | None = None
         self._load_config()
 
     def _load_config(self) -> None:
@@ -141,12 +141,10 @@ class AzureAuth:
     def _update_token_file_mtime(self) -> None:
         """Update the cached file modification time after successful read."""
         if self.token_file:
-            try:
+            with contextlib.suppress(OSError):
                 self._token_file_mtime = os.path.getmtime(self.token_file)
-            except OSError:
-                pass
 
-    def _read_token_file(self, resource: Optional[str] = None) -> str:
+    def _read_token_file(self, resource: str | None = None) -> str:
         """
         Read token from file.
 
@@ -158,7 +156,7 @@ class AzureAuth:
             raise AzureAuthError("AZURE_TOKEN_FILE not set")
 
         try:
-            with open(self.token_file, "r", encoding="utf-8-sig") as f:
+            with open(self.token_file, encoding="utf-8-sig") as f:
                 content = f.read().strip()
 
             if not content:
@@ -214,7 +212,7 @@ class AzureAuth:
 
         except FileNotFoundError as e:
             raise AzureAuthError(f"Token file not found: {self.token_file}") from e
-        except IOError as e:
+        except OSError as e:
             raise AzureAuthError(f"Failed to read token file: {self.token_file}") from e
 
     def _fetch_cli_token(self, resource: str) -> str:
@@ -233,8 +231,7 @@ class AzureAuth:
         try:
             result = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=60,
                 check=False,
@@ -263,7 +260,7 @@ class AzureAuth:
         except subprocess.TimeoutExpired:
             raise AzureAuthError(f"Azure CLI token request timed out for {resource}")
 
-    def get_storage_token(self, force_refresh: bool = False) -> Optional[str]:
+    def get_storage_token(self, force_refresh: bool = False) -> str | None:
         """Get token for OneLake/ADLS storage operations."""
         if self.token_file:
             # Check if file was modified - if so, clear cache to force re-read
@@ -326,7 +323,7 @@ class AzureAuth:
         # SPN mode doesn't use tokens - return None to use credentials
         return None
 
-    def get_storage_options(self, force_refresh: bool = False) -> Dict[str, str]:
+    def get_storage_options(self, force_refresh: bool = False) -> dict[str, str]:
         """Get delta-rs / object_store compatible auth options."""
         if self.token_file or self.use_cli:
             token = self.get_storage_token(force_refresh)
@@ -349,7 +346,7 @@ class AzureAuth:
         )
         return {}
 
-    def clear_cache(self, resource: Optional[str] = None) -> None:
+    def clear_cache(self, resource: str | None = None) -> None:
         """Clear cached tokens."""
         self._cache.clear(resource)
 
@@ -358,7 +355,7 @@ class AzureAuth:
 # Singleton instance and convenience functions
 # =============================================================================
 
-_auth_instance: Optional[AzureAuth] = None
+_auth_instance: AzureAuth | None = None
 
 
 def get_auth() -> AzureAuth:
@@ -377,7 +374,7 @@ def get_auth() -> AzureAuth:
     return _auth_instance
 
 
-def _mask_credential(value: Optional[str], visible_chars: int = 4) -> str:
+def _mask_credential(value: str | None, visible_chars: int = 4) -> str:
     """Mask a credential showing only first N chars for verification."""
     if not value:
         return "<not_set>"
@@ -386,7 +383,7 @@ def _mask_credential(value: Optional[str], visible_chars: int = 4) -> str:
     return f"{value[:visible_chars]}...({len(value)} chars)"
 
 
-def get_storage_options(force_refresh: bool = False) -> Dict[str, str]:
+def get_storage_options(force_refresh: bool = False) -> dict[str, str]:
     """Get storage auth options from singleton."""
     auth = get_auth()
     opts = auth.get_storage_options(force_refresh)
@@ -453,6 +450,6 @@ def get_storage_options(force_refresh: bool = False) -> Dict[str, str]:
     return opts
 
 
-def clear_token_cache(resource: Optional[str] = None) -> None:
+def clear_token_cache(resource: str | None = None) -> None:
     """Clear token cache on singleton."""
     get_auth().clear_cache(resource)

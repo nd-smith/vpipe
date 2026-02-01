@@ -14,7 +14,8 @@ For core logging functions, import directly from core.logging:
 import asyncio
 import functools
 import logging
-from typing import Any, Callable, Dict, Optional, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from core.logging import get_logger, log_exception, log_with_context
 
@@ -30,9 +31,9 @@ __all__ = [
 
 def logged_operation(
     level: int = logging.DEBUG,
-    slow_threshold_ms: Optional[float] = None,
+    slow_threshold_ms: float | None = None,
     log_start: bool = False,
-    operation_name: Optional[str] = None,
+    operation_name: str | None = None,
 ) -> Callable[[F], F]:
     """
     Decorator for automatic operation logging on class methods.
@@ -121,7 +122,7 @@ class LoggedClass:
                 ...
     """
 
-    log_component: Optional[str] = None  # Optional logger name suffix
+    log_component: str | None = None  # Optional logger name suffix
 
     def __init__(self, *args, **kwargs):
         logger_name = self.__class__.__module__
@@ -139,7 +140,7 @@ class LoggedClass:
             msg: Log message
             **extra: Additional context fields
         """
-        context: Dict[str, Any] = {}
+        context: dict[str, Any] = {}
         for attr in [
             "table_path",
             "primary_keys",
@@ -171,7 +172,7 @@ class LoggedClass:
             level: Log level (default: ERROR)
             **extra: Additional context fields
         """
-        context: Dict[str, Any] = {}
+        context: dict[str, Any] = {}
         for attr in [
             "table_path",
             "primary_keys",
@@ -188,7 +189,7 @@ class LoggedClass:
         log_exception(self._logger, exc, msg, level=level, **context)
 
 
-def extract_log_context(obj: Any) -> Dict[str, Any]:
+def extract_log_context(obj: Any) -> dict[str, Any]:
     """
     Extract loggable context from any pipeline object.
 
@@ -206,7 +207,7 @@ def extract_log_context(obj: Any) -> Dict[str, Any]:
         except Exception as e:
             log_exception(logger, e, "Download failed", **extract_log_context(task))
     """
-    ctx: Dict[str, Any] = {}
+    ctx: dict[str, Any] = {}
 
     if obj is None:
         return ctx
@@ -248,7 +249,7 @@ def extract_log_context(obj: Any) -> Dict[str, Any]:
     return ctx
 
 
-def with_api_error_handling(func: F) -> F:
+def with_api_error_handling[F: Callable[..., Any]](func: F) -> F:
     """
     Decorator for API error handling with logging.
 

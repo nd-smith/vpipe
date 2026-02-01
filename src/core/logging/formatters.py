@@ -3,8 +3,8 @@
 import json
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
 
 from core.logging.context import get_log_context
 from core.utils.json_serializers import json_serializer
@@ -191,8 +191,8 @@ class JSONFormatter(logging.Formatter):
         Ensures numeric fields maintain proper types (int/float) instead of
         being converted to strings, enabling efficient ADX aggregations.
         """
-        log_entry: Dict[str, Any] = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        log_entry: dict[str, Any] = {
+            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
             + "Z",
             "level": record.levelname,
             "logger": record.name,

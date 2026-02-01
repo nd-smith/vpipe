@@ -1,7 +1,6 @@
 """Context variables for structured logging."""
 
 from contextvars import ContextVar
-from typing import Dict, Optional
 
 _cycle_id: ContextVar[str] = ContextVar("cycle_id", default="")
 _stage_name: ContextVar[str] = ContextVar("stage_name", default="")
@@ -11,11 +10,11 @@ _trace_id: ContextVar[str] = ContextVar("trace_id", default="")
 
 
 def set_log_context(
-    cycle_id: Optional[str] = None,
-    stage: Optional[str] = None,
-    worker_id: Optional[str] = None,
-    domain: Optional[str] = None,
-    trace_id: Optional[str] = None,
+    cycle_id: str | None = None,
+    stage: str | None = None,
+    worker_id: str | None = None,
+    domain: str | None = None,
+    trace_id: str | None = None,
 ) -> None:
     if cycle_id is not None:
         _cycle_id.set(cycle_id)
@@ -29,7 +28,7 @@ def set_log_context(
         _trace_id.set(trace_id)
 
 
-def get_log_context() -> Dict[str, str]:
+def get_log_context() -> dict[str, str]:
     context = {
         "cycle_id": _cycle_id.get(),
         "stage": _stage_name.get(),

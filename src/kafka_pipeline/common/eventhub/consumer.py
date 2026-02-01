@@ -22,29 +22,25 @@ import json
 import logging
 import socket
 import time
-from typing import Awaitable, Callable, List, Optional, Tuple
+from collections.abc import Awaitable, Callable
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
-from aiokafka import AIOKafkaProducer
-from aiokafka.structs import (
-    ConsumerRecord,
-)  # Keep for backward compatibility during migration
 
-from core.logging import get_logger, log_with_context, log_exception, MessageLogContext
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
+from core.logging import MessageLogContext, get_logger, log_exception, log_with_context
 from kafka_pipeline.common.eventhub.producer import EventHubProducer
-from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.common.metrics import (
+    message_processing_duration_seconds,
+    record_dlq_message,
     record_message_consumed,
     record_processing_error,
-    record_dlq_message,
-    update_connection_status,
     update_assigned_partitions,
-    message_processing_duration_seconds,
+    update_connection_status,
 )
+from kafka_pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -124,15 +120,15 @@ class EventHubConsumerRecord:
         return self._message.timestamp
 
     @property
-    def key(self) -> Optional[bytes]:
+    def key(self) -> bytes | None:
         return self._message.key
 
     @property
-    def value(self) -> Optional[bytes]:
+    def value(self) -> bytes | None:
         return self._message.value
 
     @property
-    def headers(self) -> Optional[List[Tuple[str, bytes]]]:
+    def headers(self) -> list[tuple[str, bytes]] | None:
         return self._message.headers
 
     def to_pipeline_message(self) -> PipelineMessage:
@@ -160,8 +156,8 @@ class EventHubConsumer:
         consumer_group: str,
         message_handler: Callable[[PipelineMessage], Awaitable[None]],
         enable_message_commit: bool = True,
-        instance_id: Optional[str] = None,
-        checkpoint_store: Optional[BlobCheckpointStore] = None,
+        instance_id: str | None = None,
+        checkpoint_store: BlobCheckpointStore | None = None,
     ):
         """Initialize Event Hub consumer.
 
@@ -185,10 +181,10 @@ class EventHubConsumer:
         self.consumer_group = consumer_group
         self.message_handler = message_handler
         self.checkpoint_store = checkpoint_store
-        self._consumer: Optional[EventHubConsumerClient] = None
+        self._consumer: EventHubConsumerClient | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
-        self._dlq_producer: Optional[EventHubProducer] = None
+        self._dlq_producer: EventHubProducer | None = None
         self._current_partition_context = (
             {}
         )  # Track partition contexts for checkpointing
@@ -527,7 +523,7 @@ class EventHubConsumer:
             "claimx_events": "claimx-dlq",
         }
 
-    def _get_dlq_entity_name(self, source_topic: str) -> Optional[str]:
+    def _get_dlq_entity_name(self, source_topic: str) -> str | None:
         """Get DLQ entity name for a source topic.
 
         Args:
@@ -654,7 +650,7 @@ class EventHubConsumer:
         }
 
         dlq_value = json.dumps(dlq_message).encode("utf-8")
-        dlq_key = message.key or f"dlq-{message.offset}".encode("utf-8")
+        dlq_key = message.key or f"dlq-{message.offset}".encode()
 
         # Construct DLQ headers
         dlq_headers = {

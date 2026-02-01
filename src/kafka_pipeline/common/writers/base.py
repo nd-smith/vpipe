@@ -11,7 +11,6 @@ data transformation methods.
 """
 
 import asyncio
-from typing import List, Optional, Union
 
 import polars as pl
 
@@ -49,8 +48,8 @@ class BaseDeltaWriter:
         self,
         table_path: str,
         timestamp_column: str = "ingested_at",
-        partition_column: Optional[str] = None,
-        z_order_columns: Optional[List[str]] = None,
+        partition_column: str | None = None,
+        z_order_columns: list[str] | None = None,
     ):
         """
         Initialize base Delta writer.
@@ -86,7 +85,7 @@ class BaseDeltaWriter:
     async def _async_append(
         self,
         df: pl.DataFrame,
-        batch_id: Optional[str] = None,
+        batch_id: str | None = None,
     ) -> bool:
         """
         Append DataFrame to Delta table (non-blocking).
@@ -136,9 +135,9 @@ class BaseDeltaWriter:
     async def _async_merge(
         self,
         df: pl.DataFrame,
-        merge_keys: List[str],
-        preserve_columns: Optional[List[str]] = None,
-        update_condition: Optional[str] = None,
+        merge_keys: list[str],
+        preserve_columns: list[str] | None = None,
+        update_condition: str | None = None,
     ) -> bool:
         """
         Merge DataFrame into Delta table (non-blocking upsert).

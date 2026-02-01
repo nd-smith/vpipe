@@ -8,7 +8,6 @@ Defines clean input/output models for the AttachmentDownloader interface:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Set
 
 from core.errors.exceptions import ErrorCategory
 
@@ -29,9 +28,9 @@ class DownloadTask:
     validate_file_type: bool = True
     check_expiration: bool = False
     allow_localhost: bool = False
-    allowed_domains: Optional[Set[str]] = None
-    allowed_extensions: Optional[Set[str]] = None
-    max_size: Optional[int] = None
+    allowed_domains: set[str] | None = None
+    allowed_extensions: set[str] | None = None
+    max_size: int | None = None
 
 
 @dataclass
@@ -39,20 +38,20 @@ class DownloadOutcome:
     """Result of attachment download operation with error classification."""
 
     success: bool
-    file_path: Optional[Path] = None
+    file_path: Path | None = None
     bytes_downloaded: int = 0
-    content_type: Optional[str] = None
-    status_code: Optional[int] = None
-    error_message: Optional[str] = None
-    error_category: Optional[ErrorCategory] = None
-    validation_error: Optional[str] = None
+    content_type: str | None = None
+    status_code: int | None = None
+    error_message: str | None = None
+    error_category: ErrorCategory | None = None
+    validation_error: str | None = None
 
     @classmethod
     def success_outcome(
         cls,
         file_path: Path,
         bytes_downloaded: int,
-        content_type: Optional[str],
+        content_type: str | None,
         status_code: int,
     ) -> "DownloadOutcome":
         """Create successful download outcome."""
@@ -83,7 +82,7 @@ class DownloadOutcome:
         cls,
         error_message: str,
         error_category: ErrorCategory,
-        status_code: Optional[int] = None,
+        status_code: int | None = None,
     ) -> "DownloadOutcome":
         """Create download failure outcome (HTTP errors, timeouts, connection failures)."""
         return cls(

@@ -19,28 +19,33 @@ Concurrent Processing (WP-313):
 """
 
 import asyncio
+import contextlib
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Optional, Set
 
 import aiohttp
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord
 
+from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
+from core.download.downloader import AttachmentDownloader
+from core.download.models import DownloadOutcome, DownloadTask
+from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from core.download.downloader import AttachmentDownloader
-from core.download.models import DownloadTask, DownloadOutcome
-from core.errors.exceptions import CircuitOpenError
 from core.types import ErrorCategory
-from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
+from kafka_pipeline.common.metrics import (
+    record_message_consumed,
+    record_processing_error,
+    update_assigned_partitions,
+    update_connection_status,
+)
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.simulation.config import SimulationConfig
@@ -48,13 +53,6 @@ from kafka_pipeline.verisk.retry.download_handler import RetryHandler
 from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
-from kafka_pipeline.common.metrics import (
-    record_message_consumed,
-    record_processing_error,
-    update_connection_status,
-    update_assigned_partitions,
-    message_processing_duration_seconds,
-)
 
 logger = get_logger(__name__)
 
@@ -66,7 +64,7 @@ class TaskResult:
     outcome: DownloadOutcome
     processing_time_ms: int
     success: bool
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
 
 class DownloadWorker:
@@ -113,9 +111,9 @@ class DownloadWorker:
         self,
         config: KafkaConfig,
         domain: str = "verisk",
-        temp_dir: Optional[Path] = None,
-        instance_id: Optional[str] = None,
-        simulation_config: Optional[SimulationConfig] = None,
+        temp_dir: Path | None = None,
+        instance_id: str | None = None,
+        simulation_config: SimulationConfig | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -137,7 +135,7 @@ class DownloadWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [config.get_topic(domain, "downloads_pending")]
 
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._consumer: AIOKafkaConsumer | None = None
         self._running = False
 
         # Worker-specific processing config
@@ -149,17 +147,17 @@ class DownloadWorker:
         self.timeout_seconds = processing_config.get("timeout_seconds", 60)
 
         # Concurrency control (WP-313)
-        self._semaphore: Optional[asyncio.Semaphore] = None
-        self._in_flight_tasks: Set[str] = set()  # media_id tracking
+        self._semaphore: asyncio.Semaphore | None = None
+        self._in_flight_tasks: set[str] = set()  # media_id tracking
         self._in_flight_lock = asyncio.Lock()
-        self._shutdown_event: Optional[asyncio.Event] = None
+        self._shutdown_event: asyncio.Event | None = None
 
         # In-memory dedup cache: media_id -> timestamp (TTL-based eviction)
         self._dedup_cache: dict[str, float] = {}
         self._dedup_cache_ttl_seconds = 86400  # 24 hours
         self._dedup_cache_max_size = 100_000  # ~1MB memory for 100k entries
 
-        self._http_session: Optional[aiohttp.ClientSession] = None
+        self._http_session: aiohttp.ClientSession | None = None
 
         self.producer = BaseKafkaProducer(
             config=config,
@@ -169,7 +167,7 @@ class DownloadWorker:
 
         self.downloader = AttachmentDownloader()
 
-        self.retry_handler: Optional[RetryHandler] = None
+        self.retry_handler: RetryHandler | None = None
 
         # Store simulation config if provided (validated at startup)
         self._simulation_config = simulation_config
@@ -195,7 +193,7 @@ class DownloadWorker:
         self._bytes_downloaded = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         logger.info(
             "Initialized download worker with concurrent processing",
@@ -230,8 +228,9 @@ class DownloadWorker:
             },
         )
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-download-worker",
@@ -386,10 +385,8 @@ class DownloadWorker:
 
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -497,8 +494,8 @@ class DownloadWorker:
                 if not data:
                     continue
 
-                messages: List[PipelineMessage] = []
-                for topic_partition, records in data.items():
+                messages: list[PipelineMessage] = []
+                for _topic_partition, records in data.items():
                     # Convert ConsumerRecord to PipelineMessage
                     messages.extend(
                         [from_consumer_record(record) for record in records]
@@ -539,7 +536,7 @@ class DownloadWorker:
                 )
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[PipelineMessage]) -> List[TaskResult]:
+    async def _process_batch(self, messages: list[PipelineMessage]) -> list[TaskResult]:
         async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
@@ -547,7 +544,7 @@ class DownloadWorker:
         tasks = [bounded_process(msg) for msg in messages]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        processed_results: List[TaskResult] = []
+        processed_results: list[TaskResult] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 message = messages[i]
@@ -733,7 +730,7 @@ class DownloadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-    async def _handle_batch_results(self, results: List[TaskResult]) -> bool:
+    async def _handle_batch_results(self, results: list[TaskResult]) -> bool:
         """
         Returns False if any circuit breaker errors exist (messages will be reprocessed).
         """
@@ -833,7 +830,7 @@ class DownloadWorker:
             file_type=task_message.file_type,
             assignment_id=task_message.assignment_id,
             original_timestamp=task_message.original_timestamp,
-            downloaded_at=datetime.now(timezone.utc),
+            downloaded_at=datetime.now(UTC),
             metadata=task_message.metadata,
         )
 
@@ -927,10 +924,7 @@ class DownloadWorker:
                 exc_info=True,
             )
 
-        if error_category == ErrorCategory.PERMANENT:
-            status = "failed_permanent"
-        else:
-            status = "failed"
+        status = "failed_permanent" if error_category == ErrorCategory.PERMANENT else "failed"
 
         result_message = DownloadResultMessage(
             media_id=task_message.media_id,
@@ -944,7 +938,7 @@ class DownloadWorker:
             bytes_downloaded=0,
             error_message=outcome.error_message,
             retry_count=task_message.retry_count,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
 
         await self.producer.send(

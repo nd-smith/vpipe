@@ -29,8 +29,8 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaError
 from dotenv import load_dotenv
 
-from core.logging import setup_logging, get_logger, log_worker_startup
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
+from core.logging import get_logger, log_worker_startup, setup_logging
+from kafka_pipeline.common.types import from_consumer_record
 
 # Project root directory (where .env file is located)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -178,7 +178,7 @@ class MitigationTrackingWorker:
                     continue
 
         except KafkaError as e:
-            logger.exception(f"Kafka error: {e}")
+            logger.exception("Kafka error: %s", e)
             raise
 
     async def stop(self):
@@ -193,7 +193,7 @@ class MitigationTrackingWorker:
 
     def signal_handler(self, signum, frame):
         """Handle shutdown signals."""
-        logger.info(f"Received signal {signum}")
+        logger.info("Received signal %s", signum)
         self._shutdown_event.set()
 
 
@@ -202,8 +202,8 @@ def load_yaml_config(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
 
-    logger.info(f"Loading configuration from {path}")
-    with open(path, "r", encoding="utf-8") as f:
+    logger.info("Loading configuration from %s", path)
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
@@ -262,7 +262,7 @@ def load_connections() -> list[ConnectionConfig]:
             headers=conn_data.get("headers", {}),
         )
         connections.append(conn)
-        logger.info(f"Loaded connection: {conn.name} -> {conn.base_url}")
+        logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)
 
     return connections
 
@@ -288,7 +288,7 @@ async def main():
         worker_config = load_worker_config()
         connections_list = load_connections()
     except (FileNotFoundError, ValueError) as e:
-        logger.error(f"Configuration error: {e}")
+        logger.error("Configuration error: %s", e)
         sys.exit(1)
 
     # Setup Kafka configuration
@@ -344,7 +344,7 @@ async def main():
     except NotImplementedError:
         # Windows doesn't support add_signal_handler
         def signal_handler(signum, frame):
-            logger.info(f"Received signal {signum}, initiating shutdown")
+            logger.info("Received signal %s, initiating shutdown", signum)
             asyncio.create_task(worker.stop())
 
         signal.signal(signal.SIGTERM, signal_handler)
@@ -357,7 +357,7 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
     except Exception as e:
-        logger.exception(f"Worker failed: {e}")
+        logger.exception("Worker failed: %s", e)
         sys.exit(1)
     finally:
         await worker.stop()

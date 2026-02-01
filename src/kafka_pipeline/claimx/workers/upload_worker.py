@@ -15,35 +15,33 @@ Architecture:
 """
 
 import asyncio
+import contextlib
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord as AIOConsumerRecord
 
+from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from config.config import KafkaConfig
-from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from kafka_pipeline.claimx.schemas.results import ClaimXUploadResultMessage
-from kafka_pipeline.common.storage import OneLakeClient
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
-    update_connection_status,
     update_assigned_partitions,
-    update_consumer_lag,
-    update_consumer_offset,
-    message_processing_duration_seconds,
+    update_connection_status,
 )
+from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.storage import OneLakeClient
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 logger = get_logger(__name__)
 
@@ -54,7 +52,7 @@ class UploadResult:
     cached_message: ClaimXCachedDownloadMessage
     processing_time_ms: int
     success: bool
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
 
 class ClaimXUploadWorker:
@@ -92,8 +90,8 @@ class ClaimXUploadWorker:
         self,
         config: KafkaConfig,
         domain: str = "claimx",
-        instance_id: Optional[str] = None,
-        storage_client: Optional[Any] = None,
+        instance_id: str | None = None,
+        storage_client: Any | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -139,14 +137,14 @@ class ClaimXUploadWorker:
         self.results_topic = config.get_topic(domain, "downloads_results")
 
         # Consumer will be created in start()
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._consumer: AIOKafkaConsumer | None = None
         self._running = False
 
         # Concurrency control
-        self._semaphore: Optional[asyncio.Semaphore] = None
-        self._in_flight_tasks: Set[str] = set()  # Track by media_id
+        self._semaphore: asyncio.Semaphore | None = None
+        self._in_flight_tasks: set[str] = set()  # Track by media_id
         self._in_flight_lock = asyncio.Lock()
-        self._shutdown_event: Optional[asyncio.Event] = None
+        self._shutdown_event: asyncio.Event | None = None
 
         # Cycle output tracking
         self._records_processed = 0
@@ -155,7 +153,7 @@ class ClaimXUploadWorker:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
@@ -169,7 +167,7 @@ class ClaimXUploadWorker:
         )
 
         # OneLake client (lazy initialized in start())
-        self.onelake_client: Optional[OneLakeClient] = None
+        self.onelake_client: OneLakeClient | None = None
 
         # Health check server - use worker-specific port from config
         health_port = processing_config.get("health_port", 8083)
@@ -207,8 +205,9 @@ class ClaimXUploadWorker:
         )
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-upload-worker",
@@ -366,10 +365,8 @@ class ClaimXUploadWorker:
         # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         # Signal shutdown
         if self._shutdown_event:
@@ -532,7 +529,7 @@ class ClaimXUploadWorker:
                     update_assigned_partitions(consumer_group, len(assignment))
 
                 # Fetch batch of messages
-                batch: Dict[str, List[AIOConsumerRecord]] = (
+                batch: dict[str, list[AIOConsumerRecord]] = (
                     await self._consumer.getmany(
                         timeout_ms=1000,
                         max_records=self.batch_size,
@@ -544,7 +541,7 @@ class ClaimXUploadWorker:
 
                 # Flatten messages from all partitions and convert to PipelineMessage
                 messages = []
-                for topic_partition, records in batch.items():
+                for _topic_partition, records in batch.items():
                     for record in records:
                         messages.append(from_consumer_record(record))
 
@@ -560,7 +557,7 @@ class ClaimXUploadWorker:
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[PipelineMessage]) -> None:
+    async def _process_batch(self, messages: list[PipelineMessage]) -> None:
         """
         Process a batch of messages concurrently.
 
@@ -582,7 +579,7 @@ class ClaimXUploadWorker:
             for msg in messages
         ]
 
-        results: List[UploadResult] = await asyncio.gather(
+        results: list[UploadResult] = await asyncio.gather(
             *tasks, return_exceptions=True
         )
 
@@ -728,7 +725,7 @@ class ClaimXUploadWorker:
                 source_event_id=cached_message.source_event_id,
                 status="completed",
                 bytes_uploaded=cached_message.bytes_downloaded,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
 
             # Use source_event_id as key for consistent partitioning across all ClaimX topics
@@ -796,7 +793,7 @@ class ClaimXUploadWorker:
                     status="failed_permanent",
                     bytes_uploaded=0,
                     error_message=str(e)[:500],
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                 )
 
                 # Use source_event_id as key for consistent partitioning across all ClaimX topics
@@ -857,10 +854,10 @@ class ClaimXUploadWorker:
                         in_flight = len(self._in_flight_tasks)
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = (
+                    (
                         self._records_processed - self._last_cycle_processed
                     )
-                    errors_cycle = self._records_failed - self._last_cycle_failed
+                    self._records_failed - self._last_cycle_failed
 
                     # Use standardized cycle output format
                     logger.info(
@@ -900,10 +897,8 @@ class ClaimXUploadWorker:
 
             parent = cache_path.parent
             if parent.exists():
-                try:
+                with contextlib.suppress(OSError):
                     await asyncio.to_thread(parent.rmdir)
-                except OSError:
-                    pass
 
             logger.debug("Cleaned up cache file", extra={"cache_path": str(cache_path)})
 

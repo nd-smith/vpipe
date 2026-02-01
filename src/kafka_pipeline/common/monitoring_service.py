@@ -17,8 +17,8 @@ Usage:
 import argparse
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import aiohttp
 from aiohttp import web
@@ -43,7 +43,7 @@ class PrometheusClient:
         self.prometheus_url = prometheus_url.rstrip("/")
         self.query_url = f"{self.prometheus_url}/api/v1/query"
 
-    async def query(self, query: str) -> Dict[str, Any]:
+    async def query(self, query: str) -> dict[str, Any]:
         """
         Execute a PromQL query and return result as dict.
 
@@ -57,7 +57,7 @@ class PrometheusClient:
                     raise Exception(f"Prometheus query failed: {data}")
                 return data["data"]
 
-    async def get_worker_status(self) -> List[Dict[str, Any]]:
+    async def get_worker_status(self) -> list[dict[str, Any]]:
         """
         Get health status of all workers from Prometheus.
 
@@ -83,7 +83,7 @@ class PrometheusClient:
 
         return workers
 
-    async def get_consumer_lag(self) -> List[Dict[str, Any]]:
+    async def get_consumer_lag(self) -> list[dict[str, Any]]:
         """
         Get consumer lag for all workers from Prometheus.
 
@@ -115,7 +115,7 @@ class PrometheusClient:
                 async with session.get(f"{self.prometheus_url}/-/healthy") as resp:
                     return resp.status == 200
         except Exception as e:
-            logger.error(f"Failed to check Prometheus health: {e}")
+            logger.exception("Failed to check Prometheus health: %s", e)
             return False
 
 
@@ -159,7 +159,7 @@ class MonitoringService:
                     {
                         "status": "unknown",
                         "message": "No workers found in Prometheus",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                     status=503,
                 )
@@ -172,7 +172,7 @@ class MonitoringService:
                 "workers_total": len(workers),
                 "workers_up": len(workers) - len(down_workers),
                 "workers_down": len(down_workers),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             if down_workers:
@@ -186,12 +186,12 @@ class MonitoringService:
             )
 
         except Exception as e:
-            logger.error(f"Error checking system health: {e}", exc_info=True)
+            logger.error("Error checking system health: %s", e)
             return web.json_response(
                 {
                     "status": "error",
                     "message": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=503,
             )
@@ -212,17 +212,17 @@ class MonitoringService:
                     "total": len(workers),
                     "up": len([w for w in workers if w["status"] == "up"]),
                     "down": len([w for w in workers if w["status"] == "down"]),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=200,
             )
 
         except Exception as e:
-            logger.error(f"Error getting worker health: {e}", exc_info=True)
+            logger.exception("Error getting worker health: %s", e)
             return web.json_response(
                 {
                     "error": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=503,
             )
@@ -242,18 +242,18 @@ class MonitoringService:
                 {
                     "status": "healthy" if is_healthy else "unhealthy",
                     "prometheus_url": self.prometheus.prometheus_url,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=200 if is_healthy else 503,
             )
 
         except Exception as e:
-            logger.error(f"Error checking Prometheus health: {e}", exc_info=True)
+            logger.exception("Error checking Prometheus health: %s", e)
             return web.json_response(
                 {
                     "status": "error",
                     "message": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=503,
             )
@@ -338,17 +338,17 @@ class MonitoringService:
                     "workers_up": len([w for w in workers if w["status"] == "up"]),
                     "workers_down": len([w for w in workers if w["status"] == "down"]),
                     "consumer_groups": list(lag_by_consumer_group.values()),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=200,
             )
 
         except Exception as e:
-            logger.error(f"Error getting status: {e}", exc_info=True)
+            logger.exception("Error getting status: %s", e)
             return web.json_response(
                 {
                     "error": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=503,
             )
@@ -397,7 +397,7 @@ async def main():
     prometheus = PrometheusClient(args.prometheus_url)
 
     # Check Prometheus connectivity on startup
-    logger.info(f"Connecting to Prometheus at {args.prometheus_url}")
+    logger.info("Connecting to Prometheus at %s", args.prometheus_url)
     if not await prometheus.check_prometheus_health():
         logger.error(
             f"Cannot connect to Prometheus at {args.prometheus_url}. "

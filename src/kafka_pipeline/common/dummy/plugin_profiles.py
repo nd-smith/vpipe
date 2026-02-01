@@ -6,9 +6,9 @@ the requirements of specific plugin workflows, like the itel Cabinet API plugin.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
 from enum import Enum
+from typing import Any
 
 
 class PluginProfile(Enum):
@@ -32,45 +32,45 @@ class ItelCabinetFormData:
     date_assigned: str
 
     # Optional fields
-    date_completed: Optional[str] = None
-    assignor_email: Optional[str] = None
-    damage_description: Optional[str] = None
-    additional_notes: Optional[str] = None
-    countertops_lf: Optional[float] = None
+    date_completed: str | None = None
+    assignor_email: str | None = None
+    damage_description: str | None = None
+    additional_notes: str | None = None
+    countertops_lf: float | None = None
 
     # Customer info
-    customer_first_name: Optional[str] = None
-    customer_last_name: Optional[str] = None
-    customer_email: Optional[str] = None
-    customer_phone: Optional[str] = None
+    customer_first_name: str | None = None
+    customer_last_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
 
     # Cabinet sections
-    lower_cabinets_damaged: Optional[bool] = None
-    lower_cabinets_lf: Optional[float] = None
-    num_damaged_lower_boxes: Optional[int] = None
-    lower_cabinets_detached: Optional[bool] = None
-    lower_face_frames_doors_drawers_available: Optional[bool] = None
-    lower_face_frames_doors_drawers_damaged: Optional[bool] = None
-    lower_finished_end_panels_damaged: Optional[bool] = None
-    lower_end_panel_damage_present: Optional[bool] = None
-    lower_counter_type: Optional[str] = None
+    lower_cabinets_damaged: bool | None = None
+    lower_cabinets_lf: float | None = None
+    num_damaged_lower_boxes: int | None = None
+    lower_cabinets_detached: bool | None = None
+    lower_face_frames_doors_drawers_available: bool | None = None
+    lower_face_frames_doors_drawers_damaged: bool | None = None
+    lower_finished_end_panels_damaged: bool | None = None
+    lower_end_panel_damage_present: bool | None = None
+    lower_counter_type: str | None = None
 
-    upper_cabinets_damaged: Optional[bool] = None
-    upper_cabinets_lf: Optional[float] = None
-    num_damaged_upper_boxes: Optional[int] = None
-    upper_cabinets_detached: Optional[bool] = None
-    upper_face_frames_doors_drawers_available: Optional[bool] = None
-    upper_face_frames_doors_drawers_damaged: Optional[bool] = None
-    upper_finished_end_panels_damaged: Optional[bool] = None
-    upper_end_panel_damage_present: Optional[bool] = None
-    upper_counter_type: Optional[str] = None
+    upper_cabinets_damaged: bool | None = None
+    upper_cabinets_lf: float | None = None
+    num_damaged_upper_boxes: int | None = None
+    upper_cabinets_detached: bool | None = None
+    upper_face_frames_doors_drawers_available: bool | None = None
+    upper_face_frames_doors_drawers_damaged: bool | None = None
+    upper_finished_end_panels_damaged: bool | None = None
+    upper_end_panel_damage_present: bool | None = None
+    upper_counter_type: str | None = None
 
     # Media/attachments (question_key -> media_ids)
-    overview_photos: List[str] = field(default_factory=list)
-    lower_cabinet_box_photos: List[str] = field(default_factory=list)
-    lower_cabinet_end_panel_photos: List[str] = field(default_factory=list)
-    upper_cabinet_box_photos: List[str] = field(default_factory=list)
-    upper_cabinet_end_panel_photos: List[str] = field(default_factory=list)
+    overview_photos: list[str] = field(default_factory=list)
+    lower_cabinet_box_photos: list[str] = field(default_factory=list)
+    lower_cabinet_end_panel_photos: list[str] = field(default_factory=list)
+    upper_cabinet_box_photos: list[str] = field(default_factory=list)
+    upper_cabinet_end_panel_photos: list[str] = field(default_factory=list)
 
 
 class ItelCabinetDataGenerator:
@@ -161,14 +161,14 @@ class ItelCabinetDataGenerator:
 
         # Date assigned (1-5 days ago)
         date_assigned = (
-            datetime.now(timezone.utc) - timedelta(days=self.rng.randint(1, 5))
+            datetime.now(UTC) - timedelta(days=self.rng.randint(1, 5))
         ).isoformat()
 
         # Date completed (for completed tasks)
         date_completed = None
         if self.rng.random() > 0.3:  # 70% chance task is completed
             date_completed = (
-                datetime.now(timezone.utc) - timedelta(hours=self.rng.randint(1, 48))
+                datetime.now(UTC) - timedelta(hours=self.rng.randint(1, 48))
             ).isoformat()
 
         status = "completed" if date_completed else "assigned"
@@ -322,7 +322,7 @@ class ItelCabinetDataGenerator:
 
     def build_claimx_task_details(
         self, form_data: ItelCabinetFormData, claim
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Build a mock ClaimX API response for task details.
 
         This mimics what the ClaimX API lookup handler would return,
@@ -335,7 +335,7 @@ class ItelCabinetDataGenerator:
         Returns:
             Dict matching ClaimX API task response structure
         """
-        now = datetime.now(timezone.utc)
+        datetime.now(UTC)
 
         # Build form response structure (what ClaimX API returns)
         form_response = {
@@ -376,7 +376,7 @@ class ItelCabinetDataGenerator:
 
     def _build_form_responses(
         self, form_data: ItelCabinetFormData
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Build form responses array matching ClaimX form structure."""
         responses = []
 
@@ -529,7 +529,7 @@ class ItelCabinetDataGenerator:
 
     def _build_form_attachments(
         self, form_data: ItelCabinetFormData
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Build form attachments array matching ClaimX structure."""
         attachments = []
 

@@ -11,12 +11,12 @@ from kafka_pipeline.common.eventhouse.poller import (
 )
 from kafka_pipeline.common.eventhouse.sinks import (
     EventSink,
-    KafkaSink,
-    KafkaSinkConfig,
     JsonFileSink,
     JsonFileSinkConfig,
-    create_kafka_sink,
+    KafkaSink,
+    KafkaSinkConfig,
     create_json_sink,
+    create_kafka_sink,
 )
 
 __all__ = [

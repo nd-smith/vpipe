@@ -6,9 +6,12 @@ Schema aligned with verisk_pipeline Task dataclass for compatibility.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
+
+if TYPE_CHECKING:
+    from kafka_pipeline.verisk.schemas.models import Task
 
 
 class XACTEnrichmentTask(BaseModel):
@@ -68,10 +71,10 @@ class XACTEnrichmentTask(BaseModel):
     assignment_id: str = Field(
         ..., description="Assignment ID from event payload", min_length=1
     )
-    estimate_version: Optional[str] = Field(
+    estimate_version: str | None = Field(
         default=None, description="Estimate version from event payload (optional)"
     )
-    attachments: List[str] = Field(
+    attachments: list[str] = Field(
         default_factory=list, description="List of attachment URLs from the event"
     )
     retry_count: int = Field(
@@ -83,7 +86,7 @@ class XACTEnrichmentTask(BaseModel):
     original_timestamp: datetime = Field(
         ..., description="Timestamp from the original event"
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Metadata for enrichment tracking (error context, retry info, etc.)",
     )
@@ -218,7 +221,7 @@ class DownloadTaskMessage(BaseModel):
     assignment_id: str = Field(
         ..., description="Assignment ID from event payload", min_length=1
     )
-    estimate_version: Optional[str] = Field(
+    estimate_version: str | None = Field(
         default=None, description="Estimate version from event payload (optional)"
     )
     retry_count: int = Field(
@@ -235,7 +238,7 @@ class DownloadTaskMessage(BaseModel):
     original_timestamp: datetime = Field(
         ..., description="Timestamp from the original Kafka event"
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context passed through from original event",
     )

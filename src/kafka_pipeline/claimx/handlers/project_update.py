@@ -13,19 +13,18 @@ Handles:
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, Callable, Optional
+from typing import Any
 
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from core.logging import get_logger, log_with_context
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
     register_handler,
     with_api_error_handling,
 )
-from kafka_pipeline.claimx.handlers.utils import now_datetime, elapsed_ms
-
-from core.logging import get_logger, log_with_context
+from kafka_pipeline.claimx.handlers.utils import elapsed_ms, now_datetime
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
 
 logger = get_logger(__name__)
@@ -33,7 +32,7 @@ logger = get_logger(__name__)
 
 # Event-to-field mapping configuration
 # Maps event types to the project fields that should be updated
-EVENT_FIELD_MAPPING: Dict[str, Dict[str, Any]] = {
+EVENT_FIELD_MAPPING: dict[str, dict[str, Any]] = {
     "POLICYHOLDER_INVITED": {
         "requires_verification": True,
         "fields": lambda: {"policyholder_invited_at": now_datetime()},

@@ -22,11 +22,11 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from azure.eventhub import EventHubProducerClient, EventData, TransportType
-from azure.eventhub.aio import EventHubConsumerClient
-from azure.eventhub import EventPosition
 import asyncio
 import time
+
+from azure.eventhub import EventData, EventHubProducerClient, EventPosition, TransportType
+from azure.eventhub.aio import EventHubConsumerClient
 
 
 def _get_connection_string() -> str:
@@ -182,7 +182,7 @@ async def test_consumer_async(
                 # Wait with timeout
                 await asyncio.wait_for(receive_task, timeout=timeout_seconds)
 
-        except (asyncio.TimeoutError, KeyboardInterrupt):
+        except (TimeoutError, KeyboardInterrupt):
             print(f"\n  Stopped after {message_count} messages")
 
         if message_count > 0:

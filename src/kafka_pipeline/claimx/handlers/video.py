@@ -6,10 +6,9 @@ Handles: VIDEO_COLLABORATION_INVITE_SENT, VIDEO_COLLABORATION_COMPLETED
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from core.logging import get_logger, log_with_context
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
@@ -17,15 +16,15 @@ from kafka_pipeline.claimx.handlers.base import (
     with_api_error_handling,
 )
 from kafka_pipeline.claimx.handlers.utils import (
+    BaseTransformer,
+    elapsed_ms,
+    parse_timestamp,
+    safe_decimal_str,
     safe_int,
     safe_str,
-    safe_decimal_str,
-    parse_timestamp,
-    elapsed_ms,
-    BaseTransformer,
 )
-
-from core.logging import get_logger, log_with_context
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
 
 logger = get_logger(__name__)
@@ -112,7 +111,7 @@ class VideoCollabHandler(EventHandler):
         self,
         response: Any,
         project_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Extract video collaboration data from API response.
 
@@ -173,9 +172,9 @@ class VideoCollabTransformer:
 
     @staticmethod
     def to_video_collab_row(
-        data: Dict[str, Any],
+        data: dict[str, Any],
         event_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Transform API response to video collaboration row.
 

@@ -6,7 +6,7 @@ Enrichment tasks trigger API calls, download tasks handle media file downloads.
 """
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
@@ -59,19 +59,19 @@ class ClaimXEnrichmentTask(BaseModel):
     created_at: datetime = Field(
         ..., description="Timestamp when this enrichment task was created"
     )
-    media_id: Optional[str] = Field(
+    media_id: str | None = Field(
         default=None, description="Media file ID (for file-related events)"
     )
-    task_assignment_id: Optional[str] = Field(
+    task_assignment_id: str | None = Field(
         default=None, description="Task assignment ID (for task events)"
     )
-    video_collaboration_id: Optional[str] = Field(
+    video_collaboration_id: str | None = Field(
         default=None, description="Video collaboration ID (for video events)"
     )
-    master_file_name: Optional[str] = Field(
+    master_file_name: str | None = Field(
         default=None, description="Master file name (for MFN events)"
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Metadata for enrichment tracking (error context, retry info, etc.)",
     )
@@ -173,7 +173,7 @@ class ClaimXDownloadTask(BaseModel):
     retry_count: int = Field(
         default=0, description="Number of retry attempts (starts at 0)", ge=0
     )
-    expires_at: Optional[str] = Field(
+    expires_at: str | None = Field(
         default=None, description="ISO datetime when presigned URL expires"
     )
     refresh_count: int = Field(

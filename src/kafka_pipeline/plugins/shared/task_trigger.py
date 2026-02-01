@@ -35,16 +35,16 @@ Usage:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from kafka_pipeline.plugins.shared.base import (
-    Plugin,
-    PluginContext,
-    PluginResult,
-    PluginAction,
     ActionType,
     Domain,
     PipelineStage,
+    Plugin,
+    PluginAction,
+    PluginContext,
+    PluginResult,
 )
 
 
@@ -79,7 +79,7 @@ class TaskTriggerPlugin(Plugin):
         "include_project_data": False,
     }
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize plugin with config and compute event_types dynamically.
 
@@ -113,7 +113,7 @@ class TaskTriggerPlugin(Plugin):
                 needs_completed = True
 
         # Build event_types list based on what's configured
-        self.event_types: List[str] = []
+        self.event_types: list[str] = []
         if needs_assigned:
             self.event_types.append("CUSTOM_TASK_ASSIGNED")
         if needs_completed:
@@ -209,11 +209,11 @@ class TaskTriggerPlugin(Plugin):
 
     def _build_actions(
         self,
-        action_config: Dict[str, Any],
-        task: Dict[str, Any],
+        action_config: dict[str, Any],
+        task: dict[str, Any],
         context: PluginContext,
-        trigger_config: Dict[str, Any],
-    ) -> List[PluginAction]:
+        trigger_config: dict[str, Any],
+    ) -> list[PluginAction]:
         """
         Build action list from trigger configuration.
 
@@ -299,10 +299,10 @@ class TaskTriggerPlugin(Plugin):
 
     def _build_payload(
         self,
-        task: Dict[str, Any],
+        task: dict[str, Any],
         context: PluginContext,
-        trigger_config: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        trigger_config: dict[str, Any],
+    ) -> dict[str, Any]:
         """
         Build payload for publish/webhook actions.
 
@@ -341,7 +341,7 @@ class TaskTriggerPlugin(Plugin):
 
 # Convenience function to create and configure the plugin
 def create_task_trigger_plugin(
-    triggers: Dict[int, Dict[str, Any]],
+    triggers: dict[int, dict[str, Any]],
     include_task_data: bool = True,
     include_project_data: bool = False,
 ) -> TaskTriggerPlugin:

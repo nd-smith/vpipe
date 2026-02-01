@@ -28,14 +28,16 @@ Usage:
 
 # Import base classes (lightweight, no heavy deps)
 from kafka_pipeline.claimx.handlers.base import (
-    EventHandler,
-    NoOpHandler,
     EnrichmentResult,
-    HandlerResult,
+    EventHandler,
     HandlerRegistry,
-    get_handler_registry as _get_handler_registry_base,
-    reset_registry,
+    HandlerResult,
+    NoOpHandler,
     register_handler,
+    reset_registry,
+)
+from kafka_pipeline.claimx.handlers.base import (
+    get_handler_registry as _get_handler_registry_base,
 )
 from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
 
@@ -50,11 +52,13 @@ def _ensure_handlers_registered() -> None:
         return
 
     # Import handlers to trigger @register_handler decorator
-    from kafka_pipeline.claimx.handlers import project  # noqa: F401
-    from kafka_pipeline.claimx.handlers import media  # noqa: F401
-    from kafka_pipeline.claimx.handlers import task  # noqa: F401
-    from kafka_pipeline.claimx.handlers import project_update  # noqa: F401
-    from kafka_pipeline.claimx.handlers import video  # noqa: F401
+    from kafka_pipeline.claimx.handlers import (
+        media,  # noqa: F401
+        project,  # noqa: F401
+        project_update,  # noqa: F401
+        task,  # noqa: F401
+        video,  # noqa: F401
+    )
 
     _handlers_registered = True
 

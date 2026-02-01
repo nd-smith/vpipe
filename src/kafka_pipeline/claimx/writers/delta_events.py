@@ -11,8 +11,8 @@ the simple event structure from Eventhouse/webhooks.
 Note: Deduplication handled by daily Fabric maintenance job.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
 import polars as pl
 
@@ -91,7 +91,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             z_order_columns=["project_id"],
         )
 
-    async def write_events(self, events: List[Dict[str, Any]]) -> bool:
+    async def write_events(self, events: list[dict[str, Any]]) -> bool:
         """
         Write ClaimX events to Delta table (non-blocking).
 
@@ -114,7 +114,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             return True
 
         try:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             # Pre-process events to ensure correct types before DataFrame creation
             # This is more reliable than post-hoc type conversion
@@ -141,7 +141,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                 elif isinstance(ingested_at, datetime):
                     if ingested_at.tzinfo is None:
                         processed["ingested_at"] = ingested_at.replace(
-                            tzinfo=timezone.utc
+                            tzinfo=UTC
                         )
                     else:
                         processed["ingested_at"] = ingested_at

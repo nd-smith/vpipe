@@ -19,17 +19,18 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-import yaml
+from typing import TYPE_CHECKING, Any, Optional
 
 from config.config import KafkaConfig
+
+if TYPE_CHECKING:
+    from kafka_pipeline.simulation.config import SimulationConfig
 
 # Default config file: config/config.yaml in src/ directory
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
 
 
-def _load_config_data(config_path: Path) -> Dict[str, Any]:
+def _load_config_data(config_path: Path) -> dict[str, Any]:
     """Load configuration data from config.yaml file.
 
     Args:
@@ -48,7 +49,7 @@ def _load_config_data(config_path: Path) -> Dict[str, Any]:
         )
 
     # Load from single file
-    from config.config import load_yaml, _expand_env_vars
+    from config.config import _expand_env_vars, load_yaml
 
     config_data = load_yaml(config_path)
     return _expand_env_vars(config_data)
@@ -186,12 +187,12 @@ class LocalKafkaConfig:
     consumer_group_prefix: str = "verisk"
 
     # Retry configuration (delays in seconds)
-    retry_delays: List[int] = field(default_factory=lambda: [300, 600, 1200, 2400])
+    retry_delays: list[int] = field(default_factory=lambda: [300, 600, 1200, 2400])
     max_retries: int = 4
 
     # Storage
     onelake_base_path: str = ""
-    onelake_domain_paths: Dict[str, str] = field(default_factory=dict)
+    onelake_domain_paths: dict[str, str] = field(default_factory=dict)
 
     # Cache directory
     cache_dir: str = "/tmp/kafka_pipeline_cache"
@@ -200,10 +201,10 @@ class LocalKafkaConfig:
     delta_events_batch_size: int = 1000
 
     # ClaimX domain config (loaded from yaml)
-    claimx_config: Dict[str, Any] = field(default_factory=dict)
+    claimx_config: dict[str, Any] = field(default_factory=dict)
 
     # Verisk domain config (loaded from yaml) - preserves full yaml structure
-    verisk_config: Dict[str, Any] = field(default_factory=dict)
+    verisk_config: dict[str, Any] = field(default_factory=dict)
 
     # ClaimX API settings
     claimx_api_url: str = ""
@@ -212,7 +213,7 @@ class LocalKafkaConfig:
     claimx_api_concurrency: int = 20
 
     @classmethod
-    def load_config(cls, config_path: Optional[Path] = None) -> "LocalKafkaConfig":
+    def load_config(cls, config_path: Path | None = None) -> "LocalKafkaConfig":
         """Load local Kafka configuration from config directory and environment variables.
 
         Configuration priority (highest to lowest):
@@ -250,7 +251,7 @@ class LocalKafkaConfig:
 
         # Build storage config from multiple locations (matching config.py logic)
         # Priority: kafka.storage > root storage > flat kafka structure
-        storage_data: Dict[str, Any] = {}
+        storage_data: dict[str, Any] = {}
 
         # Start with flat kafka structure as base (lowest priority)
         for key in ["onelake_base_path", "onelake_domain_paths", "cache_dir"]:
@@ -268,7 +269,7 @@ class LocalKafkaConfig:
             storage_data.update(kafka_storage)
 
         # Build domain paths from merged storage config and environment variables
-        onelake_domain_paths: Dict[str, str] = storage_data.get(
+        onelake_domain_paths: dict[str, str] = storage_data.get(
             "onelake_domain_paths", {}
         ).copy()
         if os.getenv("ONELAKE_VERISK_PATH"):
@@ -484,16 +485,16 @@ class EventhouseSourceConfig:
     overlap_minutes: int = 5
 
     # Backfill configuration
-    backfill_start_stamp: Optional[str] = None
-    backfill_stop_stamp: Optional[str] = None
+    backfill_start_stamp: str | None = None
+    backfill_stop_stamp: str | None = None
     bulk_backfill: bool = False
 
     # KQL start stamp for real-time mode
-    kql_start_stamp: Optional[str] = None
+    kql_start_stamp: str | None = None
 
     @classmethod
     def load_config(
-        cls, config_path: Optional[Path] = None
+        cls, config_path: Path | None = None
     ) -> "EventhouseSourceConfig":
         """Load Eventhouse configuration from config directory and environment variables.
 
@@ -641,16 +642,16 @@ class ClaimXEventhouseSourceConfig:
     events_topic: str = "com.allstate.pcesdopodappv1.claimx.events.raw"
 
     # Backfill configuration
-    backfill_start_stamp: Optional[str] = None
-    backfill_stop_stamp: Optional[str] = None
+    backfill_start_stamp: str | None = None
+    backfill_stop_stamp: str | None = None
     bulk_backfill: bool = False
 
     # KQL start stamp for real-time mode
-    kql_start_stamp: Optional[str] = None
+    kql_start_stamp: str | None = None
 
     @classmethod
     def load_config(
-        cls, config_path: Optional[Path] = None
+        cls, config_path: Path | None = None
     ) -> "ClaimXEventhouseSourceConfig":
         """Load ClaimX Eventhouse configuration from config directory and environment variables.
 
@@ -790,14 +791,14 @@ class PipelineConfig:
     event_source: EventSourceType
 
     # Event Hub config (only populated if event_source == eventhub)
-    eventhub: Optional[EventHubConfig] = None
+    eventhub: EventHubConfig | None = None
 
     # Eventhouse config (only populated if event_source == eventhouse)
     # This is the Verisk domain Eventhouse config (legacy name: eventhouse, new name: verisk_eventhouse)
-    verisk_eventhouse: Optional[EventhouseSourceConfig] = None
+    verisk_eventhouse: EventhouseSourceConfig | None = None
 
     # ClaimX Eventhouse config (optional, can run alongside xact)
-    claimx_eventhouse: Optional[ClaimXEventhouseSourceConfig] = None
+    claimx_eventhouse: ClaimXEventhouseSourceConfig | None = None
 
     # Local Kafka for internal pipeline communication
     local_kafka: LocalKafkaConfig = field(default_factory=LocalKafkaConfig)
@@ -825,7 +826,7 @@ class PipelineConfig:
     simulation: Optional["SimulationConfig"] = None
 
     @classmethod
-    def load_config(cls, config_path: Optional[Path] = None) -> "PipelineConfig":
+    def load_config(cls, config_path: Path | None = None) -> "PipelineConfig":
         """Load complete pipeline configuration from config directory and environment.
 
         Configuration priority (highest to lowest):
@@ -992,7 +993,7 @@ class PipelineConfig:
         return self.event_source == EventSourceType.EVENTHOUSE
 
 
-def get_pipeline_config(config_path: Optional[Path] = None) -> PipelineConfig:
+def get_pipeline_config(config_path: Path | None = None) -> PipelineConfig:
     """Get pipeline configuration from config directory and environment.
 
     This is the main entry point for loading configuration.
@@ -1000,7 +1001,7 @@ def get_pipeline_config(config_path: Optional[Path] = None) -> PipelineConfig:
     return PipelineConfig.load_config(config_path)
 
 
-def get_event_source_type(config_path: Optional[Path] = None) -> EventSourceType:
+def get_event_source_type(config_path: Path | None = None) -> EventSourceType:
     """Get the configured event source type.
 
     Quick check without loading full config. Reads from config directory first,

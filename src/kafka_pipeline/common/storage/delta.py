@@ -14,18 +14,19 @@ import inspect
 import logging
 import os
 import warnings
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import polars as pl
-from deltalake import DeltaTable, write_deltalake as _write_deltalake
+from deltalake import DeltaTable
+from deltalake import write_deltalake as _write_deltalake
 
-from kafka_pipeline.common.auth import get_storage_options, get_auth
+from core.logging import get_logger
+from core.resilience.circuit_breaker import CircuitBreakerConfig
+from kafka_pipeline.common.auth import get_auth, get_storage_options
+from kafka_pipeline.common.logging import LoggedClass, logged_operation
 from kafka_pipeline.common.retry import RetryConfig, with_retry
 from kafka_pipeline.common.storage.onelake import _refresh_all_credentials
-from core.resilience.circuit_breaker import CircuitBreakerConfig
-from core.logging import get_logger, log_with_context
-from kafka_pipeline.common.logging import logged_operation, LoggedClass
 
 logger = get_logger(__name__)
 
@@ -81,7 +82,7 @@ def get_open_file_descriptors() -> int:
         # We can't easily count open FDs on all platforms, return -1 to indicate unknown
         return -1
     except Exception as e:
-        logger.debug(f"Could not get file descriptor count: {e}")
+        logger.debug("Could not get file descriptor count: %s", e)
         return -1
 
 
@@ -96,23 +97,23 @@ class DeltaTableReader(LoggedClass):
     """
 
     def __init__(
-        self, table_path: str, storage_options: Optional[Dict[str, str]] = None
+        self, table_path: str, storage_options: dict[str, str] | None = None
     ):
         self.table_path = table_path
         self.storage_options = storage_options
-        self._delta_table: Optional[DeltaTable] = None
+        self._delta_table: DeltaTable | None = None
         self._closed = False
         self._init_lock = asyncio.Lock()
         super().__init__()
 
-    async def __aenter__(self) -> "DeltaTableReader":
+    async def __aenter__(self) -> DeltaTableReader:
         return self
 
     async def __aexit__(
         self,
-        exc_type: Optional[type],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[Any],
+        exc_type: type | None,
+        exc_val: BaseException | None,
+        exc_tb: Any | None,
     ) -> None:
         await self.close()
 
@@ -149,7 +150,7 @@ class DeltaTableReader(LoggedClass):
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def read(
         self,
-        columns: Optional[List[str]] = None,
+        columns: list[str] | None = None,
     ) -> pl.DataFrame:
         opts = self.storage_options or get_storage_options()
 
@@ -177,7 +178,7 @@ class DeltaTableReader(LoggedClass):
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def scan(
         self,
-        columns: Optional[List[str]] = None,
+        columns: list[str] | None = None,
     ) -> pl.LazyFrame:
         opts = self.storage_options or get_storage_options()
 
@@ -193,9 +194,9 @@ class DeltaTableReader(LoggedClass):
     def read_filtered(
         self,
         filter_expr: pl.Expr,
-        columns: Optional[List[str]] = None,
-        limit: Optional[int] = None,
-        order_by: Optional[str] = None,
+        columns: list[str] | None = None,
+        limit: int | None = None,
+        order_by: str | None = None,
         descending: bool = False,
     ) -> pl.DataFrame:
         opts = self.storage_options or get_storage_options()
@@ -227,8 +228,8 @@ class DeltaTableReader(LoggedClass):
     @logged_operation(operation_name="read_as_polars")
     def read_as_polars(
         self,
-        filters: Optional[List[Tuple[str, str, Any]]] = None,
-        columns: Optional[List[str]] = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        columns: list[str] | None = None,
     ) -> pl.DataFrame:
         """
         Read Delta table as Polars DataFrame with optional filters.
@@ -316,30 +317,30 @@ class DeltaTableWriter(LoggedClass):
         self,
         table_path: str,
         timestamp_column: str = "ingested_at",
-        partition_column: Optional[str] = None,
-        z_order_columns: Optional[List[str]] = None,
+        partition_column: str | None = None,
+        z_order_columns: list[str] | None = None,
     ):
         self.table_path = table_path
         self.timestamp_column = timestamp_column
         self.partition_column = partition_column
         self.z_order_columns = z_order_columns or []
         self._reader = DeltaTableReader(table_path)
-        self._optimization_scheduler: Optional[Any] = None
-        self._delta_table: Optional[DeltaTable] = None
+        self._optimization_scheduler: Any | None = None
+        self._delta_table: DeltaTable | None = None
         self._closed = False
         self._init_lock = asyncio.Lock()
 
         super().__init__()
 
-    async def __aenter__(self) -> "DeltaTableWriter":
+    async def __aenter__(self) -> DeltaTableWriter:
         """Async context manager entry."""
         return self
 
     async def __aexit__(
         self,
-        exc_type: Optional[type],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[Any],
+        exc_type: type | None,
+        exc_val: BaseException | None,
+        exc_tb: Any | None,
     ) -> None:
         await self.close()
 
@@ -375,7 +376,7 @@ class DeltaTableWriter(LoggedClass):
                 stacklevel=2,
             )
 
-    def _table_exists(self, opts: Dict[str, str]) -> bool:
+    def _table_exists(self, opts: dict[str, str]) -> bool:
         try:
             DeltaTable(self.table_path, storage_options=opts)
             return True
@@ -383,7 +384,7 @@ class DeltaTableWriter(LoggedClass):
             return False
 
     def _align_schema_with_target(
-        self, df: pl.DataFrame, opts: Dict[str, str]
+        self, df: pl.DataFrame, opts: dict[str, str]
     ) -> pl.DataFrame:
         """Aligns DataFrame schema with target table to prevent type coercion errors during merge."""
         try:
@@ -391,8 +392,8 @@ class DeltaTableWriter(LoggedClass):
             target_schema = dt.schema()
 
             # Build ordered list of target column names and mapping to Arrow types
-            target_column_order: List[str] = []
-            target_types: Dict[str, Any] = {}
+            target_column_order: list[str] = []
+            target_types: dict[str, Any] = {}
             for field in target_schema.fields:
                 target_column_order.append(field.name)
                 target_types[field.name] = field.type
@@ -506,7 +507,7 @@ class DeltaTableWriter(LoggedClass):
             )
             return df
 
-    def _arrow_type_to_polars(self, arrow_type: Any) -> Optional[pl.DataType]:
+    def _arrow_type_to_polars(self, arrow_type: Any) -> pl.DataType | None:
         """
         Convert Arrow type to Polars type for schema alignment.
 
@@ -590,7 +591,7 @@ class DeltaTableWriter(LoggedClass):
     def append(
         self,
         df: pl.DataFrame,
-        batch_id: Optional[str] = None,
+        batch_id: str | None = None,
     ) -> int:
         """
         Append DataFrame to Delta table.
@@ -668,9 +669,9 @@ class DeltaTableWriter(LoggedClass):
     def merge(
         self,
         df: pl.DataFrame,
-        merge_keys: List[str],
-        preserve_columns: Optional[List[str]] = None,
-        update_condition: Optional[str] = None,
+        merge_keys: list[str],
+        preserve_columns: list[str] | None = None,
+        update_condition: str | None = None,
     ) -> int:
         """
         Merge DataFrame into table (true upsert via Delta merge API).
@@ -718,7 +719,7 @@ class DeltaTableWriter(LoggedClass):
             # Combine rows within batch by merge keys (later non-null values overlay earlier)
             # This is expensive but necessary when batch has duplicate keys
             rows = df.to_dicts()
-            merged: Dict[tuple, dict] = {}
+            merged: dict[tuple, dict] = {}
             for row in rows:
                 key = tuple(row.get(k) for k in merge_keys)
                 if key in merged:
@@ -830,11 +831,11 @@ class DeltaTableWriter(LoggedClass):
     def merge_batched(
         self,
         df: pl.DataFrame,
-        merge_keys: List[str],
-        batch_size: Optional[int] = None,
+        merge_keys: list[str],
+        batch_size: int | None = None,
         when_matched: str = "update",
         when_not_matched: str = "insert",
-        preserve_columns: Optional[List[str]] = None,
+        preserve_columns: list[str] | None = None,
     ) -> int:
         """
         Perform batched MERGE operations for large datasets (P2.3).
@@ -923,7 +924,7 @@ class DeltaTableWriter(LoggedClass):
 
     @logged_operation(level=logging.DEBUG)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
-    def write_rows(self, rows: List[dict], schema: Optional[dict] = None) -> int:
+    def write_rows(self, rows: list[dict], schema: dict | None = None) -> int:
         """
         Write list of dicts to Delta table.
 
@@ -937,10 +938,7 @@ class DeltaTableWriter(LoggedClass):
         if not rows:
             return 0
 
-        if schema:
-            df = pl.DataFrame(rows, schema=schema)
-        else:
-            df = pl.DataFrame(rows)
+        df = pl.DataFrame(rows, schema=schema) if schema else pl.DataFrame(rows)
 
         result: int = self.append(df)  # type: ignore[assignment]
         return result
@@ -958,7 +956,7 @@ class EventsTableReader(DeltaTableReader):
 
     def get_max_timestamp(
         self, timestamp_col: str = "ingested_at"
-    ) -> Optional[datetime]:
+    ) -> datetime | None:
         """Get maximum timestamp from table."""
         try:
             df: pl.DataFrame = self.read(columns=[timestamp_col])  # type: ignore[assignment]
@@ -981,7 +979,7 @@ class EventsTableReader(DeltaTableReader):
         self,
         watermark: datetime,
         timestamp_col: str = "ingested_at",
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> pl.DataFrame:
         """
         Read events after watermark timestamp.
@@ -1002,12 +1000,12 @@ class EventsTableReader(DeltaTableReader):
     @logged_operation(operation_name="read_by_status_subtypes")
     def read_by_status_subtypes(
         self,
-        status_subtypes: List[str],
-        watermark: Optional[datetime] = None,
+        status_subtypes: list[str],
+        watermark: datetime | None = None,
         timestamp_col: str = "ingested_at",
-        limit: Optional[int] = None,
-        order_by: Optional[str] = None,
-        columns: Optional[List[str]] = None,
+        limit: int | None = None,
+        order_by: str | None = None,
+        columns: list[str] | None = None,
         require_attachments: bool = False,
     ) -> pl.DataFrame:
         """
@@ -1048,7 +1046,7 @@ class EventsTableReader(DeltaTableReader):
         # Calculate date range for partition pruning
         # Ensure we use date type for partition column comparison
         watermark_date = watermark.date()
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
 
         # Build lazy scan with filter pushdown
         # Delta Lake will automatically prune partitions based on event_date filter

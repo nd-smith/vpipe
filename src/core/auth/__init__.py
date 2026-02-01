@@ -20,23 +20,23 @@ Review checklist for WP-103:
     [x] No secrets logged
 """
 
-from .token_cache import TokenCache, TOKEN_REFRESH_MINS, TOKEN_EXPIRY_MINS
 from .credentials import (
-    AzureAuthError,
-    AzureCredentialProvider,
-    get_default_provider,
-    get_storage_options,
-    clear_token_cache,
     STORAGE_RESOURCE,
     STORAGE_SCOPE,
+    AzureAuthError,
+    AzureCredentialProvider,
+    clear_token_cache,
+    get_default_provider,
+    get_storage_options,
 )
 from .kafka_oauth import (
-    create_kafka_oauth_callback,
-    get_kafka_oauth_token,
-    KafkaOAuthError,
     EVENTHUB_RESOURCE,
     EVENTHUB_SCOPE,
+    KafkaOAuthError,
+    create_kafka_oauth_callback,
+    get_kafka_oauth_token,
 )
+from .token_cache import TOKEN_EXPIRY_MINS, TOKEN_REFRESH_MINS, TokenCache
 
 __all__ = [
     # Token cache (WP-102)

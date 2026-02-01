@@ -8,9 +8,9 @@ Provides:
 - Common retry utility functions to reduce handler duplication
 """
 
-from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
+from core.resilience.retry import AUTH_RETRY, DEFAULT_RETRY, RetryConfig, with_retry
 from kafka_pipeline.common.retry import retry_utils
-from core.resilience.retry import RetryConfig, with_retry, DEFAULT_RETRY, AUTH_RETRY
+from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 
 __all__ = [
     "DeltaRetryHandler",

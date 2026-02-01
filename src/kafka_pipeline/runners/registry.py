@@ -10,7 +10,7 @@ Each worker entry specifies:
 import asyncio
 import logging
 import os
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 from kafka_pipeline.runners import claimx_runners, verisk_runners
 
@@ -281,7 +281,7 @@ def build_claimx_entity_writer_args(
 
 
 # Worker registry mapping worker names to their runner functions and config builders
-WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
+WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     # XACT workers
     "xact-poller": {
         "runner": verisk_runners.run_eventhouse_poller,
@@ -434,7 +434,7 @@ async def run_worker_from_registry(
     enable_delta_writes: bool = True,
     eventhub_config=None,
     local_kafka_config=None,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
 ):
     """Run a worker by looking it up in the registry.

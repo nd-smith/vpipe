@@ -7,13 +7,12 @@ Loads plugin configurations from YAML files and registers them.
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 import yaml
 
 from core.logging import log_with_context
-
-from kafka_pipeline.plugins.shared.base import Plugin, Domain, PipelineStage
+from kafka_pipeline.plugins.shared.base import Plugin
 from kafka_pipeline.plugins.shared.registry import PluginRegistry, get_plugin_registry
 from kafka_pipeline.plugins.shared.task_trigger import TaskTriggerPlugin
 
@@ -22,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 def load_plugins_from_directory(
     plugins_dir: str,
-    registry: Optional[PluginRegistry] = None,
-) -> List[Plugin]:
+    registry: PluginRegistry | None = None,
+) -> list[Plugin]:
     """
     Load all plugins from a directory structure.
 
@@ -144,8 +143,8 @@ def load_plugins_from_directory(
 
 def load_plugins_from_yaml(
     config_path: str,
-    registry: Optional[PluginRegistry] = None,
-) -> List[Plugin]:
+    registry: PluginRegistry | None = None,
+) -> list[Plugin]:
     """
     Load plugin configurations from YAML file.
 
@@ -214,7 +213,7 @@ def load_plugins_from_yaml(
     return plugins_loaded
 
 
-def _create_plugin_from_config(config: Dict[str, Any]) -> Optional[Plugin]:
+def _create_plugin_from_config(config: dict[str, Any]) -> Plugin | None:
     """
     Create plugin instance from generic YAML config.
 
@@ -262,7 +261,7 @@ def _create_plugin_from_config(config: Dict[str, Any]) -> Optional[Plugin]:
 
         # Import module and get class
         module = importlib.import_module(module_name)
-        plugin_class: Type[Plugin] = getattr(module, class_name)
+        plugin_class: type[Plugin] = getattr(module, class_name)
 
         # Create plugin instance with config
         plugin_config = config.get("config", {})
@@ -308,8 +307,8 @@ def _create_plugin_from_config(config: Dict[str, Any]) -> Optional[Plugin]:
 
 
 def _create_task_trigger_from_config(
-    config: Dict[str, Any],
-) -> Optional[TaskTriggerPlugin]:
+    config: dict[str, Any],
+) -> TaskTriggerPlugin | None:
     """
     Create TaskTriggerPlugin from YAML config.
 
@@ -360,9 +359,9 @@ def _create_task_trigger_from_config(
 
 
 def load_plugins_from_config(
-    main_config: Dict[str, Any],
-    registry: Optional[PluginRegistry] = None,
-) -> List[Plugin]:
+    main_config: dict[str, Any],
+    registry: PluginRegistry | None = None,
+) -> list[Plugin]:
     """
     Load plugins from main application config dict.
 

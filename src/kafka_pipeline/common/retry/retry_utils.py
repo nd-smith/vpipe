@@ -6,8 +6,8 @@ implementations to reduce code duplication.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from core.types import ErrorCategory
 from kafka_pipeline.common.metrics import (
@@ -54,7 +54,7 @@ def calculate_retry_timestamp(delay_seconds: int) -> datetime:
     Returns:
         UTC datetime when retry should occur
     """
-    return datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+    return datetime.now(UTC) + timedelta(seconds=delay_seconds)
 
 
 def create_retry_headers(
@@ -66,7 +66,7 @@ def create_retry_headers(
     original_key: str,
     error_category: ErrorCategory,
     domain: str,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Create standard Kafka headers for retry messages.
 
@@ -98,7 +98,7 @@ def create_retry_headers(
 def create_dlq_headers(
     retry_count: int,
     error_category: ErrorCategory,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Create standard Kafka headers for DLQ messages.
 
@@ -134,7 +134,7 @@ def truncate_error_message(error: Exception, max_length: int = 500) -> str:
 
 
 def add_error_metadata_to_dict(
-    metadata: Dict[str, Any],
+    metadata: dict[str, Any],
     error: Exception,
     error_category: ErrorCategory,
     retry_at: datetime,
@@ -161,7 +161,7 @@ def log_retry_decision(
     retry_count: int,
     error_category: ErrorCategory,
     error: Exception,
-    extra_context: Optional[Dict[str, Any]] = None,
+    extra_context: dict[str, Any] | None = None,
 ) -> None:
     """
     Log retry routing decision with consistent format.
@@ -205,7 +205,7 @@ def record_retry_metrics(
     domain: str,
     error_category: ErrorCategory,
     delay_seconds: int,
-    worker_type: Optional[str] = None,
+    worker_type: str | None = None,
 ) -> None:
     """
     Record retry attempt metrics.
@@ -226,7 +226,7 @@ def record_retry_metrics(
 def record_dlq_metrics(
     domain: str,
     reason: str,
-    error_category: Optional[ErrorCategory] = None,
+    error_category: ErrorCategory | None = None,
 ) -> None:
     """
     Record DLQ routing metrics.

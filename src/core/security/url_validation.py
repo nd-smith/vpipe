@@ -8,15 +8,14 @@ Server-Side Request Forgery (SSRF) attacks and enforce secure download sources.
 import ipaddress
 import os
 import re
-from typing import Optional, Set, Tuple
 from urllib.parse import urlparse, urlunparse
 
 # Allowed schemes for attachment downloads
-ALLOWED_SCHEMES: Set[str] = {"https", "http"}
+ALLOWED_SCHEMES: set[str] = {"https", "http"}
 
 # Domains explicitly allowed for attachment downloads
 # Configure via environment or extend this set
-DEFAULT_ALLOWED_DOMAINS: Set[str] = {
+DEFAULT_ALLOWED_DOMAINS: set[str] = {
     "usw2-prod-xn-exportreceiver-publish.s3.us-west-2.amazonaws.com",
     "claimxperience.s3.amazonaws.com",
     "claimxperience.s3.us-east-1.amazonaws.com",
@@ -28,7 +27,7 @@ DEFAULT_ALLOWED_DOMAINS: Set[str] = {
 # Hosts to block (metadata endpoints, localhost, etc.)
 # NOTE: localhost/127.0.0.1 blocked by default for security
 # Use allow_localhost parameter in simulation mode to permit local testing
-BLOCKED_HOSTS: Set[str] = {
+BLOCKED_HOSTS: set[str] = {
     "localhost",
     "127.0.0.1",
     "0.0.0.0",
@@ -52,7 +51,7 @@ PRIVATE_RANGES = [
 ]
 
 
-def get_allowed_domains() -> Set[str]:
+def get_allowed_domains() -> set[str]:
     """
     Get allowed domains for attachment URLs.
 
@@ -67,9 +66,9 @@ def get_allowed_domains() -> Set[str]:
 
 def validate_download_url(
     url: str,
-    allowed_domains: Optional[Set[str]] = None,
+    allowed_domains: set[str] | None = None,
     allow_localhost: bool = False,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Validate URL against domain allowlist to prevent SSRF attacks.
 
@@ -158,7 +157,7 @@ def _is_production_environment() -> bool:
     return False
 
 
-def _validate_localhost_url(url: str, parsed) -> Tuple[bool, str]:
+def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
     """
     Validate localhost URL for simulation mode.
 
@@ -240,8 +239,8 @@ def _validate_production_url(
     parsed,
     hostname: str,
     hostname_lower: str,
-    allowed_domains: Optional[Set[str]],
-) -> Tuple[bool, str]:
+    allowed_domains: set[str] | None,
+) -> tuple[bool, str]:
     """
     Validate URL for production use with standard SSRF protection.
 
@@ -318,7 +317,7 @@ def is_private_ip(hostname: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def extract_filename_from_url(url: str) -> Tuple[str, str]:
+def extract_filename_from_url(url: str) -> tuple[str, str]:
     """
     Extract filename and file extension from URL.
 

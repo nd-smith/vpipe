@@ -6,14 +6,13 @@ retry topics. Routes exhausted retries to dead-letter queue (DLQ).
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from core.types import ErrorCategory
 from config.config import KafkaConfig
-from kafka_pipeline.common.producer import BaseKafkaProducer
+from core.types import ErrorCategory
 from kafka_pipeline.claimx.schemas.results import FailedEnrichmentMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
+from kafka_pipeline.common.producer import BaseKafkaProducer
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +180,7 @@ class EnrichmentRetryHandler:
         updated_task.metadata["error_category"] = error_category.value
 
         # Calculate retry timestamp
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+        retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
         # NEW: Get target topic for routing
@@ -259,7 +258,7 @@ class EnrichmentRetryHandler:
             final_error=error_message,
             error_category=error_category.value,
             retry_count=task.retry_count,
-            failed_at=datetime.now(timezone.utc),
+            failed_at=datetime.now(UTC),
         )
 
         logger.error(

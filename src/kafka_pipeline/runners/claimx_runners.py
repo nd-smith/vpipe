@@ -11,8 +11,6 @@ Contains all runner functions for ClaimX pipeline workers:
 
 import asyncio
 import logging
-import os
-from typing import Optional
 
 from kafka_pipeline.runners.common import (
     execute_poller_with_shutdown,
@@ -87,7 +85,7 @@ async def run_claimx_eventhouse_poller(
 async def run_claimx_event_ingester(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """ClaimX event ingester worker."""
     from kafka_pipeline.claimx.workers.event_ingester import ClaimXEventIngesterWorker
@@ -109,7 +107,7 @@ async def run_claimx_enrichment_worker(
     kafka_config,
     pipeline_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
     simulation_config=None,
 ):
@@ -130,7 +128,7 @@ async def run_claimx_enrichment_worker(
             raise ValueError("simulation_config is required when simulation_mode=True")
 
         logger.info("Starting ClaimX enrichment worker in SIMULATION MODE")
-        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
 
         # Use factory to create worker with mock dependencies
         worker = create_simulation_enrichment_worker(
@@ -163,7 +161,7 @@ async def run_claimx_enrichment_worker(
 async def run_claimx_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
     simulation_config=None,
 ):
@@ -183,7 +181,7 @@ async def run_claimx_download_worker(
 
     if simulation_mode:
         logger.info("Starting ClaimX download worker in SIMULATION MODE")
-        logger.info(f"Simulation config: {simulation_config}")
+        logger.info("Simulation config: %s", simulation_config)
 
     worker = ClaimXDownloadWorker(
         config=kafka_config,
@@ -202,7 +200,7 @@ async def run_claimx_download_worker(
 async def run_claimx_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
     simulation_config=None,
 ):
@@ -222,7 +220,7 @@ async def run_claimx_upload_worker(
             raise ValueError("simulation_config is required when simulation_mode=True")
 
         logger.info("Starting ClaimX upload worker in SIMULATION MODE")
-        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
 
         # Use factory to create worker with local storage
         worker = create_simulation_upload_worker(
@@ -249,11 +247,11 @@ async def run_claimx_result_processor(
     kafka_config,
     pipeline_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """ClaimX result processor."""
-    from kafka_pipeline.claimx.workers.result_processor import ClaimXResultProcessor
     from core.logging.context import set_log_context
+    from kafka_pipeline.claimx.workers.result_processor import ClaimXResultProcessor
 
     set_log_context(stage="claimx-result-processor")
     logger.info("Starting ClaimX Result Processor...")
@@ -291,14 +289,14 @@ async def run_claimx_delta_events_worker(
     kafka_config,
     events_table_path: str,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Consumes events from claimx events topic and writes to claimx_events Delta table.
     Runs independently of ClaimXEventIngesterWorker with its own consumer group."""
-    from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.claimx.workers.delta_events_worker import (
         ClaimXDeltaEventsWorker,
     )
+    from kafka_pipeline.common.producer import BaseKafkaProducer
 
     await execute_worker_with_producer(
         worker_class=ClaimXDeltaEventsWorker,
@@ -316,7 +314,7 @@ async def run_claimx_delta_events_worker(
 async def run_claimx_retry_scheduler(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Unified retry scheduler for all ClaimX retry types.
     Routes messages from claimx.retry topic to target topics based on headers."""
@@ -345,14 +343,13 @@ async def run_claimx_entity_delta_worker(
     external_links_table_path: str,
     video_collab_table_path: str,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Consumes EntityRowsMessage from claimx.entities.rows and writes to Delta tables."""
+    from core.logging.context import set_log_context
     from kafka_pipeline.claimx.workers.entity_delta_worker import (
         ClaimXEntityDeltaWorker,
     )
-
-    from core.logging.context import set_log_context
 
     set_log_context(stage="claimx-entity-writer")
     logger.info("Starting ClaimX Entity Delta worker...")

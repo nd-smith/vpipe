@@ -34,9 +34,9 @@ Security Notes:
 """
 
 import logging
-from typing import Callable, Optional
+from collections.abc import Callable
 
-from core.auth.credentials import AzureCredentialProvider, AzureAuthError
+from core.auth.credentials import AzureAuthError, AzureCredentialProvider
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class KafkaOAuthError(Exception):
 
 
 def create_kafka_oauth_callback(
-    provider: Optional[AzureCredentialProvider] = None,
+    provider: AzureCredentialProvider | None = None,
 ) -> Callable[[], str]:
     """
     Create Kafka OAUTHBEARER token callback for aiokafka.
@@ -157,7 +157,7 @@ def create_kafka_oauth_callback(
 
 
 def get_kafka_oauth_token(
-    provider: Optional[AzureCredentialProvider] = None, force_refresh: bool = False
+    provider: AzureCredentialProvider | None = None, force_refresh: bool = False
 ) -> str:
     """
     Get EventHub OAuth token directly (non-callback usage).

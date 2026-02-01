@@ -5,13 +5,13 @@ from kafka_pipeline.config instead of the canonical config.config location.
 """
 
 from config.config import (
-    KafkaConfig,
-    load_config,
-    get_config,
-    set_config,
-    reset_config,
-    load_yaml,
     DEFAULT_CONFIG_FILE,
+    KafkaConfig,
+    get_config,
+    load_config,
+    load_yaml,
+    reset_config,
+    set_config,
 )
 
 __all__ = [

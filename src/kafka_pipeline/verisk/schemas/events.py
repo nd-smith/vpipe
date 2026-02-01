@@ -6,10 +6,12 @@ Schema aligned with verisk_pipeline EventRecord for compatibility.
 """
 
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, computed_field, field_serializer, field_validator
+
+if TYPE_CHECKING:
+    from kafka_pipeline.verisk.schemas.models import EventRecord
 
 
 class EventMessage(BaseModel):
@@ -63,7 +65,7 @@ class EventMessage(BaseModel):
         description="Full event type string (e.g., 'verisk.claims.property.xn.documentsReceived')",
         min_length=1,
     )
-    version: Union[int, str] = Field(
+    version: int | str = Field(
         ..., description="Event version (integer preferred)"
     )
     utc_datetime: str = Field(
@@ -75,7 +77,7 @@ class EventMessage(BaseModel):
         min_length=1,
         alias="traceId",
     )
-    event_id: Optional[str] = Field(
+    event_id: str | None = Field(
         default=None,
         description="Unique event ID generated during ingestion",
         alias="eventId",
@@ -83,7 +85,7 @@ class EventMessage(BaseModel):
     data: str = Field(..., description="Raw JSON string with nested event data")
 
     @field_serializer("data")
-    def serialize_data_as_object(self, v: str) -> Dict[str, Any]:
+    def serialize_data_as_object(self, v: str) -> dict[str, Any]:
         """Serialize data field as JSON object instead of string."""
         if not v:
             return {}
@@ -102,7 +104,7 @@ class EventMessage(BaseModel):
 
     @computed_field
     @property
-    def data_dict(self) -> Optional[Dict[str, Any]]:
+    def data_dict(self) -> dict[str, Any] | None:
         """Parse data JSON string to dict (cached)."""
         if not self.data:
             return None
@@ -113,7 +115,7 @@ class EventMessage(BaseModel):
 
     @computed_field
     @property
-    def attachments(self) -> Optional[List[str]]:
+    def attachments(self) -> list[str] | None:
         """Extract attachments list from parsed data."""
         data = self.data_dict
         if data and "attachments" in data:
@@ -124,7 +126,7 @@ class EventMessage(BaseModel):
 
     @computed_field
     @property
-    def assignment_id(self) -> Optional[str]:
+    def assignment_id(self) -> str | None:
         """Extract assignmentId from parsed data."""
         data = self.data_dict
         if data:
@@ -133,7 +135,7 @@ class EventMessage(BaseModel):
 
     @computed_field
     @property
-    def estimate_version(self) -> Optional[str]:
+    def estimate_version(self) -> str | None:
         """Extract estimateVersion from parsed data."""
         data = self.data_dict
         if data:
@@ -148,7 +150,7 @@ class EventMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    def to_eventhouse_row(self) -> Dict[str, Any]:
+    def to_eventhouse_row(self) -> dict[str, Any]:
         """
         Convert back to Eventhouse row format for flatten_events().
 
@@ -181,7 +183,7 @@ class EventMessage(BaseModel):
         )
 
     @classmethod
-    def from_eventhouse_row(cls, row: Dict[str, Any]) -> "EventMessage":
+    def from_eventhouse_row(cls, row: dict[str, Any]) -> "EventMessage":
         """
         Create from raw Eventhouse row dict.
 
@@ -232,7 +234,7 @@ class EventMessage(BaseModel):
         )
         return super().model_dump_json(**kwargs)
 
-    def model_dump(self, **kwargs) -> Dict[str, Any]:
+    def model_dump(self, **kwargs) -> dict[str, Any]:
         """Serialize to dict with aliases and without computed fields.
 
         Overrides default to:

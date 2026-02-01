@@ -10,13 +10,12 @@ import json
 import random
 import string
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
 from enum import Enum
+from typing import Any
 
 from kafka_pipeline.common.dummy.plugin_profiles import (
     ItelCabinetDataGenerator,
-    PluginProfile,
 )
 
 # =============================================================================
@@ -303,12 +302,12 @@ EVENT_TYPE_WEIGHTS = {
 class GeneratorConfig:
     """Configuration for data generators."""
 
-    seed: Optional[int] = None
+    seed: int | None = None
     base_url: str = "http://localhost:8765"  # Dummy file server URL
     include_failures: bool = False  # Generate some failing scenarios
     failure_rate: float = 0.05  # 5% failure rate when enabled
     events_per_second: float = 1.0  # Target event rate
-    plugin_profile: Optional[str] = (
+    plugin_profile: str | None = (
         None  # Plugin profile to use (e.g., "itel_cabinet_api")
     )
     # Mixed mode settings - when plugin_profile is None or "mixed"
@@ -323,8 +322,8 @@ class GeneratedClaim:
     claim_id: str
     project_id: str
     policy_number: str
-    policyholder: Dict[str, str]
-    property_address: Dict[str, str]
+    policyholder: dict[str, str]
+    property_address: dict[str, str]
     damage_type: str
     damage_description: str
     date_of_loss: datetime
@@ -333,8 +332,8 @@ class GeneratedClaim:
     insurance_company: str
     estimated_loss: float
     deductible: float
-    affected_rooms: List[str]
-    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    affected_rooms: list[str]
+    attachments: list[dict[str, Any]] = field(default_factory=list)
 
 
 class RealisticDataGenerator:
@@ -344,12 +343,12 @@ class RealisticDataGenerator:
     Provides deterministic generation when seeded, making tests reproducible.
     """
 
-    def __init__(self, config: Optional[GeneratorConfig] = None):
+    def __init__(self, config: GeneratorConfig | None = None):
         self.config = config or GeneratorConfig()
         self._rng = random.Random(self.config.seed)
         self._claim_counter = 0
         self._event_counter = 0
-        self._active_claims: Dict[str, GeneratedClaim] = {}
+        self._active_claims: dict[str, GeneratedClaim] = {}
 
         # Initialize plugin-specific generators
         self._itel_generator = ItelCabinetDataGenerator(self._rng)
@@ -365,7 +364,7 @@ class RealisticDataGenerator:
         combined = "|".join(str(c) for c in components)
         return hashlib.sha256(combined.encode()).hexdigest()[:24]
 
-    def generate_person(self) -> Dict[str, str]:
+    def generate_person(self) -> dict[str, str]:
         """Generate a realistic person with contact info."""
         first = self._rng.choice(FIRST_NAMES)
         last = self._rng.choice(LAST_NAMES)
@@ -379,7 +378,7 @@ class RealisticDataGenerator:
             "phone": f"({self._rng.randint(200, 999)}) {self._rng.randint(200, 999)}-{self._rng.randint(1000, 9999)}",
         }
 
-    def generate_address(self) -> Dict[str, str]:
+    def generate_address(self) -> dict[str, str]:
         """Generate a realistic US address."""
         city, state, base_zip = self._rng.choice(CITIES)
         street_num = self._rng.randint(100, 9999)
@@ -409,7 +408,7 @@ class RealisticDataGenerator:
 
         # Date of loss (within last 30 days)
         days_ago = self._rng.randint(1, 30)
-        date_of_loss = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        date_of_loss = datetime.now(UTC) - timedelta(days=days_ago)
         # Reported 0-3 days after loss
         reported_date = date_of_loss + timedelta(days=self._rng.randint(0, 3))
 
@@ -451,7 +450,7 @@ class RealisticDataGenerator:
         self,
         claim: GeneratedClaim,
         file_category: str = "photos",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate an attachment for a claim."""
         file_templates = FILE_TYPES.get(file_category, FILE_TYPES["photos"])
         template, content_type, (min_size, max_size) = self._rng.choice(file_templates)
@@ -471,7 +470,7 @@ class RealisticDataGenerator:
             "file_size": file_size,
             "file_type": file_name.split(".")[-1],
             "download_url": f"{self.config.base_url}/files/{claim.project_id}/{media_id}/{file_name}",
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "uploaded_at": datetime.now(UTC).isoformat(),
         }
 
         claim.attachments.append(attachment)
@@ -483,9 +482,9 @@ class RealisticDataGenerator:
 
     def generate_xact_event(
         self,
-        claim: Optional[GeneratedClaim] = None,
+        claim: GeneratedClaim | None = None,
         event_subtype: str = "documentsReceived",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate an Verisk domain event message.
 
@@ -531,7 +530,7 @@ class RealisticDataGenerator:
         return {
             "type": f"verisk.claims.property.xn.{event_subtype}",
             "version": 1,
-            "utcDateTime": datetime.now(timezone.utc).isoformat(),
+            "utcDateTime": datetime.now(UTC).isoformat(),
             "traceId": trace_id,
             "data": json.dumps(data_payload),
         }
@@ -542,9 +541,9 @@ class RealisticDataGenerator:
 
     def generate_claimx_event(
         self,
-        event_type: Optional[str] = None,
-        claim: Optional[GeneratedClaim] = None,
-    ) -> Dict[str, Any]:
+        event_type: str | None = None,
+        claim: GeneratedClaim | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a ClaimX domain event message.
 
@@ -565,7 +564,7 @@ class RealisticDataGenerator:
                 claim = self._rng.choice(list(self._active_claims.values()))
 
         self._event_counter += 1
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Generate deterministic event_id
         event_id = self._generate_deterministic_id(
@@ -693,9 +692,9 @@ class RealisticDataGenerator:
 
     def generate_itel_cabinet_event(
         self,
-        claim: Optional[GeneratedClaim] = None,
-        event_type: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        claim: GeneratedClaim | None = None,
+        event_type: str | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a ClaimX event for itel Cabinet Repair Form (task_id 32513).
 
@@ -721,7 +720,7 @@ class RealisticDataGenerator:
             claim = self.generate_claim()
 
         self._event_counter += 1
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Generate itel Cabinet form data
         form_data = self._itel_generator.generate_form_data(claim)
@@ -786,9 +785,9 @@ class RealisticDataGenerator:
 
     def generate_claimx_event_mixed(
         self,
-        event_type: Optional[str] = None,
-        claim: Optional[GeneratedClaim] = None,
-    ) -> Dict[str, Any]:
+        event_type: str | None = None,
+        claim: GeneratedClaim | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a ClaimX event with configurable itel plugin trigger rate.
 
@@ -825,7 +824,7 @@ class RealisticDataGenerator:
         # Generate standard ClaimX event
         return self.generate_claimx_event(event_type=event_type, claim=claim)
 
-    def get_or_create_claim(self, project_id: Optional[str] = None) -> GeneratedClaim:
+    def get_or_create_claim(self, project_id: str | None = None) -> GeneratedClaim:
         """Get existing claim by project_id or create a new one."""
         if project_id and project_id in self._active_claims:
             return self._active_claims[project_id]

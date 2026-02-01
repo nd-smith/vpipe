@@ -1,7 +1,6 @@
 """Message transport context variables for structured logging."""
 
 from contextvars import ContextVar
-from typing import Dict, Optional
 
 # Message transport context variables
 _message_topic: ContextVar[str] = ContextVar("message_topic", default="")
@@ -14,11 +13,11 @@ _message_consumer_group: ContextVar[str] = ContextVar(
 
 
 def set_message_context(
-    topic: Optional[str] = None,
-    partition: Optional[int] = None,
-    offset: Optional[int] = None,
-    key: Optional[str] = None,
-    consumer_group: Optional[str] = None,
+    topic: str | None = None,
+    partition: int | None = None,
+    offset: int | None = None,
+    key: str | None = None,
+    consumer_group: str | None = None,
 ) -> None:
     """
     Set message transport context variables for structured logging.
@@ -42,7 +41,7 @@ def set_message_context(
         _message_consumer_group.set(consumer_group)
 
 
-def get_message_context() -> Dict[str, any]:
+def get_message_context() -> dict[str, any]:
     """
     Get current message transport logging context.
 
@@ -88,11 +87,11 @@ class MessageLogContext:
 
     def __init__(
         self,
-        topic: Optional[str] = None,
-        partition: Optional[int] = None,
-        offset: Optional[int] = None,
-        key: Optional[str] = None,
-        consumer_group: Optional[str] = None,
+        topic: str | None = None,
+        partition: int | None = None,
+        offset: int | None = None,
+        key: str | None = None,
+        consumer_group: str | None = None,
     ):
         self.new_context = {
             "topic": topic,
@@ -101,7 +100,7 @@ class MessageLogContext:
             "key": key,
             "consumer_group": consumer_group,
         }
-        self.old_context: Dict[str, any] = {}
+        self.old_context: dict[str, any] = {}
 
     def __enter__(self) -> "MessageLogContext":
         # Save current context

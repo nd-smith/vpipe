@@ -5,7 +5,8 @@ Provides consistent error handling across Kusto, Delta, and OneLake clients.
 Wraps service-specific exceptions into typed PipelineError hierarchy.
 """
 
-from typing import Optional
+
+import contextlib
 
 from core.errors.exceptions import (
     AuthError,
@@ -75,7 +76,7 @@ AZURE_ERROR_CODES = {
 }
 
 
-def classify_azure_error_code(error_code: str) -> Optional[str]:
+def classify_azure_error_code(error_code: str) -> str | None:
     """
     Classify Azure error code into error category (P2.11).
 
@@ -121,7 +122,7 @@ class StorageErrorClassifier:
 
     @staticmethod
     def classify_kusto_error(
-        error: Exception, context: Optional[dict] = None
+        error: Exception, context: dict | None = None
     ) -> PipelineError:
         """Classify a Kusto error into appropriate exception type."""
         error_str = str(error).lower()
@@ -156,10 +157,8 @@ class StorageErrorClassifier:
 
                 # Azure Kusto uses x-ms-retry-after-ms
                 if "x-ms-retry-after-ms" in headers:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         retry_after_ms = int(headers["x-ms-retry-after-ms"])
-                    except (ValueError, TypeError):
-                        pass
 
                 # Standard Retry-After header (in seconds)
                 elif "retry-after" in headers:
@@ -232,7 +231,7 @@ class StorageErrorClassifier:
 
     @staticmethod
     def classify_delta_error(
-        error: Exception, context: Optional[dict] = None
+        error: Exception, context: dict | None = None
     ) -> PipelineError:
         """Classify a Delta table error into appropriate exception type."""
         error_str = str(error).lower()
@@ -290,7 +289,7 @@ class StorageErrorClassifier:
 
     @staticmethod
     def classify_onelake_error(
-        error: Exception, context: Optional[dict] = None
+        error: Exception, context: dict | None = None
     ) -> PipelineError:
         """Classify an OneLake error into appropriate exception type."""
         error_str = str(error).lower()
@@ -373,7 +372,7 @@ class StorageErrorClassifier:
     def classify_storage_error(
         error: Exception,
         service: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> PipelineError:
         """
         Generic storage error classifier with service routing.

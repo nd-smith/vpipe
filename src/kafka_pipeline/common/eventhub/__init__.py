@@ -46,8 +46,8 @@ def __getattr__(name):
         "reset_checkpoint_store",
     ):
         from kafka_pipeline.common.eventhub.checkpoint_store import (
-            get_checkpoint_store,
             close_checkpoint_store,
+            get_checkpoint_store,
             reset_checkpoint_store,
         )
 

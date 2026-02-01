@@ -7,20 +7,23 @@ both XACT and ClaimX pipelines.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel
 
 from kafka_pipeline.common.logging import LoggedClass
+
+if TYPE_CHECKING:
+    from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 
 
 async def resolve_claimx_project_id(
     claim_number: str,
     connection_manager,
     connection_name: str = "claimx_api",
-) -> Optional[int]:
+) -> int | None:
     """
     Helper function to resolve ClaimX project ID from claim number.
 
@@ -134,7 +137,7 @@ class PluginAction:
     """An action to be executed by a plugin."""
 
     action_type: ActionType
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -142,8 +145,8 @@ class PluginResult:
     """Result returned by plugin execution."""
 
     success: bool
-    actions: List[PluginAction] = field(default_factory=list)
-    message: Optional[str] = None
+    actions: list[PluginAction] = field(default_factory=list)
+    message: str | None = None
     terminate_pipeline: bool = False
 
     @classmethod
@@ -160,8 +163,8 @@ class PluginResult:
     def publish(
         cls,
         topic: str,
-        payload: Dict[str, Any],
-        headers: Optional[Dict[str, str]] = None,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None = None,
     ) -> "PluginResult":
         """Create a result that publishes to a Kafka topic."""
         return cls(
@@ -183,8 +186,8 @@ class PluginResult:
         cls,
         url: str,
         method: str = "POST",
-        body: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> "PluginResult":
         """Create a result that calls an HTTP webhook."""
         return cls(
@@ -230,17 +233,17 @@ class PluginResult:
     @classmethod
     def email(
         cls,
-        to: Union[str, List[str]],
+        to: str | list[str],
         subject: str,
         body: str,
         *,
         connection: str = "email_service",
-        cc: Optional[Union[str, List[str]]] = None,
-        bcc: Optional[Union[str, List[str]]] = None,
-        reply_to: Optional[str] = None,
+        cc: str | list[str] | None = None,
+        bcc: str | list[str] | None = None,
+        reply_to: str | None = None,
         html: bool = False,
-        template_id: Optional[str] = None,
-        template_data: Optional[Dict[str, Any]] = None,
+        template_id: str | None = None,
+        template_data: dict[str, Any] | None = None,
     ) -> "PluginResult":
         """
         Create a result that sends an email.
@@ -287,13 +290,13 @@ class PluginResult:
     def create_claimx_task(
         cls,
         task_type: str,
-        task_data: Dict[str, Any],
+        task_data: dict[str, Any],
         *,
-        project_id: Optional[int] = None,
-        claim_number: Optional[str] = None,
+        project_id: int | None = None,
+        claim_number: str | None = None,
         connection: str = "claimx_api",
         use_primary_contact_as_sender: bool = True,
-        sender_username: Optional[str] = None,
+        sender_username: str | None = None,
     ) -> "PluginResult":
         """
         Create a result that creates a ClaimX task via /import/project/actions API.
@@ -377,36 +380,36 @@ class PluginContext:
 
     # Common identifiers extracted for convenience
     event_id: str
-    event_type: Optional[str] = None
-    project_id: Optional[str] = None
+    event_type: str | None = None
+    project_id: str | None = None
 
     # Domain-specific processed data
     # ClaimX: {"entities": EntityRowsMessage, "handler_result": HandlerResult}
     # XACT: {"file_metadata": {...}, "download_result": {...}}
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
     # Mutable headers (plugins can add)
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
     # Error context (for ERROR/RETRY stages)
-    error: Optional[Exception] = None
+    error: Exception | None = None
     retry_count: int = 0
 
     # Timestamp
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def get_claimx_entities(self) -> Optional["EntityRowsMessage"]:
         """Get ClaimX EntityRowsMessage if available."""
         return self.data.get("entities")
 
-    def get_tasks(self) -> List[Dict[str, Any]]:
+    def get_tasks(self) -> list[dict[str, Any]]:
         """Get task rows from ClaimX entities."""
         entities = self.get_claimx_entities()
         if entities:
             return entities.tasks
         return []
 
-    def get_first_task(self) -> Optional[Dict[str, Any]]:
+    def get_first_task(self) -> dict[str, Any] | None:
         """Get first task row if available."""
         tasks = self.get_tasks()
         return tasks[0] if tasks else None
@@ -502,17 +505,17 @@ class Plugin(LoggedClass, ABC):
 
     # Filtering: which contexts trigger this plugin
     # Empty list = no filter (matches all)
-    domains: List[Domain] = []
-    stages: List[PipelineStage] = []
-    event_types: List[str] = []
+    domains: list[Domain] = []
+    stages: list[PipelineStage] = []
+    event_types: list[str] = []
 
     # Execution priority (lower = runs first)
     priority: int = 100
 
     # Default configuration (can be overridden)
-    default_config: Dict[str, Any] = {}
+    default_config: dict[str, Any] = {}
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize plugin with optional config override.
 
@@ -552,10 +555,7 @@ class Plugin(LoggedClass, ABC):
         if self.stages and context.stage not in self.stages:
             return False
 
-        if self.event_types and context.event_type not in self.event_types:
-            return False
-
-        return True
+        return not (self.event_types and context.event_type not in self.event_types)
 
     @abstractmethod
     async def execute(self, context: PluginContext) -> PluginResult:

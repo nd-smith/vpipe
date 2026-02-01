@@ -11,11 +11,9 @@ Usage:
 """
 
 import argparse
-import asyncio
 import logging
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import polars as pl
 
@@ -39,7 +37,7 @@ class PipelineVerifier:
             xact_events_table_path: Path to xact_events Delta table
         """
         self.table_path = xact_events_table_path
-        self._storage_options: Optional[dict] = None
+        self._storage_options: dict | None = None
 
     def _get_storage_options(self) -> dict:
         """Get storage options for Delta table access."""
@@ -49,8 +47,8 @@ class PipelineVerifier:
 
     def analyze_events(
         self,
-        since: Optional[datetime] = None,
-        until: Optional[datetime] = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> dict:
         """
         Analyze events in Delta table for duplicates and discrepancies.
@@ -62,13 +60,13 @@ class PipelineVerifier:
         Returns:
             Dictionary with analysis results
         """
-        logger.info(f"Analyzing events in {self.table_path}")
+        logger.info("Analyzing events in %s", self.table_path)
 
         # Default to last 48 hours if no time range specified
         if since is None:
-            since = datetime.now(timezone.utc) - timedelta(hours=48)
+            since = datetime.now(UTC) - timedelta(hours=48)
         if until is None:
-            until = datetime.now(timezone.utc)
+            until = datetime.now(UTC)
 
         since_date = since.date()
         until_date = until.date()
@@ -195,16 +193,16 @@ class PipelineVerifier:
             return results
 
         except FileNotFoundError:
-            logger.error(f"Delta table not found at {self.table_path}")
+            logger.exception("Delta table not found at %s", self.table_path)
             return {"error": "Delta table not found", "table_path": self.table_path}
         except Exception as e:
-            logger.error(f"Analysis failed: {e}", exc_info=True)
+            logger.error("Analysis failed: %s", e)
             return {"error": str(e)}
 
     def get_hourly_distribution(
         self,
-        since: Optional[datetime] = None,
-        until: Optional[datetime] = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> list:
         """
         Get hourly distribution of events to identify polling patterns.
@@ -213,9 +211,9 @@ class PipelineVerifier:
             List of dicts with hour and count
         """
         if since is None:
-            since = datetime.now(timezone.utc) - timedelta(hours=48)
+            since = datetime.now(UTC) - timedelta(hours=48)
         if until is None:
-            until = datetime.now(timezone.utc)
+            until = datetime.now(UTC)
 
         since_date = since.date()
         until_date = until.date()
@@ -249,7 +247,7 @@ class PipelineVerifier:
             return df.to_dicts()
 
         except Exception as e:
-            logger.error(f"Failed to get hourly distribution: {e}")
+            logger.error("Failed to get hourly distribution: %s", e)
             return []
 
 
@@ -389,9 +387,9 @@ def main():
     if args.since:
         since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
     else:
-        since = datetime.now(timezone.utc) - timedelta(hours=args.hours)
+        since = datetime.now(UTC) - timedelta(hours=args.hours)
 
-    until = datetime.now(timezone.utc)
+    until = datetime.now(UTC)
 
     verifier = PipelineVerifier(args.table_path)
 

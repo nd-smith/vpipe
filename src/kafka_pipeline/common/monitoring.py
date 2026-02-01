@@ -14,11 +14,11 @@ Usage:
 import argparse
 import asyncio
 import logging
-import re
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 import aiohttp
 from aiohttp import web
@@ -57,11 +57,11 @@ class WorkerStats:
 class DashboardData:
     """Aggregated dashboard data."""
 
-    topics: Dict[str, TopicStats] = field(default_factory=dict)
-    workers: Dict[str, WorkerStats] = field(default_factory=dict)
+    topics: dict[str, TopicStats] = field(default_factory=dict)
+    workers: dict[str, WorkerStats] = field(default_factory=dict)
     timestamp: str = ""
-    metrics_error: Optional[str] = None
-    kafka_error: Optional[str] = None
+    metrics_error: str | None = None
+    kafka_error: str | None = None
 
 
 class MetricsParser:
@@ -71,13 +71,13 @@ class MetricsParser:
     METRIC_PATTERN = re.compile(r"^(\w+)(?:\{([^}]*)\})?\s+([\d.eE+-]+|NaN|Inf|-Inf)$")
     LABEL_PATTERN = re.compile(r'(\w+)="([^"]*)"')
 
-    def parse(self, text: str) -> Dict[str, List[Dict[str, Any]]]:
+    def parse(self, text: str) -> dict[str, list[dict[str, Any]]]:
         """Parse Prometheus metrics text into structured data.
 
         Returns:
             Dict mapping metric names to list of {labels: {}, value: float}
         """
-        metrics: Dict[str, List[Dict[str, Any]]] = {}
+        metrics: dict[str, list[dict[str, Any]]] = {}
 
         for line in text.split("\n"):
             line = line.strip()
@@ -126,20 +126,20 @@ class MonitoringServer:
         self.metrics_url = metrics_url
         self.bootstrap_servers = bootstrap_servers
         self.parser = MetricsParser()
-        self._app: Optional[web.Application] = None
-        self._runner: Optional[web.AppRunner] = None
+        self._app: web.Application | None = None
+        self._runner: web.AppRunner | None = None
 
-    async def fetch_metrics(self) -> Optional[str]:
+    async def fetch_metrics(self) -> str | None:
         """Fetch raw metrics from Prometheus endpoint."""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(self.metrics_url, timeout=5) as resp:
                     if resp.status == 200:
                         return await resp.text()
-                    logger.warning(f"Metrics endpoint returned {resp.status}")
+                    logger.warning("Metrics endpoint returned %s", resp.status)
                     return None
         except Exception as e:
-            logger.warning(f"Failed to fetch metrics: {e}")
+            logger.warning("Failed to fetch metrics: %s", e)
             return None
 
     async def get_dashboard_data(self) -> DashboardData:
@@ -158,7 +158,7 @@ class MonitoringServer:
         return data
 
     def _extract_topic_stats(
-        self, metrics: Dict[str, List[Dict[str, Any]]], data: DashboardData
+        self, metrics: dict[str, list[dict[str, Any]]], data: DashboardData
     ) -> None:
         """Extract topic statistics from parsed metrics."""
         # Known topics to track
@@ -182,7 +182,7 @@ class MonitoringServer:
                 data.topics[topic].total_lag += int(entry["value"])
 
         # Partition count from lag metrics (count unique partitions)
-        partition_counts: Dict[str, set] = {t: set() for t in topic_names}
+        partition_counts: dict[str, set] = {t: set() for t in topic_names}
         for entry in metrics.get("pipeline_consumer_lag", []):
             topic = entry["labels"].get("topic", "")
             partition = entry["labels"].get("partition", "")
@@ -206,7 +206,7 @@ class MonitoringServer:
                 data.topics[topic].messages_produced += int(entry["value"])
 
     def _extract_worker_stats(
-        self, metrics: Dict[str, List[Dict[str, Any]]], data: DashboardData
+        self, metrics: dict[str, list[dict[str, Any]]], data: DashboardData
     ) -> None:
         """Extract worker statistics from parsed metrics."""
         # Initialize workers
@@ -476,7 +476,7 @@ class MonitoringServer:
         await self._runner.setup()
         site = web.TCPSite(self._runner, "0.0.0.0", self.port)
         await site.start()
-        logger.info(f"Monitoring server started on http://localhost:{self.port}")
+        logger.info("Monitoring server started on http://localhost:%s", self.port)
 
     async def stop(self) -> None:
         """Stop the monitoring server."""

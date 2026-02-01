@@ -11,8 +11,7 @@ This is an inventory table - it tracks where files are stored in OneLake.
 
 import asyncio
 import time
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 
 import polars as pl
 
@@ -84,7 +83,7 @@ class DeltaInventoryWriter(BaseDeltaWriter):
         """
         return await self.write_results([result])
 
-    async def write_results(self, results: List[DownloadResultMessage]) -> bool:
+    async def write_results(self, results: list[DownloadResultMessage]) -> bool:
         """
         Write multiple download results to Delta table (non-blocking, append-only).
 
@@ -143,7 +142,7 @@ class DeltaInventoryWriter(BaseDeltaWriter):
             return False
 
     def _results_to_dataframe(
-        self, results: List[DownloadResultMessage]
+        self, results: list[DownloadResultMessage]
     ) -> pl.DataFrame:
         """
         Convert DownloadResultMessage objects to Polars DataFrame.
@@ -161,7 +160,7 @@ class DeltaInventoryWriter(BaseDeltaWriter):
         - created_at: datetime
         - event_date: date (partition column)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         today = now.date()
 
         rows = []
@@ -229,7 +228,7 @@ class DeltaFailedAttachmentsWriter(BaseDeltaWriter):
         """
         return await self.write_results([result])
 
-    async def write_results(self, results: List[DownloadResultMessage]) -> bool:
+    async def write_results(self, results: list[DownloadResultMessage]) -> bool:
         """
         Write multiple failed results to Delta table (non-blocking).
 
@@ -298,7 +297,7 @@ class DeltaFailedAttachmentsWriter(BaseDeltaWriter):
             return False
 
     def _results_to_dataframe(
-        self, results: List[DownloadResultMessage]
+        self, results: list[DownloadResultMessage]
     ) -> pl.DataFrame:
         """
         Convert failed DownloadResultMessage objects to Polars DataFrame.
@@ -315,7 +314,7 @@ class DeltaFailedAttachmentsWriter(BaseDeltaWriter):
         - created_at: datetime (current UTC time)
         """
         # Current time for failed tracking
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         rows = []
         for failed_result in results:

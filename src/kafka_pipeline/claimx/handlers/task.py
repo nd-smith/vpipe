@@ -5,12 +5,11 @@ Handles: CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any
 
-from kafka_pipeline.claimx.api_client import ClaimXApiError
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from core.logging import get_logger, log_with_context
+from core.types import ErrorCategory
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
@@ -18,21 +17,20 @@ from kafka_pipeline.claimx.handlers.base import (
     with_api_error_handling,
 )
 from kafka_pipeline.claimx.handlers.utils import (
+    BaseTransformer,
+    elapsed_ms,
+    now_datetime,
+    now_iso,
+    parse_timestamp,
+    safe_bool,
     safe_int,
     safe_int32,
     safe_str,
     safe_str_id,
-    safe_bool,
-    parse_timestamp,
-    now_iso,
-    now_datetime,
     today_date,
-    elapsed_ms,
-    BaseTransformer,
 )
-
-from core.types import ErrorCategory
-from core.logging import get_logger, log_with_context
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
 
 logger = get_logger(__name__)
@@ -54,9 +52,9 @@ class TaskTransformer:
 
     @staticmethod
     def to_task_row(
-        data: Dict[str, Any],
+        data: dict[str, Any],
         event_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Transform task assignment to row."""
         row = {
             "assignment_id": safe_int(data.get("assignmentId")),
@@ -91,9 +89,9 @@ class TaskTransformer:
 
     @staticmethod
     def to_template_row(
-        template: Dict[str, Any],
+        template: dict[str, Any],
         event_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Transform custom task template to row."""
         row = {
             "task_id": safe_int(template.get("taskId")),
@@ -130,11 +128,11 @@ class TaskTransformer:
 
     @staticmethod
     def to_link_row(
-        link: Dict[str, Any],
+        link: dict[str, Any],
         assignment_id: int,
         project_id: Any,
         event_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Transform external link data to row."""
         row = {
             "link_id": safe_int(link.get("linkId")),
@@ -157,17 +155,17 @@ class TaskTransformer:
 
     @staticmethod
     def to_contact_from_link(
-        link: Dict[str, Any],
+        link: dict[str, Any],
         project_id: Any,
         assignment_id: int,
         event_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Extract contact from external link data."""
         email = safe_str(link.get("email"))
         if not email:
             return None
 
-        now = now_datetime()
+        now_datetime()
         today = today_date()
         row = {
             "project_id": safe_str_id(project_id),

@@ -6,21 +6,21 @@ to appropriate Delta tables (projects, contacts, media, etc.).
 """
 
 import asyncio
+import contextlib
 import json
-from typing import List, Optional
 
+from config.config import KafkaConfig
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
-from config.config import KafkaConfig
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import record_delta_write
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
-from kafka_pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
+from kafka_pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -52,8 +52,8 @@ class ClaimXEntityDeltaWorker:
         task_templates_table_path: str = "",
         external_links_table_path: str = "",
         video_collab_table_path: str = "",
-        producer_config: Optional[KafkaConfig] = None,
-        instance_id: Optional[str] = None,
+        producer_config: KafkaConfig | None = None,
+        instance_id: str | None = None,
     ):
         """
         Initialize ClaimX entity delta worker.
@@ -78,7 +78,7 @@ class ClaimXEntityDeltaWorker:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:
             self.worker_id = self.WORKER_NAME
-        self.producer: Optional[BaseKafkaProducer] = None
+        self.producer: BaseKafkaProducer | None = None
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
 
@@ -111,9 +111,9 @@ class ClaimXEntityDeltaWorker:
         self._dlq_topic = processing_config.get("dlq_topic", f"{entity_rows_topic}.dlq")
 
         # Batch state
-        self._batch: List[EntityRowsMessage] = []
+        self._batch: list[EntityRowsMessage] = []
         self._batch_lock = asyncio.Lock()
-        self._batch_timer: Optional[asyncio.Task] = None
+        self._batch_timer: asyncio.Task | None = None
 
         # Metrics and cycle output tracking
         self._batches_written = 0
@@ -123,7 +123,7 @@ class ClaimXEntityDeltaWorker:
         self._records_skipped = 0
         self._last_cycle_log = None
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
@@ -154,8 +154,9 @@ class ClaimXEntityDeltaWorker:
     async def start(self) -> None:
         """Start the worker."""
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-entity-delta-worker",
@@ -201,10 +202,8 @@ class ClaimXEntityDeltaWorker:
         # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         # Cancel batch timer
         if self._batch_timer:
@@ -276,7 +275,7 @@ class ClaimXEntityDeltaWorker:
             for msg in self._batch:
                 merged_rows.merge(msg)
 
-            batch_to_proces = self._batch.copy()  # Keep for error handling if needed
+            self._batch.copy()  # Keep for error handling if needed
             self._batch.clear()
 
         if merged_rows.is_empty():

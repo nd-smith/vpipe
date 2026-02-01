@@ -34,7 +34,6 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
 from dotenv import load_dotenv
@@ -43,15 +42,11 @@ from dotenv import load_dotenv
 # cli.py is at src/kafka_pipeline/claimx/dlq/cli.py, so root is 5 levels up
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from config.config import KafkaConfig
+from core.auth.kafka_oauth import create_kafka_oauth_callback
 from kafka_pipeline.claimx.schemas.results import (
     FailedDownloadMessage,
     FailedEnrichmentMessage,
-)
-from kafka_pipeline.claimx.schemas.tasks import (
-    ClaimXDownloadTask,
-    ClaimXEnrichmentTask,
 )
 
 # Configure logging
@@ -176,7 +171,7 @@ class DLQManager:
         self,
         dlq_type: str,
         limit: int = 10,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Inspect messages in a DLQ.
 
@@ -259,7 +254,7 @@ class DLQManager:
                     count += 1
 
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"Failed to parse message at offset {record.offset}: {e}"
                     )
                     continue
@@ -272,7 +267,7 @@ class DLQManager:
     async def replay_messages(
         self,
         dlq_type: str,
-        event_ids: Optional[List[str]] = None,
+        event_ids: list[str] | None = None,
         replay_all: bool = False,
     ) -> int:
         """
@@ -293,13 +288,11 @@ class DLQManager:
             dlq_topic = self.enrichment_dlq_topic
             pending_topic = self.enrichment_pending_topic
             schema_class = FailedEnrichmentMessage
-            task_class = ClaimXEnrichmentTask
             id_field = "event_id"
         elif dlq_type == "download":
             dlq_topic = self.download_dlq_topic
             pending_topic = self.download_pending_topic
             schema_class = FailedDownloadMessage
-            task_class = ClaimXDownloadTask
             id_field = "media_id"
         else:
             raise ValueError(
@@ -319,9 +312,9 @@ class DLQManager:
             replayed_count = 0
             event_id_set = set(event_ids) if event_ids else set()
 
-            logger.info(f"Starting replay from {dlq_topic} to {pending_topic}")
+            logger.info("Starting replay from %s to %s", dlq_topic, pending_topic)
             if event_ids:
-                logger.info(f"Filtering for IDs: {event_ids}")
+                logger.info("Filtering for IDs: %s", event_ids)
 
             # Consume all messages from DLQ
             async for record in consumer:
@@ -351,7 +344,7 @@ class DLQManager:
                     )
 
                     replayed_count += 1
-                    logger.info(f"Replayed {id_field}={message_id} to {pending_topic}")
+                    logger.info("Replayed %s=%s to %s", id_field, message_id, pending_topic)
 
                 except Exception as e:
                     logger.error(
@@ -360,7 +353,7 @@ class DLQManager:
                     continue
 
             await producer.flush()
-            logger.info(f"Successfully replayed {replayed_count} messages")
+            logger.info("Successfully replayed %s messages", replayed_count)
 
             return replayed_count
 
@@ -412,7 +405,7 @@ class DLQManager:
             # Get all partitions
             partitions = consumer.partitions_for_topic(topic)
             if not partitions:
-                logger.warning(f"Topic {topic} not found or has no partitions")
+                logger.warning("Topic %s not found or has no partitions", topic)
                 return False
 
             topic_partitions = [TopicPartition(topic, p) for p in partitions]
@@ -423,7 +416,7 @@ class DLQManager:
             # Commit the positions (this marks messages as consumed)
             await consumer.commit()
 
-            logger.info(f"Successfully purged all messages from {topic}")
+            logger.info("Successfully purged all messages from %s", topic)
             return True
 
         finally:
@@ -611,7 +604,7 @@ Examples:
         print("\n\nOperation cancelled by user.")
         return 130
     except Exception as e:
-        logger.error(f"Error: {e}", exc_info=True)
+        logger.error("Error: %s", e)
         return 1
 
 

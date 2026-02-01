@@ -5,8 +5,7 @@ Converts media metadata rows into ClaimXDownloadTask objects for the download wo
 Handles URL extraction, blob path generation, and task creation.
 """
 
-import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from core.logging import get_logger
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
@@ -26,8 +25,8 @@ class DownloadTaskFactory:
 
     @staticmethod
     def create_download_tasks_from_media(
-        media_rows: List[Dict[str, Any]],
-    ) -> List[ClaimXDownloadTask]:
+        media_rows: list[dict[str, Any]],
+    ) -> list[ClaimXDownloadTask]:
         """
         Convert media metadata rows into download tasks.
 
@@ -76,7 +75,7 @@ class DownloadTaskFactory:
         return download_tasks
 
     @staticmethod
-    def _generate_blob_path(media_row: Dict[str, Any]) -> str:
+    def _generate_blob_path(media_row: dict[str, Any]) -> str:
         """
         Generate blob storage path for media file.
 

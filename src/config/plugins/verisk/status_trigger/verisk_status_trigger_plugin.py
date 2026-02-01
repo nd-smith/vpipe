@@ -20,20 +20,19 @@ Configuration in config.yaml:
         message: "Payment processor assigned"
 """
 
-from typing import Any, Dict, List
 from datetime import datetime
-import logging
+from typing import Any
 
+from core.logging.setup import get_logger
 from kafka_pipeline.plugins.shared.base import (
+    ActionType,
+    Domain,
+    PipelineStage,
     Plugin,
+    PluginAction,
     PluginContext,
     PluginResult,
-    PluginAction,
-    ActionType,
-    PipelineStage,
-    Domain,
 )
-from core.logging.setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -60,7 +59,7 @@ class XACTStatusTriggerPlugin(Plugin):
     event_types = ["*"]  # All event types
     priority = 100  # Standard priority
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         Initialize the plugin with configuration.
 
@@ -160,9 +159,9 @@ class XACTStatusTriggerPlugin(Plugin):
 
     def _build_actions(
         self,
-        trigger_config: Dict[str, Any],
+        trigger_config: dict[str, Any],
         context: PluginContext,
-    ) -> List[PluginAction]:
+    ) -> list[PluginAction]:
         """
         Build action list from trigger configuration.
 
@@ -201,7 +200,7 @@ class XACTStatusTriggerPlugin(Plugin):
                     },
                 )
             )
-            logger.debug(f"Added Kafka publish action: {topic}")
+            logger.debug("Added Kafka publish action: %s", topic)
 
         # 2. HTTP Webhook
         if "webhook" in trigger_config:
@@ -223,7 +222,7 @@ class XACTStatusTriggerPlugin(Plugin):
                     },
                 )
             )
-            logger.debug(f"Added webhook action: {webhook_config.get('url')}")
+            logger.debug("Added webhook action: %s", webhook_config.get('url'))
 
         # 3. Log Action
         if "log" in trigger_config:
@@ -252,11 +251,11 @@ class XACTStatusTriggerPlugin(Plugin):
                     },
                 )
             )
-            logger.debug(f"Added log action: {message[:50]}")
+            logger.debug("Added log action: %s", message[:50])
 
         return actions
 
-    def _build_notification_payload(self, context: PluginContext) -> Dict[str, Any]:
+    def _build_notification_payload(self, context: PluginContext) -> dict[str, Any]:
         """
         Build the notification payload for Kafka/webhook actions.
 

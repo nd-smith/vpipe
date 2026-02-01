@@ -6,8 +6,7 @@ to ensure type compatibility and prevent NULL type coercion errors.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
 
 import polars as pl
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Explicit schema for claimx_itel_forms table
 # Matches the Delta table schema exactly to prevent type inference issues
 # IMPORTANT: Column order must match the target table exactly
-SUBMISSIONS_SCHEMA: Dict[str, pl.DataType] = {
+SUBMISSIONS_SCHEMA: dict[str, pl.DataType] = {
     "assignment_id": pl.Int64,
     "task_id": pl.Int64,
     "task_name": pl.Utf8,
@@ -85,7 +84,7 @@ SUBMISSIONS_SCHEMA: Dict[str, pl.DataType] = {
 
 
 # Explicit schema for claimx_itel_attachments table
-ATTACHMENTS_SCHEMA: Dict[str, pl.DataType] = {
+ATTACHMENTS_SCHEMA: dict[str, pl.DataType] = {
     "assignment_id": pl.Int64,
     "project_id": pl.Int64,
     "event_id": pl.Utf8,
@@ -153,14 +152,12 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
                     )
                 elif isinstance(val, datetime):
                     if val.tzinfo is None:
-                        processed[col_name] = val.replace(tzinfo=timezone.utc)
+                        processed[col_name] = val.replace(tzinfo=UTC)
                     else:
                         processed[col_name] = val
                 else:
                     processed[col_name] = None
-            elif col_type == pl.Int64:
-                processed[col_name] = int(val) if val is not None else None
-            elif col_type == pl.Int32:
+            elif col_type == pl.Int64 or col_type == pl.Int32:
                 processed[col_name] = int(val) if val is not None else None
             elif col_type == pl.Boolean:
                 if isinstance(val, bool):
@@ -194,14 +191,12 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
                     )
                 elif isinstance(val, datetime):
                     if val.tzinfo is None:
-                        processed[col_name] = val.replace(tzinfo=timezone.utc)
+                        processed[col_name] = val.replace(tzinfo=UTC)
                     else:
                         processed[col_name] = val
                 else:
                     processed[col_name] = None
-            elif col_type == pl.Int64:
-                processed[col_name] = int(val) if val is not None else None
-            elif col_type == pl.Int32:
+            elif col_type == pl.Int64 or col_type == pl.Int32:
                 processed[col_name] = int(val) if val is not None else None
             elif col_type == pl.Boolean:
                 if isinstance(val, bool):

@@ -13,8 +13,6 @@ Clean interface: DownloadTask -> DownloadOutcome
 import asyncio
 import errno
 import logging
-from pathlib import Path
-from typing import Optional
 
 import aiohttp
 
@@ -56,7 +54,7 @@ class AttachmentDownloader:
 
     def __init__(
         self,
-        session: Optional[aiohttp.ClientSession] = None,
+        session: aiohttp.ClientSession | None = None,
         max_connections: int = 100,
         max_connections_per_host: int = 10,
     ):
@@ -239,7 +237,7 @@ class AttachmentDownloader:
 
     async def _get_content_length(
         self, url: str, session: aiohttp.ClientSession, timeout: int
-    ) -> Optional[int]:
+    ) -> int | None:
         """
         Get Content-Length from HEAD request.
 
@@ -363,27 +361,6 @@ class AttachmentDownloader:
             content_type=result.content_type,
             status_code=200,
         )
-
-    async def _get_content_type(
-        self, url: str, session: aiohttp.ClientSession, timeout: int
-    ) -> Optional[str]:
-        """
-        Get Content-Type from HEAD request.
-
-        Returns Content-Type header value, or None if unavailable.
-        """
-        try:
-            # Use shorter timeout for HEAD since it should be fast
-            # sock_read ensures we don't hang on stalled connections
-            async with session.head(
-                url,
-                timeout=aiohttp.ClientTimeout(total=min(timeout, 30), sock_read=10),
-                allow_redirects=True,
-            ) as response:
-                return response.headers.get("Content-Type")
-        except Exception:
-            # HEAD request failed - return None
-            return None
 
 
 __all__ = ["AttachmentDownloader"]

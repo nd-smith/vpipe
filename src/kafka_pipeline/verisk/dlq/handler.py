@@ -9,7 +9,6 @@ Provides XACT DLQ message management with:
 
 import json
 import logging
-from typing import Optional
 
 from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
@@ -55,8 +54,8 @@ class DLQHandler:
         """
         self.config = config
         self.domain = "verisk"
-        self._consumer: Optional[BaseKafkaConsumer] = None
-        self._producer: Optional[BaseKafkaProducer] = None
+        self._consumer: BaseKafkaConsumer | None = None
+        self._producer: BaseKafkaProducer | None = None
 
         # Get topic names from config
         self._dlq_topic = config.get_topic("verisk", "dlq")

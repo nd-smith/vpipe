@@ -11,8 +11,8 @@ Uses flatten_events() from kafka_pipeline.verisk.writers.transform.
 Note: Deduplication handled by daily Fabric maintenance job.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import polars as pl
 
@@ -72,8 +72,8 @@ class DeltaEventsWriter(BaseDeltaWriter):
 
     async def write_raw_events(
         self,
-        raw_events: List[Dict[str, Any]],
-        batch_id: Optional[str] = None,
+        raw_events: list[dict[str, Any]],
+        batch_id: str | None = None,
     ) -> bool:
         """
         Write raw Eventhouse events to Delta table (non-blocking).
@@ -106,7 +106,7 @@ class DeltaEventsWriter(BaseDeltaWriter):
             def _sync_transform() -> pl.DataFrame:
                 raw_df = pl.DataFrame(raw_events)
                 flattened_df = flatten_events(raw_df)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 return flattened_df.with_columns(
                     [
                         pl.lit(now).alias("created_at"),

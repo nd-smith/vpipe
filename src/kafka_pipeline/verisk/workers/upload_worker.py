@@ -15,37 +15,35 @@ Architecture:
 """
 
 import asyncio
+import contextlib
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord
 
+from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from config.config import KafkaConfig
 from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
-from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
-from kafka_pipeline.common.storage import OneLakeClient
 from kafka_pipeline.common.metrics import (
+    message_processing_duration_seconds,
     record_message_consumed,
     record_processing_error,
+    update_assigned_partitions,
     update_connection_status,
-    update_assigned_partitions,
-    update_assigned_partitions,
-    update_consumer_lag,
-    update_consumer_offset,
-    message_processing_duration_seconds,
 )
+from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.storage import OneLakeClient
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
+from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
+from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 
 logger = get_logger(__name__)
 
@@ -56,7 +54,7 @@ class UploadResult:
     cached_message: CachedDownloadMessage
     processing_time_ms: int
     success: bool
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
 
 class UploadWorker:
@@ -97,8 +95,8 @@ class UploadWorker:
         self,
         config: KafkaConfig,
         domain: str = "verisk",
-        instance_id: Optional[str] = None,
-        storage_client: Optional[Any] = None,
+        instance_id: str | None = None,
+        storage_client: Any | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -145,14 +143,14 @@ class UploadWorker:
         self.topic = config.get_topic(domain, "downloads_cached")
 
         # Consumer will be created in start()
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._consumer: AIOKafkaConsumer | None = None
         self._running = False
 
         # Concurrency control
-        self._semaphore: Optional[asyncio.Semaphore] = None
-        self._in_flight_tasks: Set[str] = set()  # Track by trace_id
+        self._semaphore: asyncio.Semaphore | None = None
+        self._in_flight_tasks: set[str] = set()  # Track by trace_id
         self._in_flight_lock = asyncio.Lock()
-        self._shutdown_event: Optional[asyncio.Event] = None
+        self._shutdown_event: asyncio.Event | None = None
 
         # Create producer for result messages
         self.producer = BaseKafkaProducer(
@@ -162,7 +160,7 @@ class UploadWorker:
         )
 
         # OneLake clients by domain (lazy initialized in start())
-        self.onelake_clients: Dict[str, OneLakeClient] = {}
+        self.onelake_clients: dict[str, OneLakeClient] = {}
 
         # Health check server - use worker-specific port from config
         health_port = processing_config.get("health_port", 8091)
@@ -211,8 +209,9 @@ class UploadWorker:
         )
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-upload-worker",
@@ -289,7 +288,7 @@ class UploadWorker:
         except asyncio.CancelledError:
             logger.info("Upload worker cancelled")
         except Exception as e:
-            logger.error("Upload worker error", extra={"error": str(e)}, exc_info=True)
+            logger.exception("Upload worker error", extra={"error": str(e)})
             raise
         finally:
             self._running = False
@@ -506,7 +505,7 @@ class UploadWorker:
                     update_assigned_partitions(consumer_group, len(assignment))
 
                 # Fetch batch of messages
-                batch: Dict[str, List[ConsumerRecord]] = await self._consumer.getmany(
+                batch: dict[str, list[ConsumerRecord]] = await self._consumer.getmany(
                     timeout_ms=1000,
                     max_records=self.batch_size,
                 )
@@ -542,7 +541,7 @@ class UploadWorker:
 
                 # Flatten messages from all partitions and convert to PipelineMessage
                 messages = []
-                for topic_partition, records in batch.items():
+                for _topic_partition, records in batch.items():
                     messages.extend([from_consumer_record(r) for r in records])
 
                 if messages:
@@ -557,7 +556,7 @@ class UploadWorker:
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
-    async def _process_batch(self, messages: List[PipelineMessage]) -> None:
+    async def _process_batch(self, messages: list[PipelineMessage]) -> None:
         if self._consumer is None:
             raise RuntimeError("Consumer not initialized - call start() first")
         if self._semaphore is None:
@@ -573,7 +572,7 @@ class UploadWorker:
             for msg in messages
         ]
 
-        results: List[UploadResult] = await asyncio.gather(
+        results: list[UploadResult] = await asyncio.gather(
             *tasks, return_exceptions=True
         )
 
@@ -608,7 +607,7 @@ class UploadWorker:
         start_time = time.time()
         trace_id = "unknown"
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-        cached_message: Optional[CachedDownloadMessage] = None
+        cached_message: CachedDownloadMessage | None = None
 
         try:
             # Parse message
@@ -723,7 +722,7 @@ class UploadWorker:
                 assignment_id=cached_message.assignment_id,
                 status="completed",
                 bytes_downloaded=cached_message.bytes_downloaded,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
 
             await self.producer.send(
@@ -788,7 +787,7 @@ class UploadWorker:
                     status="failed_permanent",
                     bytes_downloaded=0,
                     error_message=str(e)[:500],
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                 )
 
                 await self.producer.send(
@@ -826,10 +825,8 @@ class UploadWorker:
 
             parent = cache_path.parent
             if parent.exists():
-                try:
+                with contextlib.suppress(OSError):
                     await asyncio.to_thread(parent.rmdir)
-                except OSError:
-                    pass
 
             logger.debug("Cleaned up cache file", extra={"cache_path": str(cache_path)})
 

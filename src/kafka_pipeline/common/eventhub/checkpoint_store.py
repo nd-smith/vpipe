@@ -32,11 +32,10 @@ Usage:
 import asyncio
 import logging
 import os
-from typing import Optional
 
 from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 
-from core.logging import get_logger, log_with_context, log_exception
+from core.logging import get_logger, log_exception, log_with_context
 
 logger = get_logger(__name__)
 
@@ -45,7 +44,7 @@ logger = get_logger(__name__)
 # Singleton state
 # =============================================================================
 
-_checkpoint_store: Optional[BlobCheckpointStore] = None
+_checkpoint_store: BlobCheckpointStore | None = None
 _checkpoint_store_lock = asyncio.Lock()
 _initialization_attempted = False
 
@@ -67,7 +66,7 @@ def _load_checkpoint_config() -> dict:
     2. config.yaml: eventhub.checkpoint_store section
     3. Empty string (graceful degradation)
     """
-    from config.config import load_yaml, _expand_env_vars, DEFAULT_CONFIG_FILE
+    from config.config import DEFAULT_CONFIG_FILE, _expand_env_vars, load_yaml
 
     config = {}
 
@@ -107,7 +106,7 @@ def _load_checkpoint_config() -> dict:
 # =============================================================================
 
 
-async def get_checkpoint_store() -> Optional[BlobCheckpointStore]:
+async def get_checkpoint_store() -> BlobCheckpointStore | None:
     """Get or create the singleton BlobCheckpointStore instance.
 
     Returns None if blob_storage_connection_string is not configured,

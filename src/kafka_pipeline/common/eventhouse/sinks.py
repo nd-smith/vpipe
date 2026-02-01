@@ -7,13 +7,13 @@ tight coupling to any specific implementation.
 """
 
 import asyncio
+import contextlib
 import json
 import os
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -40,7 +40,7 @@ class EventSink(Protocol):
         ...
 
     async def write(
-        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None
+        self, key: str, event: BaseModel, headers: dict[str, str] | None = None
     ) -> None:
         """
         Write a single event to the sink.
@@ -76,7 +76,7 @@ class KafkaSink:
     def __init__(self, config: KafkaSinkConfig):
         self.config = config
         self._producer = None
-        self._topic: Optional[str] = None
+        self._topic: str | None = None
 
     async def start(self) -> None:
         """Initialize producer via transport factory.
@@ -108,7 +108,7 @@ class KafkaSink:
             logger.info("KafkaSink stopped")
 
     async def write(
-        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None
+        self, key: str, event: BaseModel, headers: dict[str, str] | None = None
     ) -> None:
         """Write event to Kafka topic."""
         if not self._producer or not self._topic:
@@ -154,11 +154,11 @@ class JsonFileSink:
     def __init__(self, config: JsonFileSinkConfig):
         self.config = config
         self._file = None
-        self._current_path: Optional[Path] = None
+        self._current_path: Path | None = None
         self._current_size = 0
         self._file_index = 0
         self._buffer: list = []
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self._running = False
         self._events_written = 0
@@ -195,10 +195,8 @@ class JsonFileSink:
         # Cancel flush task
         if self._flush_task:
             self._flush_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._flush_task
-            except asyncio.CancelledError:
-                pass
 
         # Final flush
         await self.flush()
@@ -217,7 +215,7 @@ class JsonFileSink:
         )
 
     async def write(
-        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]] = None
+        self, key: str, event: BaseModel, headers: dict[str, str] | None = None
     ) -> None:
         """Buffer event for writing."""
         record = self._format_record(key, event, headers)
@@ -315,8 +313,8 @@ class JsonFileSink:
         return base_path.parent / f"{stem}.{self._file_index:03d}{suffix}"
 
     def _format_record(
-        self, key: str, event: BaseModel, headers: Optional[Dict[str, str]]
-    ) -> Dict[str, Any]:
+        self, key: str, event: BaseModel, headers: dict[str, str] | None
+    ) -> dict[str, Any]:
         """Format event as output record."""
         # Get event data
         event_data = event.model_dump()
@@ -324,7 +322,7 @@ class JsonFileSink:
         if self.config.include_metadata:
             return {
                 "_key": key,
-                "_timestamp": datetime.now(timezone.utc).isoformat(),
+                "_timestamp": datetime.now(UTC).isoformat(),
                 "_headers": headers or {},
                 **event_data,
             }
@@ -332,7 +330,7 @@ class JsonFileSink:
             return event_data
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Return sink statistics."""
         return {
             "events_written": self._events_written,
@@ -356,7 +354,7 @@ def create_kafka_sink(
 
 
 def create_json_sink(
-    output_path: Union[str, Path],
+    output_path: str | Path,
     rotate_size_mb: float = 100.0,
     pretty_print: bool = False,
     include_metadata: bool = True,

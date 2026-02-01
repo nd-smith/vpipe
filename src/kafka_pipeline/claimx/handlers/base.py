@@ -8,25 +8,20 @@ and decorator utilities for error handling and handler registration.
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Type,
-    TypeVar,
     TYPE_CHECKING,
+    Any,
+    Optional,
+    TypeVar,
 )
 
-from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
-
-from core.types import ErrorCategory
 from core.logging import get_logger, log_exception, log_with_context
+from core.types import ErrorCategory
+from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
 from kafka_pipeline.common.metrics import (
     claimx_handler_duration_seconds,
@@ -58,9 +53,9 @@ class EnrichmentResult:
         self,
         event: ClaimXEventMessage,
         success: bool,
-        rows: Optional[EntityRowsMessage] = None,
-        error: Optional[str] = None,
-        error_category: Optional[ErrorCategory] = None,
+        rows: EntityRowsMessage | None = None,
+        error: str | None = None,
+        error_category: ErrorCategory | None = None,
         is_retryable: bool = True,
         api_calls: int = 0,
         duration_ms: int = 0,
@@ -102,8 +97,8 @@ class HandlerResult:
         failed_permanent: int,
         skipped: int,
         rows: EntityRowsMessage,
-        event_logs: List[Dict[str, Any]],
-        errors: List[str],
+        event_logs: list[dict[str, Any]],
+        errors: list[str],
         duration_seconds: float,
         api_calls: int,
     ):
@@ -128,7 +123,7 @@ def _make_error_result(
     category: ErrorCategory,
     is_retryable: bool,
 ) -> EnrichmentResult:
-    duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+    duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
     return EnrichmentResult(
         event=event,
         success=False,
@@ -145,7 +140,7 @@ F = TypeVar("F", bound=Callable[..., Awaitable[EnrichmentResult]])
 
 def with_api_error_handling(
     api_calls: int = 1,
-    log_context: Optional[Callable[[ClaimXEventMessage], dict]] = None,
+    log_context: Callable[[ClaimXEventMessage], dict] | None = None,
 ) -> Callable[
     [Callable[..., Awaitable[EnrichmentResult]]],
     Callable[[Any, ClaimXEventMessage], Awaitable[EnrichmentResult]],
@@ -156,7 +151,7 @@ def with_api_error_handling(
         fn: Callable[..., Awaitable[EnrichmentResult]],
     ) -> Callable[[Any, ClaimXEventMessage], Awaitable[EnrichmentResult]]:
         async def wrapper(self: Any, event: ClaimXEventMessage) -> EnrichmentResult:
-            start_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC)
             handler_name = getattr(self, "name", self.__class__.__name__)
 
             try:
@@ -169,7 +164,7 @@ def with_api_error_handling(
                     event_log_context.update(log_context(event))
 
                 duration_ms = int(
-                    (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                    (datetime.now(UTC) - start_time).total_seconds() * 1000
                 )
                 log_with_context(
                     logger,
@@ -198,7 +193,7 @@ def with_api_error_handling(
                     event_log_context.update(log_context(event))
 
                 duration_ms = int(
-                    (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                    (datetime.now(UTC) - start_time).total_seconds() * 1000
                 )
                 log_exception(
                     logger,
@@ -239,9 +234,9 @@ class EventHandler(ABC):
         client: ClaimX API client for fetching data
     """
 
-    event_types: List[str] = []
+    event_types: list[str] = []
     supports_batching: bool = False
-    batch_key: Optional[str] = None
+    batch_key: str | None = None
 
     def __init__(
         self,
@@ -286,8 +281,8 @@ class EventHandler(ABC):
         pass
 
     async def handle_batch(
-        self, events: List[ClaimXEventMessage]
-    ) -> List[EnrichmentResult]:
+        self, events: list[ClaimXEventMessage]
+    ) -> list[EnrichmentResult]:
         """Default processes events independently. Override for optimized batch processing."""
         import asyncio
 
@@ -302,7 +297,7 @@ class EventHandler(ABC):
             batch_size=len(events),
         )
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         tasks = [self.handle_event(event) for event in events]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -340,7 +335,7 @@ class EventHandler(ABC):
                 else:
                     error_count += 1
 
-        elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+        elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
         log_with_context(
             logger,
             logging.DEBUG,
@@ -354,7 +349,7 @@ class EventHandler(ABC):
 
         return final_results
 
-    async def process(self, events: List[ClaimXEventMessage]) -> HandlerResult:
+    async def process(self, events: list[ClaimXEventMessage]) -> HandlerResult:
         if not events:
             log_with_context(
                 logger,
@@ -376,10 +371,10 @@ class EventHandler(ABC):
                 api_calls=0,
             )
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Log event type distribution
-        event_type_counts: Dict[str, int] = {}
+        event_type_counts: dict[str, int] = {}
         for event in events:
             event_type_counts[event.event_type] = (
                 event_type_counts.get(event.event_type, 0) + 1
@@ -419,13 +414,13 @@ class EventHandler(ABC):
         return handler_result
 
     async def _process_batched(
-        self, events: List[ClaimXEventMessage]
-    ) -> List[EnrichmentResult]:
+        self, events: list[ClaimXEventMessage]
+    ) -> list[EnrichmentResult]:
         """Process events in batches grouped by batch_key, concurrently."""
         import asyncio
 
         # Group by batch key
-        groups: Dict[Any, List[ClaimXEventMessage]] = defaultdict(list)
+        groups: dict[Any, list[ClaimXEventMessage]] = defaultdict(list)
         for event in events:
             key = getattr(event, self.batch_key, None)
             groups[key].append(event)
@@ -442,7 +437,7 @@ class EventHandler(ABC):
         )
 
         # Process all groups concurrently
-        async def process_group(key: Any, group_events: List[ClaimXEventMessage]):
+        async def process_group(key: Any, group_events: list[ClaimXEventMessage]):
             return key, await self.handle_batch(group_events)
 
         tasks = [process_group(k, evts) for k, evts in groups.items()]
@@ -482,10 +477,10 @@ class EventHandler(ABC):
 
     def _aggregate_results(
         self,
-        results: List[EnrichmentResult],
+        results: list[EnrichmentResult],
         start_time: datetime,
     ) -> HandlerResult:
-        duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
+        duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
 
         total = 0
         succeeded = 0
@@ -519,7 +514,7 @@ class EventHandler(ABC):
                     errors.append(enrichment_result.error)
 
             # Build event log entry
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             log_entry = {
                 "event_id": enrichment_result.event.event_id,
                 "event_type": enrichment_result.event.event_type,
@@ -613,12 +608,12 @@ class NoOpHandler(EventHandler):
     supports_batching = False
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             rows = self.extract_rows(event)
             duration_ms = int(
-                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                (datetime.now(UTC) - start_time).total_seconds() * 1000
             )
 
             row_counts = {
@@ -656,7 +651,7 @@ class NoOpHandler(EventHandler):
                 **extract_log_context(event),
             )
             duration_ms = int(
-                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                (datetime.now(UTC) - start_time).total_seconds() * 1000
             )
 
             return EnrichmentResult(
@@ -682,14 +677,14 @@ class HandlerRegistry:
     """Registry mapping event types to handler classes."""
 
     def __init__(self):
-        self._handlers: Dict[str, Type[EventHandler]] = {}
+        self._handlers: dict[str, type[EventHandler]] = {}
         log_with_context(
             logger,
             logging.DEBUG,
             "HandlerRegistry initialized",
         )
 
-    def register(self, handler_class: Type[EventHandler]) -> None:
+    def register(self, handler_class: type[EventHandler]) -> None:
         for event_type in handler_class.event_types:
             if event_type in self._handlers:
                 log_with_context(
@@ -715,7 +710,7 @@ class HandlerRegistry:
         self,
         event_type: str,
         client: ClaimXApiClient,
-    ) -> Optional[EventHandler]:
+    ) -> EventHandler | None:
         handler_class = self._handlers.get(event_type)
         if handler_class is None:
             log_with_context(
@@ -727,15 +722,15 @@ class HandlerRegistry:
             return None
         return handler_class(client)
 
-    def get_handler_class(self, event_type: str) -> Optional[Type[EventHandler]]:
+    def get_handler_class(self, event_type: str) -> type[EventHandler] | None:
         return self._handlers.get(event_type)
 
     def group_events_by_handler(
         self,
-        events: List[ClaimXEventMessage],
-    ) -> Dict[Type[EventHandler], List[ClaimXEventMessage]]:
-        groups: Dict[Type[EventHandler], List[ClaimXEventMessage]] = defaultdict(list)
-        unhandled_types: Dict[str, int] = {}
+        events: list[ClaimXEventMessage],
+    ) -> dict[type[EventHandler], list[ClaimXEventMessage]]:
+        groups: dict[type[EventHandler], list[ClaimXEventMessage]] = defaultdict(list)
+        unhandled_types: dict[str, int] = {}
 
         for event in events:
             handler_class = self.get_handler_class(event.event_type)
@@ -770,7 +765,7 @@ class HandlerRegistry:
 
         return dict(groups)
 
-    def get_registered_handlers(self) -> Dict[str, str]:
+    def get_registered_handlers(self) -> dict[str, str]:
         return {
             event_type: handler.__name__
             for event_type, handler in self._handlers.items()
@@ -801,7 +796,7 @@ def reset_registry() -> None:
     _handler_registry = None
 
 
-def register_handler(cls: Type[EventHandler]) -> Type[EventHandler]:
+def register_handler(cls: type[EventHandler]) -> type[EventHandler]:
     """Decorator to register a handler class for its event_types."""
     registry = get_handler_registry()
     registry.register(cls)

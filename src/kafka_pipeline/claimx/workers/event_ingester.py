@@ -8,26 +8,27 @@ Different from xact pipeline:
 """
 
 import asyncio
+import contextlib
 import json
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Set
+from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import ValidationError
 
+from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
-from core.logging.utilities import format_cycle_output, log_worker_error
-from config.config import KafkaConfig
+from core.logging.utilities import format_cycle_output
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
+from kafka_pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
+from kafka_pipeline.common.consumer import BaseKafkaConsumer
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import (
     message_processing_duration_seconds,
 )
-from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
+from kafka_pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -47,8 +48,8 @@ class ClaimXEventIngesterWorker:
         config: KafkaConfig,
         domain: str = "claimx",
         enrichment_topic: str = "",
-        producer_config: Optional[KafkaConfig] = None,
-        instance_id: Optional[str] = None,
+        producer_config: KafkaConfig | None = None,
+        instance_id: str | None = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -57,8 +58,8 @@ class ClaimXEventIngesterWorker:
         self.enrichment_topic = enrichment_topic or config.get_topic(
             domain, "enrichment_pending"
         )
-        self.producer: Optional[BaseKafkaProducer] = None
-        self.consumer: Optional[BaseKafkaConsumer] = None
+        self.producer: BaseKafkaProducer | None = None
+        self.consumer: BaseKafkaConsumer | None = None
 
         # Create worker_id with instance suffix (coolname) if provided
         if instance_id:
@@ -67,14 +68,14 @@ class ClaimXEventIngesterWorker:
             self.worker_id = self.WORKER_NAME
 
         # Background task tracking for graceful shutdown
-        self._pending_tasks: Set[asyncio.Task] = set()
+        self._pending_tasks: set[asyncio.Task] = set()
         self._task_counter = 0
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_deduplicated = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
@@ -116,8 +117,9 @@ class ClaimXEventIngesterWorker:
 
     async def start(self) -> None:
         logger.info("Starting ClaimXEventIngesterWorker")
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-event-ingester",
@@ -147,10 +149,8 @@ class ClaimXEventIngesterWorker:
         logger.info("Stopping ClaimXEventIngesterWorker")
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
         if self.consumer:
@@ -165,7 +165,7 @@ class ClaimXEventIngesterWorker:
         self,
         coro,
         task_name: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> asyncio.Task:
         self._task_counter += 1
         full_name = f"{task_name}-{self._task_counter}"
@@ -282,7 +282,7 @@ class ClaimXEventIngesterWorker:
 
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         start_time = time.perf_counter()
-        from kafka_pipeline.common.telemetry import get_tracer, SpanKind
+        from kafka_pipeline.common.telemetry import SpanKind, get_tracer
 
         tracer = get_tracer(__name__)
         try:
@@ -356,7 +356,7 @@ class ClaimXEventIngesterWorker:
             event_type=event.event_type,
             project_id=event.project_id,
             retry_count=0,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             media_id=event.media_id,
             task_assignment_id=event.task_assignment_id,
             video_collaboration_id=event.video_collaboration_id,
@@ -470,10 +470,10 @@ class ClaimXEventIngesterWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = (
+                    (
                         self._records_processed - self._last_cycle_processed
                     )
-                    deduped_cycle = (
+                    (
                         self._records_deduplicated - self._last_cycle_deduped
                     )
 

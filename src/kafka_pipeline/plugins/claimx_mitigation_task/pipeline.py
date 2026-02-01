@@ -7,8 +7,8 @@ from datetime import datetime
 from kafka_pipeline.plugins.shared.connections import ConnectionManager
 
 from .models import (
-    MitigationTaskEvent,
     MitigationSubmission,
+    MitigationTaskEvent,
     ProcessedMitigationTask,
 )
 
@@ -169,7 +169,7 @@ class MitigationTaskPipeline:
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
         logger.debug(
-            f"Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
+            "Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
         )
 
         status, response = await self.connections.request_json(

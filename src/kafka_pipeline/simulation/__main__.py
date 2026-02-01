@@ -12,8 +12,9 @@ def main():
     # Check if dummy_producer is being run directly
     if "dummy_producer" in sys.argv[0]:
         # Already running dummy_producer.py directly
-        from kafka_pipeline.simulation.dummy_producer import main as dummy_main
         import asyncio
+
+        from kafka_pipeline.simulation.dummy_producer import main as dummy_main
 
         asyncio.run(dummy_main())
     else:

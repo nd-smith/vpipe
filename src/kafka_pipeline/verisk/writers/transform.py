@@ -7,14 +7,14 @@ Migrated from verisk_pipeline.xact.stages.transform.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import polars as pl
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_get(d: Optional[Dict], *keys: str, default: Any = None) -> Any:
+def _safe_get(d: dict | None, *keys: str, default: Any = None) -> Any:
     """
     Safely navigate nested dict keys.
 
@@ -38,7 +38,7 @@ def _safe_get(d: Optional[Dict], *keys: str, default: Any = None) -> Any:
     return current
 
 
-def _parse_data_column(data: Optional[Any]) -> Optional[Dict]:
+def _parse_data_column(data: Any | None) -> dict | None:
     """Parse data to dict, handling dict, JSON string, None, and errors."""
     if data is None:
         return None
@@ -52,7 +52,7 @@ def _parse_data_column(data: Optional[Any]) -> Optional[Dict]:
         return None
 
 
-def _extract_row_fields(data_dict: Optional[Dict]) -> Dict[str, Any]:
+def _extract_row_fields(data_dict: dict | None) -> dict[str, Any]:
     """
     Extract all fields from a parsed data dict.
 
@@ -162,14 +162,14 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
 
     # Build columns from parsed data
     extracted_columns = (
-        {field: [row[field] for row in parsed_rows] for field in parsed_rows[0].keys()}
+        {field: [row[field] for row in parsed_rows] for field in parsed_rows[0]}
         if parsed_rows
         else {}
     )
 
     # Create DataFrame from extracted fields with explicit schema to prevent Null types
     # All extracted fields are strings - Delta Lake doesn't support Null type columns
-    extracted_schema = {col: pl.Utf8 for col in extracted_columns.keys()}
+    extracted_schema = dict.fromkeys(extracted_columns.keys(), pl.Utf8)
     extracted_df = pl.DataFrame(extracted_columns, schema=extracted_schema)
 
     # Add raw_json column (the original data column)
@@ -178,7 +178,7 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
     # Combine all columns
     result = pl.concat([base_df, extracted_df, raw_json_col], how="horizontal")
 
-    logger.info(f"Events flattened: {len(result)} rows, {len(result.columns)} columns")
+    logger.info("Events flattened: %s rows, %s columns", len(result), len(result.columns))
     return result
 
 

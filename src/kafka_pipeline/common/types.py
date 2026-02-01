@@ -83,7 +83,6 @@ await consumer.seek(partition, offset=12345)
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 __all__ = [
     "PipelineMessage",
@@ -123,9 +122,9 @@ class PipelineMessage:
     partition: int
     offset: int
     timestamp: int
-    key: Optional[bytes] = None
-    value: Optional[bytes] = None
-    headers: Optional[List[Tuple[str, bytes]]] = None
+    key: bytes | None = None
+    value: bytes | None = None
+    headers: list[tuple[str, bytes]] | None = None
 
 
 @dataclass(frozen=True)

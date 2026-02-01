@@ -28,15 +28,15 @@ import signal
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaError
 from dotenv import load_dotenv
 
-from core.logging import setup_logging, get_logger
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
+from core.logging import get_logger, setup_logging
+from kafka_pipeline.common.types import from_consumer_record
 
 # Project root directory (where .env file is located)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -76,7 +76,7 @@ class ItelCabinetApiWorker:
         kafka_config: dict,
         api_config: dict,
         connection_manager: ConnectionManager,
-        simulation_config: Optional[Any] = None,
+        simulation_config: Any | None = None,
     ):
         """
         Initialize API worker.
@@ -127,8 +127,9 @@ class ItelCabinetApiWorker:
         logger.info("Starting iTel Cabinet API Worker")
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name="itel-cabinet-api-worker",
@@ -212,7 +213,7 @@ class ItelCabinetApiWorker:
                     # Don't commit - will retry
 
         except KafkaError as e:
-            logger.exception(f"Kafka error: {e}")
+            logger.exception("Kafka error: %s", e)
             raise
 
     def _transform_to_api_format(self, payload: dict) -> dict:
@@ -229,11 +230,11 @@ class ItelCabinetApiWorker:
             iTel API formatted payload
         """
         submission = payload.get("submission", {})
-        attachments = payload.get("attachments", [])
+        payload.get("attachments", [])
         readable_report = payload.get("readable_report", {})
 
         logger.info(
-            f"Processing payload with readable_report",
+            "Processing payload with readable_report",
             extra={
                 "assignment_id": submission.get("assignment_id"),
                 "topics_count": len(readable_report.get("topics", {})),
@@ -430,8 +431,8 @@ def load_yaml_config(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
 
-    logger.info(f"Loading configuration from {path}")
-    with open(path, "r", encoding="utf-8") as f:
+    logger.info("Loading configuration from %s", path)
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
@@ -489,7 +490,7 @@ def load_connections() -> list[ConnectionConfig]:
             headers=conn_data.get("headers", {}),
         )
         connections.append(conn)
-        logger.info(f"Loaded connection: {conn.name} -> {conn.base_url}")
+        logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)
 
     return connections
 
@@ -532,7 +533,7 @@ async def main():
         worker_config = load_worker_config()
         connections_list = load_connections()
     except (FileNotFoundError, ValueError) as e:
-        logger.error(f"Configuration error: {e}")
+        logger.error("Configuration error: %s", e)
         sys.exit(1)
 
     # Override test mode if --dev flag
@@ -552,14 +553,14 @@ async def main():
         "consumer_group": worker_config["kafka"]["consumer_group"],
     }
 
-    logger.info(f"Kafka bootstrap servers: {kafka_servers}")
-    logger.info(f"Input topic: {kafka_config['input_topic']}")
-    logger.info(f"Consumer group: {kafka_config['consumer_group']}")
+    logger.info("Kafka bootstrap servers: %s", kafka_servers)
+    logger.info("Input topic: %s", kafka_config['input_topic'])
+    logger.info("Consumer group: %s", kafka_config['consumer_group'])
 
     # Check for simulation mode
     simulation_config = None
     try:
-        from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
+        from kafka_pipeline.simulation import get_simulation_config, is_simulation_mode
 
         if is_simulation_mode():
             simulation_config = get_simulation_config()
@@ -586,7 +587,7 @@ async def main():
         # Windows doesn't support add_signal_handler
         # Use signal.signal instead (less graceful but works)
         def signal_handler(signum, frame):
-            logger.info(f"Received signal {signum}, initiating shutdown")
+            logger.info("Received signal %s, initiating shutdown", signum)
             asyncio.create_task(worker.stop())
 
         signal.signal(signal.SIGTERM, signal_handler)
@@ -599,7 +600,7 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
     except Exception as e:
-        logger.exception(f"Worker failed: {e}")
+        logger.exception("Worker failed: %s", e)
         sys.exit(1)
     finally:
         await worker.stop()

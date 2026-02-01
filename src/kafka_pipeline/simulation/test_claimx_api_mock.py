@@ -10,7 +10,6 @@ Usage:
 """
 
 import asyncio
-import json
 from pathlib import Path
 
 from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
@@ -99,7 +98,6 @@ async def test_mock_api():
     print("Test 5: Generate fake project (not in fixtures)")
     print("-" * 80)
 
-    fake_project_id = "proj_FAKE_TEST_123"
     fake_project = await client.get_project(int("123456789"))
     print(f"\nGenerated Project: {fake_project['project_id']}")
     print(f"Name: {fake_project['project_name']}")

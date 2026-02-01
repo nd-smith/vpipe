@@ -20,7 +20,7 @@ Design Decisions:
 from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
 from kafka_pipeline.verisk.schemas.events import EventMessage
-from kafka_pipeline.verisk.schemas.models import EventRecord, Task, XACT_PRIMARY_KEYS
+from kafka_pipeline.verisk.schemas.models import XACT_PRIMARY_KEYS, EventRecord, Task
 from kafka_pipeline.verisk.schemas.results import (
     DownloadResultMessage,
     FailedDownloadMessage,

@@ -5,31 +5,30 @@ Handles: PROJECT_CREATED, PROJECT_MFN_ADDED
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
+from core.logging import get_logger, log_exception, log_with_context
+from core.types import ErrorCategory
 from kafka_pipeline.claimx.api_client import ClaimXApiError
-from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
-from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
     register_handler,
 )
 from kafka_pipeline.claimx.handlers.utils import (
-    safe_int,
-    safe_str,
-    safe_bool,
-    parse_timestamp,
+    BaseTransformer,
+    elapsed_ms,
     now_datetime,
     now_iso,
+    parse_timestamp,
+    safe_bool,
+    safe_int,
+    safe_str,
     today_date,
-    elapsed_ms,
-    BaseTransformer,
 )
-
-from core.types import ErrorCategory
-from core.logging import get_logger, log_exception, log_with_context
+from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
+from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
 
 logger = get_logger(__name__)
@@ -50,7 +49,7 @@ class ProjectHandler(EventHandler):
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
         """Fetch project details and transform to entity rows."""
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         log_with_context(
             logger,
@@ -178,7 +177,7 @@ class ProjectHandler(EventHandler):
     async def fetch_project_data(
         self,
         project_id: int,
-        source_event_id: Optional[str] = None,
+        source_event_id: str | None = None,
     ) -> EntityRowsMessage:
         """
         Fetch project details and transform to entity rows.
@@ -249,9 +248,9 @@ class ProjectTransformer:
 
     @staticmethod
     def to_project_row(
-        data: Dict[str, Any],
-        event_id: Optional[str],
-    ) -> Dict[str, Any]:
+        data: dict[str, Any],
+        event_id: str | None,
+    ) -> dict[str, Any]:
         """
         Transform API response to project row.
 
@@ -348,10 +347,10 @@ class ProjectTransformer:
 
     @staticmethod
     def to_contact_rows(
-        data: Dict[str, Any],
+        data: dict[str, Any],
         project_id: str,
         event_id: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Extract contacts from project API response.
 

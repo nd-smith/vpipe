@@ -3,21 +3,20 @@
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from aiokafka import AIOKafkaProducer
-from aiokafka.structs import RecordMetadata
 from pydantic import BaseModel
 
-from core.auth.kafka_oauth import create_kafka_oauth_callback
-from core.logging import get_logger, log_with_context, log_exception
-from core.utils.json_serializers import json_serializer
 from config.config import KafkaConfig
+from core.auth.kafka_oauth import create_kafka_oauth_callback
+from core.logging import get_logger, log_exception, log_with_context
+from core.utils.json_serializers import json_serializer
 from kafka_pipeline.common.metrics import (
+    message_processing_duration_seconds,
     record_message_produced,
     record_producer_error,
     update_connection_status,
-    message_processing_duration_seconds,
 )
 from kafka_pipeline.common.types import ProduceResult
 
@@ -38,7 +37,7 @@ class BaseKafkaProducer:
         self.config = config
         self.domain = domain
         self.worker_name = worker_name
-        self._producer: Optional[AIOKafkaProducer] = None
+        self._producer: AIOKafkaProducer | None = None
         self._started = False
         self.producer_config = config.get_worker_config(domain, worker_name, "producer")
 
@@ -203,9 +202,9 @@ class BaseKafkaProducer:
     async def send(
         self,
         topic: str,
-        key: Optional[Union[str, bytes]],
-        value: Union[BaseModel, Dict[str, Any], bytes],
-        headers: Optional[Dict[str, str]] = None,
+        key: str | bytes | None,
+        value: BaseModel | dict[str, Any] | bytes,
+        headers: dict[str, str] | None = None,
     ) -> ProduceResult:
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
@@ -276,9 +275,9 @@ class BaseKafkaProducer:
     async def send_batch(
         self,
         topic: str,
-        messages: List[Tuple[str, BaseModel]],
-        headers: Optional[Dict[str, str]] = None,
-    ) -> List[ProduceResult]:
+        messages: list[tuple[str, BaseModel]],
+        headers: dict[str, str] | None = None,
+    ) -> list[ProduceResult]:
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
 

@@ -5,12 +5,12 @@ Consolidates type conversion, timestamp handling, and timing utilities
 used across handler modules.
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 
-def safe_int(value: Any) -> Optional[int]:
+def safe_int(value: Any) -> int | None:
     if value is None:
         return None
     try:
@@ -19,7 +19,7 @@ def safe_int(value: Any) -> Optional[int]:
         return None
 
 
-def safe_int32(value: Any) -> Optional[int]:
+def safe_int32(value: Any) -> int | None:
     # Returns None for values outside int32 range (-2147483648 to 2147483647)
     if value is None:
         return None
@@ -33,14 +33,14 @@ def safe_int32(value: Any) -> Optional[int]:
         return None
 
 
-def safe_str(value: Any) -> Optional[str]:
+def safe_str(value: Any) -> str | None:
     if value is None:
         return None
     s = str(value).strip()
     return s if s else None
 
 
-def safe_str_id(value: Any) -> Optional[str]:
+def safe_str_id(value: Any) -> str | None:
     if value is None:
         return None
     # Handle numeric values
@@ -50,7 +50,7 @@ def safe_str_id(value: Any) -> Optional[str]:
     return s if s else None
 
 
-def safe_bool(value: Any) -> Optional[bool]:
+def safe_bool(value: Any) -> bool | None:
     if value is None:
         return None
     if isinstance(value, bool):
@@ -60,7 +60,7 @@ def safe_bool(value: Any) -> Optional[bool]:
     return bool(value)
 
 
-def safe_float(value: Any) -> Optional[float]:
+def safe_float(value: Any) -> float | None:
     if value is None:
         return None
     try:
@@ -69,7 +69,7 @@ def safe_float(value: Any) -> Optional[float]:
         return None
 
 
-def safe_decimal_str(value: Any) -> Optional[str]:
+def safe_decimal_str(value: Any) -> str | None:
     # Returns decimal string to avoid float precision issues
     if value is None:
         return None
@@ -79,7 +79,7 @@ def safe_decimal_str(value: Any) -> Optional[str]:
         return None
 
 
-def parse_timestamp(value: Any) -> Optional[str]:
+def parse_timestamp(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -91,18 +91,18 @@ def parse_timestamp(value: Any) -> Optional[str]:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def now_datetime() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def today_date() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
-def parse_timestamp_dt(value: Any) -> Optional[datetime]:
+def parse_timestamp_dt(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -121,7 +121,7 @@ def parse_timestamp_dt(value: Any) -> Optional[datetime]:
 
 
 def elapsed_ms(start: datetime) -> int:
-    return int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+    return int((datetime.now(UTC) - start).total_seconds() * 1000)
 
 
 class BaseTransformer:
@@ -133,10 +133,10 @@ class BaseTransformer:
 
     @staticmethod
     def inject_metadata(
-        row: Dict[str, Any],
+        row: dict[str, Any],
         event_id: str,
         include_last_enriched: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Inject common metadata fields into a row dictionary.
 

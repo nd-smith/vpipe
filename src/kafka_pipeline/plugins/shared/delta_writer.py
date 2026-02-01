@@ -10,11 +10,10 @@ Writes enriched data to Delta Lake tables with support for:
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from delta import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.types import StructType
 
 from kafka_pipeline.plugins.shared.enrichment import (
     EnrichmentContext,
@@ -53,10 +52,10 @@ class DeltaTableWriter(EnrichmentHandler):
         - Error handling with detailed logging
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize Delta table writer."""
         super().__init__(config)
-        self.spark: Optional[SparkSession] = None
+        self.spark: SparkSession | None = None
         self.table_name = self.config.get("table_name")
         self.mode = self.config.get("mode", "append")
         self.schema_evolution = self.config.get("schema_evolution", True)
@@ -75,7 +74,7 @@ class DeltaTableWriter(EnrichmentHandler):
 
             # Verify table exists or can be created
             if self._table_exists():
-                logger.info(f"Delta table '{self.table_name}' found")
+                logger.info("Delta table '%s' found", self.table_name)
             else:
                 logger.warning(
                     f"Delta table '{self.table_name}' does not exist. "
@@ -83,7 +82,7 @@ class DeltaTableWriter(EnrichmentHandler):
                 )
 
         except Exception as e:
-            logger.error(f"Failed to initialize Delta table writer: {e}")
+            logger.error("Failed to initialize Delta table writer: %s", e)
             raise
 
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
@@ -101,7 +100,7 @@ class DeltaTableWriter(EnrichmentHandler):
             # Write to Delta table
             self._write_to_delta(df)
 
-            logger.debug(f"Successfully wrote record to {self.table_name}")
+            logger.debug("Successfully wrote record to %s", self.table_name)
             return EnrichmentResult.ok(context.data)
 
         except Exception as e:
@@ -142,7 +141,7 @@ class DeltaTableWriter(EnrichmentHandler):
             elif isinstance(timestamp_field, datetime):
                 dt = timestamp_field
             else:
-                logger.warning(f"Unexpected timestamp type: {type(timestamp_field)}")
+                logger.warning("Unexpected timestamp type: %s", type(timestamp_field))
                 return record
 
             # Add partition columns if configured
@@ -154,7 +153,7 @@ class DeltaTableWriter(EnrichmentHandler):
                 record["day"] = dt.day
 
         except Exception as e:
-            logger.warning(f"Failed to extract partition columns: {e}")
+            logger.warning("Failed to extract partition columns: %s", e)
 
         return record
 
@@ -199,7 +198,7 @@ class DeltaTableWriter(EnrichmentHandler):
 
         Note: We don't stop the Spark session as it may be shared.
         """
-        logger.info(f"Cleaning up Delta table writer for {self.table_name}")
+        logger.info("Cleaning up Delta table writer for %s", self.table_name)
         # Don't stop Spark session - it may be shared across handlers
 
 
@@ -218,7 +217,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
           # ... other DeltaTableWriter config
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize batch Delta table writer."""
         super().__init__(config)
         self.batch_size = self.config.get("batch_size", 100)
@@ -289,7 +288,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
             self._batch.clear()
 
         except Exception as e:
-            logger.error(f"Failed to force flush batch: {e}")
+            logger.error("Failed to force flush batch: %s", e)
             raise
 
     async def cleanup(self) -> None:

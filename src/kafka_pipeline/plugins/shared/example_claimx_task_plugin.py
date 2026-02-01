@@ -5,13 +5,13 @@ This is a reference implementation showing both ClaimX and Verisk domain usage.
 """
 
 from kafka_pipeline.plugins.shared.base import (
-    Plugin,
-    PluginResult,
-    PluginAction,
-    PluginContext,
     ActionType,
     Domain,
     PipelineStage,
+    Plugin,
+    PluginAction,
+    PluginContext,
+    PluginResult,
 )
 
 

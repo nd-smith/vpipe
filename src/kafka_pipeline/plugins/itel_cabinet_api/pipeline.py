@@ -3,14 +3,13 @@
 import json
 import logging
 from datetime import datetime
-from typing import Optional
 
 import aiohttp
 
-from kafka_pipeline.plugins.shared.connections import ConnectionManager, AuthType
+from kafka_pipeline.plugins.shared.connections import AuthType, ConnectionManager
 
-from .models import TaskEvent, CabinetSubmission, CabinetAttachment, ProcessedTask
-from .parsers import parse_cabinet_form, parse_cabinet_attachments, get_readable_report
+from .models import CabinetAttachment, CabinetSubmission, ProcessedTask, TaskEvent
+from .parsers import get_readable_report, parse_cabinet_attachments, parse_cabinet_form
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +73,7 @@ class ItelCabinetPipeline:
         else:
             submission, attachments, readable_report = None, [], None
             logger.debug(
-                f"Skipping enrichment for non-completed task",
+                "Skipping enrichment for non-completed task",
                 extra={"task_status": event.task_status},
             )
 
@@ -164,7 +163,7 @@ class ItelCabinetPipeline:
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
         logger.debug(
-            f"Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
+            "Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
         )
 
         status, response = await self.connections.request_json(
@@ -183,7 +182,7 @@ class ItelCabinetPipeline:
         """Build media_id -> download URL lookup map from ClaimX API."""
         endpoint = f"/export/project/{project_id}/media"
 
-        logger.debug(f"Fetching all project media", extra={"project_id": project_id})
+        logger.debug("Fetching all project media", extra={"project_id": project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -217,7 +216,7 @@ class ItelCabinetPipeline:
                 media_url_map[media_id] = download_url
 
         logger.info(
-            f"Fetched project media URLs",
+            "Fetched project media URLs",
             extra={
                 "project_id": project_id,
                 "total_media": len(media_list),
@@ -280,7 +279,7 @@ class ItelCabinetPipeline:
         """
         if self._is_s3_url(claimx_url):
             logger.debug(
-                f"URL is already S3, skipping redirect resolution",
+                "URL is already S3, skipping redirect resolution",
                 extra={"url_prefix": claimx_url[:80]},
             )
             return claimx_url
@@ -308,7 +307,7 @@ class ItelCabinetPipeline:
                     location = response.headers.get("Location")
                     if location:
                         logger.debug(
-                            f"Resolved ClaimX URL to S3",
+                            "Resolved ClaimX URL to S3",
                             extra={
                                 "status": response.status,
                                 "claimx_url_prefix": claimx_url[:80],
@@ -333,16 +332,13 @@ class ItelCabinetPipeline:
     async def _write_to_delta(
         self,
         event: TaskEvent,
-        submission: Optional[CabinetSubmission],
+        submission: CabinetSubmission | None,
         attachments: list[CabinetAttachment],
     ) -> None:
         logger.info(
             "Writing to Delta tables", extra={"assignment_id": event.assignment_id}
         )
-        if submission:
-            submission_row = submission.to_dict()
-        else:
-            submission_row = self._build_metadata_row(event)
+        submission_row = submission.to_dict() if submission else self._build_metadata_row(event)
         from kafka_pipeline.common.telemetry import get_tracer
 
         tracer = get_tracer(__name__)
@@ -396,7 +392,7 @@ class ItelCabinetPipeline:
         event: TaskEvent,
         submission: CabinetSubmission,
         attachments: list[CabinetAttachment],
-        readable_report: Optional[dict],
+        readable_report: dict | None,
     ) -> None:
         logger.info(
             "Publishing to API worker topic",

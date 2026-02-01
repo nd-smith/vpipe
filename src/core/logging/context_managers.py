@@ -3,7 +3,7 @@
 import logging
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.logging.context import get_log_context, set_log_context
 from core.logging.utilities import log_exception, log_with_context
@@ -21,10 +21,10 @@ class LogContext:
 
     def __init__(
         self,
-        cycle_id: Optional[str] = None,
-        stage: Optional[str] = None,
-        worker_id: Optional[str] = None,
-        domain: Optional[str] = None,
+        cycle_id: str | None = None,
+        stage: str | None = None,
+        worker_id: str | None = None,
+        domain: str | None = None,
     ):
         self.new_context = {
             "cycle_id": cycle_id,
@@ -32,7 +32,7 @@ class LogContext:
             "worker_id": worker_id,
             "domain": domain,
         }
-        self.old_context: Dict[str, str] = {}
+        self.old_context: dict[str, str] = {}
 
     def __enter__(self) -> "LogContext":
         self.old_context = get_log_context()
@@ -65,13 +65,13 @@ class StageLogContext(LogContext):
     def __init__(
         self,
         stage: str,
-        cycle_id: Optional[str] = None,
-        domain: Optional[str] = None,
+        cycle_id: str | None = None,
+        domain: str | None = None,
     ):
         super().__init__(stage=stage, cycle_id=cycle_id, domain=domain)
         self.stage = stage
-        self.start_time: Optional[float] = None
-        self.result_context: Dict[str, Any] = {}
+        self.start_time: float | None = None
+        self.result_context: dict[str, Any] = {}
 
     def __enter__(self) -> "StageLogContext":
         super().__enter__()
@@ -135,7 +135,7 @@ class OperationContext:
         logger: logging.Logger,
         operation: str,
         level: int = logging.DEBUG,
-        slow_threshold_ms: Optional[float] = 1000.0,
+        slow_threshold_ms: float | None = 1000.0,
         log_start: bool = False,
         **context: Any,
     ):
@@ -149,7 +149,7 @@ class OperationContext:
         self.slow_threshold_ms = slow_threshold_ms
         self.log_start = log_start
         self.context = context
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
 
     def __enter__(self) -> "OperationContext":
         self._start_time = time.perf_counter()
@@ -201,7 +201,7 @@ def log_operation(
     logger: logging.Logger,
     operation: str,
     level: int = logging.DEBUG,
-    slow_threshold_ms: Optional[float] = 1000.0,
+    slow_threshold_ms: float | None = 1000.0,
     **context: Any,
 ):
     """Convenience context manager for ad-hoc operation logging."""

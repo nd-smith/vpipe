@@ -17,12 +17,12 @@ import logging
 import os
 import random
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from kafka_pipeline.common.logging import logged_operation, LoggedClass
 from core.types import ErrorCategory
+from kafka_pipeline.common.logging import LoggedClass, logged_operation
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class MockClaimXAPIClient(LoggedClass):
         timeout_seconds: int = 30,
         max_concurrent: int = 20,
         sender_username: str = "user@example.com",
-        fixtures_dir: Optional[Path] = None,
+        fixtures_dir: Path | None = None,
     ):
         """Initialize mock API client.
 
@@ -83,10 +83,10 @@ class MockClaimXAPIClient(LoggedClass):
         self.file_server_url = "http://localhost:8765"
 
         # Load fixture data
-        self._projects: Dict[str, Dict[str, Any]] = {}
-        self._media: Dict[str, List[Dict[str, Any]]] = {}
-        self._tasks: Dict[str, Dict[str, Any]] = {}
-        self._contacts: Dict[str, List[Dict[str, Any]]] = {}
+        self._projects: dict[str, dict[str, Any]] = {}
+        self._media: dict[str, list[dict[str, Any]]] = {}
+        self._tasks: dict[str, dict[str, Any]] = {}
+        self._contacts: dict[str, list[dict[str, Any]]] = {}
 
         self._load_all_fixtures()
 
@@ -99,7 +99,7 @@ class MockClaimXAPIClient(LoggedClass):
             os.getenv("CLAIMX_API_FAILURE_DURATION_SEC", "0")
         )
         self._failure_status = int(os.getenv("CLAIMX_API_FAILURE_STATUS", "500"))
-        self._failure_start_time: Optional[float] = None
+        self._failure_start_time: float | None = None
         self._total_requests = 0
         self._failed_requests = 0
 
@@ -291,7 +291,7 @@ class MockClaimXAPIClient(LoggedClass):
         return random.Random(seed)
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project(self, project_id: int) -> Dict[str, Any]:
+    async def get_project(self, project_id: int) -> dict[str, Any]:
         """Get full project details.
 
         Args:
@@ -317,8 +317,8 @@ class MockClaimXAPIClient(LoggedClass):
     async def get_project_media(
         self,
         project_id: int,
-        media_ids: Optional[List[int]] = None,
-    ) -> List[Dict[str, Any]]:
+        media_ids: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
         """Get media metadata for a project.
 
         Args:
@@ -350,7 +350,7 @@ class MockClaimXAPIClient(LoggedClass):
         return self._generate_fake_media(project_id_str, media_ids)
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_contacts(self, project_id: int) -> List[Dict[str, Any]]:
+    async def get_project_contacts(self, project_id: int) -> list[dict[str, Any]]:
         """Get contacts for a project.
 
         Args:
@@ -372,7 +372,7 @@ class MockClaimXAPIClient(LoggedClass):
         return self._generate_fake_contacts(project_id_str)
 
     @logged_operation(level=logging.DEBUG)
-    async def get_custom_task(self, assignment_id: int) -> Dict[str, Any]:
+    async def get_custom_task(self, assignment_id: int) -> dict[str, Any]:
         """Get custom task assignment details.
 
         Args:
@@ -394,7 +394,7 @@ class MockClaimXAPIClient(LoggedClass):
         return self._generate_fake_task(assignment_id_str)
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_tasks(self, project_id: int) -> List[Dict[str, Any]]:
+    async def get_project_tasks(self, project_id: int) -> list[dict[str, Any]]:
         """Get all tasks for a project.
 
         Args:
@@ -421,10 +421,10 @@ class MockClaimXAPIClient(LoggedClass):
     async def get_video_collaboration(
         self,
         project_id: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        sender_username: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        sender_username: str | None = None,
+    ) -> dict[str, Any]:
         """Get video collaboration report.
 
         Args:
@@ -443,7 +443,7 @@ class MockClaimXAPIClient(LoggedClass):
         }
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_conversations(self, project_id: int) -> List[Dict[str, Any]]:
+    async def get_project_conversations(self, project_id: int) -> list[dict[str, Any]]:
         """Get conversations for a project.
 
         Args:
@@ -454,7 +454,7 @@ class MockClaimXAPIClient(LoggedClass):
         """
         return []
 
-    def get_circuit_status(self) -> Dict[str, Any]:
+    def get_circuit_status(self) -> dict[str, Any]:
         """Get circuit breaker diagnostics (mock always returns healthy).
 
         Returns:
@@ -471,7 +471,7 @@ class MockClaimXAPIClient(LoggedClass):
     # Deterministic Fake Data Generation
     # =========================================================================
 
-    def _generate_fake_project(self, project_id: str) -> Dict[str, Any]:
+    def _generate_fake_project(self, project_id: str) -> dict[str, Any]:
         """Generate deterministic fake project data.
 
         Args:
@@ -481,7 +481,7 @@ class MockClaimXAPIClient(LoggedClass):
             Fake project dict matching ClaimX schema
         """
         rng = self._get_rng(project_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Generate realistic names
         first_names = ["James", "Mary", "Robert", "Patricia", "John", "Jennifer"]
@@ -517,8 +517,8 @@ class MockClaimXAPIClient(LoggedClass):
     def _generate_fake_media(
         self,
         project_id: str,
-        media_ids: Optional[List[int]] = None,
-    ) -> List[Dict[str, Any]]:
+        media_ids: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
         """Generate deterministic fake media data.
 
         Args:
@@ -557,13 +557,13 @@ class MockClaimXAPIClient(LoggedClass):
                     "file_size": file_size,
                     "file_type": file_name.split(".")[-1],
                     "download_url": f"{self.file_server_url}/files/{project_id}/{media_id}/{file_name}",
-                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                    "uploaded_at": datetime.now(UTC).isoformat(),
                 }
             )
 
         return media_list
 
-    def _generate_fake_contacts(self, project_id: str) -> List[Dict[str, Any]]:
+    def _generate_fake_contacts(self, project_id: str) -> list[dict[str, Any]]:
         """Generate deterministic fake contact data.
 
         Args:
@@ -579,7 +579,7 @@ class MockClaimXAPIClient(LoggedClass):
         roles = ["policyholder", "adjuster", "contractor"]
 
         contacts = []
-        for i, role in enumerate(roles):
+        for _i, role in enumerate(roles):
             first = rng.choice(first_names)
             last = rng.choice(last_names)
 
@@ -596,7 +596,7 @@ class MockClaimXAPIClient(LoggedClass):
 
         return contacts
 
-    def _generate_fake_task(self, assignment_id: str) -> Dict[str, Any]:
+    def _generate_fake_task(self, assignment_id: str) -> dict[str, Any]:
         """Generate deterministic fake task data.
 
         Args:
@@ -606,7 +606,7 @@ class MockClaimXAPIClient(LoggedClass):
             Fake task dict matching ClaimX schema
         """
         rng = self._get_rng(assignment_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         task_names = [
             "Review initial photos",
@@ -627,7 +627,7 @@ class MockClaimXAPIClient(LoggedClass):
             "assigned_by_user_id": rng.randint(1000, 9999),
         }
 
-    def _generate_fake_project_tasks(self, project_id: str) -> List[Dict[str, Any]]:
+    def _generate_fake_project_tasks(self, project_id: str) -> list[dict[str, Any]]:
         """Generate deterministic fake project tasks.
 
         Args:

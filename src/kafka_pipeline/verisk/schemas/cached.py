@@ -6,7 +6,7 @@ successful download, before upload to OneLake.
 """
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
@@ -73,7 +73,7 @@ class CachedDownloadMessage(BaseModel):
     bytes_downloaded: int = Field(
         ..., description="Size of the downloaded file in bytes", ge=0
     )
-    content_type: Optional[str] = Field(
+    content_type: str | None = Field(
         default=None, description="MIME type of the downloaded file (if available)"
     )
     event_type: str = Field(
@@ -101,7 +101,7 @@ class CachedDownloadMessage(BaseModel):
     downloaded_at: datetime = Field(
         ..., description="Timestamp when the file was downloaded to cache"
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context passed through from original task",
     )

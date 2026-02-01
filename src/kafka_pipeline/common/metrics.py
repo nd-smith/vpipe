@@ -12,12 +12,12 @@ If prometheus-client is not available, metrics gracefully degrade to no-ops.
 """
 
 import logging
-from typing import Optional, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Lazy-loaded prometheus client module
-_prometheus_client: Optional[Any] = None
+_prometheus_client: Any | None = None
 _metrics_available = False
 
 

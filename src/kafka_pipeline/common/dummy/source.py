@@ -6,19 +6,19 @@ to Kafka topics, allowing pipeline testing without external dependencies.
 """
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from datetime import UTC, datetime
+from typing import Any
 
-from core.logging.setup import get_logger
 from config.config import KafkaConfig
-from kafka_pipeline.common.producer import BaseKafkaProducer
+from core.logging.setup import get_logger
+from kafka_pipeline.common.dummy.file_server import DummyFileServer, FileServerConfig
 from kafka_pipeline.common.dummy.generators import (
     GeneratorConfig,
     RealisticDataGenerator,
-    GeneratedClaim,
 )
-from kafka_pipeline.common.dummy.file_server import DummyFileServer, FileServerConfig
+from kafka_pipeline.common.producer import BaseKafkaProducer
 
 logger = get_logger(__name__)
 
@@ -32,7 +32,7 @@ class DummySourceConfig:
     file_server: FileServerConfig = field(default_factory=FileServerConfig)
 
     # Which domains to generate events for
-    domains: List[str] = field(default_factory=lambda: ["verisk", "claimx"])
+    domains: list[str] = field(default_factory=lambda: ["verisk", "claimx"])
 
     # Event generation settings
     events_per_minute: float = 10.0  # Events per minute per domain
@@ -45,12 +45,12 @@ class DummySourceConfig:
     max_active_claims: int = 100  # Max concurrent claims to track
 
     # Runtime limits
-    max_events: Optional[int] = None  # Stop after N events (None = unlimited)
-    max_runtime_seconds: Optional[int] = None  # Stop after N seconds
+    max_events: int | None = None  # Stop after N events (None = unlimited)
+    max_runtime_seconds: int | None = None  # Stop after N seconds
 
     # External file server (when running in Docker with separate file server)
     skip_embedded_file_server: bool = False  # Skip starting embedded file server
-    external_file_server_url: Optional[str] = None  # URL of external file server
+    external_file_server_url: str | None = None  # URL of external file server
 
 
 class DummyDataSource:
@@ -64,13 +64,13 @@ class DummyDataSource:
     def __init__(self, config: DummySourceConfig):
         self.config = config
         self._generator = RealisticDataGenerator(config.generator)
-        self._file_server: Optional[DummyFileServer] = None
-        self._producers: Dict[str, BaseKafkaProducer] = {}
+        self._file_server: DummyFileServer | None = None
+        self._producers: dict[str, BaseKafkaProducer] = {}
         self._running = False
         self._shutdown_event = asyncio.Event()
         self._total_events = 0
-        self._start_time: Optional[datetime] = None
-        self._pending_tasks: Set[asyncio.Task] = set()
+        self._start_time: datetime | None = None
+        self._pending_tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         """Initialize all components."""
@@ -128,7 +128,7 @@ class DummyDataSource:
             self._producers[domain] = producer
 
         self._running = True
-        self._start_time = datetime.now(timezone.utc)
+        self._start_time = datetime.now(UTC)
 
     async def stop(self) -> None:
         """Gracefully shutdown all components."""
@@ -202,13 +202,11 @@ class DummyDataSource:
                     )
 
             # Wait for next interval
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(
                     self._shutdown_event.wait(),
                     timeout=interval,
                 )
-            except asyncio.TimeoutError:
-                pass
 
             # Cleanup old claims periodically
             self._generator.clear_old_claims(self.config.max_active_claims)
@@ -228,10 +226,10 @@ class DummyDataSource:
                 break
 
             # Generate a burst of events
-            logger.info(f"Generating burst of {self.config.burst_size} events")
+            logger.info("Generating burst of %s events", self.config.burst_size)
 
             tasks = []
-            for i in range(self.config.burst_size):
+            for _i in range(self.config.burst_size):
                 for domain in self.config.domains:
                     if self._should_stop():
                         break
@@ -249,22 +247,20 @@ class DummyDataSource:
             )
 
             # Wait for next burst
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(
                     self._shutdown_event.wait(),
                     timeout=self.config.burst_interval_seconds,
                 )
-            except asyncio.TimeoutError:
-                pass
 
     def _should_stop(self) -> bool:
         """Check if generation should stop based on limits."""
         if self.config.max_events and self._total_events >= self.config.max_events:
-            logger.info(f"Reached max events limit: {self.config.max_events}")
+            logger.info("Reached max events limit: %s", self.config.max_events)
             return True
 
         if self.config.max_runtime_seconds and self._start_time:
-            elapsed = (datetime.now(timezone.utc) - self._start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - self._start_time).total_seconds()
             if elapsed >= self.config.max_runtime_seconds:
                 logger.info(
                     f"Reached max runtime limit: {self.config.max_runtime_seconds}s"
@@ -277,7 +273,7 @@ class DummyDataSource:
         """Generate and send a single event for the specified domain."""
         producer = self._producers.get(domain)
         if not producer:
-            logger.warning(f"No producer for domain: {domain}")
+            logger.warning("No producer for domain: %s", domain)
             return
 
         if domain == "verisk":
@@ -327,7 +323,7 @@ class DummyDataSource:
             topic = self.config.kafka.get_topic(domain, "events")
 
         else:
-            logger.warning(f"Unknown domain: {domain}")
+            logger.warning("Unknown domain: %s", domain)
             return
 
         await producer.send(topic=topic, key=key, value=event)
@@ -346,8 +342,8 @@ class DummyDataSource:
         self,
         domain: str,
         count: int,
-        event_type: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        event_type: str | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Generate a batch of events without sending to Kafka.
 
@@ -367,11 +363,11 @@ class DummyDataSource:
         return events
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Return current statistics."""
         elapsed = 0.0
         if self._start_time:
-            elapsed = (datetime.now(timezone.utc) - self._start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - self._start_time).total_seconds()
 
         return {
             "total_events": self._total_events,
@@ -384,7 +380,7 @@ class DummyDataSource:
 
 def load_dummy_source_config(
     kafka_config: KafkaConfig,
-    dummy_config: Optional[Dict[str, Any]] = None,
+    dummy_config: dict[str, Any] | None = None,
 ) -> DummySourceConfig:
     """
     Load DummySourceConfig from a dictionary (typically from config.yaml).

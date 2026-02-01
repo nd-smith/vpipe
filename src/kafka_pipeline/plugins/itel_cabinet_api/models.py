@@ -7,7 +7,6 @@ No magic, no guessing - explicit types everywhere.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -30,12 +29,12 @@ class TaskEvent:
     task_status: str  # ASSIGNED, IN_PROGRESS, COMPLETED
 
     # Optional user tracking
-    assigned_to_user_id: Optional[int] = None
-    assigned_by_user_id: Optional[int] = None
+    assigned_to_user_id: int | None = None
+    assigned_by_user_id: int | None = None
 
     # Optional timestamps
-    task_created_at: Optional[str] = None
-    task_completed_at: Optional[str] = None
+    task_created_at: str | None = None
+    task_completed_at: str | None = None
 
     @classmethod
     def from_kafka_message(cls, raw: dict) -> "TaskEvent":
@@ -81,82 +80,82 @@ class CabinetSubmission:
     event_id: str  # Kafka event ID for traceability
 
     # Task metadata (from parse.py integration)
-    task_id: Optional[int] = None
-    task_name: Optional[str] = None
+    task_id: int | None = None
+    task_name: str | None = None
 
     # Dates
-    date_assigned: Optional[str] = None
-    date_completed: Optional[str] = None
-    ingested_at: Optional[datetime] = None
+    date_assigned: str | None = None
+    date_completed: str | None = None
+    ingested_at: datetime | None = None
 
     # Customer information
-    customer_first_name: Optional[str] = None
-    customer_last_name: Optional[str] = None
-    customer_email: Optional[str] = None
-    customer_phone: Optional[str] = None
-    assignor_email: Optional[str] = None
-    external_link_url: Optional[str] = None
+    customer_first_name: str | None = None
+    customer_last_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
+    assignor_email: str | None = None
+    external_link_url: str | None = None
 
     # General damage information
-    damage_description: Optional[str] = None
-    additional_notes: Optional[str] = None
-    countertops_lf: Optional[float] = None
+    damage_description: str | None = None
+    additional_notes: str | None = None
+    countertops_lf: float | None = None
 
     # Raw data blob (preserves original structure as JSON string)
-    raw_data: Optional[str] = None
+    raw_data: str | None = None
 
     # Lower cabinets
-    lower_cabinets_damaged: Optional[bool] = None
-    lower_cabinets_lf: Optional[float] = None
-    num_damaged_lower_boxes: Optional[int] = None
-    lower_cabinets_detached: Optional[bool] = None
-    lower_face_frames_doors_drawers_available: Optional[str] = (
+    lower_cabinets_damaged: bool | None = None
+    lower_cabinets_lf: float | None = None
+    num_damaged_lower_boxes: int | None = None
+    lower_cabinets_detached: bool | None = None
+    lower_face_frames_doors_drawers_available: str | None = (
         None  # "Yes"/"No" string per table schema
     )
-    lower_face_frames_doors_drawers_damaged: Optional[bool] = None
-    lower_finished_end_panels_damaged: Optional[bool] = None
-    lower_end_panel_damage_present: Optional[bool] = None
-    lower_counter_type: Optional[str] = None
+    lower_face_frames_doors_drawers_damaged: bool | None = None
+    lower_finished_end_panels_damaged: bool | None = None
+    lower_end_panel_damage_present: bool | None = None
+    lower_counter_type: str | None = None
 
     # Upper cabinets
-    upper_cabinets_damaged: Optional[bool] = None
-    upper_cabinets_lf: Optional[float] = None
-    num_damaged_upper_boxes: Optional[int] = None
-    upper_cabinets_detached: Optional[bool] = None
-    upper_face_frames_doors_drawers_available: Optional[str] = (
+    upper_cabinets_damaged: bool | None = None
+    upper_cabinets_lf: float | None = None
+    num_damaged_upper_boxes: int | None = None
+    upper_cabinets_detached: bool | None = None
+    upper_face_frames_doors_drawers_available: str | None = (
         None  # "Yes"/"No" string per table schema
     )
-    upper_face_frames_doors_drawers_damaged: Optional[bool] = None
-    upper_finished_end_panels_damaged: Optional[bool] = None
-    upper_end_panel_damage_present: Optional[bool] = None
+    upper_face_frames_doors_drawers_damaged: bool | None = None
+    upper_finished_end_panels_damaged: bool | None = None
+    upper_end_panel_damage_present: bool | None = None
 
     # Full height cabinets
-    full_height_cabinets_damaged: Optional[bool] = None
-    full_height_cabinets_lf: Optional[float] = None
-    num_damaged_full_height_boxes: Optional[int] = None
-    full_height_cabinets_detached: Optional[bool] = None
-    full_height_face_frames_doors_drawers_available: Optional[str] = (
+    full_height_cabinets_damaged: bool | None = None
+    full_height_cabinets_lf: float | None = None
+    num_damaged_full_height_boxes: int | None = None
+    full_height_cabinets_detached: bool | None = None
+    full_height_face_frames_doors_drawers_available: str | None = (
         None  # "Yes"/"No" string per table schema
     )
-    full_height_face_frames_doors_drawers_damaged: Optional[bool] = None
-    full_height_finished_end_panels_damaged: Optional[bool] = None
+    full_height_face_frames_doors_drawers_damaged: bool | None = None
+    full_height_finished_end_panels_damaged: bool | None = None
 
     # Island cabinets
-    island_cabinets_damaged: Optional[bool] = None
-    island_cabinets_lf: Optional[float] = None
-    num_damaged_island_boxes: Optional[int] = None
-    island_cabinets_detached: Optional[bool] = None
-    island_face_frames_doors_drawers_available: Optional[str] = (
+    island_cabinets_damaged: bool | None = None
+    island_cabinets_lf: float | None = None
+    num_damaged_island_boxes: int | None = None
+    island_cabinets_detached: bool | None = None
+    island_face_frames_doors_drawers_available: str | None = (
         None  # "Yes"/"No" string per table schema
     )
-    island_face_frames_doors_drawers_damaged: Optional[bool] = None
-    island_finished_end_panels_damaged: Optional[bool] = None
-    island_end_panel_damage_present: Optional[bool] = None
-    island_counter_type: Optional[str] = None
+    island_face_frames_doors_drawers_damaged: bool | None = None
+    island_finished_end_panels_damaged: bool | None = None
+    island_end_panel_damage_present: bool | None = None
+    island_counter_type: str | None = None
 
     # Metadata
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for Delta write or Kafka publish."""
@@ -183,9 +182,9 @@ class CabinetAttachment:
     question_text: str
     topic_category: str  # e.g., "Lower Cabinets", "Upper Cabinets", "General"
     media_id: int  # ClaimX media ID (was claim_media_id)
-    url: Optional[str] = None  # Download URL from ClaimX
+    url: str | None = None  # Download URL from ClaimX
     display_order: int = 0
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
     is_active: bool = True
     media_type: str = "image/jpeg"  # Default assumption
 
@@ -209,9 +208,9 @@ class ProcessedTask:
     """
 
     event: TaskEvent
-    submission: Optional[CabinetSubmission]
+    submission: CabinetSubmission | None
     attachments: list[CabinetAttachment]
-    readable_report: Optional[dict] = None  # Topic-organized report for API consumption
+    readable_report: dict | None = None  # Topic-organized report for API consumption
 
     def was_enriched(self) -> bool:
         """Check if task was fully enriched (vs metadata-only)."""

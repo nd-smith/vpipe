@@ -7,11 +7,10 @@ queue (DLQ).
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from core.types import ErrorCategory
 from config.config import KafkaConfig
+from core.types import ErrorCategory
 from kafka_pipeline.common.metrics import (
     record_dlq_message,
 )
@@ -191,7 +190,7 @@ class RetryHandler:
         updated_task.metadata["error_category"] = error_category.value
 
         # Calculate retry timestamp
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+        retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
         # NEW: Get target topic for routing
@@ -275,7 +274,7 @@ class RetryHandler:
             original_task=task,
             error_category=error_category.value,
             retry_count=task.retry_count,
-            failed_at=datetime.now(timezone.utc),
+            failed_at=datetime.now(UTC),
         )
 
         logger.error(

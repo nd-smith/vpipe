@@ -7,18 +7,17 @@ exhausted retries to dead-letter queue (DLQ).
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from core.types import ErrorCategory
 from config.config import KafkaConfig
-from kafka_pipeline.common.producer import BaseKafkaProducer
-from kafka_pipeline.common.metrics import (
-    record_dlq_message,
-)
+from core.types import ErrorCategory
 from kafka_pipeline.claimx.api_client import ClaimXApiClient
 from kafka_pipeline.claimx.schemas.results import FailedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
+from kafka_pipeline.common.metrics import (
+    record_dlq_message,
+)
+from kafka_pipeline.common.producer import BaseKafkaProducer
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +153,6 @@ class DownloadRetryHandler:
             return
 
         # For transient/unknown errors, check if URL refresh is needed
-        url_refresh_attempted = False
         if self._should_refresh_url(error, error_category):
             logger.info(
                 "Detected potential URL expiration, attempting refresh",
@@ -167,7 +165,6 @@ class DownloadRetryHandler:
             refreshed_task = await self._try_refresh_url(task)
             if refreshed_task:
                 task = refreshed_task
-                url_refresh_attempted = True
                 logger.info(
                     "Successfully refreshed download URL",
                     extra={
@@ -222,7 +219,7 @@ class DownloadRetryHandler:
 
     async def _try_refresh_url(
         self, task: ClaimXDownloadTask
-    ) -> Optional[ClaimXDownloadTask]:
+    ) -> ClaimXDownloadTask | None:
         """
         Attempt to refresh presigned URL from ClaimX API.
 
@@ -290,7 +287,7 @@ class DownloadRetryHandler:
             if not hasattr(updated_task, "metadata"):
                 updated_task.metadata = {}
             updated_task.metadata["url_refreshed_at"] = datetime.now(
-                timezone.utc
+                UTC
             ).isoformat()
             updated_task.metadata["original_url"] = task.download_url[:200]  # Truncate
 
@@ -338,7 +335,7 @@ class DownloadRetryHandler:
             updated_task.metadata = {}
         updated_task.metadata["last_error"] = error_message
         updated_task.metadata["error_category"] = error_category.value
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+        retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
         # NEW: Get target topic for routing
@@ -414,7 +411,7 @@ class DownloadRetryHandler:
             original_task=task,
             error_category=error_category.value,
             retry_count=task.retry_count,
-            failed_at=datetime.now(timezone.utc),
+            failed_at=datetime.now(UTC),
         )
 
         logger.error(
@@ -431,10 +428,7 @@ class DownloadRetryHandler:
 
         # Record DLQ routing metric
         # Determine reason: permanent error or exhausted retries
-        if error_category == ErrorCategory.PERMANENT:
-            reason = "permanent"
-        else:
-            reason = "exhausted"
+        reason = "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
         record_dlq_message(domain="claimx", reason=reason)
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics

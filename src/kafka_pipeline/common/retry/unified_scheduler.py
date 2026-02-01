@@ -7,13 +7,13 @@ to their target topics based on headers after the scheduled delay has elapsed.
 
 import asyncio
 import base64
+import contextlib
 import heapq
 import json
-import os
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Any
 
 from config.config import KafkaConfig
 from core.logging.setup import get_logger
@@ -32,9 +32,9 @@ class DelayedMessage:
     target_topic: str
     retry_count: int
     worker_type: str
-    message_key: Optional[bytes]
+    message_key: bytes | None
     message_value: bytes
-    headers: Dict[str, str]
+    headers: dict[str, str]
 
     def __lt__(self, other: "DelayedMessage") -> bool:
         """Compare by scheduled_time for heap ordering."""
@@ -111,15 +111,15 @@ class UnifiedRetryScheduler:
         self._dlq_topic = config.get_topic(domain, "dlq")
         self._max_retries = config.get_max_retries(domain)
 
-        self._consumer: Optional[BaseKafkaConsumer] = None
+        self._consumer: BaseKafkaConsumer | None = None
         self._running = False
 
         # In-memory delay queue (min-heap by scheduled_time)
-        self._delayed_queue: List[DelayedMessage] = []
+        self._delayed_queue: list[DelayedMessage] = []
 
         # Background tasks
-        self._processor_task: Optional[asyncio.Task] = None
-        self._persistence_task: Optional[asyncio.Task] = None
+        self._processor_task: asyncio.Task | None = None
+        self._persistence_task: asyncio.Task | None = None
         self._persistence_interval = persistence_interval_seconds
 
         # Persistence file path
@@ -226,17 +226,13 @@ class UnifiedRetryScheduler:
         # Stop background tasks
         if self._processor_task:
             self._processor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._processor_task
-            except asyncio.CancelledError:
-                pass
 
         if self._persistence_task:
             self._persistence_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._persistence_task
-            except asyncio.CancelledError:
-                pass
 
         # Persist delayed queue before shutdown
         await self._persist_to_disk()
@@ -367,7 +363,7 @@ class UnifiedRetryScheduler:
             scheduled_time = datetime.fromisoformat(scheduled_retry_time_str)
             # Ensure timezone-aware
             if scheduled_time.tzinfo is None:
-                scheduled_time = scheduled_time.replace(tzinfo=timezone.utc)
+                scheduled_time = scheduled_time.replace(tzinfo=UTC)
         except Exception as e:
             logger.error(
                 "Failed to parse scheduled_retry_time, routing to DLQ",
@@ -386,7 +382,7 @@ class UnifiedRetryScheduler:
             return
 
         # Check if ready for redelivery
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if now < scheduled_time:
             seconds_remaining = (scheduled_time - now).total_seconds()
             logger.debug(
@@ -457,7 +453,7 @@ class UnifiedRetryScheduler:
             original_topic=message.topic,
         )
 
-    def _parse_headers(self, message: PipelineMessage) -> Dict[str, str]:
+    def _parse_headers(self, message: PipelineMessage) -> dict[str, str]:
         """
         Parse Kafka message headers into a dictionary.
 
@@ -492,7 +488,7 @@ class UnifiedRetryScheduler:
         self,
         message: PipelineMessage,
         reason: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
     ) -> None:
         """
         Send malformed message to DLQ.
@@ -547,11 +543,11 @@ class UnifiedRetryScheduler:
     async def _route_to_target(
         self,
         target_topic: str,
-        message_key: Optional[bytes],
+        message_key: bytes | None,
         message_value: bytes,
         retry_count: int,
         worker_type: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
         original_topic: str,
     ) -> None:
         """
@@ -612,7 +608,7 @@ class UnifiedRetryScheduler:
 
         while self._running:
             try:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
 
                 # Process all messages that are ready
                 while (
@@ -645,7 +641,7 @@ class UnifiedRetryScheduler:
                             exc_info=True,
                         )
                         # Put back in queue with a small delay to avoid tight loop
-                        delayed_msg.scheduled_time = datetime.now(timezone.utc).replace(
+                        delayed_msg.scheduled_time = datetime.now(UTC).replace(
                             microsecond=0
                         ) + timedelta(seconds=5)
                         heapq.heappush(self._delayed_queue, delayed_msg)
@@ -661,7 +657,7 @@ class UnifiedRetryScheduler:
             except asyncio.CancelledError:
                 logger.info("Delayed message processor cancelled")
                 raise
-            except Exception as e:
+            except Exception:
                 logger.error(
                     "Error in delayed message processor",
                     exc_info=True,
@@ -684,7 +680,7 @@ class UnifiedRetryScheduler:
             except asyncio.CancelledError:
                 logger.info("Periodic persistence cancelled")
                 raise
-            except Exception as e:
+            except Exception:
                 logger.error(
                     "Error in periodic persistence",
                     exc_info=True,
@@ -723,7 +719,7 @@ class UnifiedRetryScheduler:
             data = {
                 "version": 1,
                 "domain": self.domain,
-                "last_persisted": datetime.now(timezone.utc).isoformat(),
+                "last_persisted": datetime.now(UTC).isoformat(),
                 "messages": messages_data,
             }
 
@@ -764,7 +760,7 @@ class UnifiedRetryScheduler:
             return
 
         try:
-            with open(self._persistence_file, "r") as f:
+            with open(self._persistence_file) as f:
                 data = json.load(f)
 
             if data.get("version") != 1:
@@ -785,7 +781,7 @@ class UnifiedRetryScheduler:
                 return
 
             # Restore messages
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             restored_count = 0
             expired_count = 0
 
@@ -853,7 +849,7 @@ class UnifiedRetryScheduler:
         return self._running and self._consumer is not None
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get scheduler statistics."""
         return {
             "messages_routed": self._messages_routed,

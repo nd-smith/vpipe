@@ -5,7 +5,6 @@ Provides typed exceptions with retry classification to enable
 itelligent error handling throughout the pipeline.
 """
 
-from typing import Optional
 
 # Import ErrorCategory from canonical source to avoid duplicate enum issues
 # (comparing enums from different classes always returns False)
@@ -28,8 +27,8 @@ class PipelineError(Exception):
     def __init__(
         self,
         message: str,
-        cause: Optional[Exception] = None,
-        context: Optional[dict] = None,
+        cause: Exception | None = None,
+        context: dict | None = None,
     ):
         self.message = message
         self.cause = cause
@@ -85,9 +84,9 @@ class ThrottlingError(TransientError):
     def __init__(
         self,
         message: str,
-        retry_after: Optional[float] = None,
-        cause: Optional[Exception] = None,
-        context: Optional[dict] = None,
+        retry_after: float | None = None,
+        cause: Exception | None = None,
+        context: dict | None = None,
     ):
         super().__init__(message, cause, context)
         self.retry_after = retry_after  # Seconds to wait if provided
@@ -118,7 +117,7 @@ class CircuitOpenError(PipelineError):
         self,
         circuit_name: str,
         retry_after: float,
-        cause: Optional[Exception] = None,
+        cause: Exception | None = None,
     ):
         message = f"Circuit '{circuit_name}' is open"
         super().__init__(message, cause, {"circuit_name": circuit_name})
@@ -369,7 +368,7 @@ def classify_exception(exc: Exception) -> ErrorCategory:
 def wrap_exception(
     exc: Exception,
     default_class: type = PipelineError,
-    context: Optional[dict] = None,
+    context: dict | None = None,
 ) -> PipelineError:
     """Wrap a generic exception in appropriate PipelineError subclass."""
     if isinstance(exc, PipelineError):

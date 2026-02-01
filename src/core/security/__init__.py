@@ -33,7 +33,6 @@ from core.security.file_validation import (
 from core.security.presigned_urls import (
     PresignedUrlInfo,
     check_presigned_url,
-    extract_expires_at_iso,
 )
 from core.security.url_validation import (
     ALLOWED_SCHEMES,
@@ -56,7 +55,6 @@ __all__ = [
     "PRIVATE_RANGES",
     # Presigned URL handling
     "check_presigned_url",
-    "extract_expires_at_iso",
     "PresignedUrlInfo",
     # File type validation
     "validate_file_type",

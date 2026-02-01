@@ -6,17 +6,16 @@ Manages plugin registration, lookup, and execution.
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Optional
 
 from core.logging import log_with_context
-
 from kafka_pipeline.plugins.shared.base import (
-    Plugin,
-    PluginContext,
-    PluginResult,
-    PluginAction,
     ActionType,
     PipelineStage,
+    Plugin,
+    PluginAction,
+    PluginContext,
+    PluginResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,8 +32,8 @@ class PluginRegistry:
     """
 
     def __init__(self):
-        self._plugins: Dict[str, Plugin] = {}
-        self._plugins_by_stage: Dict[PipelineStage, List[Plugin]] = defaultdict(list)
+        self._plugins: dict[str, Plugin] = {}
+        self._plugins_by_stage: dict[PipelineStage, list[Plugin]] = defaultdict(list)
 
         log_with_context(
             logger,
@@ -83,7 +82,7 @@ class PluginRegistry:
             priority=plugin.priority,
         )
 
-    def unregister(self, plugin_name: str) -> Optional[Plugin]:
+    def unregister(self, plugin_name: str) -> Plugin | None:
         """
         Unregister a plugin by name.
 
@@ -106,15 +105,15 @@ class PluginRegistry:
             )
         return plugin
 
-    def get_plugin(self, name: str) -> Optional[Plugin]:
+    def get_plugin(self, name: str) -> Plugin | None:
         """Get plugin by name."""
         return self._plugins.get(name)
 
-    def get_plugins_for_stage(self, stage: PipelineStage) -> List[Plugin]:
+    def get_plugins_for_stage(self, stage: PipelineStage) -> list[Plugin]:
         """Get all plugins that run at a given stage."""
         return self._plugins_by_stage.get(stage, [])
 
-    def list_plugins(self) -> List[Plugin]:
+    def list_plugins(self) -> list[Plugin]:
         """Get all registered plugins."""
         return list(self._plugins.values())
 
@@ -160,7 +159,7 @@ class PluginOrchestrator:
             OrchestratorResult with all plugin results
         """
         plugins = self.registry.get_plugins_for_stage(context.stage)
-        results: List[Tuple[str, PluginResult]] = []
+        results: list[tuple[str, PluginResult]] = []
         actions_executed = 0
         terminated = False
         termination_reason = None
@@ -278,10 +277,10 @@ class OrchestratorResult:
 
     def __init__(
         self,
-        results: List[Tuple[str, PluginResult]],
+        results: list[tuple[str, PluginResult]],
         actions_executed: int = 0,
         terminated: bool = False,
-        termination_reason: Optional[str] = None,
+        termination_reason: str | None = None,
     ):
         self.results = results
         self.actions_executed = actions_executed
@@ -344,7 +343,7 @@ class ActionExecutor:
 
     async def _publish_to_topic(
         self,
-        params: Dict,
+        params: dict,
         context: PluginContext,
     ) -> None:
         """Publish message to Kafka topic."""
@@ -397,7 +396,7 @@ class ActionExecutor:
 
     async def _http_webhook(
         self,
-        params: Dict,
+        params: dict,
         context: PluginContext,
     ) -> None:
         """Call HTTP webhook.
@@ -520,7 +519,7 @@ class ActionExecutor:
 
     async def _send_email(
         self,
-        params: Dict,
+        params: dict,
         context: PluginContext,
     ) -> None:
         """
@@ -648,7 +647,7 @@ class ActionExecutor:
 
     async def _create_claimx_task(
         self,
-        params: Dict,
+        params: dict,
         context: PluginContext,
     ) -> None:
         """
@@ -881,7 +880,7 @@ class ActionExecutor:
             )
             raise
 
-    def _log(self, params: Dict, context: PluginContext) -> None:
+    def _log(self, params: dict, context: PluginContext) -> None:
         """Log a message."""
         level = params.get("level", "info").upper()
         message = params.get("message", "")
@@ -895,14 +894,14 @@ class ActionExecutor:
             project_id=context.project_id,
         )
 
-    def _add_header(self, params: Dict, context: PluginContext) -> None:
+    def _add_header(self, params: dict, context: PluginContext) -> None:
         """Add header to context."""
         key = params.get("key")
         value = params.get("value")
         if key and value:
             context.headers[key] = value
 
-    def _emit_metric(self, params: Dict, context: PluginContext) -> None:
+    def _emit_metric(self, params: dict, context: PluginContext) -> None:
         """Emit a metric (placeholder - implement with your metrics system)."""
         name = params.get("name")
         labels = params.get("labels", {})

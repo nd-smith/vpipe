@@ -15,37 +15,30 @@ Output topic: xact.downloads.pending
 """
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from datetime import UTC, datetime
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import TopicPartition
 from pydantic import ValidationError
 
+from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from core.types import ErrorCategory
 from core.paths.resolver import generate_blob_path
-from core.security.url_validation import validate_download_url, sanitize_url
-from config.config import KafkaConfig
+from core.security.url_validation import sanitize_url, validate_download_url
+from core.types import ErrorCategory
+from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import (
-    record_message_consumed,
-    update_connection_status,
     update_assigned_partitions,
+    update_connection_status,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.simulation.config import SimulationConfig
-from kafka_pipeline.verisk.retry import DownloadRetryHandler
-from kafka_pipeline.verisk.schemas.tasks import (
-    XACTEnrichmentTask,
-    DownloadTaskMessage,
-)
 from kafka_pipeline.plugins.shared.base import (
     Domain,
     PipelineStage,
@@ -56,6 +49,12 @@ from kafka_pipeline.plugins.shared.registry import (
     ActionExecutor,
     PluginOrchestrator,
     get_plugin_registry,
+)
+from kafka_pipeline.simulation.config import SimulationConfig
+from kafka_pipeline.verisk.retry import DownloadRetryHandler
+from kafka_pipeline.verisk.schemas.tasks import (
+    DownloadTaskMessage,
+    XACTEnrichmentTask,
 )
 
 logger = get_logger(__name__)
@@ -83,9 +82,9 @@ class XACTEnrichmentWorker:
         domain: str = "verisk",
         enrichment_topic: str = "",
         download_topic: str = "",
-        producer_config: Optional[KafkaConfig] = None,
-        instance_id: Optional[str] = None,
-        simulation_config: Optional[SimulationConfig] = None,
+        producer_config: KafkaConfig | None = None,
+        instance_id: str | None = None,
+        simulation_config: SimulationConfig | None = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -117,13 +116,13 @@ class XACTEnrichmentWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [self.enrichment_topic]
 
-        self.producer: Optional[BaseKafkaProducer] = None
-        self.consumer: Optional[AIOKafkaConsumer] = None
-        self.retry_handler: Optional[DownloadRetryHandler] = None
+        self.producer: BaseKafkaProducer | None = None
+        self.consumer: AIOKafkaConsumer | None = None
+        self.retry_handler: DownloadRetryHandler | None = None
 
         self.plugin_registry = get_plugin_registry()
-        self.plugin_orchestrator: Optional[PluginOrchestrator] = None
-        self.action_executor: Optional[ActionExecutor] = None
+        self.plugin_orchestrator: PluginOrchestrator | None = None
+        self.action_executor: ActionExecutor | None = None
 
         # Health check server
         health_port = self.processing_config.get("health_port", 8081)
@@ -134,9 +133,9 @@ class XACTEnrichmentWorker:
             enabled=health_enabled,
         )
 
-        self._pending_tasks: Set[asyncio.Task] = set()
+        self._pending_tasks: set[asyncio.Task] = set()
         self._task_counter = 0
-        self._consume_task: Optional[asyncio.Task] = None
+        self._consume_task: asyncio.Task | None = None
         self._running = False
 
         self._records_processed = 0
@@ -145,7 +144,7 @@ class XACTEnrichmentWorker:
         self._records_skipped = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
@@ -195,8 +194,9 @@ class XACTEnrichmentWorker:
         logger.info("Starting XACTEnrichmentWorker")
         self._running = True
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-enrichment-worker",
@@ -315,10 +315,8 @@ class XACTEnrichmentWorker:
 
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
 
@@ -415,7 +413,7 @@ class XACTEnrichmentWorker:
                 if not msg_dict:
                     continue
 
-                for partition, messages in msg_dict.items():
+                for _partition, messages in msg_dict.items():
                     for msg in messages:
                         # Convert ConsumerRecord to PipelineMessage
                         pipeline_msg = from_consumer_record(msg)
@@ -445,7 +443,7 @@ class XACTEnrichmentWorker:
         self,
         coro,
         task_name: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> asyncio.Task:
         self._task_counter += 1
         full_name = f"{task_name}-{self._task_counter}"
@@ -591,7 +589,7 @@ class XACTEnrichmentWorker:
         await self._process_single_task(task)
 
     async def _process_single_task(self, task: XACTEnrichmentTask) -> None:
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             from kafka_pipeline.common.telemetry import get_tracer
@@ -674,7 +672,7 @@ class XACTEnrichmentWorker:
                 self._records_succeeded += 1
 
                 elapsed_ms = (
-                    datetime.now(timezone.utc) - start_time
+                    datetime.now(UTC) - start_time
                 ).total_seconds() * 1000
                 logger.debug(
                     "Enrichment task complete",
@@ -703,7 +701,7 @@ class XACTEnrichmentWorker:
     async def _create_download_tasks_from_attachments(
         self,
         task: XACTEnrichmentTask,
-    ) -> List[DownloadTaskMessage]:
+    ) -> list[DownloadTaskMessage]:
         """Create download tasks from enrichment task attachments."""
         download_tasks = []
 
@@ -793,7 +791,7 @@ class XACTEnrichmentWorker:
 
     async def _produce_download_tasks(
         self,
-        download_tasks: List[DownloadTaskMessage],
+        download_tasks: list[DownloadTaskMessage],
     ) -> None:
         """Produce download tasks to downloads.pending topic."""
         logger.info(

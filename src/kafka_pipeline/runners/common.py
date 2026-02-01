@@ -10,7 +10,7 @@ Provides reusable templates for running workers with consistent:
 import asyncio
 import logging
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
 
 from core.logging.context import set_log_context
 
@@ -24,8 +24,8 @@ DEFAULT_STARTUP_BACKOFF_BASE = 5  # seconds
 async def _start_with_retry(
     start_fn: Callable,
     label: str,
-    max_retries: Optional[int] = None,
-    backoff_base: Optional[int] = None,
+    max_retries: int | None = None,
+    backoff_base: int | None = None,
 ) -> None:
     """Retry an async start function with exponential backoff.
 
@@ -70,7 +70,7 @@ async def execute_worker_with_shutdown(
     stage_name: str,
     shutdown_event: asyncio.Event,
     stop_method: str = "stop",
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ) -> None:
     """Execute a worker with standard shutdown handling.
 
@@ -91,7 +91,7 @@ async def execute_worker_with_shutdown(
         logger_suffix = ""
 
     set_log_context(**context)
-    logger.info(f"Starting {stage_name}{logger_suffix}...")
+    logger.info("Starting %s%s...", stage_name, logger_suffix)
 
     async def shutdown_watcher():
         await shutdown_event.wait()
@@ -122,9 +122,9 @@ async def execute_worker_with_producer(
     domain: str,
     stage_name: str,
     shutdown_event: asyncio.Event,
-    worker_kwargs: Optional[dict] = None,
-    producer_worker_name: Optional[str] = None,
-    instance_id: Optional[int] = None,
+    worker_kwargs: dict | None = None,
+    producer_worker_name: str | None = None,
+    instance_id: int | None = None,
 ) -> None:
     """Execute a worker that requires a producer with shutdown handling.
 
@@ -153,7 +153,7 @@ async def execute_worker_with_producer(
         logger_suffix = ""
 
     set_log_context(**context)
-    logger.info(f"Starting {stage_name}{logger_suffix}...")
+    logger.info("Starting %s%s...", stage_name, logger_suffix)
 
     worker_kwargs = worker_kwargs or {}
     producer_worker_name = producer_worker_name or stage_name.replace("-", "_")
@@ -216,12 +216,12 @@ async def execute_poller_with_shutdown(
         shutdown_event: Event to signal graceful shutdown
     """
     set_log_context(stage=stage_name)
-    logger.info(f"Starting {stage_name}...")
+    logger.info("Starting %s...", stage_name)
 
     async def shutdown_watcher(poller):
         """Wait for shutdown signal and stop poller gracefully."""
         await shutdown_event.wait()
-        logger.info(f"Shutdown signal received, stopping {stage_name}...")
+        logger.info("Shutdown signal received, stopping %s...", stage_name)
         await poller.stop()
 
     async with poller_class(poller_config) as poller:

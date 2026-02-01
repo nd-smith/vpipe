@@ -10,7 +10,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 from tenacity import (
@@ -52,8 +52,8 @@ class ConnectionConfig:
     name: str
     base_url: str
     auth_type: AuthType = AuthType.NONE
-    auth_token: Optional[str] = None
-    auth_header: Optional[str] = None
+    auth_token: str | None = None
+    auth_header: str | None = None
     timeout_seconds: int = 30
     max_retries: int = 3
     retry_backoff_base: int = 2
@@ -113,7 +113,7 @@ class ConnectionManager:
             connector_limit_per_host: Max connections per host
         """
         self._connections: dict[str, ConnectionConfig] = {}
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._connector_limit = connector_limit
         self._connector_limit_per_host = connector_limit_per_host
         self._started = False
@@ -199,12 +199,12 @@ class ConnectionManager:
         connection_name: str,
         method: str,
         path: str,
-        json: Optional[dict[str, Any]] = None,
-        data: Optional[Any] = None,
-        params: Optional[dict[str, Any]] = None,
-        headers: Optional[dict[str, str]] = None,
-        timeout_override: Optional[int] = None,
-        retry_override: Optional[int] = None,
+        json: dict[str, Any] | None = None,
+        data: Any | None = None,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout_override: int | None = None,
+        retry_override: int | None = None,
     ) -> aiohttp.ClientResponse:
         """Make HTTP request using named connection.
 
@@ -354,7 +354,7 @@ class ConnectionManager:
 
 
 # Singleton instance for global access
-_global_connection_manager: Optional[ConnectionManager] = None
+_global_connection_manager: ConnectionManager | None = None
 
 
 def get_connection_manager() -> ConnectionManager:

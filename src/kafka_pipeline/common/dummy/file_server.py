@@ -17,7 +17,6 @@ import random
 import struct
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 from aiohttp import web
 
@@ -168,7 +167,7 @@ def generate_dummy_jpeg(size_bytes: int, seed: str) -> bytes:
 
     # Generate deterministic padding based on seed
     seed_hash = hashlib.sha256(seed.encode()).digest()
-    padding = bytes((seed_hash[i % len(seed_hash)] for i in range(padding_size)))
+    padding = bytes(seed_hash[i % len(seed_hash)] for i in range(padding_size))
 
     # Wrap padding in a comment marker (COM)
     if padding_size > 0:
@@ -360,7 +359,7 @@ def generate_dummy_file(
     else:
         # Generic binary file
         seed_hash = hashlib.sha256(seed.encode()).digest()
-        content = bytes((seed_hash[i % len(seed_hash)] for i in range(size_bytes)))
+        content = bytes(seed_hash[i % len(seed_hash)] for i in range(size_bytes))
         return content, "application/octet-stream"
 
 
@@ -373,12 +372,12 @@ class DummyFileServer:
         GET /health - Health check endpoint
     """
 
-    def __init__(self, config: Optional[FileServerConfig] = None):
+    def __init__(self, config: FileServerConfig | None = None):
         self.config = config or FileServerConfig()
-        self._app: Optional[web.Application] = None
-        self._runner: Optional[web.AppRunner] = None
-        self._site: Optional[web.TCPSite] = None
-        self._failure_start_time: Optional[float] = None
+        self._app: web.Application | None = None
+        self._runner: web.AppRunner | None = None
+        self._site: web.TCPSite | None = None
+        self._failure_start_time: float | None = None
         self._total_requests = 0
         self._failed_requests = 0
 
@@ -484,7 +483,7 @@ class DummyFileServer:
             extra={
                 "project_id": project_id,
                 "media_id": media_id,
-                "filename": filename,
+                "file_name": filename,
                 "size": len(content),
                 "content_type": content_type,
             },
@@ -504,7 +503,7 @@ class DummyFileServer:
         return web.json_response({"status": "healthy", "service": "dummy-file-server"})
 
 
-async def run_file_server(config: Optional[FileServerConfig] = None) -> None:
+async def run_file_server(config: FileServerConfig | None = None) -> None:
     """Run the file server as a standalone service."""
     if config is None:
         # Load configuration from environment variables
@@ -524,7 +523,7 @@ async def run_file_server(config: Optional[FileServerConfig] = None) -> None:
                 },
             )
 
-    async with DummyFileServer(config) as server:
+    async with DummyFileServer(config):
         # Run until interrupted
         try:
             while True:
@@ -543,7 +542,7 @@ if __name__ == "__main__":
             config.port = int(sys.argv[1])
         except ValueError:
             print(
-                f"Usage: python -m kafka_pipeline.common.dummy.file_server [PORT]",
+                "Usage: python -m kafka_pipeline.common.dummy.file_server [PORT]",
                 file=sys.stderr,
             )
             print(f"Invalid port: {sys.argv[1]}", file=sys.stderr)

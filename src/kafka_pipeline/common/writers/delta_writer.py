@@ -5,7 +5,7 @@ Provides a ready-to-use writer for cases where domain-specific
 transformations are not needed. Simply pass DataFrames or records to write.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import polars as pl
 
@@ -56,8 +56,8 @@ class DeltaWriter(BaseDeltaWriter):
     async def merge_dataframe(
         self,
         df: pl.DataFrame,
-        merge_keys: List[str],
-        preserve_columns: Optional[List[str]] = None,
+        merge_keys: list[str],
+        preserve_columns: list[str] | None = None,
     ) -> bool:
         """
         Merge DataFrame into Delta table (upsert operation).
@@ -78,7 +78,7 @@ class DeltaWriter(BaseDeltaWriter):
 
     async def write_records(
         self,
-        records: List[Dict[str, Any]],
+        records: list[dict[str, Any]],
     ) -> bool:
         """
         Write records (list of dicts) to Delta table.
@@ -99,9 +99,9 @@ class DeltaWriter(BaseDeltaWriter):
 
     async def merge_records(
         self,
-        records: List[Dict[str, Any]],
-        merge_keys: List[str],
-        preserve_columns: Optional[List[str]] = None,
+        records: list[dict[str, Any]],
+        merge_keys: list[str],
+        preserve_columns: list[str] | None = None,
     ) -> bool:
         """
         Merge records (list of dicts) into Delta table.

@@ -17,9 +17,6 @@ import argparse
 import asyncio
 import os
 import sys
-from pathlib import Path
-
-import yaml
 
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
@@ -126,11 +123,11 @@ Environment Variables:
 
 async def main():
     """Run dummy data producer in simulation mode."""
-    from kafka_pipeline.common.dummy.source import DummyDataSource, DummySourceConfig
-    from kafka_pipeline.common.dummy.generators import GeneratorConfig
-    from kafka_pipeline.common.dummy.file_server import FileServerConfig
-    from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
     from config.config import load_config
+    from kafka_pipeline.common.dummy.file_server import FileServerConfig
+    from kafka_pipeline.common.dummy.generators import GeneratorConfig
+    from kafka_pipeline.common.dummy.source import DummyDataSource, DummySourceConfig
+    from kafka_pipeline.simulation import get_simulation_config, is_simulation_mode
 
     set_log_context(stage="dummy-producer")
 
@@ -154,7 +151,7 @@ async def main():
 
     # Load configs
     kafka_config = load_config()
-    simulation_config = get_simulation_config()
+    get_simulation_config()
 
     logger.info(
         "Starting dummy data producer (simulation mode)",
@@ -189,7 +186,6 @@ async def main():
     )
 
     # Check if we should skip embedded file server (for Docker with separate file-server service)
-    import os
 
     skip_embedded_file_server = (
         os.getenv("SKIP_EMBEDDED_FILE_SERVER", "false").lower() == "true"

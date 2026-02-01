@@ -39,7 +39,7 @@ def create_simulation_enrichment_worker(
         >>> # ClaimX worker now uses MockClaimXAPIClient for all API calls
     """
     import logging
-    from pathlib import Path
+
     from kafka_pipeline.simulation.config import get_simulation_config
 
     logger = logging.getLogger(__name__)
@@ -49,10 +49,10 @@ def create_simulation_enrichment_worker(
         simulation_config = get_simulation_config()
 
     if domain == "claimx":
-        from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
         from kafka_pipeline.claimx.workers.enrichment_worker import (
             ClaimXEnrichmentWorker,
         )
+        from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
 
         # Create mock API client with fixtures
         mock_client = MockClaimXAPIClient(fixtures_dir=simulation_config.fixtures_dir)
@@ -123,6 +123,7 @@ def create_simulation_upload_worker(
         >>> # Worker will write to /tmp/pcesdopodappv1_simulation/claimx/
     """
     import logging
+
     from kafka_pipeline.simulation.storage import LocalStorageAdapter
 
     logger = logging.getLogger(__name__)
@@ -254,13 +255,15 @@ def create_simulation_itel_cabinet_worker(
         >>> # Worker will write to /tmp/pcesdopodappv1_simulation/itel_submissions/
     """
     import logging
+    import os
+    from pathlib import Path
+
+    import yaml
+
     from kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker import (
         ItelCabinetApiWorker,
     )
     from kafka_pipeline.plugins.shared.connections import ConnectionManager
-    import os
-    from pathlib import Path
-    import yaml
 
     logger = logging.getLogger(__name__)
 
@@ -273,7 +276,7 @@ def create_simulation_itel_cabinet_worker(
     if not workers_config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {workers_config_path}")
 
-    with open(workers_config_path, "r", encoding="utf-8") as f:
+    with open(workers_config_path, encoding="utf-8") as f:
         config_data = yaml.safe_load(f) or {}
 
     worker_config = config_data.get("workers", {}).get("itel_cabinet_api", {})

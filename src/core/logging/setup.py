@@ -1,5 +1,6 @@
 """Logging setup and configuration."""
 
+import contextlib
 import io
 import logging
 import os
@@ -10,7 +11,6 @@ import time
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from typing import List, Optional
 
 import coolname
 
@@ -165,7 +165,7 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
             self.stream = self._open()
 
         if self.max_bytes > 0:
-            msg = "%s\n" % self.format(record)
+            msg = f"{self.format(record)}\n"
             self.stream.seek(0, 2)  # Go to end of file
             if self.stream.tell() + len(msg.encode("utf-8")) >= self.max_bytes:
                 return 1
@@ -177,7 +177,7 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
         Perform rollover, then upload to OneLake and cleanup.
         """
         # Get rotated file path before rollover
-        log_path = Path(self.baseFilename)
+        Path(self.baseFilename)
 
         # Do the actual rotation (parent class handles this)
         super().doRollover()
@@ -245,9 +245,9 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
 
 def get_log_file_path(
     log_dir: Path,
-    domain: Optional[str] = None,
-    stage: Optional[str] = None,
-    instance_id: Optional[str] = None,
+    domain: str | None = None,
+    stage: str | None = None,
+    instance_id: str | None = None,
 ) -> Path:
     """
     Build log file path with domain/date subfolder structure.
@@ -308,9 +308,9 @@ def get_log_file_path(
 
 def setup_logging(
     name: str = "pipeline",
-    stage: Optional[str] = None,
-    domain: Optional[str] = None,
-    log_dir: Optional[Path] = None,
+    stage: str | None = None,
+    domain: str | None = None,
+    log_dir: Path | None = None,
     json_format: bool = True,
     console_level: int = DEFAULT_CONSOLE_LEVEL,
     file_level: int = DEFAULT_FILE_LEVEL,
@@ -318,7 +318,7 @@ def setup_logging(
     rotation_interval: int = DEFAULT_ROTATION_INTERVAL,
     backup_count: int = DEFAULT_BACKUP_COUNT,
     suppress_noisy: bool = True,
-    worker_id: Optional[str] = None,
+    worker_id: str | None = None,
     use_instance_id: bool = True,
     log_to_stdout: bool = False,
 ) -> logging.Logger:
@@ -490,7 +490,7 @@ def setup_logging(
     logger = logging.getLogger(name)
     if log_to_stdout:
         logger.debug(
-            f"Logging initialized: stdout-only mode",
+            "Logging initialized: stdout-only mode",
             extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
         )
     else:
@@ -503,9 +503,9 @@ def setup_logging(
 
 
 def setup_multi_worker_logging(
-    workers: List[str],
+    workers: list[str],
     domain: str = "kafka",
-    log_dir: Optional[Path] = None,
+    log_dir: Path | None = None,
     json_format: bool = True,
     console_level: int = DEFAULT_CONSOLE_LEVEL,
     file_level: int = DEFAULT_FILE_LEVEL,
@@ -680,17 +680,15 @@ def _do_crash_log_upload(reason: str) -> None:
     crash_logger = logging.getLogger("core.logging.crash_upload")
 
     # Phase 1: Flush all file handlers and collect their file paths
-    log_files: List[Path] = []
+    log_files: list[Path] = []
     onelake_client = None
 
     for handler in root_logger.handlers:
         if not isinstance(handler, logging.FileHandler):
             continue
 
-        try:
+        with contextlib.suppress(Exception):
             handler.flush()
-        except Exception:
-            pass
 
         log_path = Path(handler.baseFilename)
         if log_path.exists() and log_path.stat().st_size > 0:
@@ -721,7 +719,7 @@ def _do_crash_log_upload(reason: str) -> None:
 
     # Deduplicate while preserving order
     seen: set = set()
-    unique_files: List[Path] = []
+    unique_files: list[Path] = []
     for f in log_files:
         resolved = f.resolve()
         if resolved not in seen:
@@ -804,11 +802,11 @@ def get_logger(name: str) -> logging.Logger:
 def log_worker_startup(
     logger: logging.Logger,
     worker_name: str,
-    kafka_bootstrap_servers: Optional[str] = None,
-    input_topic: Optional[str] = None,
-    output_topic: Optional[str] = None,
-    consumer_group: Optional[str] = None,
-    extra_config: Optional[dict] = None,
+    kafka_bootstrap_servers: str | None = None,
+    input_topic: str | None = None,
+    output_topic: str | None = None,
+    consumer_group: str | None = None,
+    extra_config: dict | None = None,
 ) -> None:
     """
     Log standard worker startup information including Kafka configuration.
@@ -830,20 +828,20 @@ def log_worker_startup(
         kafka_bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "not set")
 
     logger.info("=" * 70)
-    logger.info(f"Starting {worker_name}")
+    logger.info("Starting %s", worker_name)
     logger.info("=" * 70)
-    logger.info(f"Kafka bootstrap servers: {kafka_bootstrap_servers}")
+    logger.info("Kafka bootstrap servers: %s", kafka_bootstrap_servers)
 
     if input_topic:
-        logger.info(f"Input topic: {input_topic}")
+        logger.info("Input topic: %s", input_topic)
     if output_topic:
-        logger.info(f"Output topic: {output_topic}")
+        logger.info("Output topic: %s", output_topic)
     if consumer_group:
-        logger.info(f"Consumer group: {consumer_group}")
+        logger.info("Consumer group: %s", consumer_group)
 
     if extra_config:
         for key, value in extra_config.items():
-            logger.info(f"{key}: {value}")
+            logger.info("%s: %s", key, value)
 
     logger.info("=" * 70)
 

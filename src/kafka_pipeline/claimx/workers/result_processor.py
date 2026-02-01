@@ -13,28 +13,28 @@ Delta table (optional): claimx_download_results
 """
 
 import asyncio
+import contextlib
 import json
-import uuid
 import time
-from typing import Any, Dict, List, Optional
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 
 import polars as pl
 from pydantic import ValidationError
 
+from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from config.config import KafkaConfig
+from kafka_pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.writers.base import BaseDeltaWriter
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
 )
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from kafka_pipeline.claimx.schemas.results import ClaimXUploadResultMessage
+from kafka_pipeline.common.types import PipelineMessage
+from kafka_pipeline.common.writers.base import BaseDeltaWriter
 
 logger = get_logger(__name__)
 
@@ -73,9 +73,9 @@ class ClaimXResultProcessor:
         config: KafkaConfig,
         results_topic: str = "",
         inventory_table_path: str = "",
-        batch_size: Optional[int] = None,
-        batch_timeout_seconds: Optional[float] = None,
-        instance_id: Optional[str] = None,
+        batch_size: int | None = None,
+        batch_timeout_seconds: float | None = None,
+        instance_id: str | None = None,
     ):
         """
         Initialize ClaimX result processor.
@@ -107,16 +107,16 @@ class ClaimXResultProcessor:
         self.results_topic = results_topic or config.get_topic(
             self.domain, "downloads_results"
         )
-        self.consumer: Optional[BaseKafkaConsumer] = None
+        self.consumer: BaseKafkaConsumer | None = None
 
         # Consumer group from hierarchical config
         self.consumer_group = config.get_consumer_group(self.domain, self.worker_name)
 
         # Batch state
-        self._batch: List[ClaimXUploadResultMessage] = []
+        self._batch: list[ClaimXUploadResultMessage] = []
         self._batch_lock = asyncio.Lock()
         self._last_flush = time.monotonic()
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
 
         # Cycle output tracking
         self._records_processed = 0
@@ -127,14 +127,14 @@ class ClaimXResultProcessor:
         self._total_records_written = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
         self._last_cycle_failed = 0
 
         # Initialize Delta writer for inventory if path is provided
-        self.inventory_writer: Optional[BaseDeltaWriter] = None
+        self.inventory_writer: BaseDeltaWriter | None = None
         if inventory_table_path:
             self.inventory_writer = BaseDeltaWriter(
                 table_path=inventory_table_path,
@@ -186,8 +186,9 @@ class ClaimXResultProcessor:
         self._running = True
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-result-processor",
@@ -236,10 +237,8 @@ class ClaimXResultProcessor:
         for task in [self._cycle_task, self._flush_task]:
             if task and not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         # Flush any pending batch
         async with self._batch_lock:
@@ -407,7 +406,7 @@ class ClaimXResultProcessor:
 
         try:
             # Convert batch to Polars DataFrame for efficient merge
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             rows = []
 
             for upload_result in batch:
@@ -500,10 +499,10 @@ class ClaimXResultProcessor:
                         pending = len(self._batch)
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = (
+                    (
                         self._records_processed - self._last_cycle_processed
                     )
-                    errors_cycle = self._records_failed - self._last_cycle_failed
+                    self._records_failed - self._last_cycle_failed
 
                     # Use standardized cycle output format
                     logger.info(

@@ -11,7 +11,6 @@ Contains all runner functions for XACT pipeline workers:
 
 import asyncio
 import logging
-from typing import Optional
 
 from kafka_pipeline.runners.common import (
     execute_poller_with_shutdown,
@@ -27,7 +26,7 @@ async def run_event_ingester(
     local_kafka_config,
     shutdown_event: asyncio.Event,
     domain: str = "xact",
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Reads events from Event Hub and produces download tasks to local Kafka.
     Delta Lake writes are handled by a separate DeltaEventsWorker."""
@@ -106,7 +105,6 @@ async def run_eventhouse_json_poller(
         pretty_print: Format JSON with indentation (default: False)
         include_metadata: Include _key, _timestamp, _headers in output (default: True)
     """
-    from pathlib import Path
 
     from kafka_pipeline.common.eventhouse.kql_client import EventhouseConfig
     from kafka_pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
@@ -155,7 +153,7 @@ async def run_delta_events_worker(
     kafka_config,
     events_table_path: str,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Consumes events from events.raw and writes to xact_events Delta table.
     Runs independently of EventIngesterWorker with its own consumer group."""
@@ -178,7 +176,7 @@ async def run_delta_events_worker(
 async def run_xact_retry_scheduler(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Unified retry scheduler for all XACT retry types.
     Routes messages from xact.retry topic to target topics based on headers."""
@@ -200,7 +198,7 @@ async def run_xact_retry_scheduler(
 async def run_xact_enrichment_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
     simulation_config=None,
 ):
@@ -220,7 +218,7 @@ async def run_xact_enrichment_worker(
             raise ValueError("simulation_config is required when simulation_mode=True")
 
         logger.info("Starting XACT enrichment worker in SIMULATION MODE")
-        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
 
         # Use factory to create worker with mock dependencies
         worker = create_simulation_enrichment_worker(
@@ -249,7 +247,7 @@ async def run_xact_enrichment_worker(
 async def run_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
 ):
     """Download files from external sources.
@@ -279,7 +277,7 @@ async def run_download_worker(
 async def run_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
     simulation_mode: bool = False,
     simulation_config=None,
 ):
@@ -299,7 +297,7 @@ async def run_upload_worker(
             raise ValueError("simulation_config is required when simulation_mode=True")
 
         logger.info("Starting XACT upload worker in SIMULATION MODE")
-        logger.info(f"Simulation storage path: {simulation_config.local_storage_path}")
+        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
 
         # Use factory to create worker with local storage
         worker = create_simulation_upload_worker(
@@ -329,14 +327,13 @@ async def run_result_processor(
     enable_delta_writes: bool = True,
     inventory_table_path: str = "",
     failed_table_path: str = "",
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Reads download results and writes to Delta Lake tables.
     On Delta write failure, batches are routed to retry topics."""
+    from core.logging.context import set_log_context
     from kafka_pipeline.common.producer import BaseKafkaProducer
     from kafka_pipeline.verisk.workers.result_processor import ResultProcessor
-
-    from core.logging.context import set_log_context
 
     set_log_context(stage="xact-result-processor")
     logger.info("Starting xact Result Processor worker...")
@@ -377,7 +374,7 @@ async def run_local_event_ingester(
     local_kafka_config,
     shutdown_event: asyncio.Event,
     domain: str = "xact",
-    instance_id: Optional[int] = None,
+    instance_id: int | None = None,
 ):
     """Consumes from local Kafka events.raw topic and processes events to downloads.pending.
     Used in Eventhouse mode. Delta Lake writes handled by separate DeltaEventsWorker."""
@@ -404,11 +401,11 @@ async def run_dummy_source(
     """Generates synthetic insurance claim data for testing.
     Includes file server, realistic data generators for XACT/ClaimX, and configurable event rates.
     """
+    from core.logging.context import set_log_context
     from kafka_pipeline.common.dummy.source import (
         DummyDataSource,
         load_dummy_source_config,
     )
-    from core.logging.context import set_log_context
 
     set_log_context(stage="dummy-source")
     logger.info("Starting Dummy Data Source...")

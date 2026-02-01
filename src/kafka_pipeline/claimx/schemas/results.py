@@ -7,13 +7,13 @@ Contains Pydantic models for:
 """
 
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from kafka_pipeline.claimx.schemas.tasks import (
-    ClaimXEnrichmentTask,
     ClaimXDownloadTask,
+    ClaimXEnrichmentTask,
 )
 
 
@@ -78,7 +78,7 @@ class ClaimXUploadResultMessage(BaseModel):
     bytes_uploaded: int = Field(
         default=0, description="Number of bytes uploaded (0 if failed)", ge=0
     )
-    error_message: Optional[str] = Field(
+    error_message: str | None = Field(
         default=None, description="Error description if failed (truncated to 500 chars)"
     )
     created_at: datetime = Field(..., description="Timestamp when result was created")

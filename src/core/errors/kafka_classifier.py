@@ -5,11 +5,9 @@ Provides consistent error handling for aiokafka exceptions,
 mapping them to typed PipelineError hierarchy with retry decisions.
 """
 
-from typing import Optional
 
 from core.errors.exceptions import (
     AuthError,
-    CircuitOpenError,
     KafkaError,
     PermanentError,
     PipelineError,
@@ -89,7 +87,7 @@ EVENTHUB_ERROR_MAPPINGS = {
 }
 
 
-def classify_kafka_error_type(error_type_name: str) -> Optional[str]:
+def classify_kafka_error_type(error_type_name: str) -> str | None:
     """
     Classify Kafka error by exception type name.
 
@@ -105,7 +103,7 @@ def classify_kafka_error_type(error_type_name: str) -> Optional[str]:
     return None
 
 
-def classify_error_type(error_type_name: str) -> Optional[str]:
+def classify_error_type(error_type_name: str) -> str | None:
     """
     Classify error by exception type name, checking both Kafka and EventHub mappings.
 
@@ -138,7 +136,7 @@ class KafkaErrorClassifier:
 
     @staticmethod
     def classify_consumer_error(
-        error: Exception, context: Optional[dict] = None
+        error: Exception, context: dict | None = None
     ) -> PipelineError:
         """
         Classify a Kafka consumer error into appropriate exception type.
@@ -260,7 +258,7 @@ class KafkaErrorClassifier:
 
     @staticmethod
     def classify_producer_error(
-        error: Exception, context: Optional[dict] = None
+        error: Exception, context: dict | None = None
     ) -> PipelineError:
         """
         Classify a Kafka producer error into appropriate exception type.
@@ -384,7 +382,7 @@ class KafkaErrorClassifier:
     def classify_kafka_error(
         error: Exception,
         operation_type: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> PipelineError:
         """
         Generic Kafka error classifier with operation routing.

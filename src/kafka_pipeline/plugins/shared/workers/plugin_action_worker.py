@@ -13,7 +13,7 @@ import json
 import logging
 import signal
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaError
@@ -21,13 +21,13 @@ from aiokafka.errors import KafkaError
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.plugins.shared.connections import (
-    ConnectionManager,
     ConnectionConfig,
+    ConnectionManager,
 )
 from kafka_pipeline.plugins.shared.enrichment import (
+    BatchingHandler,
     EnrichmentPipeline,
     create_handler_from_config,
-    BatchingHandler,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,8 +60,8 @@ class WorkerConfig:
     destination_method: str = "POST"
     enrichment_handlers: list[dict[str, Any]] = None
     batch_size: int = 100
-    error_topic: Optional[str] = None
-    success_topic: Optional[str] = None
+    error_topic: str | None = None
+    success_topic: str | None = None
     max_retries: int = 3
     enable_auto_commit: bool = False
 
@@ -104,7 +104,7 @@ class PluginActionWorker:
         config: WorkerConfig,
         kafka_config: dict[str, Any],
         connection_manager: ConnectionManager,
-        producer: Optional[BaseKafkaProducer] = None,
+        producer: BaseKafkaProducer | None = None,
     ):
         """Initialize worker.
 
@@ -120,8 +120,8 @@ class PluginActionWorker:
         self.producer = producer
 
         # State
-        self.consumer: Optional[AIOKafkaConsumer] = None
-        self.enrichment_pipeline: Optional[EnrichmentPipeline] = None
+        self.consumer: AIOKafkaConsumer | None = None
+        self.enrichment_pipeline: EnrichmentPipeline | None = None
         self.running = False
         self.shutdown_event = asyncio.Event()
 
@@ -136,7 +136,7 @@ class PluginActionWorker:
 
     async def start(self) -> None:
         """Initialize worker components."""
-        logger.info(f"Starting PluginActionWorker: {self.config.name}")
+        logger.info("Starting PluginActionWorker: %s", self.config.name)
 
         # Build enrichment pipeline
         await self._build_enrichment_pipeline()
@@ -172,7 +172,7 @@ class PluginActionWorker:
         self.enrichment_pipeline = EnrichmentPipeline(handlers=handlers)
         await self.enrichment_pipeline.initialize()
 
-        logger.info(f"Built enrichment pipeline with {len(handlers)} handlers")
+        logger.info("Built enrichment pipeline with %s handlers", len(handlers))
 
     async def _create_consumer(self) -> None:
         """Create and configure Kafka consumer."""
@@ -214,7 +214,7 @@ class PluginActionWorker:
         """Setup signal handlers for graceful shutdown."""
 
         def signal_handler(sig, frame):
-            logger.info(f"Received signal {sig}, initiating shutdown")
+            logger.info("Received signal %s, initiating shutdown", sig)
             self.shutdown_event.set()
 
         signal.signal(signal.SIGINT, signal_handler)
@@ -229,7 +229,7 @@ class PluginActionWorker:
                 await self._process_batch()
 
         except Exception as e:
-            logger.exception(f"Worker crashed: {e}")
+            logger.exception("Worker crashed: %s", e)
             raise
         finally:
             await self.stop()
@@ -248,7 +248,7 @@ class PluginActionWorker:
                 return
 
             # Process messages
-            for topic_partition, messages in data.items():
+            for _topic_partition, messages in data.items():
                 for message in messages:
                     # Convert ConsumerRecord to PipelineMessage
                     pipeline_message = from_consumer_record(message)
@@ -259,7 +259,7 @@ class PluginActionWorker:
                 await self.consumer.commit()
 
         except KafkaError as e:
-            logger.error(f"Kafka error in process batch: {e}")
+            logger.error("Kafka error in process batch: %s", e)
             await asyncio.sleep(1)  # Backoff on error
 
     async def _process_message(self, message: PipelineMessage) -> None:
@@ -344,12 +344,12 @@ class PluginActionWorker:
                 return
 
             # Success!
-            logger.debug(f"Successfully sent to API: {status}")
+            logger.debug("Successfully sent to API: %s", status)
             await self._handle_success(enriched_data, response_body, status)
             self.messages_succeeded += 1
 
         except Exception as e:
-            logger.exception(f"Failed to send to API: {e}")
+            logger.exception("Failed to send to API: %s", e)
             await self._handle_error(original_message, f"API exception: {str(e)}")
             self.messages_failed += 1
 
@@ -376,7 +376,7 @@ class PluginActionWorker:
         try:
             await self.producer.send_one(self.config.success_topic, success_message)
         except Exception as e:
-            logger.error(f"Failed to publish success message: {e}")
+            logger.error("Failed to publish success message: %s", e)
 
     async def _handle_error(self, original_message: dict[str, Any], error: str) -> None:
         """Handle failed message.
@@ -386,7 +386,7 @@ class PluginActionWorker:
             error: Error description
         """
         if not self.config.error_topic or not self.producer:
-            logger.error(f"No error topic configured, dropping failed message: {error}")
+            logger.error("No error topic configured, dropping failed message: %s", error)
             return
 
         error_message = {
@@ -397,9 +397,9 @@ class PluginActionWorker:
 
         try:
             await self.producer.send_one(self.config.error_topic, error_message)
-            logger.info(f"Published error message to {self.config.error_topic}")
+            logger.info("Published error message to %s", self.config.error_topic)
         except Exception as e:
-            logger.error(f"Failed to publish error message: {e}")
+            logger.error("Failed to publish error message: %s", e)
 
     async def _flush_batching_handlers(self) -> None:
         """Flush any batching handlers that have timed out."""
@@ -412,7 +412,7 @@ class PluginActionWorker:
 
     async def stop(self) -> None:
         """Stop worker and cleanup resources."""
-        logger.info(f"Stopping worker '{self.config.name}'")
+        logger.info("Stopping worker '%s'", self.config.name)
         self.running = False
 
         # Flush any remaining batches

@@ -1,27 +1,23 @@
 """ClaimX REST API client with circuit breaker protection and rate limiting."""
 
 import asyncio
-import base64
-import json
 import logging
-import os
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 
 import aiohttp
 
+from core.logging import get_logger
 from core.resilience.circuit_breaker import (
-    get_circuit_breaker,
     CLAIMX_API_CIRCUIT_CONFIG,
+    get_circuit_breaker,
 )
 from core.resilience.rate_limiter import (
-    get_rate_limiter,
     CLAIMX_API_RATE_CONFIG,
+    get_rate_limiter,
 )
 from core.types import ErrorCategory
-from core.logging import get_logger
-from kafka_pipeline.common.logging import logged_operation, LoggedClass
+from kafka_pipeline.common.logging import LoggedClass, logged_operation
 
 logger = get_logger(__name__)
 
@@ -30,7 +26,7 @@ class ClaimXApiError(Exception):
     def __init__(
         self,
         message: str,
-        status_code: Optional[int] = None,
+        status_code: int | None = None,
         category: ErrorCategory = ErrorCategory.TRANSIENT,
         is_retryable: bool = True,
         should_refresh_auth: bool = False,
@@ -137,8 +133,8 @@ class ClaimXApiClient(LoggedClass):
         self.max_concurrent = max_concurrent
         self.sender_username = sender_username
 
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._session: aiohttp.ClientSession | None = None
+        self._semaphore: asyncio.Semaphore | None = None
         self._circuit = get_circuit_breaker("claimx_api", CLAIMX_API_CIRCUIT_CONFIG)
         self._rate_limiter = get_rate_limiter("claimx_api", CLAIMX_API_RATE_CONFIG)
 
@@ -185,10 +181,10 @@ class ClaimXApiClient(LoggedClass):
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None,
-        json_body: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
         _auth_retry: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         await self._ensure_session()
 
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
@@ -244,7 +240,6 @@ class ClaimXApiClient(LoggedClass):
                     duration = asyncio.get_event_loop().time() - start_time
                     # Metrics removed in refactor - domain-specific API metrics simplified
 
-                    status_tag = "success" if response.status == 200 else "error"
                     # Metrics removed in refactor
 
                     if response.status != 200:
@@ -291,7 +286,7 @@ class ClaimXApiClient(LoggedClass):
 
                     return data
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 duration = asyncio.get_event_loop().time() - start_time
                 error = ClaimXApiError(
                     f"Timeout after {self.timeout_seconds}s: {url}",
@@ -334,12 +329,12 @@ class ClaimXApiClient(LoggedClass):
                 raise error
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project(self, project_id: int) -> Dict[str, Any]:
+    async def get_project(self, project_id: int) -> dict[str, Any]:
         """Get full project details. Used for PROJECT_CREATED, PROJECT_MFN_ADDED events."""
         return await self._request("GET", f"/export/project/{project_id}")
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_id_by_claim_number(self, claim_number: str) -> Optional[int]:
+    async def get_project_id_by_claim_number(self, claim_number: str) -> int | None:
         """
         Get ClaimX project ID from claim number.
 
@@ -369,8 +364,8 @@ class ClaimXApiClient(LoggedClass):
     async def get_project_media(
         self,
         project_id: int,
-        media_ids: Optional[List[int]] = None,
-    ) -> List[Dict[str, Any]]:
+        media_ids: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
         """Get media metadata for a project. Used for PROJECT_FILE_ADDED events."""
         params = {}
         if media_ids:
@@ -393,7 +388,7 @@ class ClaimXApiClient(LoggedClass):
         return []
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_contacts(self, project_id: int) -> List[Dict[str, Any]]:
+    async def get_project_contacts(self, project_id: int) -> list[dict[str, Any]]:
         response = await self._request(
             "GET",
             f"/export/project/{project_id}/contacts",
@@ -410,7 +405,7 @@ class ClaimXApiClient(LoggedClass):
         return []
 
     @logged_operation(level=logging.DEBUG)
-    async def get_custom_task(self, assignment_id: int) -> Dict[str, Any]:
+    async def get_custom_task(self, assignment_id: int) -> dict[str, Any]:
         """Get custom task assignment. Used for CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED events."""
         return await self._request(
             "GET",
@@ -419,7 +414,7 @@ class ClaimXApiClient(LoggedClass):
         )
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_tasks(self, project_id: int) -> List[Dict[str, Any]]:
+    async def get_project_tasks(self, project_id: int) -> list[dict[str, Any]]:
         body = {
             "reportType": "CUSTOM_TASK_HIGH_LEVEL",
             "projectId": project_id,
@@ -436,12 +431,12 @@ class ClaimXApiClient(LoggedClass):
     async def get_video_collaboration(
         self,
         project_id: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        sender_username: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        sender_username: str | None = None,
+    ) -> dict[str, Any]:
         """Get video collaboration report. Used for VIDEO_COLLABORATION_INVITE_SENT, VIDEO_COLLABORATION_COMPLETED events."""
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "reportType": "VIDEO_COLLABORATION",
             "projectId": int(project_id),
             "senderUsername": sender_username or self.sender_username,
@@ -455,7 +450,7 @@ class ClaimXApiClient(LoggedClass):
         return await self._request("POST", "/data", json_body=body)
 
     @logged_operation(level=logging.DEBUG)
-    async def get_project_conversations(self, project_id: int) -> List[Dict[str, Any]]:
+    async def get_project_conversations(self, project_id: int) -> list[dict[str, Any]]:
         response = await self._request(
             "GET",
             f"/export/project/{project_id}/conversations",
@@ -471,7 +466,7 @@ class ClaimXApiClient(LoggedClass):
             return [response]
         return []
 
-    def get_circuit_status(self) -> Dict[str, Any]:
+    def get_circuit_status(self) -> dict[str, Any]:
         return self._circuit.get_diagnostics()
 
     @property

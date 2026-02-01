@@ -22,19 +22,20 @@ DLQ topic: com.allstate.pcesdopodappv1.delta-events.dlq
 """
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from config.config import KafkaConfig
 from kafka_pipeline.common.consumer import BaseKafkaConsumer
 from kafka_pipeline.common.health import HealthCheckServer
-from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.metrics import record_delta_write
+from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.verisk.writers import DeltaEventsWriter
@@ -86,7 +87,7 @@ class DeltaEventsWorker:
         producer: BaseKafkaProducer,
         events_table_path: str,
         domain: str = "verisk",
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
     ):
         """
         Initialize Delta events worker.
@@ -102,7 +103,7 @@ class DeltaEventsWorker:
         self.domain = domain
         self.instance_id = instance_id
         self.events_table_path = events_table_path
-        self.consumer: Optional[BaseKafkaConsumer] = None
+        self.consumer: BaseKafkaConsumer | None = None
         self.producer = producer
 
         # Create worker_id with instance suffix (coolname) if provided
@@ -133,9 +134,9 @@ class DeltaEventsWorker:
         )
 
         # Batch state
-        self._batch: List[Dict[str, Any]] = []
+        self._batch: list[dict[str, Any]] = []
         self._batch_lock = asyncio.Lock()
-        self._batch_timer: Optional[asyncio.Task] = None
+        self._batch_timer: asyncio.Task | None = None
         self._batches_written = 0
         self._total_events_written = 0
 
@@ -144,7 +145,7 @@ class DeltaEventsWorker:
         self._records_succeeded = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
-        self._cycle_task: Optional[asyncio.Task] = None
+        self._cycle_task: asyncio.Task | None = None
         self._running = False
 
         # Initialize Delta writer
@@ -213,8 +214,9 @@ class DeltaEventsWorker:
         self._running = True
 
         # Initialize telemetry
-        from kafka_pipeline.common.telemetry import initialize_telemetry
         import os
+
+        from kafka_pipeline.common.telemetry import initialize_telemetry
 
         initialize_telemetry(
             service_name=f"{self.domain}-delta-events-worker",
@@ -265,18 +267,14 @@ class DeltaEventsWorker:
         # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
-            except asyncio.CancelledError:
-                pass
 
         # Cancel batch timer
         if self._batch_timer and not self._batch_timer.done():
             self._batch_timer.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._batch_timer
-            except asyncio.CancelledError:
-                pass
 
         # Flush any remaining events in the batch
         if self._batch:
@@ -449,7 +447,7 @@ class DeltaEventsWorker:
                 batch_id=batch_id,
             )
 
-    async def _write_batch(self, batch: List[Dict[str, Any]], batch_id: str) -> bool:
+    async def _write_batch(self, batch: list[dict[str, Any]], batch_id: str) -> bool:
         """
         Attempt to write a batch to Delta Lake.
 

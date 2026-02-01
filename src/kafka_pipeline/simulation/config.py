@@ -12,7 +12,6 @@ Workers can trust that any SimulationConfig instance is valid - no defensive che
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -198,7 +197,7 @@ class SimulationConfig:
         self.fixtures_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def from_config_file(cls, config_path: Optional[Path] = None) -> "SimulationConfig":
+    def from_config_file(cls, config_path: Path | None = None) -> "SimulationConfig":
         """Load simulation config from dedicated simulation.yaml file.
 
         VALIDATION GUARANTEE:
@@ -245,7 +244,7 @@ class SimulationConfig:
             return cls()
 
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 config_data = yaml.safe_load(f) or {}
         except yaml.YAMLError as e:
             raise RuntimeError(f"Failed to parse config file {config_path}: {e}") from e
@@ -361,7 +360,7 @@ class SimulationConfig:
 #       config = get_simulation_config()  # Fails fast if not initialized
 # ============================================================================
 
-_simulation_config: Optional[SimulationConfig] = None
+_simulation_config: SimulationConfig | None = None
 
 
 def is_simulation_mode() -> bool:

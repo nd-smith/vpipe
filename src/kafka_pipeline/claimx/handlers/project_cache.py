@@ -9,7 +9,6 @@ Thread-safe for use across async tasks within a single worker instance.
 """
 
 import time
-from typing import Dict, List, Optional
 
 from core.logging import get_logger
 
@@ -55,7 +54,7 @@ class ProjectCache:
             cache.add(project_id)
     """
 
-    def __init__(self, ttl_seconds: Optional[int] = None):
+    def __init__(self, ttl_seconds: int | None = None):
         """
         Initialize cache with optional TTL.
 
@@ -67,7 +66,7 @@ class ProjectCache:
             ttl_seconds if ttl_seconds is not None else DEFAULT_TTL_SECONDS
         )
         # Maps project_id -> timestamp when added
-        self._projects: Dict[str, float] = {}
+        self._projects: dict[str, float] = {}
         self._hits = 0
         self._misses = 0
         self._expirations = 0
@@ -127,7 +126,7 @@ class ProjectCache:
                 },
             )
 
-    def load_from_ids(self, project_ids: List[str]) -> int:
+    def load_from_ids(self, project_ids: list[str]) -> int:
         """
         Preload cache with existing project IDs (e.g., from Delta table).
 
@@ -169,7 +168,7 @@ class ProjectCache:
         self._projects.clear()
         logger.debug("Cleared project cache", extra={"cleared_count": count})
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """
         Get cache statistics.
 

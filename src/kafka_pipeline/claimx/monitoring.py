@@ -21,10 +21,8 @@ Usage:
     await self.health_server.stop()
 """
 
-import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from aiohttp import web
 
@@ -63,7 +61,7 @@ class HealthCheckServer:
 
     def __init__(
         self,
-        port: Optional[int] = 8080,
+        port: int | None = 8080,
         worker_name: str = "claimx-worker",
         enabled: bool = True,
     ):
@@ -84,13 +82,13 @@ class HealthCheckServer:
         self._kafka_connected = False
         self._api_reachable = True  # Default true for workers without API dependency
         self._circuit_open = False
-        self._started_at = datetime.now(timezone.utc)
-        self._actual_port: Optional[int] = None
+        self._started_at = datetime.now(UTC)
+        self._actual_port: int | None = None
 
         # aiohttp components
-        self._app: Optional[web.Application] = None
-        self._runner: Optional[web.AppRunner] = None
-        self._site: Optional[web.TCPSite] = None
+        self._app: web.Application | None = None
+        self._runner: web.AppRunner | None = None
+        self._site: web.TCPSite | None = None
 
         if self._enabled:
             logger.info(
@@ -106,7 +104,7 @@ class HealthCheckServer:
     def set_ready(
         self,
         kafka_connected: bool,
-        api_reachable: Optional[bool] = None,
+        api_reachable: bool | None = None,
         circuit_open: bool = False,
     ) -> None:
         """
@@ -154,14 +152,14 @@ class HealthCheckServer:
         Returns:
             200 OK with status and uptime
         """
-        uptime_seconds = (datetime.now(timezone.utc) - self._started_at).total_seconds()
+        uptime_seconds = (datetime.now(UTC) - self._started_at).total_seconds()
 
         return web.json_response(
             {
                 "status": "alive",
                 "worker": self.worker_name,
                 "uptime_seconds": int(uptime_seconds),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             status=200,
         )
@@ -186,7 +184,7 @@ class HealthCheckServer:
                         "api_reachable": self._api_reachable,
                         "circuit_closed": not self._circuit_open,
                     },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=200,
             )
@@ -210,7 +208,7 @@ class HealthCheckServer:
                         "api_reachable": self._api_reachable,
                         "circuit_closed": not self._circuit_open,
                     },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=503,
             )
@@ -338,7 +336,7 @@ class HealthCheckServer:
             try:
                 await self._runner.cleanup()
                 logger.info(
-                    f"Health check server stopped",
+                    "Health check server stopped",
                     extra={"worker_name": self.worker_name},
                 )
             except Exception as e:
@@ -359,7 +357,7 @@ class HealthCheckServer:
         return self._ready
 
     @property
-    def actual_port(self) -> Optional[int]:
+    def actual_port(self) -> int | None:
         """Get the actual port the server is listening on.
 
         This is particularly useful when using port=0 for dynamic assignment.

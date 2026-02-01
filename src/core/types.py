@@ -6,7 +6,7 @@ shared across the core library to ensure consistency and type safety.
 """
 
 from enum import Enum
-from typing import Protocol, Optional
+from typing import Protocol
 
 
 class ErrorCategory(Enum):

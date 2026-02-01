@@ -5,27 +5,27 @@ import json
 import logging
 import socket
 import time
-from typing import Awaitable, Callable, List, Optional
+from collections.abc import Awaitable, Callable
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord, TopicPartition
 
-from core.auth.kafka_oauth import create_kafka_oauth_callback
-from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from core.logging import get_logger, log_with_context, log_exception, MessageLogContext
-from core.errors.exceptions import CircuitOpenError, ErrorCategory
-from core.errors.kafka_classifier import KafkaErrorClassifier
 from config.config import KafkaConfig
+from core.auth.kafka_oauth import create_kafka_oauth_callback
+from core.errors.exceptions import ErrorCategory
+from core.errors.kafka_classifier import KafkaErrorClassifier
+from core.logging import MessageLogContext, get_logger, log_exception, log_with_context
 from kafka_pipeline.common.metrics import (
+    message_processing_duration_seconds,
+    record_dlq_message,
     record_message_consumed,
     record_processing_error,
-    record_dlq_message,
-    update_connection_status,
     update_assigned_partitions,
+    update_connection_status,
     update_consumer_lag,
     update_consumer_offset,
-    message_processing_duration_seconds,
 )
+from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 
 logger = get_logger(__name__)
 
@@ -38,10 +38,10 @@ class BaseKafkaConsumer:
         config: KafkaConfig,
         domain: str,
         worker_name: str,
-        topics: List[str],
+        topics: list[str],
         message_handler: Callable[[PipelineMessage], Awaitable[None]],
         enable_message_commit: bool = True,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
     ):
         if not topics:
             raise ValueError("At least one topic must be specified")
@@ -52,9 +52,9 @@ class BaseKafkaConsumer:
         self.instance_id = instance_id
         self.topics = topics
         self.message_handler = message_handler
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._consumer: AIOKafkaConsumer | None = None
         self._running = False
-        self._dlq_producer: Optional[AIOKafkaProducer] = (
+        self._dlq_producer: AIOKafkaProducer | None = (
             None  # Lazy-initialized for DLQ routing (WP-211)
         )
 
@@ -317,7 +317,7 @@ class BaseKafkaConsumer:
                 if data:
                     self._batch_count += 1
 
-                for topic_partition, messages in data.items():
+                for _topic_partition, messages in data.items():
                     for message in messages:
                         if not self._running:
                             logger.info("Consumer stopped, breaking message loop")
@@ -641,9 +641,7 @@ class BaseKafkaConsumer:
         }
 
         dlq_value = json.dumps(dlq_message).encode("utf-8")
-        dlq_key = pipeline_message.key or f"dlq-{pipeline_message.offset}".encode(
-            "utf-8"
-        )
+        dlq_key = pipeline_message.key or f"dlq-{pipeline_message.offset}".encode()
 
         dlq_headers = [
             ("dlq_source_topic", pipeline_message.topic.encode("utf-8")),

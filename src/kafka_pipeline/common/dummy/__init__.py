@@ -21,13 +21,13 @@ Example:
 See kafka_pipeline/common/dummy/PLUGIN_TESTING.md for complete documentation.
 """
 
-from kafka_pipeline.common.dummy.source import DummyDataSource, DummySourceConfig
 from kafka_pipeline.common.dummy.file_server import DummyFileServer
 from kafka_pipeline.common.dummy.plugin_profiles import (
-    PluginProfile,
     ItelCabinetDataGenerator,
     ItelCabinetFormData,
+    PluginProfile,
 )
+from kafka_pipeline.common.dummy.source import DummyDataSource, DummySourceConfig
 
 __all__ = [
     "DummyDataSource",

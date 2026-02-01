@@ -13,23 +13,20 @@ Architecture notes:
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from azure.eventhub import EventData, EventHubProducerClient, TransportType
-from aiokafka.structs import (
-    RecordMetadata,
-)  # Keep for backward compatibility during migration
 from pydantic import BaseModel
 
-from core.logging import get_logger, log_with_context, log_exception
+from core.logging import get_logger, log_exception, log_with_context
 from core.utils.json_serializers import json_serializer
-from kafka_pipeline.common.types import ProduceResult
 from kafka_pipeline.common.metrics import (
+    message_processing_duration_seconds,
     record_message_produced,
     record_producer_error,
     update_connection_status,
-    message_processing_duration_seconds,
 )
+from kafka_pipeline.common.types import ProduceResult
 
 logger = get_logger(__name__)
 
@@ -106,7 +103,7 @@ class EventHubProducer:
         self.domain = domain
         self.worker_name = worker_name
         self.eventhub_name = eventhub_name
-        self._producer: Optional[EventHubProducerClient] = None
+        self._producer: EventHubProducerClient | None = None
         self._started = False
 
         log_with_context(
@@ -184,9 +181,9 @@ class EventHubProducer:
     async def send(
         self,
         topic: str,
-        key: Optional[Union[str, bytes]],
-        value: Union[BaseModel, Dict[str, Any], bytes],
-        headers: Optional[Dict[str, str]] = None,
+        key: str | bytes | None,
+        value: BaseModel | dict[str, Any] | bytes,
+        headers: dict[str, str] | None = None,
     ) -> ProduceResult:
         """Send a single message to Event Hub.
 
@@ -276,9 +273,9 @@ class EventHubProducer:
     async def send_batch(
         self,
         topic: str,
-        messages: List[Tuple[str, BaseModel]],
-        headers: Optional[Dict[str, str]] = None,
-    ) -> List[ProduceResult]:
+        messages: list[tuple[str, BaseModel]],
+        headers: dict[str, str] | None = None,
+    ) -> list[ProduceResult]:
         """Send a batch of messages to Event Hub.
 
         Args:

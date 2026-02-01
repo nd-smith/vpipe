@@ -13,7 +13,6 @@ Filenames are generated based on the event subtype and include sanitized
 names extracted from the download URL.
 """
 
-from typing import Optional, Tuple
 
 from core.security.url_validation import extract_filename_from_url
 
@@ -23,8 +22,8 @@ def generate_blob_path(
     trace_id: str,
     assignment_id: str,
     download_url: str,
-    estimate_version: Optional[str] = None,
-) -> Tuple[str, str]:
+    estimate_version: str | None = None,
+) -> tuple[str, str]:
     """
     Generate blob storage path based on event status subtype.
 
@@ -83,7 +82,7 @@ def get_onelake_path_for_event(
     assignment_id: str,
     download_url: str,
     base_path: str,
-    estimate_version: Optional[str] = None,
+    estimate_version: str | None = None,
 ) -> str:
     """
     Combine base path with domain-specific blob path.

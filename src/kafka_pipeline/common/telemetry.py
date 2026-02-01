@@ -15,14 +15,14 @@ for backward compatibility with existing code.
 
 import logging
 import os
-from typing import Optional, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _initialized = False
 _telemetry_available = False
-_tracer: Optional[Any] = None
-_prometheus_registry: Optional[Any] = None
+_tracer: Any | None = None
+_prometheus_registry: Any | None = None
 
 
 class SpanKind:
@@ -114,7 +114,7 @@ class NoOpSpanContext:
 def initialize_telemetry(
     service_name: str,
     environment: str = "development",
-    jaeger_endpoint: Optional[str] = None,  # Deprecated, ignored
+    jaeger_endpoint: str | None = None,  # Deprecated, ignored
     enable_traces: bool = True,  # Deprecated, ignored
     enable_metrics: bool = True,
 ) -> None:
@@ -209,7 +209,7 @@ def get_tracer(name: str) -> Any:
     return NoOpTracer()
 
 
-def get_prometheus_registry() -> Optional[Any]:
+def get_prometheus_registry() -> Any | None:
     """
     Get the Prometheus registry for creating metrics.
 

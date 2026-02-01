@@ -5,11 +5,10 @@ Implements FR-2.2.1: Validate files against allowed file type list.
 Supports validation by file extension and Content-Type header.
 """
 
-from typing import Optional, Set, Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 # Allowed file extensions (case-insensitive)
-ALLOWED_EXTENSIONS: Set[str] = {
+ALLOWED_EXTENSIONS: set[str] = {
     # Documents
     "pdf",
     "xml",
@@ -37,7 +36,7 @@ ALLOWED_EXTENSIONS: Set[str] = {
 }
 
 # Allowed MIME types (Content-Type header values)
-ALLOWED_CONTENT_TYPES: Set[str] = {
+ALLOWED_CONTENT_TYPES: set[str] = {
     # Documents
     "application/pdf",
     "application/xml",
@@ -72,7 +71,7 @@ EXTENSION_TO_MIME = {
 }
 
 
-def extract_extension(filename_or_url: str) -> Optional[str]:
+def extract_extension(filename_or_url: str) -> str | None:
     """
     Extract file extension from filename or URL.
 
@@ -137,10 +136,10 @@ def normalize_content_type(content_type: str) -> str:
 
 def validate_file_type(
     filename_or_url: str,
-    content_type: Optional[str] = None,
-    allowed_extensions: Optional[Set[str]] = None,
-    allowed_content_types: Optional[Set[str]] = None,
-) -> Tuple[bool, str]:
+    content_type: str | None = None,
+    allowed_extensions: set[str] | None = None,
+    allowed_content_types: set[str] | None = None,
+) -> tuple[bool, str]:
     """
     Validate file type against allowed extensions and content types.
 

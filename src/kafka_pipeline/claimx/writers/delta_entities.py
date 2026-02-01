@@ -17,10 +17,9 @@ When simulation mode is enabled, writes to local filesystem Delta tables
 in /tmp/pcesdopodappv1_simulation/delta/ instead of cloud OneLake storage.
 """
 
-from datetime import date, datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 import shutil
+from datetime import UTC, date, datetime
+from typing import Any
 
 import polars as pl
 
@@ -202,7 +201,7 @@ VIDEO_COLLAB_SCHEMA = {
 }
 
 # Map table names to their schema definitions
-TABLE_SCHEMAS: Dict[str, Dict[str, pl.DataType]] = {
+TABLE_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "contacts": CONTACTS_SCHEMA,
     "media": MEDIA_SCHEMA,
     "projects": PROJECTS_SCHEMA,
@@ -214,7 +213,7 @@ TABLE_SCHEMAS: Dict[str, Dict[str, pl.DataType]] = {
 
 
 # Merge keys for each entity table (from verisk_pipeline)
-MERGE_KEYS: Dict[str, List[str]] = {
+MERGE_KEYS: dict[str, list[str]] = {
     "projects": ["project_id"],
     "contacts": ["project_id", "contact_email", "contact_type"],
     "media": ["media_id"],
@@ -281,8 +280,8 @@ class ClaimXEntityWriter:
         # Check if simulation mode is enabled and override paths
         try:
             from kafka_pipeline.simulation import (
-                is_simulation_mode,
                 get_simulation_config,
+                is_simulation_mode,
             )
 
             if is_simulation_mode():
@@ -386,7 +385,7 @@ class ClaimXEntityWriter:
         # Create individual writers for each entity table
         # Projects and Media are partitioned by project_id
         # Others use the default (no partitioning)
-        self._writers: Dict[str, BaseDeltaWriter] = {
+        self._writers: dict[str, BaseDeltaWriter] = {
             "projects": BaseDeltaWriter(
                 table_path=projects_table_path,
                 partition_column="project_id",
@@ -421,7 +420,7 @@ class ClaimXEntityWriter:
             },
         )
 
-    async def write_all(self, entity_rows: EntityRowsMessage) -> Dict[str, int]:
+    async def write_all(self, entity_rows: EntityRowsMessage) -> dict[str, int]:
         """
         Write all entity rows to their respective Delta tables.
 
@@ -433,7 +432,7 @@ class ClaimXEntityWriter:
         Returns:
             Dict mapping table name to rows written
         """
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
 
         # Process each entity type
         if entity_rows.projects:
@@ -506,8 +505,8 @@ class ClaimXEntityWriter:
     async def _write_table(
         self,
         table_name: str,
-        rows: List[Dict[str, Any]],
-    ) -> Optional[int]:
+        rows: list[dict[str, Any]],
+    ) -> int | None:
         """
         Write rows to a specific entity table using merge or append.
 
@@ -552,7 +551,7 @@ class ClaimXEntityWriter:
 
             # Ensure created_at and updated_at have values (fill nulls with current time)
             # Delta tables declare these as non-nullable, so we must provide values
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if "created_at" not in df.columns:
                 df = df.with_columns(pl.lit(now).alias("created_at"))
             else:
@@ -626,7 +625,7 @@ class ClaimXEntityWriter:
             return None
 
     def _create_dataframe_with_schema(
-        self, table_name: str, rows: List[Dict[str, Any]]
+        self, table_name: str, rows: list[dict[str, Any]]
     ) -> pl.DataFrame:
         """
         Create DataFrame with explicit schema to prevent type inference issues.

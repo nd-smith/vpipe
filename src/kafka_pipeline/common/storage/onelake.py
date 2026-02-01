@@ -6,14 +6,14 @@ OneLake requires the DFS (Data Lake Storage) API, not the Blob API.
 Migrated from verisk_pipeline.storage.onelake for kafka_pipeline reorganization (REORG-502).
 """
 
+import contextlib
 import logging
 import os
 import socket
-import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -22,7 +22,7 @@ from azure.core.pipeline.transport import RequestsTransport
 from azure.storage.filedatalake import DataLakeServiceClient  # type: ignore
 from requests.adapters import HTTPAdapter
 
-from kafka_pipeline.common.auth import get_auth, clear_token_cache
+from kafka_pipeline.common.auth import clear_token_cache, get_auth
 from kafka_pipeline.common.logging import LoggedClass, logged_operation
 from kafka_pipeline.common.retry import RetryConfig, with_retry
 
@@ -113,7 +113,7 @@ class TokenCredential:
     def __init__(self, token: str, expires_in_hours: int = 1):
         self._token = token
         self._expires_on = int(
-            (datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)).timestamp()
+            (datetime.now(UTC) + timedelta(hours=expires_in_hours)).timestamp()
         )
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
@@ -168,8 +168,8 @@ class FileBackedTokenCredential:
 
     def __init__(self, resource: str = "https://storage.azure.com/"):
         self._resource = resource
-        self._cached_token: Optional[str] = None
-        self._token_acquired_at: Optional[datetime] = None
+        self._cached_token: str | None = None
+        self._token_acquired_at: datetime | None = None
         self._logger = logging.getLogger(__name__)
         _register_file_credential(self)
 
@@ -177,7 +177,7 @@ class FileBackedTokenCredential:
         if self._cached_token is None or self._token_acquired_at is None:
             return True
 
-        age = datetime.now(timezone.utc) - self._token_acquired_at
+        age = datetime.now(UTC) - self._token_acquired_at
         return age > timedelta(minutes=self.TOKEN_REFRESH_MINUTES)
 
     def _fetch_token(self) -> str:
@@ -194,7 +194,7 @@ class FileBackedTokenCredential:
             raise RuntimeError(f"Failed to get token for resource: {self._resource}")
 
         self._cached_token = token
-        self._token_acquired_at = datetime.now(timezone.utc)
+        self._token_acquired_at = datetime.now(UTC)
 
         self._logger.debug(
             "FileBackedTokenCredential refreshed token for %s", self._resource
@@ -209,7 +209,7 @@ class FileBackedTokenCredential:
             expires_on = int((self._token_acquired_at + timedelta(hours=1)).timestamp())
         else:
             expires_on = int(
-                (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()
+                (datetime.now(UTC) + timedelta(hours=1)).timestamp()
             )
 
         return AccessToken(self._cached_token, expires_on)
@@ -224,7 +224,7 @@ class FileBackedTokenCredential:
         pass
 
 
-def parse_abfss_path(path: str) -> Tuple[str, str, str]:
+def parse_abfss_path(path: str) -> tuple[str, str, str]:
     """Parse abfss://container@account.dfs.fabric.microsoft.com/path/to/files into components."""
     parsed = urlparse(path)
 
@@ -252,7 +252,7 @@ class OneLakeClient(LoggedClass):
     def __init__(
         self,
         base_path: str,
-        max_pool_size: Optional[int] = None,
+        max_pool_size: int | None = None,
         connection_timeout: int = CONNECTION_TIMEOUT,
         request_timeout: int = 300,
     ):
@@ -277,20 +277,20 @@ class OneLakeClient(LoggedClass):
             base_path
         )
 
-        self._service_client: Optional[DataLakeServiceClient] = None
+        self._service_client: DataLakeServiceClient | None = None
         self._file_system_client = None
-        self._session: Optional[requests.Session] = None
+        self._session: requests.Session | None = None
 
-        self._write_tokens: Dict[str, WriteOperation] = {}
+        self._write_tokens: dict[str, WriteOperation] = {}
 
-        from datetime import datetime, timezone
         import threading
+        from datetime import datetime
 
         self._pool_stats = {
             "connections_created": 0,
             "requests_processed": 0,
             "errors_encountered": 0,
-            "last_reset": datetime.now(timezone.utc),
+            "last_reset": datetime.now(UTC),
         }
         self._pool_stats_lock = threading.Lock()
 
@@ -448,10 +448,8 @@ class OneLakeClient(LoggedClass):
                     level=logging.WARNING,
                 )
         if self._session is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._session.close()
-            except Exception:
-                pass
             self._session = None
         self._service_client = None
         self._file_system_client = None
@@ -496,10 +494,8 @@ class OneLakeClient(LoggedClass):
                     level=logging.WARNING,
                 )
         if self._session is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._session.close()
-            except Exception:
-                pass
             self._session = None
         self._service_client = None
         self._file_system_client = None
@@ -518,7 +514,7 @@ class OneLakeClient(LoggedClass):
     def _full_path(self, relative_path: str) -> str:
         return f"{self.base_directory}/{relative_path}"
 
-    def _split_path(self, full_path: str) -> Tuple[str, str]:
+    def _split_path(self, full_path: str) -> tuple[str, str]:
         if "/" in full_path:
             directory = "/".join(full_path.split("/")[:-1])
             filename = full_path.split("/")[-1]
@@ -579,7 +575,7 @@ class OneLakeClient(LoggedClass):
         self,
         relative_path: str,
         data: bytes,
-        operation_token: Optional[str] = None,
+        operation_token: str | None = None,
         overwrite: bool = True,
     ) -> WriteOperation:
         """Upload bytes with idempotency token to prevent duplicate uploads (Task G.3b)."""
@@ -606,7 +602,7 @@ class OneLakeClient(LoggedClass):
         write_op = WriteOperation(
             token=operation_token,
             relative_path=relative_path,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             bytes_written=len(data),
         )
         self._record_token(write_op)
@@ -722,7 +718,7 @@ class OneLakeClient(LoggedClass):
             raise
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
-    def get_file_properties(self, relative_path: str) -> Optional[dict]:
+    def get_file_properties(self, relative_path: str) -> dict | None:
         self._ensure_client()
 
         full_path = self._full_path(relative_path)
@@ -760,25 +756,25 @@ class OneLakeClient(LoggedClass):
             if not success:
                 self._pool_stats["errors_encountered"] += 1
 
-    def get_pool_stats(self) -> Dict[str, Any]:
-        from datetime import datetime, timezone
+    def get_pool_stats(self) -> dict[str, Any]:
+        from datetime import datetime
 
         with self._pool_stats_lock:
             stats = self._pool_stats.copy()
             stats["uptime_seconds"] = (
-                datetime.now(timezone.utc) - stats["last_reset"]
+                datetime.now(UTC) - stats["last_reset"]
             ).total_seconds()
             return stats
 
     def reset_pool_stats(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         with self._pool_stats_lock:
             self._pool_stats = {
                 "connections_created": 0,
                 "requests_processed": 0,
                 "errors_encountered": 0,
-                "last_reset": datetime.now(timezone.utc),
+                "last_reset": datetime.now(UTC),
             }
 
     def log_pool_health(self) -> None:

@@ -23,9 +23,8 @@ API behavior for compatibility with upload workers.
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Optional
 
 from core.logging.setup import get_logger
 
@@ -213,7 +212,7 @@ class LocalStorageAdapter:
             # OneLake returns abfss:// path, we return file:// path
             return f"file://{dest_path}"
 
-        except Exception as e:
+        except Exception:
             # Clean up temp file on error
             if await asyncio.to_thread(temp_path.exists):
                 await asyncio.to_thread(temp_path.unlink)
@@ -230,7 +229,7 @@ class LocalStorageAdapter:
         relative_path: str,
         data: bytes,
         overwrite: bool = True,
-        content_type: Optional[str] = None,
+        content_type: str | None = None,
     ) -> str:
         """
         Upload bytes to storage (async, non-blocking).
@@ -287,7 +286,7 @@ class LocalStorageAdapter:
 
             return f"file://{dest_path}"
 
-        except Exception as e:
+        except Exception:
             # Clean up temp file on error
             if await asyncio.to_thread(temp_path.exists):
                 await asyncio.to_thread(temp_path.unlink)
@@ -388,7 +387,7 @@ class LocalStorageAdapter:
     async def _save_metadata(
         self,
         relative_path: str,
-        content_type: Optional[str],
+        content_type: str | None,
         size: int,
     ) -> None:
         """
@@ -402,7 +401,7 @@ class LocalStorageAdapter:
         metadata = {
             "content_type": content_type,
             "size": size,
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "uploaded_at": datetime.now(UTC).isoformat(),
             "relative_path": relative_path,
         }
 
@@ -412,7 +411,7 @@ class LocalStorageAdapter:
         metadata_json = json.dumps(metadata, indent=2)
         await asyncio.to_thread(metadata_path.write_text, metadata_json)
 
-    async def _load_metadata(self, relative_path: str) -> Optional[dict]:
+    async def _load_metadata(self, relative_path: str) -> dict | None:
         """
         Load blob metadata from sidecar JSON file.
 
@@ -433,7 +432,7 @@ class LocalStorageAdapter:
 
     # Utility methods for debugging and inspection
 
-    async def list_blobs(self, prefix: str = "") -> List[str]:
+    async def list_blobs(self, prefix: str = "") -> list[str]:
         """
         List all blobs with given prefix.
 

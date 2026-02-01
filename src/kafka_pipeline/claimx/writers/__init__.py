@@ -6,8 +6,8 @@ This module contains Delta table writers for:
 """
 
 from kafka_pipeline.claimx.writers.delta_entities import (
-    ClaimXEntityWriter,
     MERGE_KEYS,
+    ClaimXEntityWriter,
 )
 from kafka_pipeline.claimx.writers.delta_events import ClaimXEventsDeltaWriter
 

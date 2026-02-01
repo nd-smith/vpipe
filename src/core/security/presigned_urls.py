@@ -11,9 +11,8 @@ Supported URL formats:
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Optional
-from urllib.parse import urlparse, parse_qs
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 
 @dataclass
@@ -24,20 +23,20 @@ class PresignedUrlInfo:
     url_type: str  # "s3", "claimx", "unknown"
     is_presigned: bool
     is_expired: bool
-    signed_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    ttl_seconds: Optional[int] = None
-    parse_error: Optional[str] = None
+    signed_at: datetime | None = None
+    expires_at: datetime | None = None
+    ttl_seconds: int | None = None
+    parse_error: str | None = None
 
     @property
-    def time_remaining(self) -> Optional[timedelta]:
+    def time_remaining(self) -> timedelta | None:
         """Time until expiration. Negative if expired."""
         if not self.expires_at:
             return None
-        return self.expires_at - datetime.now(timezone.utc)
+        return self.expires_at - datetime.now(UTC)
 
     @property
-    def seconds_remaining(self) -> Optional[int]:
+    def seconds_remaining(self) -> int | None:
         """Seconds until expiration. Negative if expired."""
         remaining = self.time_remaining
         if remaining is None:
@@ -49,7 +48,7 @@ class PresignedUrlInfo:
         if not self.expires_at:
             return False
         return (
-            datetime.now(timezone.utc) + timedelta(seconds=seconds) >= self.expires_at
+            datetime.now(UTC) + timedelta(seconds=seconds) >= self.expires_at
         )
 
 
@@ -97,7 +96,7 @@ def _parse_s3_url(url: str) -> PresignedUrlInfo:
         params = parse_qs(parsed.query)
 
         # Handle case-insensitive parameter names
-        def get_param(name: str) -> Optional[str]:
+        def get_param(name: str) -> str | None:
             # Try exact case first
             if name in params:
                 return params[name][0]
@@ -131,7 +130,7 @@ def _parse_s3_url(url: str) -> PresignedUrlInfo:
 
         # Parse timestamp - S3 dates are always UTC, make timezone-aware
         signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
         ttl_seconds = int(expires_str)
         expires_at = signed_at + timedelta(seconds=ttl_seconds)
@@ -140,7 +139,7 @@ def _parse_s3_url(url: str) -> PresignedUrlInfo:
             url=url,
             url_type="s3",
             is_presigned=True,
-            is_expired=datetime.now(timezone.utc) >= expires_at,
+            is_expired=datetime.now(UTC) >= expires_at,
             signed_at=signed_at,
             expires_at=expires_at,
             ttl_seconds=ttl_seconds,
@@ -185,7 +184,7 @@ def _parse_claimx_url(url: str) -> PresignedUrlInfo:
             )
 
         # Parse (convert ms to seconds) - use UTC-aware datetimes
-        signed_at = datetime.fromtimestamp(int(system_date_str) / 1000, tz=timezone.utc)
+        signed_at = datetime.fromtimestamp(int(system_date_str) / 1000, tz=UTC)
         ttl_ms = int(expires_str)
         ttl_seconds = ttl_ms // 1000
         expires_at = signed_at + timedelta(milliseconds=ttl_ms)
@@ -194,7 +193,7 @@ def _parse_claimx_url(url: str) -> PresignedUrlInfo:
             url=url,
             url_type="claimx",
             is_presigned=True,
-            is_expired=datetime.now(timezone.utc) >= expires_at,
+            is_expired=datetime.now(UTC) >= expires_at,
             signed_at=signed_at,
             expires_at=expires_at,
             ttl_seconds=ttl_seconds,
@@ -208,21 +207,3 @@ def _parse_claimx_url(url: str) -> PresignedUrlInfo:
             is_expired=False,
             parse_error=f"Parse error: {e}",
         )
-
-
-def extract_expires_at_iso(url: str) -> Optional[str]:
-    """
-    Extract expiration time as ISO string for storage.
-
-    Convenience function for adding expires_at column to tables.
-
-    Args:
-        url: Presigned URL
-
-    Returns:
-        ISO datetime string or None if not parseable
-    """
-    info = check_presigned_url(url)
-    if info.expires_at:
-        return info.expires_at.isoformat()
-    return None

@@ -8,30 +8,21 @@ and writes events to a configurable sink (Kafka, JSON file, etc.).
 import asyncio
 import json
 import os
-import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Set, Type, Union
+from typing import Optional
 
-import yaml
-
+from config.config import KafkaConfig
 from core.logging.setup import get_logger
 from kafka_pipeline.common.eventhouse.kql_client import (
-    DEFAULT_CONFIG_PATH,
     EventhouseConfig,
     KQLClient,
-    KQLQueryResult,
 )
 from kafka_pipeline.common.eventhouse.sinks import (
     EventSink,
-    KafkaSink,
-    KafkaSinkConfig,
-    JsonFileSink,
-    JsonFileSinkConfig,
     create_kafka_sink,
 )
-from config.config import KafkaConfig, load_config as load_kafka_config
 
 logger = get_logger(__name__)
 
@@ -63,7 +54,7 @@ class PollerCheckpoint:
             return None
 
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
 
             checkpoint = cls(
@@ -88,7 +79,7 @@ class PollerCheckpoint:
         """
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            self.updated_at = datetime.now(timezone.utc).isoformat()
+            self.updated_at = datetime.now(UTC).isoformat()
 
             temp_path = path.with_suffix(".tmp")
 
@@ -99,7 +90,7 @@ class PollerCheckpoint:
             os.replace(temp_path, path)
             return True
 
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error("Failed to save checkpoint", extra={"error": str(e)})
             return False
 
@@ -107,7 +98,7 @@ class PollerCheckpoint:
         """Parse last_ingestion_time to offset-aware UTC datetime."""
         dt = datetime.fromisoformat(self.last_ingestion_time.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
 
 
@@ -116,8 +107,8 @@ class PollerConfig:
     """Configuration for KQL Event Poller."""
 
     eventhouse: EventhouseConfig
-    kafka: Optional[KafkaConfig] = None  # Optional when using custom sink
-    event_schema_class: Optional[Type] = None
+    kafka: KafkaConfig | None = None  # Optional when using custom sink
+    event_schema_class: type | None = None
     domain: str = "verisk"
     poll_interval_seconds: int = 30
     batch_size: int = 1000
@@ -126,15 +117,15 @@ class PollerConfig:
     events_table_path: str = ""
     max_kafka_lag: int = 10_000
     lag_check_interval_seconds: int = 60
-    backfill_start_stamp: Optional[str] = None
-    backfill_stop_stamp: Optional[str] = None
+    backfill_start_stamp: str | None = None
+    backfill_stop_stamp: str | None = None
     bulk_backfill: bool = False
-    checkpoint_path: Optional[Path] = None
+    checkpoint_path: Path | None = None
     # If set, use this column name instead of ingestion_time() function
     # e.g., "IngestionTime" for claimx which has an actual column
-    ingestion_time_column: Optional[str] = None
+    ingestion_time_column: str | None = None
     # Optional custom sink - if not provided, uses KafkaSink with kafka config
-    sink: Optional[EventSink] = None
+    sink: EventSink | None = None
 
 
 class KQLEventPoller:
@@ -160,18 +151,18 @@ class KQLEventPoller:
         else:
             self._event_schema_class = config.event_schema_class
 
-        self._kql_client: Optional[KQLClient] = None
-        self._sink: Optional[EventSink] = config.sink
+        self._kql_client: KQLClient | None = None
+        self._sink: EventSink | None = config.sink
         self._owns_sink = config.sink is None  # Track if we created the sink
-        self._last_poll_time: Optional[datetime] = None
+        self._last_poll_time: datetime | None = None
         self._consecutive_empty_polls = 0
         self._total_events_fetched = 0
         self._total_polls = 0
         self._seen_trace_ids: set[str] = set()
         self._duplicate_count = 0
         self._backfill_mode = True
-        self._backfill_start_time: Optional[datetime] = None
-        self._backfill_stop_time: Optional[datetime] = None
+        self._backfill_start_time: datetime | None = None
+        self._backfill_stop_time: datetime | None = None
 
         if config.backfill_start_stamp:
             self._backfill_start_time = self._parse_timestamp(
@@ -180,16 +171,16 @@ class KQLEventPoller:
         if config.backfill_stop_stamp:
             self._backfill_stop_time = self._parse_timestamp(config.backfill_stop_stamp)
 
-        self._last_ingestion_time: Optional[datetime] = None
-        self._last_trace_id: Optional[str] = None
+        self._last_ingestion_time: datetime | None = None
+        self._last_trace_id: str | None = None
         self._checkpoint_path = config.checkpoint_path or (
             DEFAULT_CHECKPOINT_DIR / f"poller_{config.domain}.json"
         )
         self._load_checkpoint()
-        self._pending_tasks: Set[asyncio.Task] = set()
+        self._pending_tasks: set[asyncio.Task] = set()
 
     @property
-    def _trace_id_col(self) -> Optional[str]:
+    def _trace_id_col(self) -> str | None:
         """Get the KQL column name for the unique ID (default: traceId). Returns None if disabled."""
         col = self.config.column_mapping.get("trace_id")
         if col == "None" or col is None:
@@ -200,7 +191,7 @@ class KQLEventPoller:
         """Helper to ensure all parsed timestamps are offset-aware UTC."""
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
 
     def _load_checkpoint(self) -> None:
@@ -215,7 +206,7 @@ class KQLEventPoller:
     def _save_checkpoint(self, ingestion_time: datetime, trace_id: str) -> None:
         """Saves current progress to disk."""
         if ingestion_time.tzinfo is None:
-            ingestion_time = ingestion_time.replace(tzinfo=timezone.utc)
+            ingestion_time = ingestion_time.replace(tzinfo=UTC)
 
         checkpoint = PollerCheckpoint(
             last_ingestion_time=ingestion_time.isoformat(),
@@ -364,14 +355,14 @@ class KQLEventPoller:
                     self._shutdown_event.wait(),
                     timeout=self.config.poll_interval_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             except Exception as e:
                 logger.error("Error in poll cycle", extra={"error": str(e)})
 
     async def _bulk_backfill(self) -> None:
         """Execute paginated bulk backfill."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         start = self._backfill_start_time or (now - timedelta(hours=1))
         stop = self._backfill_stop_time or now
         trace_id_col = self._trace_id_col
@@ -408,7 +399,7 @@ class KQLEventPoller:
                 else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
             )
             if l_time.tzinfo is None:
-                l_time = l_time.replace(tzinfo=timezone.utc)
+                l_time = l_time.replace(tzinfo=UTC)
 
             l_tid = str(last.get(trace_id_col)) if trace_id_col else ""
             self._save_checkpoint(l_time, l_tid)
@@ -419,7 +410,7 @@ class KQLEventPoller:
 
     async def _poll_cycle(self) -> None:
         """Execute single poll cycle."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         poll_from = self._last_ingestion_time or (now - timedelta(hours=1))
 
         query = self._build_query(
@@ -444,7 +435,7 @@ class KQLEventPoller:
             else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
         )
         if l_time.tzinfo is None:
-            l_time = l_time.replace(tzinfo=timezone.utc)
+            l_time = l_time.replace(tzinfo=UTC)
 
         l_tid = str(last.get(self._trace_id_col)) if self._trace_id_col else ""
         self._save_checkpoint(l_time, l_tid)
@@ -466,7 +457,7 @@ class KQLEventPoller:
                 else datetime.fromisoformat(str(t_raw).replace("Z", "+00:00"))
             )
             if r_time.tzinfo is None:
-                r_time = r_time.replace(tzinfo=timezone.utc)
+                r_time = r_time.replace(tzinfo=UTC)
 
             r_tid = str(r.get(self._trace_id_col, "")) if self._trace_id_col else ""
 

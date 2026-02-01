@@ -5,7 +5,6 @@ Contains core models used for event processing and download task management.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 # XACT tracking table configuration
 XACT_PRIMARY_KEYS = ["trace_id", "attachment_url"]
@@ -45,5 +44,5 @@ class Task:
     status_subtype: str
     file_type: str
     assignment_id: str
-    estimate_version: Optional[str] = None
+    estimate_version: str | None = None
     retry_count: int = 0
