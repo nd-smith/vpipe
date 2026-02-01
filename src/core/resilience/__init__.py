@@ -5,7 +5,6 @@ Provides fault tolerance primitives for distributed systems.
 
 Components:
     - CircuitBreaker: State machine (closed/open/half-open)
-    - @circuit_protected: Decorator for circuit breaker protection
     - RetryConfig: Exponential backoff configuration
     - @with_retry decorator: Retry with jitter
     - RateLimiter: Token bucket rate limiting
@@ -24,7 +23,6 @@ from .circuit_breaker import (
     CircuitOpenError,
     CircuitState,
     CircuitStats,
-    circuit_protected,
     get_circuit_breaker,
 )
 from .rate_limiter import (
@@ -50,7 +48,6 @@ __all__ = [
     "CircuitOpenError",
     "CircuitState",
     "CircuitStats",
-    "circuit_protected",
     "get_circuit_breaker",
     # Rate Limiter
     "RateLimiter",

@@ -12,19 +12,18 @@ States:
 - HALF_OPEN: Testing recovery, limited requests allowed
 
 Usage:
-    # Decorator style (recommended)
-    @circuit_protected("kusto")
-    def query_kusto():
-        ...
-
-    # Context manager style
-    with circuit_call("onelake") as ctx:
-        result = upload_file()
-        ctx.record_success()
-
-    # Manual style
+    # Manual style (record success/failure explicitly)
     breaker = get_circuit_breaker("downloads")
-    result = breaker.call(lambda: download_file())
+    try:
+        result = await download_file()
+        breaker.record_success()
+    except Exception as e:
+        breaker.record_failure(e)
+        raise
+
+    # Using call_async helper
+    breaker = get_circuit_breaker("downloads")
+    result = await breaker.call_async(lambda: download_file())
 """
 
 import logging
@@ -451,26 +450,6 @@ class CircuitBreaker:
         elapsed = time.time() - self._last_failure_time
         return max(0, self.config.timeout_seconds - elapsed)
 
-    def call(self, func: Callable[[], T]) -> T:
-        with self._lock:
-            self._stats.total_calls += 1
-
-            if not self._can_execute():
-                self._stats.rejected_calls += 1
-                retry_after = self._get_retry_after()
-                raise CircuitOpenError(self.name, retry_after)
-
-        # Execute outside lock
-        try:
-            result = func()
-            with self._lock:
-                self._record_success()
-            return result
-        except Exception as e:
-            with self._lock:
-                self._record_failure(e)
-            raise
-
     async def call_async(self, func: Callable[[], T]) -> T:
         with self._lock:
             self._stats.total_calls += 1
@@ -563,22 +542,6 @@ def get_circuit_breaker(
         return _breakers[name]
 
 
-def circuit_protected(
-    name: str,
-    config: CircuitBreakerConfig | None = None,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @wraps(func)
-        def wrapper(*args, **kwargs) -> T:
-            breaker = get_circuit_breaker(name, config)
-            return breaker.call(lambda: func(*args, **kwargs))
-
-        return wrapper
-
-    return decorator
-
-
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerConfig",
@@ -587,7 +550,6 @@ __all__ = [
     "CircuitStats",
     "ErrorClassifier",
     "MetricsCollector",
-    "circuit_protected",
     "get_circuit_breaker",
     # Standard configs
     "CLAIMX_API_CIRCUIT_CONFIG",
