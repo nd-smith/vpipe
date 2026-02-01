@@ -132,15 +132,9 @@ class EventIngesterWorker:
         logger.info("Starting EventIngesterWorker")
         self._running = True
 
-        # Initialize telemetry
-        import os
+        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
-
-        initialize_telemetry(
-            service_name=f"{self.domain}-event-ingester",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry(self.domain, "event-ingester")
 
         # Start health check server first
         await self.health_server.start()

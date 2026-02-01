@@ -218,15 +218,9 @@ class ClaimXDownloadWorker:
             },
         )
 
-        # Initialize telemetry
-        import os
+        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
-
-        initialize_telemetry(
-            service_name=f"{self.domain}-download-worker",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry(self.domain, "download-worker")
 
         await self.health_server.start()
 

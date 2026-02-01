@@ -383,6 +383,17 @@ class DeltaTableWriter(LoggedClass):
         except Exception:
             return False
 
+    def _cast_null_columns(
+        self, df: pl.DataFrame, target_type: pl.DataType = pl.Utf8
+    ) -> pl.DataFrame:
+        """Cast NULL-typed columns to target type to avoid Delta Lake errors."""
+        for col in df.columns:
+            if df[col].dtype == pl.Null:
+                df = df.with_columns(
+                    pl.col(col).cast(target_type, strict=False).alias(col)
+                )
+        return df
+
     def _align_schema_with_target(
         self, df: pl.DataFrame, opts: dict[str, str]
     ) -> pl.DataFrame:
@@ -628,13 +639,8 @@ class DeltaTableWriter(LoggedClass):
         if self._table_exists(opts):
             df = self._align_schema_with_target(df, opts)
 
-        # Cast any remaining null-typed columns to string to avoid Delta Lake errors.
-        # This can happen when all values in a column are None (e.g., contacts batch
-        # with only CLAIM_REP entries where first_name/last_name are all null).
-        # Delta's schema evolution will handle type coercion during write.
-        for col in df.columns:
-            if df[col].dtype == pl.Null:
-                df = df.with_columns(pl.col(col).cast(pl.Utf8))
+        # Cast any remaining null-typed columns to avoid Delta Lake errors
+        df = self._cast_null_columns(df)
 
         # Determine partition columns - use existing table's partitions if table exists,
         # otherwise use configured partition column. This prevents partition mismatch
@@ -747,12 +753,7 @@ class DeltaTableWriter(LoggedClass):
             df = self._align_schema_with_target(df, opts)
         else:
             # Table doesn't exist yet - cast NULL columns to Utf8 as default
-            # (schema evolution will handle type inference on first write)
-            for col in df.columns:
-                if df[col].dtype == pl.Null:
-                    df = df.with_columns(
-                        pl.col(col).cast(pl.Utf8, strict=False).alias(col)
-                    )
+            df = self._cast_null_columns(df)
 
         # Create table if doesn't exist
         if not self._table_exists(opts):

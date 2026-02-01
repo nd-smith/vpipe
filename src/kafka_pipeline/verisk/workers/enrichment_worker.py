@@ -194,14 +194,9 @@ class XACTEnrichmentWorker:
         logger.info("Starting XACTEnrichmentWorker")
         self._running = True
 
-        import os
+        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
-
-        initialize_telemetry(
-            service_name=f"{self.domain}-enrichment-worker",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry(self.domain, "enrichment-worker")
 
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 

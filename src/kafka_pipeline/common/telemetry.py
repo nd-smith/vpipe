@@ -188,6 +188,18 @@ def initialize_telemetry(
         logger.info("Telemetry initialization complete")
 
 
+def initialize_worker_telemetry(domain: str, worker_name: str) -> None:
+    """Initialize telemetry for a worker with standard naming convention.
+
+    Args:
+        domain: Pipeline domain (e.g., "verisk", "claimx")
+        worker_name: Worker type (e.g., "download-worker", "enrichment-worker")
+    """
+    environment = os.getenv("ENVIRONMENT", "development")
+    service_name = f"{domain}-{worker_name}"
+    initialize_telemetry(service_name=service_name, environment=environment)
+
+
 def get_tracer(name: str) -> Any:
     """
     Get a tracer instance for creating spans.

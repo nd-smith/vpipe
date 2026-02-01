@@ -226,15 +226,9 @@ class ResultProcessor:
         logger.info("Starting result processor")
         self._running = True
 
-        # Initialize telemetry
-        import os
+        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
-
-        initialize_telemetry(
-            service_name=f"{self.domain}-result-processor",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry(self.domain, "result-processor")
 
         # Start health check server first
         await self.health_server.start()

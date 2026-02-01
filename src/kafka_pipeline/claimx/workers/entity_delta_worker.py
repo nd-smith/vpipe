@@ -153,15 +153,9 @@ class ClaimXEntityDeltaWorker:
 
     async def start(self) -> None:
         """Start the worker."""
-        # Initialize telemetry
-        import os
+        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
-        from kafka_pipeline.common.telemetry import initialize_telemetry
-
-        initialize_telemetry(
-            service_name=f"{self.domain}-entity-delta-worker",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry(self.domain, "entity-delta-worker")
 
         # Start health check server first
         await self.health_server.start()
