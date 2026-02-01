@@ -10,7 +10,6 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
-import coolname
 from dotenv import load_dotenv
 from prometheus_client import REGISTRY, start_http_server
 
@@ -55,16 +54,15 @@ async def run_worker_pool(
 ) -> None:
     """Run multiple instances of a worker concurrently.
     Each instance joins the same consumer group for automatic partition distribution.
-    Each instance gets a unique instance_id (coolname) for distinct logging and identity.
+    Each instance gets a unique instance_id for distinct logging and identity.
     """
     logger.info(
         "Starting worker instances", extra={"count": count, "worker_name": worker_name}
     )
 
     tasks = []
-    for _i in range(count):
-        # Generate unique coolname for this worker instance (e.g., "happy-tiger")
-        instance_id = coolname.generate_slug(2)
+    for i in range(count):
+        instance_id = str(i)
 
         # Pass instance_id to worker for distinct logging and Kafka client_id
         instance_kwargs = kwargs.copy()
@@ -609,24 +607,10 @@ def main():
 
     # Check for deprecated dummy-source worker
     if args.worker in ["dummy-source", "dummy_source"]:
-        logger.error("=" * 80)
-        logger.error("DEPRECATED: 'dummy-source' has been moved to simulation module")
-        logger.error("=" * 80)
-        logger.error("")
-        logger.error("The dummy data producer is now a simulation-only tool.")
-        logger.error("It has been moved to prevent accidental use in production.")
-        logger.error("")
-        logger.error("New usage:")
-        logger.error("  export SIMULATION_MODE=true")
         logger.error(
-            "  python -m kafka_pipeline.simulation.dummy_producer --domains claimx --max-events 100"
+            "Worker 'dummy-source' has been moved to kafka_pipeline.simulation.dummy_producer. "
+            "Use: python -m kafka_pipeline.simulation.dummy_producer --help"
         )
-        logger.error("")
-        logger.error("Or use the convenience script:")
-        logger.error("  ./scripts/generate_test_data.sh")
-        logger.error("")
-        logger.error("See: kafka_pipeline/simulation/README.md")
-        logger.error("=" * 80)
         sys.exit(1)
 
     try:

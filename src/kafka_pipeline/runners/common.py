@@ -69,7 +69,6 @@ async def execute_worker_with_shutdown(
     worker_instance,
     stage_name: str,
     shutdown_event: asyncio.Event,
-    stop_method: str = "stop",
     instance_id: int | None = None,
 ) -> None:
     """Execute a worker with standard shutdown handling.
@@ -78,7 +77,6 @@ async def execute_worker_with_shutdown(
         worker_instance: Worker instance with start() and stop() methods
         stage_name: Name for logging context
         shutdown_event: Event to signal graceful shutdown
-        stop_method: Name of the stop method on worker (default: "stop")
         instance_id: Instance identifier for multi-instance deployments (optional)
     """
     # Set log context with instance_id if provided
@@ -98,8 +96,7 @@ async def execute_worker_with_shutdown(
         logger.info(
             f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
         )
-        stop_fn = getattr(worker_instance, stop_method)
-        await stop_fn()
+        await worker_instance.stop()
 
     watcher_task = asyncio.create_task(shutdown_watcher())
 
@@ -111,8 +108,7 @@ async def execute_worker_with_shutdown(
             await watcher_task
         except (asyncio.CancelledError, RuntimeError):
             pass
-        stop_fn = getattr(worker_instance, stop_method)
-        await stop_fn()
+        await worker_instance.stop()
 
 
 async def execute_worker_with_producer(

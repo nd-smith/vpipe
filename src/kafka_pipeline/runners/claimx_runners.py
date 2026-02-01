@@ -153,7 +153,6 @@ async def run_claimx_enrichment_worker(
         worker,
         stage_name="claimx-enricher",
         shutdown_event=shutdown_event,
-        stop_method="stop",
         instance_id=instance_id,
     )
 

@@ -239,7 +239,6 @@ async def run_xact_enrichment_worker(
         worker,
         stage_name="xact-enricher",
         shutdown_event=shutdown_event,
-        stop_method="stop",
         instance_id=instance_id,
     )
 
@@ -269,7 +268,6 @@ async def run_download_worker(
         worker,
         stage_name="xact-download",
         shutdown_event=shutdown_event,
-        stop_method="stop",
         instance_id=instance_id,
     )
 
@@ -316,7 +314,6 @@ async def run_upload_worker(
         worker,
         stage_name="xact-upload",
         shutdown_event=shutdown_event,
-        stop_method="stop",
         instance_id=instance_id,
     )
 
