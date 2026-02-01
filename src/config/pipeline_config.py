@@ -983,12 +983,12 @@ class PipelineConfig:
         )
 
     @property
-    def is_eventhub_source(self):
+    def is_eventhub_source(self) -> bool:
         """Check if using Event Hub as source."""
         return self.event_source == EventSourceType.EVENTHUB
 
     @property
-    def is_eventhouse_source(self):
+    def is_eventhouse_source(self) -> bool:
         """Check if using Eventhouse as source."""
         return self.event_source == EventSourceType.EVENTHOUSE
 

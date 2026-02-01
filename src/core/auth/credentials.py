@@ -67,14 +67,14 @@ class AzureCredentialProvider:
         return all([self.client_id, self.client_secret, self.tenant_id])
 
     @property
-    def auth_mode(self):
+    def auth_mode(self) -> str:
         if self.token_file:
             return "file"
         if self.has_spn_credentials:
             return "spn_secret"
         return "none"
 
-    def _get_azure_credential(self):
+    def _get_azure_credential(self) -> Any:
         if self._credential is not None:
             return self._credential
 

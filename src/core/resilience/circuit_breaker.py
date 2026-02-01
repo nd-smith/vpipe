@@ -200,13 +200,11 @@ class CircuitBreaker:
             return self._state
 
     @property
-    def is_closed(self):
-        """Check if circuit is closed (normal operation)."""
+    def is_closed(self) -> bool:
         return self.state == CircuitState.CLOSED
 
     @property
-    def is_open(self):
-        """Check if circuit is open (rejecting)."""
+    def is_open(self) -> bool:
         return self.state == CircuitState.OPEN
 
     @property

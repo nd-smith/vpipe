@@ -118,7 +118,7 @@ class MessageLogContext:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         # Restore old context
         set_message_context(
             topic=self.old_context.get("topic", ""),

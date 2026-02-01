@@ -36,8 +36,7 @@ class PipelineError(Exception):
         super().__init__(message)
 
     @property
-    def is_retryable(self):
-        """Whether this error should trigger a retry."""
+    def is_retryable(self) -> bool:
         return self.category in (
             ErrorCategory.TRANSIENT,
             ErrorCategory.AUTH,
@@ -45,8 +44,7 @@ class PipelineError(Exception):
         )
 
     @property
-    def should_refresh_auth(self):
-        """Whether this error should trigger auth refresh."""
+    def should_refresh_auth(self) -> bool:
         return self.category == ErrorCategory.AUTH
 
     def __str__(self) -> str:

@@ -368,7 +368,7 @@ class BaseKafkaProducer:
         await self._producer.flush()
 
     @property
-    def is_started(self):
+    def is_started(self) -> bool:
         return self._started and self._producer is not None
 
 

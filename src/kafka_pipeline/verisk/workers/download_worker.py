@@ -1109,11 +1109,11 @@ class DownloadWorker:
             )
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         return self._running
 
     @property
-    def in_flight_count(self):
+    def in_flight_count(self) -> int:
         return len(self._in_flight_tasks)
 
 

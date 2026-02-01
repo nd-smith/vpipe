@@ -687,7 +687,7 @@ class BaseKafkaConsumer:
             )
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         return self._running and self._consumer is not None
 
 

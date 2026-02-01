@@ -470,5 +470,5 @@ class ClaimXApiClient(LoggedClass):
         return self._circuit.get_diagnostics()
 
     @property
-    def is_circuit_open(self):
+    def is_circuit_open(self) -> bool:
         return self._circuit.is_open

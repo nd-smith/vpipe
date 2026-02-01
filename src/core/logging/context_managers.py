@@ -41,7 +41,7 @@ class LogContext:
                 set_log_context(**{key: value})
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         # Restore old context
         set_log_context(
             cycle_id=self.old_context.get("cycle_id", ""),
@@ -82,7 +82,7 @@ class StageLogContext(LogContext):
         """Set result context to be logged on exit."""
         self.result_context.update(kwargs)
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         duration_ms = (time.perf_counter() - self.start_time) * 1000
         self.result_context["duration_ms"] = round(duration_ms, 2)
         super().__exit__(exc_type, exc_val, exc_tb)
@@ -163,7 +163,7 @@ class OperationContext:
             )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         duration_ms = (time.perf_counter() - self._start_time) * 1000
 
         # Auto-promote to INFO if slow

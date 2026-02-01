@@ -247,7 +247,7 @@ class EventHandler(ABC):
         self.project_cache = project_cache
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.__class__.__name__
 
     async def ensure_project_exists(
