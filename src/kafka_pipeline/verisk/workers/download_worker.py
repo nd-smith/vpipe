@@ -893,7 +893,7 @@ class DownloadWorker:
     async def _cleanup_temp_file(self, file_path: Path) -> None:
         try:
 
-            def _delete():
+            def _delete() -> None:
                 if file_path.exists():
                     file_path.unlink()
                     logger.debug(
@@ -923,7 +923,7 @@ class DownloadWorker:
     async def _cleanup_empty_temp_dir(self, dir_path: Path) -> None:
         try:
 
-            def _delete_if_empty():
+            def _delete_if_empty() -> None:
                 if dir_path.exists() and dir_path.is_dir():
                     if not any(dir_path.iterdir()):
                         dir_path.rmdir()
