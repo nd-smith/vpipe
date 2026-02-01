@@ -22,44 +22,19 @@ _metrics_available = False
 
 
 # =============================================================================
-# No-Op Metric Classes
+# No-Op Metric Class
 # =============================================================================
 
 
-class NoOpCounter:
-    """No-op counter when prometheus-client is unavailable."""
+class NoOpMetric:
+    """No-op metric when prometheus-client is unavailable.
 
-    def inc(self, amount=1):
-        pass
+    Uses __getattr__ to accept any method call and return self for chaining.
+    """
 
-    def labels(self, **kwargs):
-        return self
-
-
-class NoOpGauge:
-    """No-op gauge when prometheus-client is unavailable."""
-
-    def set(self, value):
-        pass
-
-    def inc(self, amount=1):
-        pass
-
-    def dec(self, amount=1):
-        pass
-
-    def labels(self, **kwargs):
-        return self
-
-
-class NoOpHistogram:
-    """No-op histogram when prometheus-client is unavailable."""
-
-    def observe(self, value):
-        pass
-
-    def labels(self, **kwargs):
-        return self
+    def __getattr__(self, name):
+        """Return a no-op method that returns self for chaining."""
+        return lambda *args, **kwargs: self
 
 
 # =============================================================================
@@ -98,45 +73,45 @@ def _get_registry():
 def _create_counter(name: str, description: str, labelnames=None):
     """Create a Counter or NoOpCounter."""
     if not _ensure_prometheus():
-        return NoOpCounter()
+        return NoOpMetric()
 
     registry = _get_registry()
     if registry is None:
-        return NoOpCounter()
+        return NoOpMetric()
 
     try:
         return _prometheus_client.Counter(
             name, description, labelnames=labelnames or [], registry=registry
         )
     except ValueError:
-        return registry._collector_to_names.get((name,), NoOpCounter())
+        return registry._collector_to_names.get((name,), NoOpMetric())
 
 
 def _create_gauge(name: str, description: str, labelnames=None):
     """Create a Gauge or NoOpGauge."""
     if not _ensure_prometheus():
-        return NoOpGauge()
+        return NoOpMetric()
 
     registry = _get_registry()
     if registry is None:
-        return NoOpGauge()
+        return NoOpMetric()
 
     try:
         return _prometheus_client.Gauge(
             name, description, labelnames=labelnames or [], registry=registry
         )
     except ValueError:
-        return registry._collector_to_names.get((name,), NoOpGauge())
+        return registry._collector_to_names.get((name,), NoOpMetric())
 
 
 def _create_histogram(name: str, description: str, labelnames=None, buckets=None):
     """Create a Histogram or NoOpHistogram."""
     if not _ensure_prometheus():
-        return NoOpHistogram()
+        return NoOpMetric()
 
     registry = _get_registry()
     if registry is None:
-        return NoOpHistogram()
+        return NoOpMetric()
 
     try:
         kwargs = {
@@ -149,7 +124,7 @@ def _create_histogram(name: str, description: str, labelnames=None, buckets=None
             kwargs["buckets"] = buckets
         return _prometheus_client.Histogram(**kwargs)
     except ValueError:
-        return registry._collector_to_names.get((name,), NoOpHistogram())
+        return registry._collector_to_names.get((name,), NoOpMetric())
 
 
 # =============================================================================
