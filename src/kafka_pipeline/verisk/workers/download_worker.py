@@ -156,11 +156,6 @@ class DownloadWorker:
         self._in_flight_lock = asyncio.Lock()
         self._shutdown_event: asyncio.Event | None = None
 
-        # In-memory dedup cache: media_id -> timestamp (TTL-based eviction)
-        self._dedup_cache: dict[str, float] = {}
-        self._dedup_cache_ttl_seconds = 86400  # 24 hours
-        self._dedup_cache_max_size = 100_000  # ~1MB memory for 100k entries
-
         self._http_session: aiohttp.ClientSession | None = None
 
         self.producer = BaseKafkaProducer(
@@ -482,8 +477,6 @@ class DownloadWorker:
                         extra={"batch_size": len(messages)},
                     )
 
-                self._cleanup_dedup_cache()
-
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")
                 raise
@@ -574,27 +567,6 @@ class DownloadWorker:
             self._in_flight_tasks.add(task_message.media_id)
 
         try:
-            if self._is_duplicate(task_message.media_id):
-                logger.info(
-                    "Skipping duplicate download (already processed recently)",
-                    extra={
-                        "trace_id": task_message.trace_id,
-                        "media_id": task_message.media_id,
-                        "attachment_url": task_message.attachment_url,
-                    },
-                )
-                return TaskResult(
-                    message=message,
-                    task_message=task_message,
-                    outcome=DownloadOutcome(
-                        success=True,
-                        error_message=None,
-                        error_category=None,
-                    ),
-                    processing_time_ms=int((time.perf_counter() - start_time) * 1000),
-                    success=True,
-                )
-
             logger.info(
                 "Processing Xact download task",
                 extra={
@@ -641,7 +613,6 @@ class DownloadWorker:
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
-                self._mark_processed(task_message.media_id)
                 consumer_group = self.config.get_consumer_group(
                     self.domain, self.WORKER_NAME
                 )
@@ -986,56 +957,6 @@ class DownloadWorker:
             "in_flight": len(self._in_flight_tasks),
         }
         return msg, extra
-
-    def _is_duplicate(self, media_id: str) -> bool:
-        now = time.time()
-
-        if media_id in self._dedup_cache:
-            cached_time = self._dedup_cache[media_id]
-            if now - cached_time < self._dedup_cache_ttl_seconds:
-                return True
-            del self._dedup_cache[media_id]
-
-        return False
-
-    def _mark_processed(self, media_id: str) -> None:
-        now = time.time()
-
-        if len(self._dedup_cache) >= self._dedup_cache_max_size:
-            sorted_items = sorted(self._dedup_cache.items(), key=lambda x: x[1])
-            evict_count = self._dedup_cache_max_size // 10
-            for media_id_to_evict, _ in sorted_items[:evict_count]:
-                del self._dedup_cache[media_id_to_evict]
-
-            logger.debug(
-                "Evicted old entries from dedup cache",
-                extra={
-                    "evicted_count": evict_count,
-                    "cache_size": len(self._dedup_cache),
-                },
-            )
-
-        self._dedup_cache[media_id] = now
-
-    def _cleanup_dedup_cache(self) -> None:
-        now = time.time()
-        expired_keys = [
-            media_id
-            for media_id, cached_time in self._dedup_cache.items()
-            if now - cached_time >= self._dedup_cache_ttl_seconds
-        ]
-
-        for media_id in expired_keys:
-            del self._dedup_cache[media_id]
-
-        if expired_keys:
-            logger.debug(
-                "Cleaned up expired dedup cache entries",
-                extra={
-                    "expired_count": len(expired_keys),
-                    "cache_size": len(self._dedup_cache),
-                },
-            )
 
     @property
     def is_running(self) -> bool:
