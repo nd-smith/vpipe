@@ -21,6 +21,18 @@ DEFAULT_STARTUP_RETRIES = 5
 DEFAULT_STARTUP_BACKOFF_BASE = 5  # seconds
 
 
+async def _cleanup_watcher_task(task: asyncio.Task) -> None:
+    """Cancel and await watcher task, suppressing expected exceptions.
+
+    Handles CancelledError and RuntimeError (when event loop closed during shutdown).
+    """
+    try:
+        task.cancel()
+        await task
+    except (asyncio.CancelledError, RuntimeError):
+        pass
+
+
 async def _start_with_retry(
     start_fn: Callable,
     label: str,
@@ -103,11 +115,7 @@ async def execute_worker_with_shutdown(
     try:
         await _start_with_retry(worker_instance.start, stage_name)
     finally:
-        try:
-            watcher_task.cancel()
-            await watcher_task
-        except (asyncio.CancelledError, RuntimeError):
-            pass
+        await _cleanup_watcher_task(watcher_task)
         await worker_instance.stop()
 
 
@@ -188,11 +196,7 @@ async def execute_worker_with_producer(
     try:
         await _start_with_retry(worker.start, stage_name)
     finally:
-        try:
-            watcher_task.cancel()
-            await watcher_task
-        except (asyncio.CancelledError, RuntimeError):
-            pass
+        await _cleanup_watcher_task(watcher_task)
         await worker.stop()
         await producer.stop()
 
@@ -227,10 +231,4 @@ async def execute_poller_with_shutdown(
         try:
             await _start_with_retry(poller.run, stage_name)
         finally:
-            # Guard against event loop being closed during shutdown
-            try:
-                watcher_task.cancel()
-                await watcher_task
-            except (asyncio.CancelledError, RuntimeError):
-                # RuntimeError occurs if event loop is closed
-                pass
+            await _cleanup_watcher_task(watcher_task)

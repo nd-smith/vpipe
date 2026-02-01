@@ -605,14 +605,6 @@ def main():
 
     shutdown_event = get_shutdown_event()
 
-    # Check for deprecated dummy-source worker
-    if args.worker in ["dummy-source", "dummy_source"]:
-        logger.error(
-            "Worker 'dummy-source' has been moved to kafka_pipeline.simulation.dummy_producer. "
-            "Use: python -m kafka_pipeline.simulation.dummy_producer --help"
-        )
-        sys.exit(1)
-
     try:
         if args.worker == "all":
             if simulation_mode:

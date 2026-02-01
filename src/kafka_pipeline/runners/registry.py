@@ -17,6 +17,17 @@ from kafka_pipeline.runners import claimx_runners, verisk_runners
 logger = logging.getLogger(__name__)
 
 
+async def _run_event_ingester_router(**kwargs):
+    """Route to appropriate event ingester based on configuration.
+
+    Uses local ingester if only local_kafka_config provided (dev mode),
+    otherwise uses Event Hub ingester.
+    """
+    if "local_kafka_config" in kwargs and "eventhub_config" not in kwargs:
+        return await verisk_runners.run_local_event_ingester(**kwargs)
+    return await verisk_runners.run_event_ingester(**kwargs)
+
+
 # Worker registry mapping worker names to their runner functions and config builders
 WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     # XACT workers
@@ -29,11 +40,7 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
         "requires_eventhouse": True,
     },
     "xact-event-ingester": {
-        "runner": lambda **kwargs: (
-            verisk_runners.run_local_event_ingester(**kwargs)
-            if "local_kafka_config" in kwargs and "eventhub_config" not in kwargs
-            else verisk_runners.run_event_ingester(**kwargs)
-        ),
+        "runner": _run_event_ingester_router,
     },
     "xact-delta-writer": {
         "runner": verisk_runners.run_delta_events_worker,
@@ -81,11 +88,17 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     "claimx-entity-writer": {
         "runner": claimx_runners.run_claimx_entity_delta_worker,
     },
-    # NOTE: Dummy data producer has been moved to simulation module.
-    # It is now a simulation-only tool and cannot be run in production.
-    # Use: SIMULATION_MODE=true python -m kafka_pipeline.simulation.dummy_producer
-    # Or: ./scripts/generate_test_data.sh
-    # See: kafka_pipeline/simulation/README.md
+    # Deprecated workers (captured for better error messages)
+    "dummy-source": {
+        "deprecated": True,
+        "message": "Worker 'dummy-source' moved to kafka_pipeline.simulation.dummy_producer. "
+        "Use: python -m kafka_pipeline.simulation.dummy_producer --help",
+    },
+    "dummy_source": {
+        "deprecated": True,
+        "message": "Worker 'dummy_source' moved to kafka_pipeline.simulation.dummy_producer. "
+        "Use: python -m kafka_pipeline.simulation.dummy_producer --help",
+    },
 }
 
 
@@ -118,6 +131,10 @@ async def run_worker_from_registry(
         raise ValueError(f"Unknown worker: {worker_name}")
 
     worker_def = WORKER_REGISTRY[worker_name]
+
+    # Check if deprecated
+    if worker_def.get("deprecated"):
+        raise ValueError(worker_def.get("message", f"Worker '{worker_name}' is deprecated"))
 
     # Check requirements
     if worker_def.get("requires_eventhouse"):
