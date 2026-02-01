@@ -71,7 +71,7 @@ class KafkaConfig:
           connection: {...}           # Shared connection settings
           consumer_defaults: {...}    # Default consumer settings
           producer_defaults: {...}    # Default producer settings
-          xact:                       # Verisk domain
+          verisk:                     # Verisk domain
             topics: {...}
             event_ingester:
               consumer: {...}
@@ -80,7 +80,7 @@ class KafkaConfig:
             download_worker: {...}
             upload_worker: {...}
           claimx:                     # ClaimX domain
-            (same structure as xact)
+            (same structure as verisk)
           storage: {...}              # OneLake paths
 
     All timing values in milliseconds unless otherwise noted.
@@ -107,9 +107,9 @@ class KafkaConfig:
     producer_defaults: dict[str, Any] = field(default_factory=dict)
 
     # =========================================================================
-    # DOMAIN CONFIGURATIONS (xact and claimx)
+    # DOMAIN CONFIGURATIONS (verisk and claimx)
     # =========================================================================
-    xact: dict[str, Any] = field(default_factory=dict)
+    verisk: dict[str, Any] = field(default_factory=dict)
     claimx: dict[str, Any] = field(default_factory=dict)
 
     # =========================================================================
@@ -140,10 +140,10 @@ class KafkaConfig:
         """Get merged configuration for a specific worker's component.
 
         Merge priority (highest to lowest):
-        1. Worker-specific config (e.g., xact.download_worker.consumer)
+        1. Worker-specific config (e.g., verisk.download_worker.consumer)
         2. Default config (consumer_defaults or producer_defaults)
         """
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain == "xact" else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
@@ -165,7 +165,7 @@ class KafkaConfig:
         return result
 
     def get_topic(self, domain: str, topic_key: str) -> str:
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain == "xact" else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
@@ -187,7 +187,7 @@ class KafkaConfig:
         if "group_id" in worker_config:
             return worker_config["group_id"]
 
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain == "xact" else self.claimx
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
 
@@ -197,7 +197,7 @@ class KafkaConfig:
         This is the single retry topic used for all retry types in the domain.
         Routing is handled via message headers (target_topic, scheduled_retry_time).
         """
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain == "xact" else self.claimx
         topics = domain_config.get("topics", {})
 
         # Check if retry topic is explicitly configured
@@ -208,7 +208,7 @@ class KafkaConfig:
         return f"{domain}.retry"
 
     def get_retry_delays(self, domain: str) -> list[int]:
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain == "xact" else self.claimx
         return domain_config.get("retry_delays", [300, 600, 1200, 2400])
 
     def get_max_retries(self, domain: str) -> int:
@@ -227,7 +227,7 @@ class KafkaConfig:
         self._validate_consumer_settings(self.consumer_defaults, "consumer_defaults")
         self._validate_producer_settings(self.producer_defaults, "producer_defaults")
 
-        for domain_name in ["xact", "claimx"]:
+        for domain_name in ["verisk", "claimx"]:
             domain_config = getattr(self, domain_name)
             if not domain_config:
                 continue
@@ -456,7 +456,7 @@ def load_config(
     consumer_defaults = kafka_config.get("consumer_defaults", {})
     producer_defaults = kafka_config.get("producer_defaults", {})
 
-    xact_config = kafka_config.get("xact", {})
+    verisk_config = kafka_config.get("verisk", {})
     claimx_config = kafka_config.get("claimx", {})
 
     # Merge storage settings from multiple sources
@@ -498,7 +498,7 @@ def load_config(
         connections_max_idle_ms=connection.get("connections_max_idle_ms", 540000),
         consumer_defaults=consumer_defaults,
         producer_defaults=producer_defaults,
-        xact=xact_config,
+        verisk=verisk_config,
         claimx=claimx_config,
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
