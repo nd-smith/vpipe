@@ -124,30 +124,21 @@ class ItelCabinetPipeline:
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
         project_id = int(task_data.get("projectId", event.project_id))
         media_url_map = await self._fetch_project_media_urls(project_id)
-        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("itel.parse") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("span.kind", "internal")
-            submission = parse_cabinet_form(task_data, event.event_id)
+        submission = parse_cabinet_form(task_data, event.event_id)
 
-            # Parse attachments with URL enrichment
-            attachments = parse_cabinet_attachments(
-                task_data,
-                event.assignment_id,
-                project_id,
-                event.event_id,
-                media_url_map,
-            )
+        # Parse attachments with URL enrichment
+        attachments = parse_cabinet_attachments(
+            task_data,
+            event.assignment_id,
+            project_id,
+            event.event_id,
+            media_url_map,
+        )
 
-            readable_report = get_readable_report(
-                task_data, event.event_id, media_url_map
-            )
-            span.set_tag("assignment_id", event.assignment_id)
-            span.set_tag("task_id", event.task_id)
-            span.set_tag("project_id", project_id)
-            span.set_tag("attachment_count", len(attachments))
+        readable_report = get_readable_report(
+            task_data, event.event_id, media_url_map
+        )
 
         logger.info(
             "Task enriched successfully",
@@ -339,21 +330,11 @@ class ItelCabinetPipeline:
             "Writing to Delta tables", extra={"assignment_id": event.assignment_id}
         )
         submission_row = submission.to_dict() if submission else self._build_metadata_row(event)
-        from kafka_pipeline.common.telemetry import get_tracer
 
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("delta.write") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("span.kind", "client")
-            await self.delta.write_submission(submission_row)
-            if attachments:
-                attachment_rows = [att.to_dict() for att in attachments]
-                await self.delta.write_attachments(attachment_rows)
-            span.set_tag("assignment_id", event.assignment_id)
-            span.set_tag("task_id", event.task_id)
-            span.set_tag("has_submission", submission is not None)
-            span.set_tag("attachment_count", len(attachments))
-            span.set_tag("success", True)
+        await self.delta.write_submission(submission_row)
+        if attachments:
+            attachment_rows = [att.to_dict() for att in attachments]
+            await self.delta.write_attachments(attachment_rows)
 
         logger.info(
             "Delta write complete",

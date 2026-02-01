@@ -271,39 +271,20 @@ class ItelCabinetApiWorker:
             },
         )
 
-        # Send to API with tracing span
-        from kafka_pipeline.common.telemetry import get_tracer
+        # Send to API
+        assignment_id = api_payload.get("meta", {}).get(
+            "assignmentId"
+        ) or api_payload.get("assignmentId")
 
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("itel.api.submit") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("span.kind", "client")
-            # Set span attributes
-            span.set_tag("http.method", self.api_config.get("method", "POST"))
-            span.set_tag("http.url", self.api_config["endpoint"])
-            assignment_id = api_payload.get("meta", {}).get(
-                "assignmentId"
-            ) or api_payload.get("assignmentId")
-            if assignment_id:
-                span.set_tag("assignment_id", assignment_id)
+        status, response = await self.connections.request_json(
+            connection_name=self.api_config["connection"],
+            method=self.api_config.get("method", "POST"),
+            path=self.api_config["endpoint"],
+            json=api_payload,
+        )
 
-            trace_id = api_payload.get("traceId")
-            if trace_id:
-                span.set_tag("trace_id", trace_id)
-
-            status, response = await self.connections.request_json(
-                connection_name=self.api_config["connection"],
-                method=self.api_config.get("method", "POST"),
-                path=self.api_config["endpoint"],
-                json=api_payload,
-            )
-
-            # Set response attributes
-            span.set_tag("http.status_code", status)
-            span.set_tag("success", 200 <= status < 300)
-
-            if status < 200 or status >= 300:
-                raise Exception(f"iTel API returned error status {status}: {response}")
+        if status < 200 or status >= 300:
+            raise Exception(f"iTel API returned error status {status}: {response}")
 
         logger.info(
             "iTel API request successful",

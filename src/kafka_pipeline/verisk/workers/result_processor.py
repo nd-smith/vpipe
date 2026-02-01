@@ -348,78 +348,53 @@ class ResultProcessor:
         # Set logging context
         set_log_context(trace_id=result.trace_id)
 
-        from kafka_pipeline.common.telemetry import get_tracer
+        # Route by status
+        if result.status == "completed":
+            # Add to success batch
+            self._records_succeeded += 1
+            async with self._batch_lock:
+                self._batch.append(result)
 
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("result.process") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("span.kind", "internal")
-            span.set_tag("trace_id", result.trace_id)
-            span.set_tag("media_id", result.media_id)
-            span.set_tag("status", result.status)
-            span.set_tag("bytes_downloaded", result.bytes_downloaded)
-            # Route by status
-            if result.status == "completed":
-                # Add to success batch
-                self._records_succeeded += 1
-                span.set_tag("routing", "success_batch")
-                async with self._batch_lock:
-                    self._batch.append(result)
-                    span.set_tag("batch_size", len(self._batch))
+                # Check if flush needed (size-based)
+                if len(self._batch) >= self.batch_size:
+                    logger.debug(
+                        "Success batch size threshold reached, flushing",
+                        extra={"batch_size": len(self._batch)},
+                    )
+                    await self._flush_batch()
 
-                    # Check if flush needed (size-based)
-                    if len(self._batch) >= self.batch_size:
-                        logger.debug(
-                            "Success batch size threshold reached, flushing",
-                            extra={"batch_size": len(self._batch)},
-                        )
-                        span.set_tag("flush_triggered", True)
-                        await self._flush_batch()
+        elif result.status == "failed_permanent" and self._failed_writer:
+            # Add to failed batch (only if tracking enabled)
+            self._records_failed += 1
+            async with self._batch_lock:
+                self._failed_batch.append(result)
 
-            elif result.status == "failed_permanent" and self._failed_writer:
-                # Add to failed batch (only if tracking enabled)
-                self._records_failed += 1
-                span.set_tag("routing", "failed_batch")
-                async with self._batch_lock:
-                    self._failed_batch.append(result)
-                    span.set_tag("failed_batch_size", len(self._failed_batch))
+                # Check if flush needed (size-based)
+                if len(self._failed_batch) >= self.batch_size:
+                    logger.debug(
+                        "Failed batch size threshold reached, flushing",
+                        extra={"batch_size": len(self._failed_batch)},
+                    )
+                    await self._flush_failed_batch()
 
-                    # Check if flush needed (size-based)
-                    if len(self._failed_batch) >= self.batch_size:
-                        logger.debug(
-                            "Failed batch size threshold reached, flushing",
-                            extra={"batch_size": len(self._failed_batch)},
-                        )
-                        span.set_tag("flush_triggered", True)
-                        await self._flush_failed_batch()
-
-            else:
-                # Skip transient failures (still retrying) or permanent without writer
-                self._records_skipped += 1
-                span.set_tag("routing", "skipped")
-                span.set_tag(
-                    "skip_reason",
-                    (
+        else:
+            # Skip transient failures (still retrying) or permanent without writer
+            self._records_skipped += 1
+            logger.debug(
+                "Skipping result",
+                extra={
+                    "trace_id": result.trace_id,
+                    "status": result.status,
+                    "reason": (
                         "transient"
                         if result.status == "failed_transient"
                         else "no_failed_writer"
                     ),
-                )
-                logger.debug(
-                    "Skipping result",
-                    extra={
-                        "trace_id": result.trace_id,
-                        "status": result.status,
-                        "reason": (
-                            "transient"
-                            if result.status == "failed_transient"
-                            else "no_failed_writer"
-                        ),
-                        "attachment_url": result.attachment_url[
-                            :100
-                        ],  # truncate for logging
-                    },
-                )
+                    "attachment_url": result.attachment_url[
+                        :100
+                    ],  # truncate for logging
+                },
+            )
 
     async def _periodic_flush(self) -> None:
         """

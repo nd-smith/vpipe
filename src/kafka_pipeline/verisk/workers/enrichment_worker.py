@@ -556,98 +556,87 @@ class XACTEnrichmentWorker:
         start_time = datetime.now(UTC)
 
         try:
-            from kafka_pipeline.common.telemetry import get_tracer
-
-            tracer = get_tracer(__name__)
-            with tracer.start_active_span("xact.enrich") as scope:
-                span = scope.span if hasattr(scope, "span") else scope
-                span.set_tag("span.kind", "client")
-                span.set_tag("event.id", task.event_id)
-                span.set_tag("event.type", task.event_type)
-                span.set_tag("status.subtype", task.status_subtype)
-                span.set_tag("attachment.count", len(task.attachments))
-
-                # Execute plugins at ENRICHMENT_COMPLETE stage
-                if self.plugin_orchestrator:
-                    plugin_context = PluginContext(
-                        domain=Domain.XACT,
-                        stage=PipelineStage.ENRICHMENT_COMPLETE,
-                        message=task,
-                        event_id=task.event_id,
-                        event_type=task.event_type,
-                        project_id=None,  # XACT doesn't have project_id
-                        data={
-                            "trace_id": task.trace_id,
-                            "status_subtype": task.status_subtype,
-                            "assignment_id": task.assignment_id,
-                            "estimate_version": task.estimate_version,
-                            "attachment_count": len(task.attachments),
-                        },
-                        headers={},
-                    )
-
-                    try:
-                        orchestrator_result = await self.plugin_orchestrator.execute(
-                            plugin_context
-                        )
-
-                        if orchestrator_result.terminated:
-                            logger.info(
-                                "Pipeline terminated by plugin",
-                                extra={
-                                    "event_id": task.event_id,
-                                    "trace_id": task.trace_id,
-                                    "status_subtype": task.status_subtype,
-                                    "reason": orchestrator_result.termination_reason,
-                                    "plugin_results": orchestrator_result.success_count,
-                                },
-                            )
-                            self._records_skipped += 1
-                            return
-
-                        if orchestrator_result.actions_executed > 0:
-                            logger.debug(
-                                "Plugin actions executed",
-                                extra={
-                                    "event_id": task.event_id,
-                                    "actions": orchestrator_result.actions_executed,
-                                    "plugins": orchestrator_result.success_count,
-                                },
-                            )
-
-                    except Exception as e:
-                        logger.error(
-                            "Plugin execution failed",
-                            extra={
-                                "event_id": task.event_id,
-                                "error": str(e),
-                            },
-                            exc_info=True,
-                        )
-                        # Continue processing - don't fail the task due to plugin error
-
-                # Create download tasks for each attachment
-                download_tasks = await self._create_download_tasks_from_attachments(
-                    task
-                )
-                if download_tasks:
-                    await self._produce_download_tasks(download_tasks)
-
-                self._records_succeeded += 1
-
-                elapsed_ms = (
-                    datetime.now(UTC) - start_time
-                ).total_seconds() * 1000
-                logger.debug(
-                    "Enrichment task complete",
-                    extra={
-                        "event_id": task.event_id,
+            # Execute plugins at ENRICHMENT_COMPLETE stage
+            if self.plugin_orchestrator:
+                plugin_context = PluginContext(
+                    domain=Domain.XACT,
+                    stage=PipelineStage.ENRICHMENT_COMPLETE,
+                    message=task,
+                    event_id=task.event_id,
+                    event_type=task.event_type,
+                    project_id=None,  # XACT doesn't have project_id
+                    data={
                         "trace_id": task.trace_id,
                         "status_subtype": task.status_subtype,
-                        "download_tasks": len(download_tasks),
-                        "duration_ms": round(elapsed_ms, 2),
+                        "assignment_id": task.assignment_id,
+                        "estimate_version": task.estimate_version,
+                        "attachment_count": len(task.attachments),
                     },
+                    headers={},
                 )
+
+                try:
+                    orchestrator_result = await self.plugin_orchestrator.execute(
+                        plugin_context
+                    )
+
+                    if orchestrator_result.terminated:
+                        logger.info(
+                            "Pipeline terminated by plugin",
+                            extra={
+                                "event_id": task.event_id,
+                                "trace_id": task.trace_id,
+                                "status_subtype": task.status_subtype,
+                                "reason": orchestrator_result.termination_reason,
+                                "plugin_results": orchestrator_result.success_count,
+                            },
+                        )
+                        self._records_skipped += 1
+                        return
+
+                    if orchestrator_result.actions_executed > 0:
+                        logger.debug(
+                            "Plugin actions executed",
+                            extra={
+                                "event_id": task.event_id,
+                                "actions": orchestrator_result.actions_executed,
+                                "plugins": orchestrator_result.success_count,
+                            },
+                        )
+
+                except Exception as e:
+                    logger.error(
+                        "Plugin execution failed",
+                        extra={
+                            "event_id": task.event_id,
+                            "error": str(e),
+                        },
+                        exc_info=True,
+                    )
+                    # Continue processing - don't fail the task due to plugin error
+
+            # Create download tasks for each attachment
+            download_tasks = await self._create_download_tasks_from_attachments(
+                task
+            )
+            if download_tasks:
+                await self._produce_download_tasks(download_tasks)
+
+            self._records_succeeded += 1
+
+            elapsed_ms = (
+                datetime.now(UTC) - start_time
+            ).total_seconds() * 1000
+            logger.debug(
+                "Enrichment task complete",
+                extra={
+                    "event_id": task.event_id,
+                    "trace_id": task.trace_id,
+                    "status_subtype": task.status_subtype,
+                    "download_tasks": len(download_tasks),
+                    "duration_ms": round(elapsed_ms, 2),
+                },
+            )
 
         except Exception as e:
             error_category = ErrorCategory.UNKNOWN

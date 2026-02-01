@@ -674,20 +674,11 @@ class ClaimXUploadWorker:
                 raise RuntimeError(
                     "OneLake client not initialized - call start() first"
                 )
-            from kafka_pipeline.common.telemetry import get_tracer
-
-            tracer = get_tracer(__name__)
-            with tracer.start_active_span("onelake.upload") as scope:
-                span = scope.span if hasattr(scope, "span") else scope
-                span.set_tag("span.kind", "client")
-                span.set_tag("media.id", media_id)
-                span.set_tag("project.id", cached_message.project_id)
-                span.set_tag("event.id", cached_message.source_event_id)
-                blob_path = await self.onelake_client.async_upload_file(
-                    relative_path=cached_message.destination_path,
-                    local_path=cache_path,
-                    overwrite=True,
-                )
+            blob_path = await self.onelake_client.async_upload_file(
+                relative_path=cached_message.destination_path,
+                local_path=cache_path,
+                overwrite=True,
+            )
 
             # Calculate processing time
             processing_time_ms = int((time.time() - start_time) * 1000)

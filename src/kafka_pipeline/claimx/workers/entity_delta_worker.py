@@ -291,16 +291,7 @@ class ClaimXEntityDeltaWorker:
                 },
             )
 
-            from kafka_pipeline.common.telemetry import get_tracer
-
-            tracer = get_tracer(__name__)
-            with tracer.start_active_span("delta.write") as scope:
-                span = scope.span if hasattr(scope, "span") else scope
-                span.set_tag("span.kind", "client")
-                span.set_tag("batch.size", batch_size)
-                span.set_tag("entity.row_count", merged_rows.row_count())
-                span.set_tag("table.name", "claimx_entities")
-                counts = await self.entity_writer.write_all(merged_rows)
+            counts = await self.entity_writer.write_all(merged_rows)
 
             total_rows = sum(counts.values())
             self._batches_written += 1
