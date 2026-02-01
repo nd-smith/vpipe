@@ -69,7 +69,6 @@ class TestValidateDownloadUrl:
     def test_valid_url_with_query_params(self):
         url = "https://claimxperience.com/file.pdf?key=value&foo=bar"
         validate_download_url(url)  # Should not raise
-        assert error == ""
 
     def test_valid_url_with_fragment(self):
         url = "https://claimxperience.com/file.pdf#section"
@@ -152,7 +151,7 @@ class TestValidateDownloadUrl:
 
     def test_ip_address_not_in_allowlist(self):
         url = "https://192.168.1.1/file.pdf"
-        with pytest.raises(URLValidationError, match="not in allowlist"):
+        with pytest.raises(URLValidationError, match="Private IP"):
             validate_download_url(url)
 
     def test_ip_address_in_custom_allowlist(self):
@@ -166,14 +165,12 @@ class TestIsPrivateIp:
 
     # Blocked hosts
     def test_localhost_string(self):
-        """Localhost is intentionally allowed for local testing."""
-        # Note: localhost is not in BLOCKED_HOSTS to allow local dummy source testing
-        assert is_private_ip("localhost") is False
+        """Localhost is in BLOCKED_HOSTS for security."""
+        assert is_private_ip("localhost") is True
 
     def test_localhost_case_insensitive(self):
-        """Localhost is intentionally allowed for local testing (case insensitive)."""
-        # Note: localhost is not in BLOCKED_HOSTS to allow local dummy source testing
-        assert is_private_ip("LOCALHOST") is False
+        """Localhost is in BLOCKED_HOSTS for security (case insensitive)."""
+        assert is_private_ip("LOCALHOST") is True
 
     def test_127_0_0_1(self):
         assert is_private_ip("127.0.0.1") is True
