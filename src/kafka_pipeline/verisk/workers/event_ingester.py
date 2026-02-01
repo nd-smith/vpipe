@@ -38,6 +38,7 @@ from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.verisk.schemas.events import EventMessage
 from kafka_pipeline.verisk.schemas.tasks import XACTEnrichmentTask
+from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 
 logger = get_logger(__name__)
 
@@ -85,9 +86,7 @@ class EventIngesterWorker:
         self._records_succeeded = 0
         self._records_skipped = 0
         self._records_deduplicated = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
+        self._stats_logger: PeriodicStatsLogger | None = None
         self._running = False
 
         # In-memory dedup cache: trace_id -> event_id
@@ -147,8 +146,14 @@ class EventIngesterWorker:
         )
         await self.producer.start()
 
-        # Start cycle output background task
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        # Start periodic stats logger
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="ingestion",
+            worker_id=self.WORKER_NAME,
+        )
+        self._stats_logger.start()
 
         # Create and start consumer with message handler (uses consumer_config)
         self.consumer = BaseKafkaConsumer(
@@ -172,11 +177,8 @@ class EventIngesterWorker:
         logger.info("Stopping EventIngesterWorker")
         self._running = False
 
-        # Cancel cycle output task
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         # Stop consumer first (stops receiving new messages)
         if self.consumer:
@@ -388,51 +390,22 @@ class EventIngesterWorker:
                 # This ensures at-least-once semantics: if send fails, we retry
                 raise
 
-    async def _periodic_cycle_output(self) -> None:
-        logger.info(
-            f"{format_cycle_output(0, 0, 0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
-            extra={
-                "worker_id": self.WORKER_NAME,
-                "stage": "ingestion",
-                "cycle": 0,
-            },
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Get cycle statistics for periodic logging."""
+        msg = format_cycle_output(
+            cycle_count=cycle_count,
+            succeeded=self._records_succeeded,
+            failed=0,
+            skipped=self._records_skipped,
+            deduplicated=self._records_deduplicated,
         )
-        self._last_cycle_log = time.monotonic()
-
-        try:
-            while self._running:
-                await asyncio.sleep(1)
-
-                # Log cycle output at regular intervals
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=0,
-                            skipped=self._records_skipped,
-                            deduplicated=self._records_deduplicated,
-                        ),
-                        extra={
-                            "worker_id": self.WORKER_NAME,
-                            "stage": "ingestion",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_skipped": self._records_skipped,
-                            "records_deduplicated": self._records_deduplicated,
-                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
-                        },
-                    )
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_skipped": self._records_skipped,
+            "records_deduplicated": self._records_deduplicated,
+        }
+        return msg, extra
 
     def _is_duplicate(self, trace_id: str) -> tuple[bool, str | None]:
         now = time.time()

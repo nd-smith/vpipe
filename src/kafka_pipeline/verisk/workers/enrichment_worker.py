@@ -58,6 +58,7 @@ from kafka_pipeline.verisk.schemas.tasks import (
     XACTEnrichmentTask,
 )
 from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
+from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 
 logger = get_logger(__name__)
 
@@ -144,9 +145,7 @@ class XACTEnrichmentWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
@@ -198,7 +197,13 @@ class XACTEnrichmentWorker:
 
         initialize_worker_telemetry(self.domain, "enrichment-worker")
 
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="enrichment",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
 
         await self.health_server.start()
 
@@ -308,10 +313,8 @@ class XACTEnrichmentWorker:
         logger.info("Stopping XACTEnrichmentWorker")
         self._running = False
 
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
 
@@ -792,50 +795,21 @@ class XACTEnrichmentWorker:
                 # Re-raise to trigger retry of the entire enrichment task
                 raise
 
-    async def _periodic_cycle_output(self) -> None:
-        logger.info(
-            f"{format_cycle_output(0, 0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "enrichment",
-                "cycle": 0,
-            },
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Get cycle statistics for periodic logging."""
+        msg = format_cycle_output(
+            cycle_count=cycle_count,
+            succeeded=self._records_succeeded,
+            failed=self._records_failed,
+            skipped=self._records_skipped,
         )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while True:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                            skipped=self._records_skipped,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "enrichment",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "records_skipped": self._records_skipped,
-                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
-                        },
-                    )
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
+        }
+        return msg, extra
 
     async def _handle_enrichment_failure(
         self,

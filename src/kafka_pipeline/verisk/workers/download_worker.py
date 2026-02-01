@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 from aiokafka import AIOKafkaConsumer
@@ -55,6 +56,7 @@ from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
+from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 
 logger = get_logger(__name__)
 
@@ -193,9 +195,7 @@ class DownloadWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._bytes_downloaded = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         logger.info(
             "Initialized download worker with concurrent processing",
@@ -268,7 +268,13 @@ class DownloadWorker:
 
         self._running = True
 
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="download",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
 
         self.health_server.set_ready(kafka_connected=True)
 
@@ -338,10 +344,8 @@ class DownloadWorker:
         logger.info("Stopping download worker, waiting for in-flight downloads")
         self._running = False
 
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -967,51 +971,21 @@ class DownloadWorker:
                 },
             )
 
-    async def _periodic_cycle_output(self) -> None:
-        logger.info(
-            f"{format_cycle_output(0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "download",
-                "cycle": 0,
-            },
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Get cycle statistics for periodic logging."""
+        msg = format_cycle_output(
+            cycle_count=cycle_count,
+            succeeded=self._records_succeeded,
+            failed=self._records_failed,
         )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while True:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-                    in_flight = len(self._in_flight_tasks)
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "download",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "bytes_downloaded": self._bytes_downloaded,
-                            "in_flight": in_flight,
-                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
-                        },
-                    )
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "bytes_downloaded": self._bytes_downloaded,
+            "in_flight": len(self._in_flight_tasks),
+        }
+        return msg, extra
 
     def _is_duplicate(self, media_id: str) -> bool:
         now = time.time()
