@@ -193,24 +193,26 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """Current circuit state (may transition on access)."""
+        """Current circuit state (read-only, no automatic transitions)."""
         with self._lock:
-            self._check_state_transition()
             return self._state
 
     @property
     def is_closed(self) -> bool:
-        return self.state == CircuitState.CLOSED
+        with self._lock:
+            self._check_state_transition()
+            return self._state == CircuitState.CLOSED
 
     @property
     def is_open(self) -> bool:
-        return self.state == CircuitState.OPEN
+        with self._lock:
+            self._check_state_transition()
+            return self._state == CircuitState.OPEN
 
     @property
     def stats(self) -> CircuitStats:
-        """Get copy of current statistics."""
+        """Get copy of current statistics (read-only snapshot)."""
         with self._lock:
-            self._check_state_transition()
             return CircuitStats(
                 total_calls=self._stats.total_calls,
                 successful_calls=self._stats.successful_calls,
