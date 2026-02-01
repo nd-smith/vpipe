@@ -121,6 +121,75 @@ class StorageErrorClassifier:
     """
 
     @staticmethod
+    def _classify_common_patterns(
+        error: Exception,
+        service: str,
+        error_str: str,
+        error_context: dict,
+    ) -> PipelineError | None:
+        """
+        Classify common error patterns shared across storage services.
+        Returns PipelineError if pattern matches, None if service-specific handling needed.
+        """
+        # Auth errors
+        if any(m in error_str for m in ("401", "unauthorized", "authentication", "token")):
+            return AuthError(
+                f"{service} authentication failed: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        # Throttling
+        if "429" in error_str or "throttl" in error_str:
+            return ThrottlingError(
+                f"{service} throttled: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        # Timeout
+        if "timeout" in error_str:
+            return TimeoutError(
+                f"{service} operation timeout: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        # Connection/network errors
+        if any(m in error_str for m in ("connection", "network", "dns", "socket")):
+            return ConnectionError(
+                f"{service} connection error: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        # Service errors (transient)
+        if any(m in error_str for m in ("503", "502", "504", "service unavailable")):
+            return TransientError(
+                f"{service} service error: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        # Not found (permanent)
+        if "404" in error_str or "not found" in error_str:
+            return PermanentError(
+                f"{service} resource not found: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        # Forbidden (permanent)
+        if "403" in error_str or "forbidden" in error_str:
+            return PermanentError(
+                f"{service} access denied: {error}",
+                cause=error,
+                context=error_context,
+            )
+
+        return None
+
+    @staticmethod
     def classify_kusto_error(
         error: Exception, context: dict | None = None
     ) -> PipelineError:
@@ -130,49 +199,21 @@ class StorageErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Auth errors
-        if (
-            "401" in error_str
-            or "unauthorized" in error_str
-            or "access rights" in error_str
-        ):
-            return AuthError(
-                f"Kusto authentication failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Throttling with Retry-After header extraction (Task F.2)
-        if (
-            "429" in error_str
-            or "throttl" in error_str
-            or "too many requests" in error_str
-        ):
-            # Try to extract retry-after header from exception
+        # Kusto-specific: Throttling with Retry-After header extraction
+        if "429" in error_str or "throttl" in error_str:
             retry_after_ms = None
-
-            # Check for response object in exception
             if hasattr(error, "response") and error.response is not None:
                 headers = getattr(error.response, "headers", {})
-
-                # Azure Kusto uses x-ms-retry-after-ms
                 if "x-ms-retry-after-ms" in headers:
                     with contextlib.suppress(ValueError, TypeError):
                         retry_after_ms = int(headers["x-ms-retry-after-ms"])
-
-                # Standard Retry-After header (in seconds)
                 elif "retry-after" in headers:
-                    try:
-                        retry_after_seconds = int(headers["retry-after"])
-                        retry_after_ms = retry_after_seconds * 1000
-                    except (ValueError, TypeError):
-                        pass
+                    with contextlib.suppress(ValueError, TypeError):
+                        retry_after_ms = int(headers["retry-after"]) * 1000
 
-            # Add retry_after to context if found (P2.6 Critical Fix)
-            retry_after_seconds = None
-            if retry_after_ms is not None:
+            retry_after_seconds = retry_after_ms / 1000.0 if retry_after_ms else None
+            if retry_after_ms:
                 error_context["retry_after_ms"] = retry_after_ms
-                retry_after_seconds = retry_after_ms / 1000.0
 
             return ThrottlingError(
                 f"Kusto throttled: {error}",
@@ -181,38 +222,7 @@ class StorageErrorClassifier:
                 retry_after=retry_after_seconds,
             )
 
-        # Timeout
-        if "timeout" in error_str:
-            return TimeoutError(
-                f"Kusto query timeout: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Connection/network errors (check exception type and error string)
-        error_type = type(error).__name__
-        if "KustoNetworkError" in error_type or any(
-            marker in error_str for marker in ("connection", "network", "dns", "socket")
-        ):
-            return ConnectionError(
-                f"Kusto connection error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Service errors (transient)
-        if any(
-            marker in error_str
-            for marker in ("503", "502", "504", "service unavailable")
-        ):
-            return TransientError(
-                f"Kusto service error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Query errors (likely permanent - bad query)
-        # Check for Kusto-specific error types
+        # Kusto-specific: Query errors (syntax/semantic errors)
         error_type = type(error).__name__
         if "KustoServiceError" in error_type:
             if "semantic error" in error_str or "syntax error" in error_str:
@@ -221,6 +231,13 @@ class StorageErrorClassifier:
                     cause=error,
                     context=error_context,
                 )
+
+        # Check common patterns
+        common_error = StorageErrorClassifier._classify_common_patterns(
+            error, "Kusto", error_str, error_context
+        )
+        if common_error:
+            return common_error
 
         # Default to generic Kusto error
         return KustoError(
@@ -239,46 +256,12 @@ class StorageErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Check for auth errors (token expiry, etc.)
-        if any(marker in error_str for marker in ("401", "unauthorized", "token")):
-            return AuthError(
-                f"Delta authentication failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Throttling
-        if "429" in error_str or "throttl" in error_str:
-            return ThrottlingError(
-                f"Delta throttled: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Connection/network errors
-        if any(
-            marker in error_str
-            for marker in ("connection", "network", "timeout", "dns")
-        ):
-            if "timeout" in error_str:
-                return TimeoutError(
-                    f"Delta operation timeout: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            return ConnectionError(
-                f"Delta connection error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Service errors (transient)
-        if any(marker in error_str for marker in ("503", "502", "504")):
-            return TransientError(
-                f"Delta service error: {error}",
-                cause=error,
-                context=error_context,
-            )
+        # Check common patterns
+        common_error = StorageErrorClassifier._classify_common_patterns(
+            error, "Delta", error_str, error_context
+        )
+        if common_error:
+            return common_error
 
         # Default to generic Delta error
         return DeltaTableError(
@@ -297,69 +280,12 @@ class StorageErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Auth errors
-        if any(
-            marker in error_str
-            for marker in ("401", "unauthorized", "authentication", "token expired")
-        ):
-            return AuthError(
-                f"OneLake authentication failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Throttling
-        if "429" in error_str or "throttl" in error_str:
-            return ThrottlingError(
-                f"OneLake throttled: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Timeout
-        if "timeout" in error_str:
-            return TimeoutError(
-                f"OneLake operation timeout: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Connection errors
-        if any(
-            marker in error_str for marker in ("connection", "network", "dns", "socket")
-        ):
-            return ConnectionError(
-                f"OneLake connection error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Service errors (transient)
-        if any(
-            marker in error_str
-            for marker in ("503", "502", "504", "service unavailable")
-        ):
-            return TransientError(
-                f"OneLake service error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Not found errors (permanent)
-        if "404" in error_str or "not found" in error_str:
-            return PermanentError(
-                f"OneLake resource not found: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Forbidden (permanent)
-        if "403" in error_str or "forbidden" in error_str:
-            return PermanentError(
-                f"OneLake access denied: {error}",
-                cause=error,
-                context=error_context,
-            )
+        # Check common patterns
+        common_error = StorageErrorClassifier._classify_common_patterns(
+            error, "OneLake", error_str, error_context
+        )
+        if common_error:
+            return common_error
 
         # Default to generic OneLake error
         return OneLakeError(
