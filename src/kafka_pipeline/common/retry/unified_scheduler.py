@@ -259,24 +259,6 @@ class UnifiedRetryScheduler:
             the message is routed immediately or stored for later. Messages
             stored in the in-memory queue are persisted to disk periodically.
         """
-        try:
-            await self._handle_retry_message_impl(message)
-        except Exception as e:
-            logger.error(
-                "SCHEDULER: Unhandled exception in retry message handler",
-                extra={
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "topic": message.topic,
-                    "partition": message.partition,
-                    "offset": message.offset,
-                },
-                exc_info=True,
-            )
-            raise
-
-    async def _handle_retry_message_impl(self, message: PipelineMessage) -> None:
-        """Implementation of retry message handling."""
         # Parse headers
         headers = self._parse_headers(message)
 

@@ -160,17 +160,6 @@ class DeltaTableReader(LoggedClass):
             columns=columns,
         )
 
-        # Batch size validation (Task E.1)
-        max_batch_size = 50000  # Default max batch size for reads
-        if len(df) > max_batch_size:
-            self._log(
-                logging.WARNING,
-                "Read batch exceeds configured limit",
-                rows_read=len(df),
-                max_batch_size=max_batch_size,
-                table_path=self.table_path,
-            )
-
         self._log(logging.DEBUG, "Read complete", rows_read=len(df))
         return df
 
