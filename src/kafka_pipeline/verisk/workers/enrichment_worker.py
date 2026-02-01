@@ -30,6 +30,7 @@ from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.paths.resolver import generate_blob_path
+from core.security.exceptions import URLValidationError
 from core.security.url_validation import sanitize_url, validate_download_url
 from core.types import ErrorCategory
 from kafka_pipeline.common.health import HealthCheckServer
@@ -668,18 +669,19 @@ class XACTEnrichmentWorker:
                 )
 
                 # Validate attachment URL
-                is_valid, error_message = validate_download_url(
-                    attachment_url,
-                    allow_localhost=allow_localhost,
-                )
-                if not is_valid:
+                try:
+                    validate_download_url(
+                        attachment_url,
+                        allow_localhost=allow_localhost,
+                    )
+                except URLValidationError as e:
                     logger.warning(
                         "Invalid attachment URL, skipping",
                         extra={
                             "event_id": task.event_id,
                             "trace_id": task.trace_id,
                             "url": sanitize_url(attachment_url),
-                            "validation_error": error_message,
+                            "validation_error": str(e),
                             "allow_localhost": allow_localhost,
                         },
                     )

@@ -19,6 +19,7 @@ from core.download.http_client import create_session, download_url
 from core.download.models import DownloadOutcome, DownloadTask
 from core.download.streaming import download_to_file, should_stream
 from core.errors.exceptions import ErrorCategory, classify_os_error
+from core.security.exceptions import FileValidationError, URLValidationError
 from core.security.file_validation import validate_file_type
 from core.security.presigned_urls import check_presigned_url
 from core.security.url_validation import validate_download_url
@@ -52,14 +53,15 @@ class AttachmentDownloader:
         """Download attachment with validation and error handling."""
         # Step 1: Validate URL
         if task.validate_url:
-            is_valid, error = validate_download_url(
-                task.url,
-                allowed_domains=task.allowed_domains,
-                allow_localhost=task.allow_localhost,
-            )
-            if not is_valid:
+            try:
+                validate_download_url(
+                    task.url,
+                    allowed_domains=task.allowed_domains,
+                    allow_localhost=task.allow_localhost,
+                )
+            except URLValidationError as e:
                 return DownloadOutcome.validation_failure(
-                    validation_error=f"URL validation failed: {error}",
+                    validation_error=f"URL validation failed: {str(e)}",
                     error_category=ErrorCategory.PERMANENT,
                 )
 
@@ -94,12 +96,13 @@ class AttachmentDownloader:
 
         # Step 3: Validate file type from URL extension
         if task.validate_file_type:
-            is_valid, error = validate_file_type(
-                task.url, allowed_extensions=task.allowed_extensions
-            )
-            if not is_valid:
+            try:
+                validate_file_type(
+                    task.url, allowed_extensions=task.allowed_extensions
+                )
+            except FileValidationError as e:
                 return DownloadOutcome.validation_failure(
-                    validation_error=f"File type validation failed: {error}",
+                    validation_error=f"File type validation failed: {str(e)}",
                     error_category=ErrorCategory.PERMANENT,
                 )
 
@@ -141,18 +144,19 @@ class AttachmentDownloader:
 
             # Step 5: Validate Content-Type from response
             if outcome.success and task.validate_file_type and outcome.content_type:
-                is_valid, error = validate_file_type(
-                    task.url,
-                    content_type=outcome.content_type,
-                    allowed_extensions=task.allowed_extensions,
-                )
-                if not is_valid:
+                try:
+                    validate_file_type(
+                        task.url,
+                        content_type=outcome.content_type,
+                        allowed_extensions=task.allowed_extensions,
+                    )
+                except FileValidationError as e:
                     # Delete downloaded file on validation failure
                     if outcome.file_path and outcome.file_path.exists():
                         outcome.file_path.unlink()
 
                     return DownloadOutcome.validation_failure(
-                        validation_error=f"Content-Type validation failed: {error}",
+                        validation_error=f"Content-Type validation failed: {str(e)}",
                         error_category=ErrorCategory.PERMANENT,
                     )
 
