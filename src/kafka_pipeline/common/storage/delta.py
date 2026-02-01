@@ -625,11 +625,12 @@ class DeltaTableWriter(LoggedClass):
         opts = get_storage_options()
 
         # Align source schema with target to ensure column order matches
+        # (alignment also handles null-typed columns)
         if self._table_exists(opts):
             df = self._align_schema_with_target(df, opts)
-
-        # Cast any remaining null-typed columns to avoid Delta Lake errors
-        df = self._cast_null_columns(df)
+        else:
+            # Table doesn't exist - cast null-typed columns to avoid Delta Lake errors
+            df = self._cast_null_columns(df)
 
         # Determine partition columns - use existing table's partitions if table exists,
         # otherwise use configured partition column. This prevents partition mismatch
@@ -705,28 +706,24 @@ class DeltaTableWriter(LoggedClass):
 
         initial_len = len(df)
 
-        # Check if we need to dedupe within batch (avoid expensive dict ops if not needed)
-        unique_keys = df.select(merge_keys).unique()
-        needs_dedupe = len(unique_keys) < initial_len
-        del unique_keys  # Free immediately
+        # Combine rows within batch by merge keys (later non-null values overlay earlier)
+        # Always dedupe to ensure consistency - checking if needed is as expensive as deduping
+        rows = df.to_dicts()
+        merged: dict[tuple, dict] = {}
+        for row in rows:
+            key = tuple(row.get(k) for k in merge_keys)
+            if key in merged:
+                for col, val in row.items():
+                    if val is not None:
+                        merged[key][col] = val
+            else:
+                merged[key] = row.copy()
 
-        if needs_dedupe:
-            # Combine rows within batch by merge keys (later non-null values overlay earlier)
-            # This is expensive but necessary when batch has duplicate keys
-            rows = df.to_dicts()
-            merged: dict[tuple, dict] = {}
-            for row in rows:
-                key = tuple(row.get(k) for k in merge_keys)
-                if key in merged:
-                    for col, val in row.items():
-                        if val is not None:
-                            merged[key][col] = val
-                else:
-                    merged[key] = row.copy()
+        del rows  # Free original list
+        df = pl.DataFrame(list(merged.values()), infer_schema_length=None)
+        del merged  # Free dict
 
-            del rows  # Free original list
-            df = pl.DataFrame(list(merged.values()), infer_schema_length=None)
-            del merged  # Free dict
+        if len(df) < initial_len:
             self._log(
                 logging.DEBUG,
                 "Deduped batch",
