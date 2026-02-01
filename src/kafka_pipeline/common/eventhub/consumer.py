@@ -442,72 +442,53 @@ class EventHubConsumer:
 
     async def _process_message(self, message: PipelineMessage) -> None:
         """Process a single message using transport-agnostic PipelineMessage type."""
-        from kafka_pipeline.common.telemetry import get_tracer
-
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("eventhub.message.process") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("messaging.system", "eventhub")
-            span.set_tag("messaging.destination", message.topic)
-            span.set_tag("messaging.kafka.partition", message.partition)
-            span.set_tag("messaging.kafka.offset", message.offset)
-            span.set_tag("messaging.kafka.consumer_group", self.consumer_group)
-            span.set_tag(
-                "messaging.message.id",
-                message.key.decode("utf-8") if message.key else None,
+        with MessageLogContext(
+            topic=message.topic,
+            partition=message.partition,
+            offset=message.offset,
+            key=message.key.decode("utf-8") if message.key else None,
+            consumer_group=self.consumer_group,
+        ):
+            log_with_context(
+                logger,
+                logging.DEBUG,
+                "Processing message",
+                message_size=len(message.value) if message.value else 0,
             )
-            span.set_tag("span.kind", "consumer")
 
-            with MessageLogContext(
-                topic=message.topic,
-                partition=message.partition,
-                offset=message.offset,
-                key=message.key.decode("utf-8") if message.key else None,
-                consumer_group=self.consumer_group,
-            ):
+            start_time = time.perf_counter()
+            message_size = len(message.value) if message.value else 0
+
+            try:
+                await self.message_handler(message)
+
+                duration = time.perf_counter() - start_time
+                message_processing_duration_seconds.labels(
+                    topic=message.topic, consumer_group=self.consumer_group
+                ).observe(duration)
+
+                record_message_consumed(
+                    message.topic, self.consumer_group, message_size, success=True
+                )
+
                 log_with_context(
                     logger,
                     logging.DEBUG,
-                    "Processing message",
-                    message_size=len(message.value) if message.value else 0,
+                    "Message processed successfully",
+                    duration_ms=round(duration * 1000, 2),
                 )
 
-                start_time = time.perf_counter()
-                message_size = len(message.value) if message.value else 0
+            except Exception as e:
+                duration = time.perf_counter() - start_time
+                message_processing_duration_seconds.labels(
+                    topic=message.topic, consumer_group=self.consumer_group
+                ).observe(duration)
 
-                try:
-                    await self.message_handler(message)
+                record_message_consumed(
+                    message.topic, self.consumer_group, message_size, success=False
+                )
 
-                    duration = time.perf_counter() - start_time
-                    message_processing_duration_seconds.labels(
-                        topic=message.topic, consumer_group=self.consumer_group
-                    ).observe(duration)
-
-                    record_message_consumed(
-                        message.topic, self.consumer_group, message_size, success=True
-                    )
-
-                    log_with_context(
-                        logger,
-                        logging.DEBUG,
-                        "Message processed successfully",
-                        duration_ms=round(duration * 1000, 2),
-                    )
-
-                except Exception as e:
-                    duration = time.perf_counter() - start_time
-                    message_processing_duration_seconds.labels(
-                        topic=message.topic, consumer_group=self.consumer_group
-                    ).observe(duration)
-
-                    record_message_consumed(
-                        message.topic, self.consumer_group, message_size, success=False
-                    )
-
-                    span.set_tag("error", True)
-                    span.log_kv({"event": "error", "error.object": str(e)})
-
-                    await self._handle_processing_error(message, e, duration)
+                await self._handle_processing_error(message, e, duration)
 
     def _build_dlq_entity_map(self) -> dict:
         """Build mapping from source topic names to DLQ entity names.

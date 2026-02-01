@@ -337,84 +337,64 @@ class BaseKafkaConsumer:
                 await asyncio.sleep(1)
 
     async def _process_message(self, message: ConsumerRecord) -> None:
-        from kafka_pipeline.common.telemetry import get_tracer
-
-        # Note: Distributed tracing has been removed
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("kafka.message.process") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("messaging.system", "kafka")
-            span.set_tag("messaging.destination", message.topic)
-            span.set_tag("messaging.kafka.partition", message.partition)
-            span.set_tag("messaging.kafka.offset", message.offset)
-            span.set_tag("messaging.kafka.consumer_group", self.group_id)
-            span.set_tag(
-                "messaging.message.id",
-                message.key.decode("utf-8") if message.key else None,
+        with MessageLogContext(
+            topic=message.topic,
+            partition=message.partition,
+            offset=message.offset,
+            key=message.key.decode("utf-8") if message.key else None,
+            consumer_group=self.group_id,
+        ):
+            log_with_context(
+                logger,
+                logging.DEBUG,
+                "Processing message",
+                message_size=len(message.value) if message.value else 0,
             )
-            span.set_tag("span.kind", "consumer")
 
-            with MessageLogContext(
-                topic=message.topic,
-                partition=message.partition,
-                offset=message.offset,
-                key=message.key.decode("utf-8") if message.key else None,
-                consumer_group=self.group_id,
-            ):
+            start_time = time.perf_counter()
+            message_size = len(message.value) if message.value else 0
+
+            try:
+                # Convert ConsumerRecord to PipelineMessage for handler
+                pipeline_message = from_consumer_record(message)
+                await self.message_handler(pipeline_message)
+
+                duration = time.perf_counter() - start_time
+                message_processing_duration_seconds.labels(
+                    topic=message.topic, consumer_group=self.group_id
+                ).observe(duration)
+
+                if self._enable_message_commit:
+                    await self._consumer.commit()
+
+                self._update_partition_metrics(message)
+
+                record_message_consumed(
+                    message.topic, self.group_id, message_size, success=True
+                )
+
                 log_with_context(
                     logger,
                     logging.DEBUG,
-                    "Processing message",
-                    message_size=len(message.value) if message.value else 0,
+                    "Message processed successfully",
+                    duration_ms=round(duration * 1000, 2),
                 )
 
-                start_time = time.perf_counter()
-                message_size = len(message.value) if message.value else 0
+            except Exception as e:
+                duration = time.perf_counter() - start_time
+                message_processing_duration_seconds.labels(
+                    topic=message.topic, consumer_group=self.group_id
+                ).observe(duration)
 
-                try:
-                    # Convert ConsumerRecord to PipelineMessage for handler
-                    pipeline_message = from_consumer_record(message)
-                    await self.message_handler(pipeline_message)
+                record_message_consumed(
+                    message.topic, self.group_id, message_size, success=False
+                )
 
-                    duration = time.perf_counter() - start_time
-                    message_processing_duration_seconds.labels(
-                        topic=message.topic, consumer_group=self.group_id
-                    ).observe(duration)
-
-                    if self._enable_message_commit:
-                        await self._consumer.commit()
-
-                    self._update_partition_metrics(message)
-
-                    record_message_consumed(
-                        message.topic, self.group_id, message_size, success=True
-                    )
-
-                    log_with_context(
-                        logger,
-                        logging.DEBUG,
-                        "Message processed successfully",
-                        duration_ms=round(duration * 1000, 2),
-                    )
-
-                except Exception as e:
-                    duration = time.perf_counter() - start_time
-                    message_processing_duration_seconds.labels(
-                        topic=message.topic, consumer_group=self.group_id
-                    ).observe(duration)
-
-                    record_message_consumed(
-                        message.topic, self.group_id, message_size, success=False
-                    )
-
-                    span.set_tag("error", True)
-                    span.log_kv({"event": "error", "error.object": str(e)})
-
-                    # Pass PipelineMessage to error handler
-                    pipeline_message = from_consumer_record(message)
-                    await self._handle_processing_error(
-                        pipeline_message, message, e, duration
-                    )
+                # Pass PipelineMessage to error handler
+                pipeline_message = from_consumer_record(message)
+                await self._handle_processing_error(
+                    pipeline_message, message, e, duration
+                )
 
     async def _handle_processing_error(
         self,
