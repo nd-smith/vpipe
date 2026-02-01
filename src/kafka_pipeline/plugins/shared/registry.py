@@ -20,9 +20,6 @@ from kafka_pipeline.plugins.shared.base import (
 
 logger = logging.getLogger(__name__)
 
-# Global registry instance
-_plugin_registry: Optional["PluginRegistry"] = None
-
 
 class PluginRegistry:
     """
@@ -899,40 +896,3 @@ class ActionExecutor:
         )
 
 
-def get_plugin_registry() -> PluginRegistry:
-    """Get or create global plugin registry."""
-    global _plugin_registry
-    if _plugin_registry is None:
-        _plugin_registry = PluginRegistry()
-    return _plugin_registry
-
-
-def reset_plugin_registry() -> None:
-    """Reset global registry (for testing)."""
-    global _plugin_registry
-    _plugin_registry = None
-
-
-def register_plugin(cls_or_instance):
-    """
-    Decorator/function to register a plugin.
-
-    Can be used as:
-        @register_plugin
-        class MyPlugin(Plugin): ...
-
-    Or:
-        register_plugin(MyPlugin())
-        register_plugin(MyPlugin(config={...}))
-    """
-    registry = get_plugin_registry()
-
-    if isinstance(cls_or_instance, type):
-        # Class decorator - instantiate and register
-        plugin = cls_or_instance()
-        registry.register(plugin)
-        return cls_or_instance
-    else:
-        # Instance - register directly
-        registry.register(cls_or_instance)
-        return cls_or_instance

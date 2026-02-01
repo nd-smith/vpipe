@@ -49,7 +49,7 @@ from kafka_pipeline.plugins.shared.loader import load_plugins_from_directory
 from kafka_pipeline.plugins.shared.registry import (
     ActionExecutor,
     PluginOrchestrator,
-    get_plugin_registry,
+    PluginRegistry,
 )
 from kafka_pipeline.simulation.config import SimulationConfig
 from kafka_pipeline.verisk.retry import DownloadRetryHandler
@@ -124,7 +124,7 @@ class XACTEnrichmentWorker:
         self.consumer: AIOKafkaConsumer | None = None
         self.retry_handler: DownloadRetryHandler | None = None
 
-        self.plugin_registry = get_plugin_registry()
+        self.plugin_registry = PluginRegistry()
         self.plugin_orchestrator: PluginOrchestrator | None = None
         self.action_executor: ActionExecutor | None = None
 
@@ -220,7 +220,7 @@ class XACTEnrichmentWorker:
             import os
 
             if os.path.exists(plugins_dir):
-                loaded_plugins = load_plugins_from_directory(plugins_dir)
+                loaded_plugins = load_plugins_from_directory(plugins_dir, self.plugin_registry)
                 logger.info(
                     "Loaded plugins from directory",
                     extra={

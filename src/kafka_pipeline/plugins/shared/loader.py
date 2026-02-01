@@ -13,14 +13,14 @@ import yaml
 
 from core.logging import log_with_context
 from kafka_pipeline.plugins.shared.base import Plugin
-from kafka_pipeline.plugins.shared.registry import PluginRegistry, get_plugin_registry
+from kafka_pipeline.plugins.shared.registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
 
 
 def load_plugins_from_directory(
     plugins_dir: str,
-    registry: PluginRegistry | None = None,
+    registry: PluginRegistry,
     exclude_dirs: set[str] = None,
 ) -> list[Plugin]:
     """
@@ -30,13 +30,12 @@ def load_plugins_from_directory(
 
     Args:
         plugins_dir: Path to plugins directory
-        registry: Registry to register plugins to (uses global if not provided)
+        registry: Registry to register plugins to
         exclude_dirs: Directory names to exclude (default: {"connections"})
 
     Returns:
         List of loaded plugins
     """
-    registry = registry or get_plugin_registry()
     plugins_path = Path(plugins_dir)
     exclude_dirs = exclude_dirs or {"connections"}
 
@@ -130,10 +129,9 @@ def load_plugins_from_directory(
 
 def load_plugins_from_yaml(
     config_path: str,
-    registry: PluginRegistry | None = None,
+    registry: PluginRegistry,
 ) -> list[Plugin]:
     """Load plugin configurations from YAML file."""
-    registry = registry or get_plugin_registry()
     path = Path(config_path)
 
     if not path.exists():

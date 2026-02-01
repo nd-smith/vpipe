@@ -351,29 +351,3 @@ class ConnectionManager:
     def is_started(self) -> bool:
         """Check if manager is started."""
         return self._started
-
-
-# Singleton instance for global access
-_global_connection_manager: ConnectionManager | None = None
-
-
-def get_connection_manager() -> ConnectionManager:
-    """Get global connection manager instance.
-
-    Returns:
-        Global ConnectionManager instance
-    """
-    global _global_connection_manager
-    if _global_connection_manager is None:
-        _global_connection_manager = ConnectionManager()
-    return _global_connection_manager
-
-
-def set_connection_manager(manager: ConnectionManager) -> None:
-    """Set global connection manager instance.
-
-    Args:
-        manager: ConnectionManager instance to use globally
-    """
-    global _global_connection_manager
-    _global_connection_manager = manager

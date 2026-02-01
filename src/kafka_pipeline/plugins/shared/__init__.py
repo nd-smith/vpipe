@@ -24,11 +24,7 @@ from kafka_pipeline.plugins.shared.enrichment import (
     EnrichmentResult,
 )
 from kafka_pipeline.plugins.shared.loader import load_plugins_from_directory
-from kafka_pipeline.plugins.shared.registry import (
-    PluginRegistry,
-    get_plugin_registry,
-    register_plugin,
-)
+from kafka_pipeline.plugins.shared.registry import PluginRegistry
 from kafka_pipeline.plugins.shared.task_trigger import TaskTriggerPlugin
 
 __all__ = [
@@ -40,8 +36,6 @@ __all__ = [
     "Domain",
     "PipelineStage",
     "PluginRegistry",
-    "get_plugin_registry",
-    "register_plugin",
     "load_plugins_from_directory",
     "ConnectionManager",
     "ConnectionConfig",
