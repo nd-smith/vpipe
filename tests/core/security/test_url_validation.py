@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.security.exceptions import URLValidationError
 from core.security.url_validation import (
     BLOCKED_HOSTS,
     DEFAULT_ALLOWED_DOMAINS,
@@ -59,136 +60,105 @@ class TestValidateDownloadUrl:
     # Valid URL tests
     def test_valid_https_url_with_default_domains(self):
         url = "https://claimxperience.com/path/to/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
-        assert error == ""
+        validate_download_url(url)  # Should not raise
 
     def test_valid_https_url_with_custom_domains(self):
         url = "https://example.com/file.pdf"
-        is_valid, error = validate_download_url(url, allowed_domains={"example.com"})
-        assert is_valid is True
-        assert error == ""
+        validate_download_url(url, allowed_domains={"example.com"})  # Should not raise
 
     def test_valid_url_with_query_params(self):
         url = "https://claimxperience.com/file.pdf?key=value&foo=bar"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
+        validate_download_url(url)  # Should not raise
         assert error == ""
 
     def test_valid_url_with_fragment(self):
         url = "https://claimxperience.com/file.pdf#section"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
-        assert error == ""
+        validate_download_url(url)  # Should not raise
 
     # Empty/None URL tests
     def test_empty_url(self):
-        is_valid, error = validate_download_url("")
-        assert is_valid is False
-        assert error == "Empty URL"
+        with pytest.raises(URLValidationError, match="Empty URL"):
+            validate_download_url("")
 
     # HTTP (non-HTTPS) tests
     def test_http_url_rejected(self):
         url = "http://claimxperience.com/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        assert "HTTPS" in error
-        assert "http" in error
+        with pytest.raises(URLValidationError, match="HTTPS"):
+            validate_download_url(url)
 
     def test_ftp_scheme_rejected(self):
         url = "ftp://claimxperience.com/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        assert "Invalid scheme" in error or "scheme" in error.lower()
+        with pytest.raises(URLValidationError, match="scheme"):
+            validate_download_url(url)
 
     # Malformed URL tests
     def test_malformed_url(self):
         url = "not a valid url at all"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        # Should handle gracefully - either "Must be HTTPS" or "Invalid URL format"
-        assert error != ""
+        with pytest.raises(URLValidationError):
+            validate_download_url(url)
 
     def test_url_without_hostname(self):
         url = "https:///path/to/file"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        assert "No hostname" in error
+        with pytest.raises(URLValidationError, match="No hostname"):
+            validate_download_url(url)
 
     # Domain allowlist tests
     def test_domain_not_in_allowlist(self):
         url = "https://malicious.example.com/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        assert "not in allowlist" in error
-        assert "malicious.example.com" in error
+        with pytest.raises(URLValidationError, match="not in allowlist"):
+            validate_download_url(url)
 
     def test_subdomain_not_matching_parent(self):
         """Subdomain rejection: subdomains must be explicitly in allowlist."""
         url = "https://sub.claimxperience.com/file.pdf"
         # This should fail unless sub.claimxperience.com is in allowlist
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        assert "not in allowlist" in error
+        with pytest.raises(URLValidationError, match="not in allowlist"):
+            validate_download_url(url)
 
     def test_case_insensitive_domain_matching(self):
         url = "https://ClaimXperience.COM/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
-        assert error == ""
+        validate_download_url(url)  # Should not raise
 
     def test_custom_allowlist_overrides_default(self):
         url = "https://claimxperience.com/file.pdf"
         # This is in default list but not in custom list
-        is_valid, error = validate_download_url(
-            url, allowed_domains={"example.com"}
-        )
-        assert is_valid is False
-        assert "not in allowlist" in error
+        with pytest.raises(URLValidationError, match="not in allowlist"):
+            validate_download_url(url, allowed_domains={"example.com"})
 
     # Security edge cases
     def test_url_with_username_password(self):
         """Authentication in URL: still valid if domain matches allowlist."""
         url = "https://user:pass@claimxperience.com/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True  # Still valid if domain matches
+        validate_download_url(url)  # Still valid if domain matches
 
     def test_url_with_port(self):
         url = "https://claimxperience.com:443/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
+        validate_download_url(url)  # Should not raise
 
     def test_url_with_non_standard_port(self):
         url = "https://claimxperience.com:8443/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
+        validate_download_url(url)  # Should not raise
 
     def test_unicode_in_domain(self):
         """IDN handling: ensures Unicode domains don't crash validation."""
         # This tests that we don't crash on Unicode domains
         url = "https://例え.jp/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False  # Not in allowlist
-        assert error != ""  # Should provide error message
+        with pytest.raises(URLValidationError):  # Not in allowlist
+            validate_download_url(url)
 
     def test_url_encoded_characters(self):
         url = "https://claimxperience.com/file%20name.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is True
+        validate_download_url(url)  # Should not raise
 
     def test_ip_address_not_in_allowlist(self):
         url = "https://192.168.1.1/file.pdf"
-        is_valid, error = validate_download_url(url)
-        assert is_valid is False
-        assert "not in allowlist" in error
+        with pytest.raises(URLValidationError, match="not in allowlist"):
+            validate_download_url(url)
 
     def test_ip_address_in_custom_allowlist(self):
         """IP addresses can be explicitly allowed in custom allowlist."""
         url = "https://203.0.113.1/file.pdf"
-        is_valid, error = validate_download_url(
-            url, allowed_domains={"203.0.113.1"}
-        )
-        assert is_valid is True
+        validate_download_url(url, allowed_domains={"203.0.113.1"})  # Should not raise
 
 
 class TestIsPrivateIp:

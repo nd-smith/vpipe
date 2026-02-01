@@ -4,6 +4,7 @@ Tests for file type validation.
 
 import pytest
 
+from core.security.exceptions import FileValidationError
 from core.security.file_validation import (
     ALLOWED_CONTENT_TYPES,
     ALLOWED_EXTENSIONS,
@@ -203,163 +204,117 @@ class TestValidateFileType:
     # Valid file type tests
     def test_valid_pdf_extension_only(self):
         """Should accept PDF file."""
-        is_valid, error = validate_file_type("document.pdf")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("document.pdf")  # Should not raise
 
     def test_valid_xml_extension_only(self):
         """Should accept XML file."""
-        is_valid, error = validate_file_type("data.xml")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("data.xml")  # Should not raise
 
     def test_valid_jpg_extension_only(self):
         """Should accept JPG image."""
-        is_valid, error = validate_file_type("photo.jpg")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("photo.jpg")  # Should not raise
 
     def test_valid_png_extension_only(self):
         """Should accept PNG image."""
-        is_valid, error = validate_file_type("image.png")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("image.png")  # Should not raise
 
     def test_valid_pdf_with_content_type(self):
         """Should accept PDF with matching Content-Type."""
-        is_valid, error = validate_file_type("document.pdf", "application/pdf")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("document.pdf", "application/pdf")  # Should not raise
 
     def test_valid_jpg_with_content_type(self):
         """Should accept JPG with matching Content-Type."""
-        is_valid, error = validate_file_type("photo.jpg", "image/jpeg")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("photo.jpg", "image/jpeg")  # Should not raise
 
     def test_valid_url_with_extension(self):
         """Should accept URL with valid extension."""
         url = "https://example.com/path/document.pdf"
-        is_valid, error = validate_file_type(url)
-        assert is_valid is True
-        assert error == ""
+        validate_file_type(url)  # Should not raise
 
     def test_valid_url_with_query_params(self):
         """Should accept URL with query parameters."""
         url = "https://example.com/file.pdf?key=value"
-        is_valid, error = validate_file_type(url)
-        assert is_valid is True
-        assert error == ""
+        validate_file_type(url)  # Should not raise
 
     # Invalid file type tests
     def test_invalid_exe_extension(self):
         """Should reject executable file."""
-        is_valid, error = validate_file_type("malware.exe")
-        assert is_valid is False
-        assert "exe" in error.lower()
-        assert "not allowed" in error
+        with pytest.raises(FileValidationError, match="not allowed"):
+            validate_file_type("malware.exe")
 
     def test_invalid_zip_extension(self):
         """Should reject ZIP file."""
-        is_valid, error = validate_file_type("archive.zip")
-        assert is_valid is False
-        assert "zip" in error.lower()
+        with pytest.raises(FileValidationError, match="zip"):
+            validate_file_type("archive.zip")
 
     def test_invalid_sh_extension(self):
         """Should reject shell script."""
-        is_valid, error = validate_file_type("script.sh")
-        assert is_valid is False
-        assert "sh" in error.lower()
+        with pytest.raises(FileValidationError, match="sh"):
+            validate_file_type("script.sh")
 
     def test_no_extension(self):
         """Should reject file without extension."""
-        is_valid, error = validate_file_type("noextension")
-        assert is_valid is False
-        assert "extension" in error.lower()
+        with pytest.raises(FileValidationError, match="extension"):
+            validate_file_type("noextension")
 
     def test_empty_filename(self):
         """Should reject empty filename."""
-        is_valid, error = validate_file_type("")
-        assert is_valid is False
-        assert "empty" in error.lower()
+        with pytest.raises(FileValidationError, match="[Ee]mpty"):
+            validate_file_type("")
 
     # Content-Type mismatch tests
     def test_pdf_extension_with_wrong_content_type(self):
         """Should reject PDF extension with wrong Content-Type."""
-        is_valid, error = validate_file_type("document.pdf", "image/jpeg")
-        assert is_valid is False
-        assert "doesn't match" in error.lower()
+        with pytest.raises(FileValidationError, match="doesn't match"):
+            validate_file_type("document.pdf", "image/jpeg")
 
     def test_jpg_extension_with_wrong_content_type(self):
         """Should reject JPG extension with wrong Content-Type."""
-        is_valid, error = validate_file_type("photo.jpg", "application/pdf")
-        assert is_valid is False
-        assert "doesn't match" in error.lower()
+        with pytest.raises(FileValidationError, match="doesn't match"):
+            validate_file_type("photo.jpg", "application/pdf")
 
     def test_invalid_content_type(self):
         """Should reject file with invalid Content-Type."""
-        is_valid, error = validate_file_type("document.pdf", "application/x-executable")
-        assert is_valid is False
-        assert "content-type" in error.lower()
-        assert "not allowed" in error
+        with pytest.raises(FileValidationError, match="not allowed"):
+            validate_file_type("document.pdf", "application/x-executable")
 
     # Edge cases
     def test_case_insensitive_extension(self):
         """Should handle uppercase extension."""
-        is_valid, error = validate_file_type("DOCUMENT.PDF")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("DOCUMENT.PDF")  # Should not raise
 
     def test_case_insensitive_content_type(self):
         """Should handle uppercase Content-Type."""
-        is_valid, error = validate_file_type("document.pdf", "APPLICATION/PDF")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("document.pdf", "APPLICATION/PDF")  # Should not raise
 
     def test_content_type_with_charset(self):
         """Should handle Content-Type with charset parameter."""
-        is_valid, error = validate_file_type(
-            "document.pdf", "application/pdf; charset=utf-8"
-        )
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("document.pdf", "application/pdf; charset=utf-8")  # Should not raise
 
     def test_jpeg_vs_jpg_extension(self):
         """Should accept both jpeg and jpg extensions."""
-        is_valid1, _ = validate_file_type("photo.jpeg", "image/jpeg")
-        is_valid2, _ = validate_file_type("photo.jpg", "image/jpeg")
-        assert is_valid1 is True
-        assert is_valid2 is True
+        validate_file_type("photo.jpeg", "image/jpeg")  # Should not raise
+        validate_file_type("photo.jpg", "image/jpeg")  # Should not raise
 
     def test_xml_with_text_xml_content_type(self):
         """Should accept text/xml for XML files."""
-        is_valid, error = validate_file_type("data.xml", "text/xml")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("data.xml", "text/xml")  # Should not raise
 
     def test_xml_with_application_xml_content_type(self):
         """Should accept application/xml for XML files."""
-        is_valid, error = validate_file_type("data.xml", "application/xml")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("data.xml", "application/xml")  # Should not raise
 
     def test_valid_txt_extension_only(self):
         """Should accept TXT file extension."""
-        is_valid, error = validate_file_type("document.txt")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("document.txt")  # Should not raise
 
     def test_valid_txt_with_content_type(self):
         """Should accept TXT with matching Content-Type."""
-        is_valid, error = validate_file_type("document.txt", "text/plain")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("document.txt", "text/plain")  # Should not raise
 
     def test_valid_txt_uppercase_extension(self):
         """Should accept uppercase TXT extension."""
-        is_valid, error = validate_file_type("DOCUMENT.TXT")
-        assert is_valid is True
-        assert error == ""
+        validate_file_type("DOCUMENT.TXT")  # Should not raise
 
     def test_s3_presigned_url_with_txt(self):
         """Should accept TXT file from S3 presigned URL with query parameters."""
@@ -369,50 +324,40 @@ class TestValidateFileType:
             "Client-API/06NSLJQ/Reassigned-%20Reject%20Roof%20Measurement%20Update.TXT"
             "?X-Amz-Expires=259200&X-Amz-Algorithm=AWS4-HMAC-SHA256"
         )
-        is_valid, error = validate_file_type(url)
-        assert is_valid is True
-        assert error == ""
+        validate_file_type(url)  # Should not raise
 
     # Custom allowlists
     def test_custom_allowed_extensions(self):
         """Should use custom allowed extensions."""
-        is_valid, error = validate_file_type(
-            "document.pdf", allowed_extensions={"txt", "csv"}
-        )
-        assert is_valid is False
-        assert "pdf" in error.lower()
+        with pytest.raises(FileValidationError, match="pdf"):
+            validate_file_type("document.pdf", allowed_extensions={"txt", "csv"})
 
     def test_custom_allowed_content_types(self):
         """Should use custom allowed content types."""
-        is_valid, error = validate_file_type(
-            "document.pdf",
-            "application/pdf",
-            allowed_content_types={"text/plain"},
-        )
-        assert is_valid is False
-        assert "content-type" in error.lower()
+        with pytest.raises(FileValidationError, match="[Cc]ontent-[Tt]ype"):
+            validate_file_type(
+                "document.pdf",
+                "application/pdf",
+                allowed_content_types={"text/plain"},
+            )
 
     # Security tests
     def test_executable_masquerading_as_pdf(self):
         """Should reject executable with PDF Content-Type."""
-        is_valid, error = validate_file_type("malware.exe", "application/pdf")
-        assert is_valid is False
-        assert "exe" in error.lower()
+        with pytest.raises(FileValidationError, match="exe"):
+            validate_file_type("malware.exe", "application/pdf")
 
     def test_pdf_extension_with_executable_content_type(self):
         """Should reject PDF with executable Content-Type."""
-        is_valid, error = validate_file_type(
-            "document.pdf", "application/x-executable"
-        )
-        assert is_valid is False
+        with pytest.raises(FileValidationError):
+            validate_file_type("document.pdf", "application/x-executable")
 
     def test_path_traversal_attempt(self):
         """Should handle path traversal attempt."""
-        is_valid, error = validate_file_type("../../etc/passwd.pdf")
-        assert is_valid is True  # Extension is valid, path handling is elsewhere
+        validate_file_type("../../etc/passwd.pdf")  # Extension is valid, path handling is elsewhere
 
     def test_url_encoded_extension(self):
         """Should handle URL-encoded characters in extension."""
         # This should fail as the extension would be weird
-        is_valid, error = validate_file_type("file.pd%66")
-        assert is_valid is False
+        with pytest.raises(FileValidationError):
+            validate_file_type("file.pd%66")
