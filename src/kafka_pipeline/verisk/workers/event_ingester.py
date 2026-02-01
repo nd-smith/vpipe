@@ -202,21 +202,9 @@ class EventIngesterWorker:
         self._records_processed += 1
 
         # Decode and parse EventMessage
-        from kafka_pipeline.common.telemetry import get_tracer
-
-        tracer = get_tracer(__name__)
         try:
-            with tracer.start_active_span("event.parse") as scope:
-                span = scope.span if hasattr(scope, "span") else scope
-                span.set_tag("span.kind", "internal")
-                message_data = json.loads(record.value.decode("utf-8"))
-                event = EventMessage.from_eventhouse_row(message_data)
-                span.set_tag("event.type", event.type)
-                span.set_tag("event.status_subtype", event.status_subtype)
-                span.set_tag(
-                    "event.attachment_count",
-                    len(event.attachments) if event.attachments else 0,
-                )
+            message_data = json.loads(record.value.decode("utf-8"))
+            event = EventMessage.from_eventhouse_row(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse EventMessage",
@@ -301,95 +289,76 @@ class EventIngesterWorker:
         assignment_id: str,
     ) -> None:
         """Create and produce enrichment task for this event."""
-        from kafka_pipeline.common.telemetry import get_tracer
+        # Parse original timestamp from event
+        original_timestamp = datetime.fromisoformat(
+            event.utc_datetime.replace("Z", "+00:00")
+        )
 
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("event.create_enrichment") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("span.kind", "internal")
-            span.set_tag("trace_id", event.trace_id)
-            span.set_tag("event_id", event_id)
-            span.set_tag(
-                "attachment_count", len(event.attachments) if event.attachments else 0
+        # Create enrichment task with all event data
+        enrichment_task = XACTEnrichmentTask(
+            event_id=event_id,
+            trace_id=event.trace_id,
+            event_type=self.domain,
+            status_subtype=event.status_subtype,
+            assignment_id=assignment_id,
+            estimate_version=event.estimate_version,
+            attachments=event.attachments or [],
+            retry_count=0,
+            created_at=datetime.now(UTC),
+            original_timestamp=original_timestamp,
+        )
+
+        # Produce enrichment task to pending topic
+        # CRITICAL: Must await send confirmation before allowing offset commit
+        try:
+            metadata = await self.producer.send(
+                topic=self.producer_config.get_topic(
+                    self.domain, "enrichment_pending"
+                ),
+                key=event.trace_id,
+                value=enrichment_task,
+                headers={"trace_id": event.trace_id, "event_id": event_id},
             )
 
-            # Parse original timestamp from event
-            original_timestamp = datetime.fromisoformat(
-                event.utc_datetime.replace("Z", "+00:00")
+            # Track successful task creation for cycle output
+            self._records_succeeded += 1
+
+            logger.info(
+                "Created enrichment task",
+                extra={
+                    "trace_id": event.trace_id,
+                    "event_id": event_id,
+                    "status_subtype": event.status_subtype,
+                    "assignment_id": assignment_id,
+                    "attachment_count": (
+                        len(event.attachments) if event.attachments else 0
+                    ),
+                    "partition": metadata.partition,
+                    "offset": metadata.offset,
+                },
+            )
+        except Exception as e:
+            # Record send failure metric
+            record_processing_error(
+                topic=self.producer_config.get_topic(
+                    self.domain, "enrichment_pending"
+                ),
+                consumer_group=f"{self.domain}-event-ingester",
+                error_type="SEND_FAILED",
             )
 
-            # Create enrichment task with all event data
-            enrichment_task = XACTEnrichmentTask(
+            log_worker_error(
+                logger,
+                "Failed to produce enrichment task - will retry on next poll",
                 event_id=event_id,
+                error_category="TRANSIENT",
+                exc=e,
                 trace_id=event.trace_id,
-                event_type=self.domain,
-                status_subtype=event.status_subtype,
-                assignment_id=assignment_id,
-                estimate_version=event.estimate_version,
-                attachments=event.attachments or [],
-                retry_count=0,
-                created_at=datetime.now(UTC),
-                original_timestamp=original_timestamp,
+                error_type=type(e).__name__,
             )
-
-            # Produce enrichment task to pending topic
-            # CRITICAL: Must await send confirmation before allowing offset commit
-            try:
-                metadata = await self.producer.send(
-                    topic=self.producer_config.get_topic(
-                        self.domain, "enrichment_pending"
-                    ),
-                    key=event.trace_id,
-                    value=enrichment_task,
-                    headers={"trace_id": event.trace_id, "event_id": event_id},
-                )
-
-                # Track successful task creation for cycle output
-                self._records_succeeded += 1
-
-                span.set_tag("task.created", True)
-                span.set_tag("task.partition", metadata.partition)
-                span.set_tag("task.offset", metadata.offset)
-
-                logger.info(
-                    "Created enrichment task",
-                    extra={
-                        "trace_id": event.trace_id,
-                        "event_id": event_id,
-                        "status_subtype": event.status_subtype,
-                        "assignment_id": assignment_id,
-                        "attachment_count": (
-                            len(event.attachments) if event.attachments else 0
-                        ),
-                        "partition": metadata.partition,
-                        "offset": metadata.offset,
-                    },
-                )
-            except Exception as e:
-                # Record send failure metric
-                record_processing_error(
-                    topic=self.producer_config.get_topic(
-                        self.domain, "enrichment_pending"
-                    ),
-                    consumer_group=f"{self.domain}-event-ingester",
-                    error_type="SEND_FAILED",
-                )
-
-                span.set_tag("task.created", False)
-                span.set_tag("error", str(e))
-
-                log_worker_error(
-                    logger,
-                    "Failed to produce enrichment task - will retry on next poll",
-                    event_id=event_id,
-                    error_category="TRANSIENT",
-                    exc=e,
-                    trace_id=event.trace_id,
-                    error_type=type(e).__name__,
-                )
-                # Re-raise to prevent offset commit - message will be retried
-                # This ensures at-least-once semantics: if send fails, we retry
-                raise
+            # Re-raise to prevent offset commit - message will be retried
+            # This ensures at-least-once semantics: if send fails, we retry
+            raise
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
         """Get cycle statistics for periodic logging."""
