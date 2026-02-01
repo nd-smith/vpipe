@@ -20,96 +20,20 @@ from pydantic import BaseModel, Field
 
 
 class EntityRowsMessage(BaseModel):
-    """Container for entity rows extracted from ClaimX API enrichment.
+    """Entity rows extracted from ClaimX API for Delta table writes."""
 
-    Handlers populate the relevant lists based on event type and API responses.
-    Each list contains dictionaries representing rows to write to Delta tables.
-
-    Schema matches verisk_pipeline.claimx.claimx_models.EntityRows for compatibility.
-
-    Entity Tables (7 types):
-        - projects → claimx_projects (merge key: project_id)
-        - contacts → claimx_contacts (merge keys: contact_id, project_id)
-        - media → claimx_attachment_metadata (merge key: media_id)
-        - tasks → claimx_tasks (merge key: task_id)
-        - task_templates → claimx_task_templates (merge keys: template_id, project_id)
-        - external_links → claimx_external_links (merge key: link_id)
-        - video_collab → claimx_video_collab (merge key: collaboration_id)
-
-    Attributes:
-        event_id: Original ClaimX event ID for traceability
-        event_type: Original event type (e.g., PROJECT_CREATED)
-        project_id: Project ID from the original event
-        projects: List of project entity rows
-        contacts: List of contact/policyholder entity rows
-        media: List of media/attachment metadata rows
-        tasks: List of task entity rows
-        task_templates: List of task template rows
-        external_links: List of external link rows
-        video_collab: List of video collaboration rows
-
-    Example:
-        >>> rows = EntityRowsMessage(event_id="evt_123", event_type="PROJECT_CREATED")
-        >>> rows.projects.append({
-        ...     'project_id': 'proj_12345',
-        ...     'project_name': 'Insurance Claim 2024',
-        ...     'created_at': '2024-12-25T10:00:00Z'
-        ... })
-        >>> rows.media.append({
-        ...     'media_id': 'media_111',
-        ...     'project_id': 'proj_12345',
-        ...     'file_name': 'photo.jpg',
-        ...     'file_type': 'jpg'
-        ... })
-        >>> rows.is_empty()
-        False
-    """
-
-    # Traceability fields - track origin event for debugging and retry handling
-    event_id: str | None = Field(
-        default=None, description="Original ClaimX event ID for end-to-end traceability"
-    )
-    event_type: str | None = Field(
-        default=None,
-        description="Original event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
-    )
-    project_id: str | None = Field(
-        default=None, description="Project ID from the original event"
-    )
-
-    projects: list[dict[str, Any]] = Field(
-        default_factory=list, description="Project entity rows (table: claimx_projects)"
-    )
-    contacts: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Contact/policyholder entity rows (table: claimx_contacts)",
-    )
-    media: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Media/attachment metadata rows (table: claimx_attachment_metadata)",
-    )
-    tasks: list[dict[str, Any]] = Field(
-        default_factory=list, description="Task entity rows (table: claimx_tasks)"
-    )
-    task_templates: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Task template rows (table: claimx_task_templates)",
-    )
-    external_links: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="External link rows (table: claimx_external_links)",
-    )
-    video_collab: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Video collaboration rows (table: claimx_video_collab)",
-    )
+    event_id: str | None = None
+    event_type: str | None = None
+    project_id: str | None = None
+    projects: list[dict[str, Any]] = Field(default_factory=list)
+    contacts: list[dict[str, Any]] = Field(default_factory=list)
+    media: list[dict[str, Any]] = Field(default_factory=list)
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
+    task_templates: list[dict[str, Any]] = Field(default_factory=list)
+    external_links: list[dict[str, Any]] = Field(default_factory=list)
+    video_collab: list[dict[str, Any]] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
-        """Check if all entity lists are empty.
-
-        Returns:
-            True if no entity rows exist, False otherwise
-        """
         return not any(
             [
                 self.projects,

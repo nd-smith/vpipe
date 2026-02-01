@@ -28,12 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 def _classify_timeout_type(error_message: str) -> str:
-    """
-    Classify timeout error type from error message.
-
-    Returns:
-        Timeout type: 'connection', 'socket_read', or 'total'
-    """
     error_lower = error_message.lower()
     if "connect" in error_lower or "connection" in error_lower:
         return "connection"
@@ -58,50 +52,13 @@ class AttachmentDownloader:
         max_connections: int = 100,
         max_connections_per_host: int = 10,
     ):
-        """
-        Initialize AttachmentDownloader.
-
-        Args:
-            session: Optional shared session (None = create per download)
-            max_connections: Total connection pool size
-            max_connections_per_host: Per-host connection limit
-        """
         self._session = session
         self._owns_session = session is None
         self._max_connections = max_connections
         self._max_connections_per_host = max_connections_per_host
 
     async def download(self, task: DownloadTask) -> DownloadOutcome:
-        """
-        Download attachment according to task specification.
-
-        Orchestrates the complete download process with validation and error handling.
-
-        Args:
-            task: Download task specification
-
-        Returns:
-            DownloadOutcome with success/failure and metadata
-
-        Steps:
-            1. Validate URL (if task.validate_url=True)
-            2. Check presigned URL expiration (if task.check_expiration=True)
-               - Expired S3/Xact URLs fail permanently (no refresh capability)
-            3. Validate file type from URL (if task.validate_file_type=True)
-            4. Perform HTTP download (streaming or in-memory)
-            5. Validate Content-Type from response (if task.validate_file_type=True)
-            6. Return outcome with metadata
-
-        Example:
-            task = DownloadTask(
-                url="https://example.com/file.pdf",
-                destination=Path("file.pdf"),
-                timeout=30,
-                validate_url=True,
-                validate_file_type=True
-            )
-            outcome = await downloader.download(task)
-        """
+        """Download attachment with validation and error handling."""
         # Step 1: Validate URL
         if task.validate_url:
             is_valid, error = validate_download_url(

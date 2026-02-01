@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwargs):
-    """Build arguments for xact-poller worker."""
     return {
         "pipeline_config": pipeline_config,
         "shutdown_event": shutdown_event,
@@ -28,14 +27,6 @@ def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwa
 def build_xact_json_poller_args(
     pipeline_config, shutdown_event: asyncio.Event, **kwargs
 ):
-    """Build arguments for xact-json-poller worker.
-
-    Environment variables:
-        JSON_OUTPUT_PATH: Output file path (default: output/xact_events.jsonl)
-        JSON_ROTATE_SIZE_MB: File rotation size in MB (default: 100)
-        JSON_PRETTY_PRINT: Format with indentation (default: false)
-        JSON_INCLUDE_METADATA: Include _key, _timestamp, _headers (default: true)
-    """
     return {
         "pipeline_config": pipeline_config,
         "shutdown_event": shutdown_event,
@@ -54,7 +45,6 @@ def build_xact_event_ingester_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for xact-event-ingester worker."""
     from config.pipeline_config import EventSourceType
 
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
@@ -78,12 +68,6 @@ def build_xact_delta_writer_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for xact-delta-writer worker.
-
-    Environment variables (checked in order):
-        XACT_EVENTS_TABLE_PATH: Primary env var (matches ClaimX pattern)
-        XACT_DELTA_EVENTS_TABLE: Alternative env var name
-    """
     from config.pipeline_config import EventSourceType
 
     # Check environment variables first (domain-specific like ClaimX)
@@ -117,7 +101,7 @@ def build_xact_result_processor_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for xact-result-processor worker."""
+
     return {
         "kafka_config": local_kafka_config,
         "shutdown_event": shutdown_event,
@@ -166,7 +150,7 @@ def build_claimx_enricher_args(
     simulation_mode: bool = False,
     **kwargs,
 ):
-    """Build arguments for claimx-enricher worker."""
+
     args = {
         "kafka_config": local_kafka_config,
         "pipeline_config": pipeline_config,
@@ -189,7 +173,7 @@ def build_claimx_result_processor_args(
     local_kafka_config=None,
     **kwargs,
 ):
-    """Build arguments for claimx-result-processor worker."""
+
     return {
         "kafka_config": local_kafka_config,
         "pipeline_config": pipeline_config,
