@@ -41,6 +41,7 @@ from kafka_pipeline.common.metrics import (
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.storage import OneLakeClient
+from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
@@ -207,8 +208,6 @@ class UploadWorker:
                 "upload_batch_size": self.batch_size,
             },
         )
-
-        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "upload-worker")
 

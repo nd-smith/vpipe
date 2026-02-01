@@ -38,6 +38,7 @@ from kafka_pipeline.common.metrics import (
     update_connection_status,
 )
 from kafka_pipeline.common.producer import BaseKafkaProducer
+from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.plugins.shared.base import (
     Domain,
@@ -193,8 +194,6 @@ class XACTEnrichmentWorker:
 
         logger.info("Starting XACTEnrichmentWorker")
         self._running = True
-
-        from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "enrichment-worker")
 
