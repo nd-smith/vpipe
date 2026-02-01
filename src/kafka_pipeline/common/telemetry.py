@@ -8,9 +8,6 @@ Provides centralized telemetry setup for metrics:
 Telemetry is fully optional:
 - Set ENABLE_TELEMETRY=false to disable
 - If prometheus-client not available, gracefully degrades to no-op
-
-Note: Distributed tracing support has been removed. NoOp tracer is provided
-for backward compatibility with existing code.
 """
 
 import logging
@@ -21,101 +18,12 @@ logger = logging.getLogger(__name__)
 
 _initialized = False
 _telemetry_available = False
-_tracer: Any | None = None
 _prometheus_registry: Any | None = None
-
-
-class SpanKind:
-    """Span kind constants for OpenTracing compatibility."""
-
-    INTERNAL = 0
-    SERVER = 1
-    CLIENT = 2
-    PRODUCER = 3
-    CONSUMER = 4
-
-
-class NoOpTracer:
-    """No-op tracer when telemetry is disabled or unavailable."""
-
-    def start_span(self, operation_name: str, **kwargs):
-        """Return a no-op span."""
-        return NoOpSpan()
-
-    def start_active_span(self, operation_name: str, **kwargs):
-        """Return a no-op context manager."""
-        return NoOpSpanContext()
-
-    def start_as_current_span(self, operation_name: str, **kwargs):
-        """Return a no-op context manager (OpenTracing API compatibility)."""
-        return NoOpSpanContext()
-
-
-class NoOpSpan:
-    """No-op span when telemetry is disabled or unavailable."""
-
-    def set_tag(self, key: str, value: Any):
-        """No-op set_tag (OpenTracing API)."""
-        pass
-
-    def set_attribute(self, key: str, value: Any):
-        """No-op set_attribute (OpenTracing API)."""
-        pass
-
-    def set_attributes(self, attributes: dict):
-        """No-op set_attributes (OpenTracing API)."""
-        pass
-
-    def add_event(self, name: str, attributes: dict = None):
-        """No-op add_event (OpenTracing API)."""
-        pass
-
-    def record_exception(self, exception: Exception, attributes: dict = None):
-        """No-op record_exception (OpenTracing API)."""
-        pass
-
-    def set_status(self, status: Any, description: str = None):
-        """No-op set_status (OpenTracing API)."""
-        pass
-
-    def log_kv(self, kv: dict):
-        """No-op log_kv (OpenTracing API)."""
-        pass
-
-    def finish(self):
-        """No-op finish."""
-        pass
-
-    def is_recording(self) -> bool:
-        """Return False for no-op span."""
-        return False
-
-    def get_span_context(self):
-        """Return None for no-op span context."""
-        return None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-
-class NoOpSpanContext:
-    """No-op span context manager when telemetry is disabled or unavailable."""
-
-    def __enter__(self):
-        return NoOpSpan()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
 
 
 def initialize_telemetry(
     service_name: str,
     environment: str = "development",
-    jaeger_endpoint: str | None = None,  # Deprecated, ignored
-    enable_traces: bool = True,  # Deprecated, ignored
     enable_metrics: bool = True,
 ) -> None:
     """
@@ -127,8 +35,6 @@ def initialize_telemetry(
     Args:
         service_name: Name of the service (e.g., "xact-event-ingester")
         environment: Deployment environment (development, staging, production)
-        jaeger_endpoint: Deprecated, ignored (kept for backward compatibility)
-        enable_traces: Deprecated, ignored (kept for backward compatibility)
         enable_metrics: Enable metric export to Prometheus
 
     Example:
@@ -140,7 +46,7 @@ def initialize_telemetry(
     Environment Variables:
         ENABLE_TELEMETRY: Set to "false" or "0" to disable telemetry completely
     """
-    global _initialized, _telemetry_available, _tracer, _prometheus_registry
+    global _initialized, _telemetry_available, _prometheus_registry
 
     if _initialized:
         logger.warning("Telemetry already initialized, skipping")
@@ -198,27 +104,6 @@ def initialize_worker_telemetry(domain: str, worker_name: str) -> None:
     environment = os.getenv("ENVIRONMENT", "development")
     service_name = f"{domain}-{worker_name}"
     initialize_telemetry(service_name=service_name, environment=environment)
-
-
-def get_tracer(name: str) -> Any:
-    """
-    Get a tracer instance for creating spans.
-
-    Args:
-        name: Name of the tracer (typically __name__ of the module)
-
-    Returns:
-        Tracer instance for creating spans (or no-op tracer if unavailable)
-
-    Example:
-        >>> tracer = get_tracer(__name__)
-        >>> with tracer.start_active_span("operation"):
-        ...     # Do work
-        ...     pass
-    """
-    if _tracer is not None:
-        return _tracer
-    return NoOpTracer()
 
 
 def get_prometheus_registry() -> Any | None:
