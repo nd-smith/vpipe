@@ -6,23 +6,21 @@ Provides JSON logging with correlation IDs and context propagation.
 
 from core.logging.context import (
     clear_log_context,
+    clear_message_context,
     get_log_context,
+    get_message_context,
     set_log_context,
+    set_message_context,
 )
 from core.logging.context_managers import (
     LogContext,
+    MessageLogContext,
     OperationContext,
     StageLogContext,
     log_operation,
     log_phase,
 )
 from core.logging.formatters import ConsoleFormatter, JSONFormatter
-from core.logging.message_context import (
-    MessageLogContext,
-    clear_message_context,
-    get_message_context,
-    set_message_context,
-)
 from core.logging.setup import (
     generate_cycle_id,
     get_log_file_path,

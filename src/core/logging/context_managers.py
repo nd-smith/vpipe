@@ -5,7 +5,12 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
-from core.logging.context import get_log_context, set_log_context
+from core.logging.context import (
+    get_log_context,
+    get_message_context,
+    set_log_context,
+    set_message_context,
+)
 from core.logging.utilities import log_exception, log_with_context
 
 
@@ -86,6 +91,50 @@ class StageLogContext(LogContext):
         duration_ms = (time.perf_counter() - self.start_time) * 1000
         self.result_context["duration_ms"] = round(duration_ms, 2)
         super().__exit__(exc_type, exc_val, exc_tb)
+        return False
+
+
+class MessageLogContext:
+    """
+    Context manager for message processing with automatic context setting.
+
+    Usage:
+        with MessageLogContext(topic="events", partition=0, offset=12345):
+            process_message()
+    """
+
+    def __init__(
+        self,
+        topic: str | None = None,
+        partition: int | None = None,
+        offset: int | None = None,
+        key: str | None = None,
+        consumer_group: str | None = None,
+    ):
+        self.new_context = {
+            "topic": topic,
+            "partition": partition,
+            "offset": offset,
+            "key": key,
+            "consumer_group": consumer_group,
+        }
+        self.old_context: dict[str, any] = {}
+
+    def __enter__(self) -> "MessageLogContext":
+        self.old_context = get_message_context()
+        for key, value in self.new_context.items():
+            if value is not None:
+                set_message_context(**{key: value})
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        set_message_context(
+            topic=self.old_context.get("message_topic", ""),
+            partition=self.old_context.get("message_partition", -1),
+            offset=self.old_context.get("message_offset", -1),
+            key=self.old_context.get("message_key", ""),
+            consumer_group=self.old_context.get("message_consumer_group", ""),
+        )
         return False
 
 
