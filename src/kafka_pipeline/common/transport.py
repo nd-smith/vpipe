@@ -31,6 +31,14 @@ from kafka_pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 logger = get_logger(__name__)
 
 
+# Event Hub configuration keys
+EVENTHUB_CONFIG_KEY = "eventhub"
+NAMESPACE_CONNECTION_STRING_KEY = "namespace_connection_string"
+EVENTHUB_NAME_KEY = "eventhub_name"
+CONSUMER_GROUP_KEY = "consumer_group"
+DEFAULT_CONSUMER_GROUP_KEY = "default_consumer_group"
+
+
 class TransportType(str, Enum):
     """Transport protocol type."""
 
@@ -59,31 +67,23 @@ def get_transport_type() -> TransportType:
 
 
 # =============================================================================
-# Event Hub configuration loading (cached)
+# Event Hub configuration loading
 # =============================================================================
-
-_eventhub_config: dict[str, Any] | None = None
 
 
 def _load_eventhub_config() -> dict[str, Any]:
-    """Load and cache the eventhub section from config.yaml.
+    """Load the eventhub section from config.yaml.
 
     Returns the expanded eventhub config dict with Event Hub mappings.
     """
-    global _eventhub_config
-    if _eventhub_config is not None:
-        return _eventhub_config
-
     from config.config import DEFAULT_CONFIG_FILE, _expand_env_vars, load_yaml
 
-    if DEFAULT_CONFIG_FILE.exists():
-        data = load_yaml(DEFAULT_CONFIG_FILE)
-        data = _expand_env_vars(data)
-        _eventhub_config = data.get("eventhub", {})
-    else:
-        _eventhub_config = {}
+    if not DEFAULT_CONFIG_FILE.exists():
+        return {}
 
-    return _eventhub_config
+    data = load_yaml(DEFAULT_CONFIG_FILE)
+    data = _expand_env_vars(data)
+    return data.get(EVENTHUB_CONFIG_KEY, {})
 
 
 def _get_namespace_connection_string() -> str:
@@ -116,7 +116,7 @@ def _get_namespace_connection_string() -> str:
 
     # 3. Config file
     config = _load_eventhub_config()
-    conn = config.get("namespace_connection_string", "")
+    conn = config.get(NAMESPACE_CONNECTION_STRING_KEY, "")
     if conn:
         return _strip_entity_path(conn)
 
@@ -150,8 +150,6 @@ def _resolve_eventhub_name(
     Priority:
     1. config.yaml: eventhub.{domain}.{topic_key}.eventhub_name
     2. Worker-specific env var: EVENTHUB_NAME_{WORKER_NAME}
-    3. Default env var: EVENTHUB_ENTITY_NAME (legacy)
-    4. Fallback: construct from domain
 
     Args:
         domain: Pipeline domain (e.g., "verisk", "claimx")
@@ -160,13 +158,16 @@ def _resolve_eventhub_name(
 
     Returns:
         Event Hub name
+
+    Raises:
+        ValueError: If Event Hub name cannot be resolved
     """
     # 1. Config file lookup (preferred)
     if topic_key:
         config = _load_eventhub_config()
         domain_config = config.get(domain, {})
         topic_config = domain_config.get(topic_key, {})
-        eventhub_name = topic_config.get("eventhub_name")
+        eventhub_name = topic_config.get(EVENTHUB_NAME_KEY)
         if eventhub_name:
             logger.debug(
                 f"Resolved Event Hub from config: "
@@ -181,20 +182,11 @@ def _resolve_eventhub_name(
         logger.debug("Using Event Hub name from %s: %s", worker_env_var, eventhub_name)
         return eventhub_name
 
-    # 3. Legacy default env var
-    eventhub_name = os.getenv("EVENTHUB_ENTITY_NAME")
-    if eventhub_name:
-        logger.debug("Using Event Hub name from EVENTHUB_ENTITY_NAME: %s", eventhub_name)
-        return eventhub_name
-
-    # 4. Fallback
-    eventhub_name = f"com.allstate.pcesdopodappv1.{domain}.events.raw"
-    logger.warning(
-        f"No Event Hub name configured for domain='{domain}', topic_key='{topic_key}', "
-        f"worker='{worker_name}'. Using fallback: {eventhub_name}. "
-        f"Configure in config.yaml under eventhub.{domain}.{topic_key}.eventhub_name."
+    raise ValueError(
+        f"Event Hub name not configured for domain='{domain}', topic_key='{topic_key}', "
+        f"worker='{worker_name}'. Configure in config.yaml under "
+        f"eventhub.{domain}.{topic_key}.eventhub_name or set {worker_env_var} environment variable."
     )
-    return eventhub_name
 
 
 def _resolve_eventhub_consumer_group(
@@ -209,7 +201,6 @@ def _resolve_eventhub_consumer_group(
     1. config.yaml: eventhub.{domain}.{topic_key}.consumer_group
     2. KafkaConfig.get_consumer_group (existing Kafka consumer group logic)
     3. eventhub.default_consumer_group from config.yaml
-    4. Fallback: $Default
 
     Args:
         domain: Pipeline domain
@@ -219,13 +210,16 @@ def _resolve_eventhub_consumer_group(
 
     Returns:
         Consumer group name
+
+    Raises:
+        ValueError: If consumer group cannot be resolved
     """
     # 1. Config file lookup (preferred)
     if topic_key:
         config = _load_eventhub_config()
         domain_config = config.get(domain, {})
         topic_config = domain_config.get(topic_key, {})
-        consumer_group = topic_config.get("consumer_group")
+        consumer_group = topic_config.get(CONSUMER_GROUP_KEY)
         if consumer_group:
             logger.debug(
                 f"Resolved consumer group from config: "
@@ -241,12 +235,15 @@ def _resolve_eventhub_consumer_group(
 
     # 3. Default from config
     config = _load_eventhub_config()
-    default_group = config.get("default_consumer_group")
+    default_group = config.get(DEFAULT_CONSUMER_GROUP_KEY)
     if default_group:
         return default_group
 
-    # 4. Fallback
-    return "$Default"
+    raise ValueError(
+        f"Event Hub consumer group not configured for domain='{domain}', "
+        f"topic_key='{topic_key}', worker='{worker_name}'. Configure in config.yaml under "
+        f"eventhub.{domain}.{topic_key}.consumer_group or eventhub.default_consumer_group."
+    )
 
 
 # =============================================================================
@@ -437,16 +434,9 @@ async def create_consumer(
         )
 
 
-def reset_eventhub_config() -> None:
-    """Reset the cached eventhub config (for testing)."""
-    global _eventhub_config
-    _eventhub_config = None
-
-
 __all__ = [
     "TransportType",
     "get_transport_type",
     "create_producer",
     "create_consumer",
-    "reset_eventhub_config",
 ]
