@@ -192,44 +192,28 @@ class PluginOrchestrator:
 
                 # Execute actions
                 for action in result.actions:
-                    try:
-                        log_with_context(
-                            logger,
-                            logging.INFO,
-                            "Executing plugin action",
-                            plugin_name=plugin.name,
-                            action_type=action.action_type.value,
-                            event_id=context.event_id,
-                            event_type=context.event_type,
-                            project_id=context.project_id,
-                        )
-                        await self.action_executor.execute(action, context)
-                        actions_executed += 1
-                        log_with_context(
-                            logger,
-                            logging.INFO,
-                            "Plugin action executed successfully",
-                            plugin_name=plugin.name,
-                            action_type=action.action_type.value,
-                            event_id=context.event_id,
-                            event_type=context.event_type,
-                            project_id=context.project_id,
-                        )
-                    except Exception as action_error:
-                        log_with_context(
-                            logger,
-                            logging.ERROR,
-                            "Plugin action execution failed",
-                            plugin_name=plugin.name,
-                            action_type=action.action_type.value,
-                            action_params=action.params,
-                            error=str(action_error),
-                            event_id=context.event_id,
-                            event_type=context.event_type,
-                            project_id=context.project_id,
-                            exc_info=True,
-                        )
-                        raise
+                    log_with_context(
+                        logger,
+                        logging.INFO,
+                        "Executing plugin action",
+                        plugin_name=plugin.name,
+                        action_type=action.action_type.value,
+                        event_id=context.event_id,
+                        event_type=context.event_type,
+                        project_id=context.project_id,
+                    )
+                    await self.action_executor.execute(action, context)
+                    actions_executed += 1
+                    log_with_context(
+                        logger,
+                        logging.INFO,
+                        "Plugin action executed successfully",
+                        plugin_name=plugin.name,
+                        action_type=action.action_type.value,
+                        event_id=context.event_id,
+                        event_type=context.event_type,
+                        project_id=context.project_id,
+                    )
 
                 # Check for termination
                 if result.terminate_pipeline:

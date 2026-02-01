@@ -151,12 +151,10 @@ class PluginResult:
 
     @classmethod
     def success(cls, message: str = None) -> "PluginResult":
-        """Create a successful result with no actions."""
         return cls(success=True, message=message)
 
     @classmethod
     def skip(cls, reason: str) -> "PluginResult":
-        """Create a skip result (conditions not met)."""
         return cls(success=True, message=f"Skipped: {reason}")
 
     @classmethod
@@ -166,7 +164,6 @@ class PluginResult:
         payload: dict[str, Any],
         headers: dict[str, str] | None = None,
     ) -> "PluginResult":
-        """Create a result that publishes to a Kafka topic."""
         return cls(
             success=True,
             actions=[
@@ -189,7 +186,6 @@ class PluginResult:
         body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> "PluginResult":
-        """Create a result that calls an HTTP webhook."""
         return cls(
             success=True,
             actions=[
@@ -207,7 +203,6 @@ class PluginResult:
 
     @classmethod
     def log(cls, level: str, message: str) -> "PluginResult":
-        """Create a result that logs a message."""
         return cls(
             success=True,
             actions=[
@@ -220,7 +215,6 @@ class PluginResult:
 
     @classmethod
     def filter_out(cls, reason: str) -> "PluginResult":
-        """Create a result that stops pipeline processing."""
         return cls(
             success=True,
             terminate_pipeline=True,
@@ -245,24 +239,6 @@ class PluginResult:
         template_id: str | None = None,
         template_data: dict[str, Any] | None = None,
     ) -> "PluginResult":
-        """
-        Create a result that sends an email.
-
-        Args:
-            to: Recipient email address(es)
-            subject: Email subject line
-            body: Email body (plain text or HTML based on 'html' flag)
-            connection: Named connection for email service (default: "email_service")
-            cc: CC recipient(s)
-            bcc: BCC recipient(s)
-            reply_to: Reply-to address
-            html: If True, body is treated as HTML
-            template_id: Optional template ID for templated emails
-            template_data: Data to populate template variables
-
-        Returns:
-            PluginResult with SEND_EMAIL action
-        """
         params = {
             "connection": connection,
             "to": to if isinstance(to, list) else [to],
@@ -298,49 +274,6 @@ class PluginResult:
         use_primary_contact_as_sender: bool = True,
         sender_username: str | None = None,
     ) -> "PluginResult":
-        """
-        Create a result that creates a ClaimX task via /import/project/actions API.
-
-        Args:
-            task_type: Action type (e.g., "CUSTOM_TASK_ASSIGN_EXTERNAL_LINK")
-            task_data: Task-specific data payload containing:
-                - customTaskName: Name of the custom task
-                - customTaskId: ID of the custom task
-                - notificationType: Type of notification (e.g., "COPY_EXTERNAL_LINK_URL")
-                - Additional fields as required by the task type
-            project_id: ClaimX project ID (required if claim_number not provided)
-            claim_number: Claim number (required if project_id not provided)
-                Will be used to fetch the ClaimX project ID via API
-            connection: Named connection for ClaimX API (default: "claimx_api")
-            use_primary_contact_as_sender: Use primary contact as sender (default: True)
-            sender_username: Sender username (optional, defaults to config value)
-
-        Returns:
-            PluginResult with CREATE_CLAIMX_TASK action
-
-        Examples:
-            # With ClaimX project ID (ClaimX domain events)
-            PluginResult.create_claimx_task(
-                project_id=12345,
-                task_type="CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",
-                task_data={
-                    "customTaskName": "Review Documentation",
-                    "customTaskId": 456,
-                    "notificationType": "COPY_EXTERNAL_LINK_URL",
-                }
-            )
-
-            # With claim number (Verisk domain events)
-            PluginResult.create_claimx_task(
-                claim_number="ABC123456",
-                task_type="CUSTOM_TASK_ASSIGN_EXTERNAL_LINK",
-                task_data={
-                    "customTaskName": "Review Documentation",
-                    "customTaskId": 456,
-                    "notificationType": "COPY_EXTERNAL_LINK_URL",
-                }
-            )
-        """
         if not project_id and not claim_number:
             raise ValueError("Either project_id or claim_number must be provided")
 

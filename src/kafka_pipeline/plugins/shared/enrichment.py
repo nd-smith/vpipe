@@ -23,13 +23,11 @@ class EnrichmentContext:
     """Context passed to enrichment handlers.
 
     Attributes:
-        message: The original message from Kafka
-        data: Mutable dict for handler data passing
+        data: Message data being enriched
         metadata: Read-only metadata about the message
         connection_manager: HTTP connection manager for external lookups
     """
 
-    message: dict[str, Any]
     data: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     connection_manager: ConnectionManager | None = None
@@ -148,7 +146,7 @@ class TransformHandler(EnrichmentHandler):
 
         output = {}
         for output_key, input_path in mappings.items():
-            value = self._get_nested(context.message, input_path)
+            value = self._get_nested(context.data, input_path)
             if value is not None:
                 output[output_key] = value
             elif output_key in defaults:
@@ -256,17 +254,13 @@ class ValidationHandler(EnrichmentHandler):
         return EnrichmentResult.ok(context.data)
 
     def _get_value(self, context: EnrichmentContext, field: str) -> Any:
-        """Get field value from context (checks both data and message)."""
-        # Check enriched data first
+        """Get field value from context data."""
         if field in context.data:
             return context.data[field]
 
-        # Fall back to original message
-        if field in context.message:
-            return context.message[field]
         if "." in field:
             parts = field.split(".")
-            obj = context.message
+            obj = context.data
             for part in parts:
                 if isinstance(obj, dict):
                     obj = obj.get(part)
@@ -316,7 +310,7 @@ class LookupHandler(EnrichmentHandler):
         path_params = self.config.get("path_params", {})
 
         for param_name, field_name in path_params.items():
-            value = context.message.get(field_name) or context.data.get(field_name)
+            value = context.data.get(field_name) or context.data.get(field_name)
             if value is None:
                 return EnrichmentResult.failed(
                     f"Path parameter '{param_name}' field '{field_name}' not found"
@@ -326,8 +320,8 @@ class LookupHandler(EnrichmentHandler):
         config_params = self.config.get("query_params", {})
         for param_name, value_or_field in config_params.items():
             # Check if it's a field reference or literal value
-            if isinstance(value_or_field, str) and value_or_field in context.message:
-                query_params[param_name] = context.message[value_or_field]
+            if isinstance(value_or_field, str) and value_or_field in context.data:
+                query_params[param_name] = context.data[value_or_field]
             elif isinstance(value_or_field, str) and value_or_field in context.data:
                 query_params[param_name] = context.data[value_or_field]
             else:
@@ -508,8 +502,7 @@ class EnrichmentPipeline:
     ) -> EnrichmentResult:
         """Execute all handlers in sequence."""
         context = EnrichmentContext(
-            message=message,
-            data=message.copy(),  # Start with message as initial data
+            data=message,
             connection_manager=connection_manager,
         )
 

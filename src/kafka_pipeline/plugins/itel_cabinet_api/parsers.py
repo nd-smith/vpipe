@@ -382,30 +382,12 @@ class DataBuilder:
         return "General"
 
     @staticmethod
-    def process(
-        api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None
-    ) -> tuple[dict, list[dict], dict]:
-        """
-        Main processing method - transforms API response into three outputs.
-
-        Args:
-            api_obj: Parsed API response dataclass
-            event_id: Event ID for traceability
-            media_url_map: Optional mapping of media_id to download URL
-
-        Returns:
-            Tuple of (form_row, attachments_rows, readable_report)
-        """
-        if media_url_map is None:
-            media_url_map = {}
+    def build_form_row(api_obj: ApiResponse, event_id: str) -> dict:
+        """Build form row for database insertion."""
         if not api_obj:
-            return {}, [], {}
+            return {}
 
         now = datetime.utcnow()
-
-        # --- A. Setup Base Objects ---
-
-        # 1. DB Row for forms table
         form_row = {
             "assignment_id": api_obj.assignment_id,
             "task_id": api_obj.task_id,
@@ -438,66 +420,56 @@ class DataBuilder:
             "customer_phone": (
                 api_obj.external_link_data.phone if api_obj.external_link_data else None
             ),
-            **dict.fromkeys(COLUMN_MAP.values()),  # Init mapped cols with None
+            **dict.fromkeys(COLUMN_MAP.values()),
         }
 
-        attachments_rows = []
-
-        # 2. Readable/Raw Data Accumulators
-        readable_report = {
-            "meta": {
-                "task_id": api_obj.task_id,
-                "assignment_id": api_obj.assignment_id,
-                "project_id": str(api_obj.project_id),
-                "status": api_obj.status,
-                "dates": {
-                    "assigned": (
-                        api_obj.date_assigned.isoformat()
-                        if api_obj.date_assigned
-                        else None
-                    ),
-                    "completed": (
-                        api_obj.date_completed.isoformat()
-                        if api_obj.date_completed
-                        else None
-                    ),
-                },
-            },
-            "topics": defaultdict(list),
-        }
-
-        # Extract media URL expiration from first available URL
-        if media_url_map:
-            first_url = next(iter(media_url_map.values()), None)
-            url_expiration = parse_url_expiration(first_url)
-            if url_expiration:
-                readable_report["meta"]["media_urls_expire_at"] = url_expiration[
-                    "expires_at"
-                ]
-                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration[
-                    "ttl_seconds"
-                ]
-
-        # For the raw_data column (preserves original group structure)
         raw_data_flat = defaultdict(list)
 
-        # --- B. Iterate & Populate ---
         if api_obj.response and api_obj.response.groups:
             for group in api_obj.response.groups:
-                # Normalize group name for safer matching (remove trailing spaces)
                 clean_group_name = group.name.strip()
 
                 for qa in group.question_and_answers:
                     clean_question_text = qa.question_text.strip()
                     answer_val = DataBuilder.extract_value(qa.response_answer_export)
 
-                    # 1. Map to Form Table
                     map_key = (clean_group_name, clean_question_text)
                     if map_key in COLUMN_MAP:
                         col_name = COLUMN_MAP[map_key]
                         form_row[col_name] = answer_val
 
-                    # 2. Map to Attachments Table
+                    raw_data_flat[clean_group_name].append(
+                        {
+                            "q": clean_question_text,
+                            "a": answer_val,
+                            "id": qa.form_control.id,
+                        }
+                    )
+
+        form_row["raw_data"] = json.dumps(dict(raw_data_flat), cls=DateTimeEncoder)
+        return form_row
+
+    @staticmethod
+    def extract_attachments(
+        api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None
+    ) -> list[dict]:
+        """Extract attachment rows from API response."""
+        if media_url_map is None:
+            media_url_map = {}
+        if not api_obj:
+            return []
+
+        now = datetime.utcnow()
+        attachments_rows = []
+
+        if api_obj.response and api_obj.response.groups:
+            for group in api_obj.response.groups:
+                clean_group_name = group.name.strip()
+
+                for qa in group.question_and_answers:
+                    clean_question_text = qa.question_text.strip()
+                    answer_val = DataBuilder.extract_value(qa.response_answer_export)
+
                     topic = DataBuilder.get_topic_category(
                         clean_group_name, clean_question_text
                     )
@@ -520,15 +492,68 @@ class DataBuilder:
                                     "display_order": idx + 1,
                                     "created_at": now,
                                     "is_active": True,
-                                    "media_type": "image/jpeg",  # Default assumption
-                                    "url": media_url_map.get(
-                                        media_id
-                                    ),  # Download URL from ClaimX
+                                    "media_type": "image/jpeg",
+                                    "url": media_url_map.get(media_id),
                                 }
                             )
 
-                    # 3. Populate Readable Report (Categorized)
-                    # For image type, transform answer from list of IDs to list of objects with media_id and url
+        return attachments_rows
+
+    @staticmethod
+    def build_readable_report(
+        api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None
+    ) -> dict:
+        """Build readable report with categorized topics."""
+        if media_url_map is None:
+            media_url_map = {}
+        if not api_obj:
+            return {}
+
+        readable_report = {
+            "meta": {
+                "task_id": api_obj.task_id,
+                "assignment_id": api_obj.assignment_id,
+                "project_id": str(api_obj.project_id),
+                "status": api_obj.status,
+                "dates": {
+                    "assigned": (
+                        api_obj.date_assigned.isoformat()
+                        if api_obj.date_assigned
+                        else None
+                    ),
+                    "completed": (
+                        api_obj.date_completed.isoformat()
+                        if api_obj.date_completed
+                        else None
+                    ),
+                },
+            },
+            "topics": defaultdict(list),
+        }
+
+        if media_url_map:
+            first_url = next(iter(media_url_map.values()), None)
+            url_expiration = parse_url_expiration(first_url)
+            if url_expiration:
+                readable_report["meta"]["media_urls_expire_at"] = url_expiration[
+                    "expires_at"
+                ]
+                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration[
+                    "ttl_seconds"
+                ]
+
+        if api_obj.response and api_obj.response.groups:
+            for group in api_obj.response.groups:
+                clean_group_name = group.name.strip()
+
+                for qa in group.question_and_answers:
+                    clean_question_text = qa.question_text.strip()
+                    answer_val = DataBuilder.extract_value(qa.response_answer_export)
+
+                    topic = DataBuilder.get_topic_category(
+                        clean_group_name, clean_question_text
+                    )
+
                     if qa.response_answer_export.type == "image" and isinstance(
                         answer_val, list
                     ):
@@ -547,22 +572,8 @@ class DataBuilder:
                     }
                     readable_report["topics"][topic].append(readable_item)
 
-                    # 4. Populate Raw Data Blob (Grouped by original section)
-                    raw_data_flat[clean_group_name].append(
-                        {
-                            "q": clean_question_text,
-                            "a": answer_val,
-                            "id": qa.form_control.id,
-                        }
-                    )
-
-        # Finalize Form Row with raw_data blob
-        form_row["raw_data"] = json.dumps(dict(raw_data_flat), cls=DateTimeEncoder)
-
-        # Convert readable_report topics from defaultdict to regular dict
         readable_report["topics"] = dict(readable_report["topics"])
-
-        return form_row, attachments_rows, readable_report
+        return readable_report
 
 
 # ==========================================
@@ -623,7 +634,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
     )
 
     api_obj = from_dict(ApiResponse, task_data)
-    form_row, _, _ = DataBuilder.process(api_obj, event_id)
+    form_row = DataBuilder.build_form_row(api_obj, event_id)
 
     return CabinetSubmission(
         # Primary identifiers
@@ -743,7 +754,7 @@ def parse_cabinet_attachments(
     logger.debug("Parsing attachments for assignment_id=%s", assignment_id)
 
     api_obj = from_dict(ApiResponse, task_data)
-    _, attachments_rows, _ = DataBuilder.process(api_obj, event_id, media_url_map)
+    attachments_rows = DataBuilder.extract_attachments(api_obj, event_id, media_url_map)
 
     attachments = []
     for att_row in attachments_rows:
@@ -793,7 +804,4 @@ def get_readable_report(
     # Convert to typed dataclass using from_dict
     api_obj = from_dict(ApiResponse, task_data)
 
-    # Use DataBuilder to process
-    _, _, readable_report = DataBuilder.process(api_obj, event_id, media_url_map)
-
-    return readable_report
+    return DataBuilder.build_readable_report(api_obj, event_id, media_url_map)
