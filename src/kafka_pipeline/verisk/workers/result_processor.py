@@ -38,6 +38,7 @@ from kafka_pipeline.verisk.writers.delta_inventory import (
     DeltaFailedAttachmentsWriter,
     DeltaInventoryWriter,
 )
+from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
 
@@ -86,7 +87,7 @@ class ResultProcessor:
     BATCH_TIMEOUT_SECONDS = 5
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = 30
+    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,

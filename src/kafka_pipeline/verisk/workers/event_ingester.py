@@ -39,6 +39,7 @@ from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.verisk.schemas.events import EventMessage
 from kafka_pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
 
@@ -49,7 +50,7 @@ class EventIngesterWorker:
     WORKER_NAME = "event_ingester"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = 30
+    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
     # Namespace for generating deterministic media_ids (UUID5)
     # Using a fixed namespace ensures the same trace_id + url always yields the same media_id

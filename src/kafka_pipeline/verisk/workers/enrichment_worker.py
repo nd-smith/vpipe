@@ -59,6 +59,7 @@ from kafka_pipeline.verisk.schemas.tasks import (
 )
 from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
 from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
 
@@ -77,7 +78,7 @@ class XACTEnrichmentWorker:
     WORKER_NAME = "enrichment_worker"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = 30
+    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,
@@ -110,7 +111,7 @@ class XACTEnrichmentWorker:
         self.processing_config = config.get_worker_config(
             domain, "enrichment_worker", "processing"
         )
-        self.max_poll_records = self.processing_config.get("max_poll_records", 100)
+        self.max_poll_records = self.processing_config.get("max_poll_records", WorkerDefaults.MAX_POLL_RECORDS)
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)

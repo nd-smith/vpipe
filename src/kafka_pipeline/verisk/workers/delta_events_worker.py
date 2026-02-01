@@ -40,6 +40,7 @@ from kafka_pipeline.common.retry.delta_handler import DeltaRetryHandler
 from kafka_pipeline.common.types import PipelineMessage
 from kafka_pipeline.verisk.writers import DeltaEventsWriter
 from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
 
@@ -80,7 +81,7 @@ class DeltaEventsWorker:
     WORKER_NAME = "delta_events_writer"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = 30
+    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,
@@ -117,7 +118,7 @@ class DeltaEventsWorker:
         processing_config = config.get_worker_config(
             domain, "delta_events_writer", "processing"
         )
-        self.batch_size = processing_config.get("batch_size", 100)
+        self.batch_size = processing_config.get("batch_size", WorkerDefaults.MAX_POLL_RECORDS)
         self.max_batches = processing_config.get("max_batches")  # None = unlimited
         self.batch_timeout_seconds = processing_config.get(
             "batch_timeout_seconds", 10.0

@@ -46,6 +46,7 @@ from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
+from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
 
@@ -91,7 +92,7 @@ class UploadWorker:
     WORKER_NAME = "upload_worker"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = 30
+    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,
@@ -138,8 +139,8 @@ class UploadWorker:
         processing_config = config.get_worker_config(
             domain, self.WORKER_NAME, "processing"
         )
-        self.concurrency = processing_config.get("concurrency", 10)
-        self.batch_size = processing_config.get("batch_size", 20)
+        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
+        self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
 
         # Topic to consume from
         self.topic = config.get_topic(domain, "downloads_cached")

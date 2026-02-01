@@ -57,6 +57,7 @@ from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 from kafka_pipeline.verisk.schemas.tasks import DownloadTaskMessage
 from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
 from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
 
@@ -109,7 +110,7 @@ class DownloadWorker:
     WORKER_NAME = "download_worker"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = 30
+    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,
@@ -146,8 +147,8 @@ class DownloadWorker:
         processing_config = config.get_worker_config(
             domain, self.WORKER_NAME, "processing"
         )
-        self.concurrency = processing_config.get("concurrency", 10)
-        self.batch_size = processing_config.get("batch_size", 20)
+        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
+        self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
         self.timeout_seconds = processing_config.get("timeout_seconds", 60)
 
         # Concurrency control (WP-313)
