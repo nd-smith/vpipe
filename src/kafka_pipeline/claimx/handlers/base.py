@@ -82,7 +82,6 @@ class HandlerResult:
         failed_permanent: Number of permanently failed events
         skipped: Number of skipped events
         rows: All extracted entity rows
-        event_logs: Log entries for each event
         errors: List of error messages
         duration_seconds: Total processing time in seconds
         api_calls: Total API calls made
@@ -97,7 +96,6 @@ class HandlerResult:
         failed_permanent: int,
         skipped: int,
         rows: EntityRowsMessage,
-        event_logs: list[dict[str, Any]],
         errors: list[str],
         duration_seconds: float,
         api_calls: int,
@@ -109,7 +107,6 @@ class HandlerResult:
         self.failed_permanent = failed_permanent
         self.skipped = skipped
         self.rows = rows
-        self.event_logs = event_logs
         self.errors = errors
         self.duration_seconds = duration_seconds
         self.api_calls = api_calls
@@ -365,7 +362,6 @@ class EventHandler(ABC):
                 failed_permanent=0,
                 skipped=0,
                 rows=EntityRowsMessage(),
-                event_logs=[],
                 errors=[],
                 duration_seconds=0.0,
                 api_calls=0,
@@ -488,7 +484,6 @@ class EventHandler(ABC):
         failed_permanent = 0
         api_calls = 0
         all_rows = EntityRowsMessage()
-        event_logs = []
         errors = []
 
         for enrichment_result in results:
@@ -512,35 +507,6 @@ class EventHandler(ABC):
                     failed_permanent += 1
                 if enrichment_result.error:
                     errors.append(enrichment_result.error)
-
-            # Build event log entry
-            now = datetime.now(UTC)
-            log_entry = {
-                "event_id": enrichment_result.event.event_id,
-                "event_type": enrichment_result.event.event_type,
-                "project_id": enrichment_result.event.project_id,
-                "status": (
-                    "success"
-                    if enrichment_result.success
-                    else (
-                        "failed_permanent"
-                        if not enrichment_result.is_retryable
-                        else "failed"
-                    )
-                ),
-                "error_message": enrichment_result.error,
-                "error_category": (
-                    enrichment_result.error_category.value
-                    if enrichment_result.error_category
-                    else None
-                ),
-                "api_calls": enrichment_result.api_calls,
-                "duration_ms": enrichment_result.duration_ms,
-                "retry_count": 0,
-                "processed_at": now.isoformat(),
-                "processed_date": now.date().isoformat(),
-            }
-            event_logs.append(log_entry)
 
         # Log entity row counts
         row_counts = {
@@ -595,7 +561,6 @@ class EventHandler(ABC):
             failed_permanent=failed_permanent,
             skipped=0,
             rows=all_rows,
-            event_logs=event_logs,
             errors=errors,
             duration_seconds=duration_seconds,
             api_calls=api_calls,
@@ -669,49 +634,22 @@ class NoOpHandler(EventHandler):
         pass
 
 
-# Global handler registry
-_handler_registry: Optional["HandlerRegistry"] = None
+# Module-level handler registry
+_HANDLERS: dict[str, type[EventHandler]] = {}
 
 
 class HandlerRegistry:
     """Registry mapping event types to handler classes."""
 
-    def __init__(self):
-        self._handlers: dict[str, type[EventHandler]] = {}
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "HandlerRegistry initialized",
-        )
-
-    def register(self, handler_class: type[EventHandler]) -> None:
-        for event_type in handler_class.event_types:
-            if event_type in self._handlers:
-                log_with_context(
-                    logger,
-                    logging.WARNING,
-                    "Overwriting handler registration",
-                    event_type=event_type,
-                    old_handler=self._handlers[event_type].__name__,
-                    new_handler=handler_class.__name__,
-                )
-            self._handlers[event_type] = handler_class
-            log_with_context(
-                logger,
-                logging.DEBUG,
-                "Registered handler",
-                handler_name=handler_class.__name__,
-                event_type=event_type,
-                supports_batching=handler_class.supports_batching,
-                batch_key=handler_class.batch_key,
-            )
+    def get_handler_class(self, event_type: str) -> type[EventHandler] | None:
+        return _HANDLERS.get(event_type)
 
     def get_handler(
         self,
         event_type: str,
         client: ClaimXApiClient,
     ) -> EventHandler | None:
-        handler_class = self._handlers.get(event_type)
+        handler_class = _HANDLERS.get(event_type)
         if handler_class is None:
             log_with_context(
                 logger,
@@ -721,9 +659,6 @@ class HandlerRegistry:
             )
             return None
         return handler_class(client)
-
-    def get_handler_class(self, event_type: str) -> type[EventHandler] | None:
-        return self._handlers.get(event_type)
 
     def group_events_by_handler(
         self,
@@ -767,37 +702,35 @@ class HandlerRegistry:
 
     def get_registered_handlers(self) -> dict[str, str]:
         return {
-            event_type: handler.__name__
-            for event_type, handler in self._handlers.items()
+            event_type: handler.__name__ for event_type, handler in _HANDLERS.items()
         }
 
 
 def get_handler_registry() -> HandlerRegistry:
-    global _handler_registry
-    if _handler_registry is None:
-        _handler_registry = HandlerRegistry()
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Created global handler registry",
-        )
-    return _handler_registry
-
-
-def reset_registry() -> None:
-    global _handler_registry
-    if _handler_registry is not None:
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Resetting handler registry",
-            registered_handlers=len(_handler_registry._handlers),
-        )
-    _handler_registry = None
+    """Get the handler registry instance."""
+    return HandlerRegistry()
 
 
 def register_handler(cls: type[EventHandler]) -> type[EventHandler]:
     """Decorator to register a handler class for its event_types."""
-    registry = get_handler_registry()
-    registry.register(cls)
+    for event_type in cls.event_types:
+        if event_type in _HANDLERS:
+            log_with_context(
+                logger,
+                logging.WARNING,
+                "Overwriting handler registration",
+                event_type=event_type,
+                old_handler=_HANDLERS[event_type].__name__,
+                new_handler=cls.__name__,
+            )
+        _HANDLERS[event_type] = cls
+        log_with_context(
+            logger,
+            logging.DEBUG,
+            "Registered handler",
+            handler_name=cls.__name__,
+            event_type=event_type,
+            supports_batching=cls.supports_batching,
+            batch_key=cls.batch_key,
+        )
     return cls
