@@ -11,7 +11,6 @@ Clean interface: DownloadTask -> DownloadOutcome
 """
 
 import asyncio
-import errno
 import logging
 
 import aiohttp
@@ -19,7 +18,7 @@ import aiohttp
 from core.download.http_client import create_session, download_url
 from core.download.models import DownloadOutcome, DownloadTask
 from core.download.streaming import download_to_file, should_stream
-from core.errors.exceptions import ErrorCategory
+from core.errors.exceptions import ErrorCategory, classify_os_error
 from core.security.file_validation import validate_file_type
 from core.security.presigned_urls import check_presigned_url
 from core.security.url_validation import validate_download_url
@@ -169,8 +168,8 @@ class AttachmentDownloader:
     ) -> int | None:
         """Get Content-Length from HEAD request, or None if unavailable."""
         try:
-            # Use shorter timeout for HEAD since it should be fast
-            # sock_read ensures we don't hang on stalled connections
+            # HEAD requests should be fast - cap at 30s total, 10s socket read
+            # This prevents hanging on slow servers when we're just checking size
             async with session.head(
                 url,
                 timeout=aiohttp.ClientTimeout(total=min(timeout, 30), sock_read=10),
@@ -226,18 +225,9 @@ class AttachmentDownloader:
             )
 
         except OSError as e:
-            # Classify OSError - be conservative: only mark as PERMANENT if we're
-            # certain it's not recoverable. Unknown errors should retry.
-            # Permanent errors: disk full, read-only filesystem, permission denied
-            permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
-            is_permanent = e.errno in permanent_errnos
-
-            error_category = (
-                ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
-            )
             return DownloadOutcome.download_failure(
                 error_message=f"File write error: {str(e)}",
-                error_category=error_category,
+                error_category=classify_os_error(e),
             )
 
     async def _download_streaming(

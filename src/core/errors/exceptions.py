@@ -290,6 +290,19 @@ def classify_http_status(status_code: int) -> ErrorCategory:
     return ErrorCategory.UNKNOWN
 
 
+def classify_os_error(error: OSError) -> ErrorCategory:
+    """
+    Classify OSError by errno into error category.
+
+    Conservative classification: only mark as PERMANENT if certain.
+    Disk full (ENOSPC), read-only filesystem (EROFS), permission denied (EACCES/EPERM).
+    """
+    import errno
+
+    permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
+    return ErrorCategory.PERMANENT if error.errno in permanent_errnos else ErrorCategory.TRANSIENT
+
+
 def classify_exception(exc: Exception) -> ErrorCategory:
     """Classify an exception into error category."""
     # Already classified

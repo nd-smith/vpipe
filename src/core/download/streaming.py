@@ -7,7 +7,6 @@ reusable across pipeline components.
 """
 
 import asyncio
-import errno
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,11 +16,14 @@ import aiohttp
 from core.errors.exceptions import (
     ErrorCategory,
     classify_http_status,
+    classify_os_error,
 )
 
 # Download configuration constants
-CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks for streaming
-STREAM_THRESHOLD = 50 * 1024 * 1024  # Stream files > 50MB
+# 8MB chunks: balance between memory usage and throughput for network I/O
+CHUNK_SIZE = 8 * 1024 * 1024
+# 50MB threshold: files larger than this use streaming to avoid memory issues
+STREAM_THRESHOLD = 50 * 1024 * 1024
 
 
 @dataclass
@@ -236,19 +238,10 @@ async def download_to_file(
         )
 
     except OSError as e:
-        # Classify OSError - be conservative: only mark as PERMANENT if we're
-        # certain it's not recoverable. Unknown errors should retry.
-        # Permanent errors: disk full, read-only filesystem, permission denied
-        permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
-        is_permanent = e.errno in permanent_errnos
-
-        error_category = (
-            ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
-        )
         return None, StreamDownloadError(
             status_code=None,
             error_message=f"File write error: {str(e)}",
-            error_category=error_category,
+            error_category=classify_os_error(e),
         )
     finally:
         # Ensure async generator is closed to release the HTTP connection
