@@ -73,6 +73,62 @@ async def run_error_mode(worker_name: str, error_msg: str) -> None:
     await health_server.stop()
 
 
+def enter_error_mode(loop: asyncio.AbstractEventLoop, worker_name: str, error_msg: str) -> None:
+    """Enter error mode with health server running until shutdown.
+
+    Logs error, runs health endpoint, and exits cleanly without raising.
+    """
+    logger.warning("Entering ERROR MODE - health endpoint will remain alive")
+    try:
+        loop.run_until_complete(run_error_mode(worker_name, error_msg))
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received in error mode, shutting down...")
+
+
+def load_dev_config():
+    """Load configuration for development mode (local Kafka only)."""
+    logger.info("Running in DEVELOPMENT mode (local Kafka only)")
+    from config.pipeline_config import (
+        EventSourceType,
+        LocalKafkaConfig,
+        PipelineConfig,
+    )
+
+    local_config = LocalKafkaConfig.load_config()
+    kafka_config = local_config.to_kafka_config()
+
+    pipeline_config = PipelineConfig(
+        event_source=EventSourceType.EVENTHUB,
+        local_kafka=local_config,
+    )
+
+    return pipeline_config, kafka_config, kafka_config
+
+
+def load_production_config():
+    """Load configuration for production mode (Event Hub/Eventhouse + Kafka).
+
+    Returns:
+        Tuple of (pipeline_config, eventhub_config, local_kafka_config)
+
+    Raises:
+        ValueError: If configuration is invalid
+    """
+    from config.pipeline_config import EventSourceType, get_pipeline_config
+
+    pipeline_config = get_pipeline_config()
+    local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
+
+    if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
+        logger.info("Running in PRODUCTION mode (Eventhouse + local Kafka)")
+        eventhub_config = None
+    else:
+        logger.info("Running in PRODUCTION mode (Event Hub + local Kafka)")
+        eventhub_config = pipeline_config.eventhub.to_kafka_config()
+
+    return pipeline_config, eventhub_config, local_kafka_config
+
+
 async def run_worker_pool(
     worker_fn: Callable[..., Coroutine[Any, Any, None]],
     count: int,
@@ -475,87 +531,29 @@ def main():
     else:
         logger.info("Metrics server started", extra={"port": actual_port})
 
-    # Workers that only use local Kafka (don't need Event Hub/Eventhouse credentials)
-    local_only_workers = [
-        "xact-enricher",
-        "xact-download",
-        "xact-upload",
-        "xact-delta-writer",
-        "xact-retry-scheduler",
-        "claimx-ingester",
-        "claimx-enricher",
-        "claimx-downloader",
-        "claimx-uploader",
-        "claimx-result-processor",
-        "claimx-delta-writer",
-        "claimx-entity-writer",
-        "claimx-retry-scheduler",
-    ]
-
-    # Auto-enable dev mode for local-only workers
-    if args.worker in local_only_workers and not args.dev:
-        logger.info(
-            "Auto-enabling development mode for local-only worker",
-            extra={"worker": args.worker},
-        )
-        args.dev = True
-
+    # Load configuration based on mode
     if args.dev:
-        logger.info("Running in DEVELOPMENT mode (local Kafka only)")
-        from config.pipeline_config import (
-            EventSourceType,
-            LocalKafkaConfig,
-            PipelineConfig,
-        )
-
-        local_config = LocalKafkaConfig.load_config()
-        kafka_config = local_config.to_kafka_config()
-
-        pipeline_config = PipelineConfig(
-            event_source=EventSourceType.EVENTHUB,
-            local_kafka=local_config,
-        )
-
-        eventhub_config = kafka_config
-        local_kafka_config = kafka_config
+        pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
     else:
-        from config.pipeline_config import EventSourceType, get_pipeline_config
-
         try:
-            pipeline_config = get_pipeline_config()
-            local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
-
-            if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-                logger.info("Running in PRODUCTION mode (Eventhouse + local Kafka)")
-                eventhub_config = None
-            else:
-                logger.info("Running in PRODUCTION mode (Event Hub + local Kafka)")
-                eventhub_config = pipeline_config.eventhub.to_kafka_config()
+            pipeline_config, eventhub_config, local_kafka_config = (
+                load_production_config()
+            )
         except ValueError as e:
             error_msg = str(e)
             logger.exception("Configuration error", extra={"error": error_msg})
             logger.error(
                 "Use --dev flag for local development without Event Hub/Eventhouse"
             )
-            logger.warning("Running in ERROR MODE - health endpoint will remain alive")
 
-            # Run in error mode: keep health endpoint alive but report not ready
+            # Enter error mode and exit
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             setup_signal_handlers(loop)
-
-            try:
-                loop.run_until_complete(
-                    run_error_mode(args.worker, f"Configuration error: {error_msg}")
-                )
-            except KeyboardInterrupt:
-                logger.info(
-                    "Keyboard interrupt received in error mode, shutting down..."
-                )
-            finally:
-                loop.close()
-                logger.info("Error mode shutdown complete")
-            return  # Exit main() without sys.exit(1)
+            enter_error_mode(loop, args.worker, f"Configuration error: {error_msg}")
+            loop.close()
+            logger.info("Error mode shutdown complete")
+            return
 
     enable_delta_writes = not args.no_delta
 
@@ -648,15 +646,7 @@ def main():
     except Exception as e:
         error_msg = str(e)
         logger.error("Fatal error", extra={"error": error_msg})
-        logger.warning("Entering ERROR MODE - health endpoint will remain alive")
-
-        # Run in error mode: keep health endpoint alive but report not ready
-        try:
-            loop.run_until_complete(
-                run_error_mode(args.worker, f"Fatal error: {error_msg}")
-            )
-        except KeyboardInterrupt:
-            logger.info("Keyboard interrupt received in error mode, shutting down...")
+        enter_error_mode(loop, args.worker, f"Fatal error: {error_msg}")
     finally:
         loop.close()
         logger.info("Pipeline shutdown complete")
