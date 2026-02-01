@@ -16,16 +16,10 @@ from kafka_pipeline.claimx.handlers.base import (
     EventHandler,
     register_handler,
 )
+from kafka_pipeline.claimx.handlers import transformers
 from kafka_pipeline.claimx.handlers.utils import (
-    BaseTransformer,
     elapsed_ms,
     now_datetime,
-    now_iso,
-    parse_timestamp,
-    safe_bool,
-    safe_int,
-    safe_str,
-    today_date,
 )
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -206,14 +200,14 @@ class ProjectHandler(EventHandler):
         rows = EntityRowsMessage()
 
         # Transform response to entity rows
-        project_row = ProjectTransformer.to_project_row(
+        project_row = transformers.project_to_row(
             response,
             event_id=source_event_id,
         )
         if project_row.get("project_id") is not None:
             rows.projects.append(project_row)
 
-        contact_rows = ProjectTransformer.to_contact_rows(
+        contact_rows = transformers.project_to_contacts(
             response,
             project_id=str(project_id),
             event_id=source_event_id or "",
@@ -225,225 +219,3 @@ class ProjectHandler(EventHandler):
             self.project_cache.add(project_id_str)
 
         return rows
-
-
-class ProjectTransformer:
-    """
-    Transforms ClaimX API project response to entity rows.
-
-    API response structure (from /export/project/{projectId}):
-    {
-        "data": {
-            "project": {
-                "projectId": 123,
-                "projectNumber": "...",
-                "mfn": "...",
-                "customerInformation": {...},
-                "address": {...}
-            },
-            "teamMembers": [...]
-        }
-    }
-    """
-
-    @staticmethod
-    def to_project_row(
-        data: dict[str, Any],
-        event_id: str | None,
-    ) -> dict[str, Any]:
-        """
-        Transform API response to project row.
-
-        Args:
-            data: Full API response
-            event_id: Event ID for traceability
-
-        Returns:
-            Project row dict
-        """
-        # Navigate to project object
-        inner = data.get("data", data)
-        project = inner.get("project", {})
-        customer = project.get("customerInformation", {})
-        address = project.get("address", {})
-
-        # Extract primary email
-        emails = customer.get("emails", [])
-        primary_email = None
-        for email in emails:
-            if email.get("primary"):
-                primary_email = safe_str(email.get("emailAddress"))
-                break
-        if not primary_email and emails:
-            primary_email = safe_str(emails[0].get("emailAddress"))
-
-        # Extract primary phone
-        phones = customer.get("phones", [])
-        primary_phone = None
-        primary_phone_country_code = None
-        if phones:
-            primary_phone = safe_str(phones[0].get("phoneNumber"))
-            primary_phone_country_code = safe_int(phones[0].get("phoneCountryCode"))
-
-        project_id = safe_str(project.get("projectId"))
-
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Transformed project row",
-            project_id=project_id,
-            has_customer_info=bool(customer),
-            has_address=bool(address),
-            email_count=len(emails),
-            phone_count=len(phones),
-            team_member_count=len(inner.get("teamMembers", [])),
-        )
-
-        row = {
-            "project_id": project_id,
-            "project_number": safe_str(project.get("projectNumber")),
-            "master_file_name": safe_str(project.get("mfn")),
-            "secondary_number": safe_str(project.get("secondaryNumber")),
-            "created_date": parse_timestamp(project.get("createdDate")),
-            "status": safe_str(project.get("status")),
-            "date_of_loss": parse_timestamp(project.get("dateOfLoss")),
-            "type_of_loss": safe_str(project.get("typeOfLoss")),
-            "cause_of_loss": safe_str(project.get("causeOfLoss")),
-            "loss_description": safe_str(project.get("lossDescription")),
-            "customer_first_name": safe_str(customer.get("firstName")),
-            "customer_last_name": safe_str(customer.get("lastName")),
-            "custom_business_name": safe_str(customer.get("customBusinessName")),
-            "business_line_type": safe_str(customer.get("businessLineType")),
-            "year_built": safe_int(project.get("yearBuilt")),
-            "square_footage": safe_int(project.get("squareFootage")),
-            "street1": safe_str(address.get("street1")),
-            "street2": safe_str(address.get("street2")),
-            "city": safe_str(address.get("city")),
-            "state_province": safe_str(address.get("stateProvince")),
-            "zip_postcode": safe_str(address.get("zipPostcode")),
-            "county": safe_str(address.get("county")),
-            "country": safe_str(address.get("country")),
-            "primary_email": primary_email,
-            "primary_phone": primary_phone,
-            "primary_phone_country_code": primary_phone_country_code,
-            "date_received": parse_timestamp(project.get("dateReceived")),
-            "date_contacted": parse_timestamp(project.get("dateContacted")),
-            "planned_inspection_date": parse_timestamp(
-                project.get("plannedInspectionDate")
-            ),
-            "date_inspected": parse_timestamp(project.get("dateInspected")),
-            "appointment_date": parse_timestamp(project.get("appointmentDate")),
-            "custom_attribute1": safe_str(project.get("customAttribute1")),
-            "custom_attribute2": safe_str(project.get("customAttribute2")),
-            "custom_attribute3": safe_str(project.get("customAttribute3")),
-            "custom_external_unique_id": safe_str(
-                project.get("customExternalUniqueId")
-            ),
-            "company_name": safe_str(inner.get("companyName")),
-        }
-        return BaseTransformer.inject_metadata(
-            row, event_id, include_last_enriched=False
-        )
-
-    @staticmethod
-    def to_contact_rows(
-        data: dict[str, Any],
-        project_id: str,
-        event_id: str,
-    ) -> list[dict[str, Any]]:
-        """
-        Extract contacts from project API response.
-
-        Extracts:
-        - POLICYHOLDER from customerInformation
-        - CLAIM_REP from teamMembers
-
-        Args:
-            data: Full API response
-            project_id: Project ID
-            event_id: Event ID for traceability
-
-        Returns:
-            List of contact row dicts
-        """
-        contacts = []
-        today = today_date()
-
-        inner = data.get("data", data)
-        project = inner.get("project", {})
-        customer = project.get("customerInformation", {})
-        team_members = inner.get("teamMembers", [])
-
-        emails = customer.get("emails", [])
-        primary_email = None
-        for email in emails:
-            if email.get("primary"):
-                primary_email = safe_str(email.get("emailAddress"))
-                break
-        if not primary_email and emails:
-            primary_email = safe_str(emails[0].get("emailAddress"))
-
-        if primary_email:
-            phones = customer.get("phones", [])
-            phone = None
-            phone_country_code = None
-            if phones:
-                phone = safe_str(phones[0].get("phoneNumber"))
-                phone_country_code = safe_int(phones[0].get("phoneCountryCode"))
-
-            row = {
-                "project_id": project_id,
-                "contact_email": primary_email,
-                "contact_type": "POLICYHOLDER",
-                "first_name": safe_str(customer.get("firstName")),
-                "last_name": safe_str(customer.get("lastName")),
-                "phone_number": phone,
-                "phone_country_code": phone_country_code,
-                "is_primary_contact": True,
-                "master_file_name": None,
-                "updated_at": now_iso(),
-                "created_date": today,
-                "task_assignment_id": None,
-                "video_collaboration_id": None,
-            }
-            contacts.append(BaseTransformer.inject_metadata(row, event_id))
-
-        for member in team_members:
-            username = safe_str(member.get("userName"))
-            if username:
-                row = {
-                    "project_id": project_id,
-                    "contact_email": username,
-                    "contact_type": "CLAIM_REP",
-                    "first_name": None,
-                    "last_name": None,
-                    "phone_number": None,
-                    "phone_country_code": None,
-                    "is_primary_contact": safe_bool(
-                        member.get("primaryContact", False)
-                    ),
-                    "master_file_name": safe_str(member.get("mfn")),
-                    "updated_at": now_iso(),
-                    "created_date": today,
-                    "task_assignment_id": None,
-                    "video_collaboration_id": None,
-                }
-                contacts.append(BaseTransformer.inject_metadata(row, event_id))
-
-        # Log contact extraction summary
-        policyholder_count = sum(
-            1 for c in contacts if c["contact_type"] == "POLICYHOLDER"
-        )
-        claim_rep_count = sum(1 for c in contacts if c["contact_type"] == "CLAIM_REP")
-
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Extracted contacts",
-            project_id=project_id,
-            total_contacts=len(contacts),
-            policyholder_count=policyholder_count,
-            claim_rep_count=claim_rep_count,
-        )
-
-        return contacts

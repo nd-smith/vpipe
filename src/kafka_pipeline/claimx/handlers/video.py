@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from core.logging import get_logger, log_with_context
+from kafka_pipeline.claimx.handlers import transformers
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
@@ -16,12 +17,7 @@ from kafka_pipeline.claimx.handlers.base import (
     with_api_error_handling,
 )
 from kafka_pipeline.claimx.handlers.utils import (
-    BaseTransformer,
     elapsed_ms,
-    parse_timestamp,
-    safe_decimal_str,
-    safe_int,
-    safe_str,
 )
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -82,7 +78,7 @@ class VideoCollabHandler(EventHandler):
                 duration_ms=elapsed_ms(start_time),
             )
 
-        video_row = VideoCollabTransformer.to_video_collab_row(
+        video_row = transformers.video_collab_to_row(
             collab_data,
             event_id=event.event_id,
         )
@@ -152,72 +148,3 @@ class VideoCollabHandler(EventHandler):
             return response
 
         return None
-
-
-class VideoCollabTransformer:
-    """
-    Transforms ClaimX API video collaboration response to entity rows.
-
-    API response structure (from POST /data with reportType=VIDEO_COLLABORATION):
-    {
-        "videoCollaborationId": 123,
-        "claimId": 456,
-        "mfn": "...",
-        "emailUserName": "...",
-        "numberOfVideos": 5,
-        "totalTimeSeconds": 1234.567,
-        ...
-    }
-    """
-
-    @staticmethod
-    def to_video_collab_row(
-        data: dict[str, Any],
-        event_id: str,
-    ) -> dict[str, Any]:
-        """
-        Transform API response to video collaboration row.
-
-        Args:
-            data: API response dict
-            event_id: Event ID for traceability
-
-        Returns:
-            Video collaboration row dict
-        """
-        first_name = safe_str(data.get("claimRepFirstName"))
-        last_name = safe_str(data.get("claimRepLastName"))
-        full_name = safe_str(data.get("claimRepFullName"))
-
-        if not full_name and (first_name or last_name):
-            parts = [p for p in [first_name, last_name] if p]
-            full_name = " ".join(parts) if parts else None
-
-        row = {
-            "video_collaboration_id": safe_int(
-                data.get("videoCollaborationId") or data.get("id")
-            ),
-            "claim_id": safe_int(data.get("claimId")),
-            "mfn": safe_str(data.get("mfn")),
-            "claim_number": safe_str(data.get("claimNumber")),
-            "policy_number": safe_str(data.get("policyNumber")),
-            "email_user_name": safe_str(data.get("emailUserName")),
-            "claim_rep_first_name": first_name,
-            "claim_rep_last_name": last_name,
-            "claim_rep_full_name": full_name,
-            "number_of_videos": safe_int(data.get("numberOfVideos")),
-            "number_of_photos": safe_int(data.get("numberOfPhotos")),
-            "number_of_viewers": safe_int(data.get("numberOfViewers")),
-            "session_count": safe_int(data.get("sessionCount")),
-            "total_time_seconds": safe_decimal_str(data.get("totalTimeSeconds")),
-            "total_time": safe_str(data.get("totalTime")),
-            "created_date": parse_timestamp(data.get("createdDate")),
-            "live_call_first_session": parse_timestamp(
-                data.get("liveCallFirstSession")
-            ),
-            "live_call_last_session": parse_timestamp(data.get("liveCallLastSession")),
-            "company_id": safe_int(data.get("companyId")),
-            "company_name": safe_str(data.get("companyName")),
-            "guid": safe_str(data.get("guid")),
-        }
-        return BaseTransformer.inject_metadata(row, event_id)

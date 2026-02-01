@@ -47,13 +47,6 @@ class EntityRowsMessage(BaseModel):
         )
 
     def merge(self, other: "EntityRowsMessage") -> None:
-        """Merge another EntityRowsMessage into this one.
-
-        Extends all entity lists with rows from the other message.
-
-        Args:
-            other: Another EntityRowsMessage to merge into this one
-        """
         self.projects.extend(other.projects)
         self.contacts.extend(other.contacts)
         self.media.extend(other.media)
@@ -63,11 +56,6 @@ class EntityRowsMessage(BaseModel):
         self.video_collab.extend(other.video_collab)
 
     def row_count(self) -> int:
-        """Get total number of entity rows across all types.
-
-        Returns:
-            Total count of all entity rows
-        """
         return (
             len(self.projects)
             + len(self.contacts)
@@ -77,38 +65,3 @@ class EntityRowsMessage(BaseModel):
             + len(self.external_links)
             + len(self.video_collab)
         )
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "event_id": "evt_abc123",
-                    "event_type": "PROJECT_CREATED",
-                    "project_id": "proj_12345",
-                    "projects": [
-                        {
-                            "project_id": "proj_12345",
-                            "project_name": "Insurance Claim 2024",
-                            "created_at": "2024-12-25T10:00:00Z",
-                            "status": "active",
-                        }
-                    ],
-                    "media": [
-                        {
-                            "media_id": "media_111",
-                            "project_id": "proj_12345",
-                            "file_name": "photo.jpg",
-                            "file_type": "jpg",
-                            "file_size": 1024000,
-                            "uploaded_at": "2024-12-25T10:30:00Z",
-                        }
-                    ],
-                    "contacts": [],
-                    "tasks": [],
-                    "task_templates": [],
-                    "external_links": [],
-                    "video_collab": [],
-                }
-            ]
-        }
-    }

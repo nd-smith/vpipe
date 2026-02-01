@@ -52,17 +52,6 @@ from kafka_pipeline.common.metrics import (
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.storage.delta import DeltaTableReader
 from kafka_pipeline.common.types import PipelineMessage
-from kafka_pipeline.plugins.shared.base import (
-    Domain,
-    PipelineStage,
-    PluginContext,
-)
-from kafka_pipeline.plugins.shared.loader import load_plugins_from_directory
-from kafka_pipeline.plugins.shared.registry import (
-    ActionExecutor,
-    PluginOrchestrator,
-    get_plugin_registry,
-)
 
 logger = get_logger(__name__)
 
@@ -139,10 +128,6 @@ class ClaimXEnrichmentWorker:
         cache_ttl = cache_config.get("ttl_seconds", 1800)
         self._preload_cache_from_delta = cache_config.get("preload_from_delta", False)
         self.project_cache = ProjectCache(ttl_seconds=cache_ttl)
-
-        self.plugin_registry = get_plugin_registry()
-        self.plugin_orchestrator: PluginOrchestrator | None = None
-        self.action_executor: ActionExecutor | None = None
 
         # port=0 for dynamic port assignment (avoids conflicts with multiple workers)
         health_port = self.processing_config.get("health_port", 0)
@@ -291,67 +276,6 @@ class ClaimXEnrichmentWorker:
         )
         await self.producer.start()
 
-        plugins_dir = self.processing_config.get("plugins_dir", "config/plugins")
-        try:
-            import os
-
-            if os.path.exists(plugins_dir):
-                loaded_plugins = load_plugins_from_directory(plugins_dir)
-                logger.info(
-                    "Loaded plugins from directory",
-                    extra={
-                        "plugins_dir": plugins_dir,
-                        "plugins_loaded": len(loaded_plugins),
-                        "plugin_names": [p.name for p in loaded_plugins],
-                    },
-                )
-            else:
-                logger.info(
-                    "Plugin directory not found, continuing without plugins",
-                    extra={"plugins_dir": plugins_dir},
-                )
-        except Exception as e:
-            logger.warning(
-                "Failed to load plugins, continuing without plugins",
-                extra={
-                    "plugins_dir": plugins_dir,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-
-        self.action_executor = ActionExecutor(
-            producer=self.producer,
-            http_client=None,
-        )
-        self.plugin_orchestrator = PluginOrchestrator(
-            registry=self.plugin_registry,
-            action_executor=self.action_executor,
-        )
-        logger.info(
-            "Plugin orchestrator initialized",
-            extra={
-                "registered_plugins": len(self.plugin_registry.list_plugins()),
-            },
-        )
-
-        for plugin in self.plugin_registry.list_plugins():
-            try:
-                await plugin.on_load()
-                logger.debug(
-                    "Plugin loaded",
-                    extra={
-                        "plugin_name": plugin.name,
-                        "plugin_version": plugin.version,
-                    },
-                )
-            except Exception as e:
-                logger.error(
-                    "Plugin on_load failed",
-                    extra={"plugin_name": plugin.name, "error": str(e)},
-                    exc_info=True,
-                )
-
         self.retry_handler = EnrichmentRetryHandler(
             config=self.consumer_config,
             producer=self.producer,
@@ -403,20 +327,6 @@ class ClaimXEnrichmentWorker:
                 await self._cycle_task
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
-
-        for plugin in self.plugin_registry.list_plugins():
-            try:
-                await plugin.on_unload()
-                logger.debug(
-                    "Plugin unloaded",
-                    extra={"plugin_name": plugin.name},
-                )
-            except Exception as e:
-                logger.error(
-                    "Plugin on_unload failed",
-                    extra={"plugin_name": plugin.name, "error": str(e)},
-                    exc_info=True,
-                )
 
         if self.consumer:
             await self.consumer.stop()
@@ -707,78 +617,6 @@ class ClaimXEnrichmentWorker:
 
         return handler_result
 
-    async def _execute_plugins(
-        self,
-        task: ClaimXEnrichmentTask,
-        entity_rows: EntityRowsMessage,
-        handler_result,
-    ) -> bool:
-        """
-        Execute plugins for post-enrichment processing.
-
-        Args:
-            task: Original enrichment task
-            entity_rows: Entity rows from handler
-            handler_result: Handler result metadata
-
-        Returns:
-            True if pipeline should continue, False if terminated by plugin
-        """
-        if not self.plugin_orchestrator:
-            return True
-
-        plugin_context = PluginContext(
-            domain=Domain.CLAIMX,
-            stage=PipelineStage.ENRICHMENT_COMPLETE,
-            message=task,
-            event_id=task.event_id,
-            event_type=task.event_type,
-            project_id=task.project_id,
-            data={
-                "entities": entity_rows,
-                "handler_result": handler_result,
-            },
-            headers={},
-        )
-
-        try:
-            orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
-
-            if orchestrator_result.terminated:
-                logger.info(
-                    "Pipeline terminated by plugin",
-                    extra={
-                        "event_id": task.event_id,
-                        "event_type": task.event_type,
-                        "project_id": task.project_id,
-                        "reason": orchestrator_result.termination_reason,
-                        "plugin_results": orchestrator_result.success_count,
-                    },
-                )
-                return False
-
-            if orchestrator_result.actions_executed > 0:
-                logger.debug(
-                    "Plugin actions executed",
-                    extra={
-                        "event_id": task.event_id,
-                        "actions": orchestrator_result.actions_executed,
-                        "plugins": orchestrator_result.success_count,
-                    },
-                )
-
-        except Exception as e:
-            logger.error(
-                "Plugin execution failed",
-                extra={
-                    "event_id": task.event_id,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-
-        return True
-
     def _dispatch_entity_rows(
         self,
         task: ClaimXEnrichmentTask,
@@ -832,9 +670,8 @@ class ClaimXEnrichmentWorker:
         1. Ensure project exists in cache
         2. Create event message from task
         3. Execute handler to fetch API data
-        4. Execute plugins for post-processing
-        5. Dispatch entity rows to Kafka
-        6. Dispatch download tasks for media files
+        4. Dispatch entity rows to Kafka
+        5. Dispatch download tasks for media files
         """
         start_time = datetime.now(UTC)
 
@@ -908,17 +745,10 @@ class ClaimXEnrichmentWorker:
             entity_rows = handler_result.rows
             self._records_succeeded += 1
 
-            # Step 5: Execute plugins for post-processing
-            should_continue = await self._execute_plugins(
-                task, entity_rows, handler_result
-            )
-            if not should_continue:
-                return
-
-            # Step 6: Dispatch entity rows to Kafka
+            # Step 5: Dispatch entity rows to Kafka
             self._dispatch_entity_rows(task, entity_rows)
 
-            # Step 7: Dispatch download tasks for media files
+            # Step 6: Dispatch download tasks for media files
             await self._dispatch_download_tasks(entity_rows)
 
             # Log completion

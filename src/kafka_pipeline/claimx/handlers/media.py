@@ -11,17 +11,15 @@ from typing import Any
 from core.logging import get_logger, log_exception, log_with_context
 from core.types import ErrorCategory
 from kafka_pipeline.claimx.api_client import ClaimXApiError
+from kafka_pipeline.claimx.handlers import transformers
 from kafka_pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
     register_handler,
 )
 from kafka_pipeline.claimx.handlers.utils import (
-    BaseTransformer,
     elapsed_ms,
     safe_int,
-    safe_str,
-    safe_str_id,
 )
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -30,61 +28,6 @@ from kafka_pipeline.common.logging import extract_log_context
 logger = get_logger(__name__)
 
 BATCH_THRESHOLD = 5
-
-
-class MediaTransformer:
-    """
-    Transforms ClaimX API media response to entity rows.
-
-    API response structure (from /export/project/{projectId}/media):
-    {
-        "data": [
-            {
-                "mediaID": 123,
-                "taskAssignmentID": 456,
-                "mediaType": "jpg",
-                "mediaName": "photo.jpg",
-                "fullDownloadLink": "https://..."
-            }
-        ]
-    }
-    """
-
-    @staticmethod
-    def to_media_row(
-        media: dict[str, Any],
-        project_id: Any,
-        event_id: str,
-    ) -> dict[str, Any]:
-        """
-        Transform media item to row.
-
-        Args:
-            media: Media dict from API
-            project_id: Project ID (int or string)
-            event_id: Event ID for traceability
-
-        Returns:
-            Media row dict
-        """
-        download_link = safe_str(media.get("fullDownloadLink"))
-
-        row = {
-            "media_id": safe_str_id(media.get("mediaID")),
-            "project_id": safe_str_id(project_id),
-            "task_assignment_id": safe_str(media.get("taskAssignmentId")),
-            "file_type": safe_str(media.get("mediaType")),
-            "file_name": safe_str(media.get("mediaName")),
-            "media_description": safe_str(media.get("mediaDescription")),
-            "media_comment": safe_str(media.get("mediaComment")),
-            "latitude": safe_str(media.get("latitude")),
-            "longitude": safe_str(media.get("longitude")),
-            "gps_source": safe_str(media.get("gpsSource")),
-            "taken_date": safe_str(media.get("takenDate")),
-            "full_download_link": download_link,
-            "expires_at": safe_str(media.get("expiresAt")),
-        }
-        return BaseTransformer.inject_metadata(row, event_id)
 
 
 @register_handler
@@ -266,7 +209,7 @@ class MediaHandler(EventHandler):
         media_data = media_by_id.get(media_id_int) if media_id_int else None
 
         if media_data:
-            media_row = MediaTransformer.to_media_row(
+            media_row = transformers.media_to_row(
                 media_data,
                 project_id=project_id,
                 event_id=event.event_id,
