@@ -57,6 +57,7 @@ from kafka_pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
 )
+from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
 
 logger = get_logger(__name__)
 
@@ -349,48 +350,13 @@ class XACTEnrichmentWorker:
         self._running = False
 
     def _create_consumer(self) -> AIOKafkaConsumer:
-        group_id = self.consumer_config.get_consumer_group(
-            self.domain, "enrichment_worker"
+        return create_consumer(
+            config=self.consumer_config,
+            domain=self.domain,
+            worker_name="enrichment_worker",
+            topics=self.topics,
+            instance_id=self.instance_id,
         )
-
-        consumer_config_dict = self.consumer_config.get_worker_config(
-            self.domain, "enrichment_worker", "consumer"
-        )
-
-        common_args = {
-            "bootstrap_servers": self.consumer_config.bootstrap_servers,
-            "group_id": group_id,
-            "client_id": (
-                f"{self.domain}-enrichment-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-enrichment"
-            ),
-            "enable_auto_commit": False,
-            "auto_offset_reset": consumer_config_dict.get(
-                "auto_offset_reset", "earliest"
-            ),
-            "metadata_max_age_ms": 30000,
-            "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 45000),
-            "max_poll_interval_ms": consumer_config_dict.get(
-                "max_poll_interval_ms", 600000
-            ),
-            "request_timeout_ms": self.consumer_config.request_timeout_ms,
-            "connections_max_idle_ms": self.consumer_config.connections_max_idle_ms,
-        }
-
-        if "heartbeat_interval_ms" in consumer_config_dict:
-            common_args["heartbeat_interval_ms"] = consumer_config_dict[
-                "heartbeat_interval_ms"
-            ]
-
-        if self.consumer_config.security_protocol != "PLAINTEXT":
-            common_args["security_protocol"] = self.consumer_config.security_protocol
-            common_args["sasl_mechanism"] = self.consumer_config.sasl_mechanism
-
-            if self.consumer_config.sasl_mechanism == "OAUTHBEARER":
-                common_args["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
-
-        return AIOKafkaConsumer(*self.topics, **common_args)
 
     async def _consume_loop(self) -> None:
         """

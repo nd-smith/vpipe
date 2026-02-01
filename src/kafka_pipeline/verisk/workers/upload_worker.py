@@ -45,6 +45,7 @@ from kafka_pipeline.common.telemetry import initialize_worker_telemetry
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
+from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
 
 logger = get_logger(__name__)
 
@@ -373,60 +374,14 @@ class UploadWorker:
         logger.info("Upload worker stopped")
 
     async def _create_consumer(self) -> None:
-        # Get worker-specific consumer config (merged with defaults)
-        consumer_config_dict = self.config.get_worker_config(
-            self.domain, self.WORKER_NAME, "consumer"
+        self._consumer = create_consumer(
+            config=self.config,
+            domain=self.domain,
+            worker_name=self.WORKER_NAME,
+            topics=self.topic,
+            instance_id=self.instance_id,
+            max_poll_records=self.batch_size,
         )
-
-        consumer_config = {
-            "bootstrap_servers": self.config.bootstrap_servers,
-            "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": (
-                f"{self.domain}-upload-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-upload"
-            ),
-            "auto_offset_reset": consumer_config_dict.get(
-                "auto_offset_reset", "earliest"
-            ),
-            "enable_auto_commit": False,
-            "max_poll_records": self.batch_size,
-            "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
-            "max_poll_interval_ms": consumer_config_dict.get(
-                "max_poll_interval_ms", 300000
-            ),
-            # Connection timeout settings
-            "request_timeout_ms": self.config.request_timeout_ms,
-            "metadata_max_age_ms": self.config.metadata_max_age_ms,
-            "connections_max_idle_ms": self.config.connections_max_idle_ms,
-        }
-
-        # Add optional consumer settings if present in worker config
-        if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
-                "heartbeat_interval_ms"
-            ]
-        if "fetch_min_bytes" in consumer_config_dict:
-            consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
-        if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
-                "fetch_max_wait_ms"
-            ]
-
-        # Add security configuration
-        if self.config.security_protocol != "PLAINTEXT":
-            consumer_config["security_protocol"] = self.config.security_protocol
-            consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                consumer_config["sasl_oauth_token_provider"] = (
-                    create_kafka_oauth_callback()
-                )
-            elif self.config.sasl_mechanism == "PLAIN":
-                consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
-
-        self._consumer = AIOKafkaConsumer(self.topic, **consumer_config)
         await self._consumer.start()
 
         logger.info(
