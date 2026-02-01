@@ -27,14 +27,6 @@ from core.security.url_validation import validate_download_url
 logger = logging.getLogger(__name__)
 
 
-def _classify_timeout_type(error_message: str) -> str:
-    error_lower = error_message.lower()
-    if "connect" in error_lower or "connection" in error_lower:
-        return "connection"
-    elif "read" in error_lower or "socket" in error_lower:
-        return "socket_read"
-    else:
-        return "total"
 
 
 class AttachmentDownloader:
@@ -85,26 +77,6 @@ class AttachmentDownloader:
                 signed_at = (
                     url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
                 )
-
-                # Sanity check: expiration should always be after signing
-                # If not, there's a parsing bug we need to investigate
-                if (
-                    url_info.signed_at
-                    and url_info.expires_at
-                    and url_info.expires_at < url_info.signed_at
-                ):
-                    logger.error(
-                        "CRITICAL: Impossible expiration date detected - expires_at before signed_at. "
-                        "This indicates a parsing bug.",
-                        extra={
-                            "url_type": url_info.url_type,
-                            "signed_at": signed_at,
-                            "expires_at": expires_at,
-                            "ttl_seconds": url_info.ttl_seconds,
-                            "parse_error": url_info.parse_error,
-                            "url_length": len(task.url),
-                        },
-                    )
 
                 logger.warning(
                     "Presigned URL expired, sending to DLQ",
@@ -195,11 +167,7 @@ class AttachmentDownloader:
     async def _get_content_length(
         self, url: str, session: aiohttp.ClientSession, timeout: int
     ) -> int | None:
-        """
-        Get Content-Length from HEAD request.
-
-        Returns Content-Length in bytes, or None if unavailable.
-        """
+        """Get Content-Length from HEAD request, or None if unavailable."""
         try:
             # Use shorter timeout for HEAD since it should be fast
             # sock_read ensures we don't hang on stalled connections
@@ -226,12 +194,10 @@ class AttachmentDownloader:
         if error:
             # Log timeout errors with additional context
             if "timeout" in error.error_message.lower():
-                timeout_type = _classify_timeout_type(error.error_message)
                 logger.warning(
                     "Download timeout",
                     extra={
                         "url": task.url,
-                        "timeout_type": timeout_type,
                         "timeout_seconds": task.timeout,
                         "error_message": error.error_message,
                     },
@@ -295,12 +261,10 @@ class AttachmentDownloader:
         if error:
             # Log timeout errors with additional context
             if "timeout" in error.error_message.lower():
-                timeout_type = _classify_timeout_type(error.error_message)
                 logger.warning(
                     "Download timeout (streaming)",
                     extra={
                         "url": task.url,
-                        "timeout_type": timeout_type,
                         "timeout_seconds": task.timeout,
                         "error_message": error.error_message,
                     },
