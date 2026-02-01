@@ -8,7 +8,6 @@ Usage:
     # Run specific xact worker
     python -m kafka_pipeline --worker xact-poller
     python -m kafka_pipeline --worker xact-event-ingester
-    python -m kafka_pipeline --worker xact-local-ingester
     python -m kafka_pipeline --worker xact-enricher
     python -m kafka_pipeline --worker xact-delta-writer
     python -m kafka_pipeline --worker xact-retry-scheduler
@@ -21,7 +20,6 @@ Usage:
     python -m kafka_pipeline --worker claimx-ingester
     python -m kafka_pipeline --worker claimx-enricher
     python -m kafka_pipeline --worker claimx-downloader
-    python -m kafka_pipeline --worker claimx-uploader
     python -m kafka_pipeline --worker claimx-uploader
     python -m kafka_pipeline --worker claimx-result-processor
     python -m kafka_pipeline --worker claimx-delta-writer
@@ -84,7 +82,12 @@ from dotenv import load_dotenv
 from prometheus_client import start_http_server, REGISTRY
 
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger, setup_logging, setup_multi_worker_logging, upload_crash_logs
+from core.logging.setup import (
+    get_logger,
+    setup_logging,
+    setup_multi_worker_logging,
+    upload_crash_logs,
+)
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.runners.registry import WORKER_REGISTRY, run_worker_from_registry
 
@@ -120,8 +123,11 @@ async def run_worker_pool(
 ) -> None:
     """Run multiple instances of a worker concurrently.
     Each instance joins the same consumer group for automatic partition distribution.
-    Each instance gets a unique instance_id (coolname) for distinct logging and identity."""
-    logger.info("Starting worker instances", extra={"count": count, "worker_name": worker_name})
+    Each instance gets a unique instance_id (coolname) for distinct logging and identity.
+    """
+    logger.info(
+        "Starting worker instances", extra={"count": count, "worker_name": worker_name}
+    )
 
     tasks = []
     for i in range(count):
@@ -141,7 +147,9 @@ async def run_worker_pool(
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
-        logger.info("Worker pool cancelled, shutting down", extra={"worker_name": worker_name})
+        logger.info(
+            "Worker pool cancelled, shutting down", extra={"worker_name": worker_name}
+        )
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -309,7 +317,9 @@ async def run_all_workers(
 
         tasks.append(
             asyncio.create_task(
-                verisk_runners.run_xact_retry_scheduler(local_kafka_config, shutdown_event),
+                verisk_runners.run_xact_retry_scheduler(
+                    local_kafka_config, shutdown_event
+                ),
                 name="xact-retry-scheduler",
             )
         )
@@ -391,7 +401,9 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     Note: Signal handlers not supported on Windows - KeyboardInterrupt used instead."""
 
     def handle_signal(sig):
-        logger.info("Received signal, initiating graceful shutdown", extra={"signal": sig.name})
+        logger.info(
+            "Received signal, initiating graceful shutdown", extra={"signal": sig.name}
+        )
         shutdown_event = get_shutdown_event()
         if not shutdown_event.is_set():
             shutdown_event.set()
@@ -401,7 +413,9 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
                 task.cancel()
 
     if sys.platform == "win32":
-        logger.debug("Signal handlers not supported on Windows, using KeyboardInterrupt")
+        logger.debug(
+            "Signal handlers not supported on Windows, using KeyboardInterrupt"
+        )
         return
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -425,7 +439,9 @@ def main():
     log_dir_str = args.log_dir or os.getenv("LOG_DIR", "logs")
     log_dir = Path(log_dir_str)
 
-    log_to_stdout = args.log_to_stdout or os.getenv("LOG_TO_STDOUT", "false").lower() in (
+    log_to_stdout = args.log_to_stdout or os.getenv(
+        "LOG_TO_STDOUT", "false"
+    ).lower() in (
         "true",
         "1",
         "yes",
@@ -503,7 +519,6 @@ def main():
 
     # Workers that only use local Kafka (don't need Event Hub/Eventhouse credentials)
     local_only_workers = [
-        "xact-local-ingester",
         "xact-enricher",
         "xact-download",
         "xact-upload",
@@ -522,7 +537,8 @@ def main():
     # Auto-enable dev mode for local-only workers
     if args.worker in local_only_workers and not args.dev:
         logger.info(
-            "Auto-enabling development mode for local-only worker", extra={"worker": args.worker}
+            "Auto-enabling development mode for local-only worker",
+            extra={"worker": args.worker},
         )
         args.dev = True
 
@@ -559,7 +575,9 @@ def main():
                 eventhub_config = pipeline_config.eventhub.to_kafka_config()
         except ValueError as e:
             logger.error("Configuration error", extra={"error": str(e)})
-            logger.error("Use --dev flag for local development without Event Hub/Eventhouse")
+            logger.error(
+                "Use --dev flag for local development without Event Hub/Eventhouse"
+            )
             logger.warning("Running in ERROR MODE - health endpoint will remain alive")
 
             # Run in error mode: keep health endpoint alive but report not ready
@@ -600,7 +618,9 @@ def main():
             try:
                 loop.run_until_complete(run_error_mode())
             except KeyboardInterrupt:
-                logger.info("Keyboard interrupt received in error mode, shutting down...")
+                logger.info(
+                    "Keyboard interrupt received in error mode, shutting down..."
+                )
             finally:
                 loop.close()
                 logger.info("Error mode shutdown complete")
@@ -609,7 +629,9 @@ def main():
     enable_delta_writes = not args.no_delta
 
     # Check for simulation mode
-    simulation_mode = args.simulation_mode or os.getenv("SIMULATION_MODE", "false").lower() in (
+    simulation_mode = args.simulation_mode or os.getenv(
+        "SIMULATION_MODE", "false"
+    ).lower() in (
         "true",
         "1",
         "yes",
@@ -618,7 +640,10 @@ def main():
     # Initialize simulation config at startup if enabled
     # Validation happens here - fail fast if config is invalid
     if simulation_mode:
-        from kafka_pipeline.simulation.config import SimulationConfig, set_simulation_config
+        from kafka_pipeline.simulation.config import (
+            SimulationConfig,
+            set_simulation_config,
+        )
 
         logger.warning("=" * 80)
         logger.warning("SIMULATION MODE ENABLED")
@@ -677,7 +702,9 @@ def main():
                 logger.error("Simulation mode does not support running all workers")
                 logger.error("Please specify a specific worker with --worker flag")
                 sys.exit(1)
-            loop.run_until_complete(run_all_workers(pipeline_config, enable_delta_writes))
+            loop.run_until_complete(
+                run_all_workers(pipeline_config, enable_delta_writes)
+            )
         else:
             # Use registry to run specific worker
             if args.count > 1:

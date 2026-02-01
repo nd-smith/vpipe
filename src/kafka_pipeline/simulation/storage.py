@@ -107,7 +107,9 @@ class LocalStorageAdapter:
             ValueError: If path is invalid or potentially dangerous
         """
         if os.path.isabs(blob_path):
-            raise ValueError(f"Blob path must be relative, got absolute path: {blob_path}")
+            raise ValueError(
+                f"Blob path must be relative, got absolute path: {blob_path}"
+            )
 
         # Check for directory traversal attempts
         if ".." in blob_path:

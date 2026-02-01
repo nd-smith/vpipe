@@ -133,7 +133,9 @@ class DLQCLIManager:
         if not self.handler._consumer or not self.handler._consumer._consumer:
             raise RuntimeError("DLQ handler not started. Call start() first.")
 
-        logger.info(f"Fetching up to {limit} messages from DLQ topic (timeout: {timeout_ms}ms)")
+        logger.info(
+            f"Fetching up to {limit} messages from DLQ topic (timeout: {timeout_ms}ms)"
+        )
         messages = []
         consumer = self.handler._consumer._consumer
         data = await consumer.getmany(timeout_ms=timeout_ms, max_records=limit)
@@ -195,7 +197,9 @@ class DLQCLIManager:
             print(f"  Topic:     {record.topic}")
             print(f"  Partition: {record.partition}")
             print(f"  Offset:    {record.offset}")
-            print(f"  Key:       {record.key.decode('utf-8') if record.key else 'None'}")
+            print(
+                f"  Key:       {record.key.decode('utf-8') if record.key else 'None'}"
+            )
             print()
 
             print(f"Message Details:")
@@ -300,7 +304,11 @@ async def main_list(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            await manager.handler._producer.start() if not manager.handler._producer else None
+            (
+                await manager.handler._producer.start()
+                if not manager.handler._producer
+                else None
+            )
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
 
             manager.handler._consumer = BaseKafkaConsumer(
@@ -339,7 +347,11 @@ async def main_view(args):
     async with CLITaskManager() as task_manager:
         try:
             manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
-            await manager.handler._producer.start() if not manager.handler._producer else None
+            (
+                await manager.handler._producer.start()
+                if not manager.handler._producer
+                else None
+            )
 
             from kafka_pipeline.common.consumer import BaseKafkaConsumer
 
@@ -512,7 +524,9 @@ Examples:
     )
 
     # View command
-    view_parser = subparsers.add_parser("view", help="View detailed message information")
+    view_parser = subparsers.add_parser(
+        "view", help="View detailed message information"
+    )
     view_parser.add_argument("trace_id", help="Trace ID of message to view")
 
     # Replay command

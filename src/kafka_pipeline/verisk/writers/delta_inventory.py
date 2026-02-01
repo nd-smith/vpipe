@@ -142,7 +142,9 @@ class DeltaInventoryWriter(BaseDeltaWriter):
             )
             return False
 
-    def _results_to_dataframe(self, results: List[DownloadResultMessage]) -> pl.DataFrame:
+    def _results_to_dataframe(
+        self, results: List[DownloadResultMessage]
+    ) -> pl.DataFrame:
         """
         Convert DownloadResultMessage objects to Polars DataFrame.
 
@@ -295,7 +297,9 @@ class DeltaFailedAttachmentsWriter(BaseDeltaWriter):
             )
             return False
 
-    def _results_to_dataframe(self, results: List[DownloadResultMessage]) -> pl.DataFrame:
+    def _results_to_dataframe(
+        self, results: List[DownloadResultMessage]
+    ) -> pl.DataFrame:
         """
         Convert failed DownloadResultMessage objects to Polars DataFrame.
 

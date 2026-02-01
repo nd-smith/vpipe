@@ -140,7 +140,9 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                     )
                 elif isinstance(ingested_at, datetime):
                     if ingested_at.tzinfo is None:
-                        processed["ingested_at"] = ingested_at.replace(tzinfo=timezone.utc)
+                        processed["ingested_at"] = ingested_at.replace(
+                            tzinfo=timezone.utc
+                        )
                     else:
                         processed["ingested_at"] = ingested_at
                 else:
@@ -155,7 +157,8 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             valid_events = [
                 event
                 for event in processed_events
-                if event.get("event_id") is not None and event.get("event_type") is not None
+                if event.get("event_id") is not None
+                and event.get("event_type") is not None
             ]
 
             if len(valid_events) < len(processed_events):

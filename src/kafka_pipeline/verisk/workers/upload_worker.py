@@ -135,7 +135,9 @@ class UploadWorker:
             )
 
         # Get worker-specific processing config
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        processing_config = config.get_worker_config(
+            domain, self.WORKER_NAME, "processing"
+        )
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
 
@@ -307,7 +309,9 @@ class UploadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info("Graceful shutdown requested, will stop after current batch completes")
+        logger.info(
+            "Graceful shutdown requested, will stop after current batch completes"
+        )
         self._running = False
 
     async def stop(self) -> None:
@@ -361,7 +365,8 @@ class UploadWorker:
                 logger.debug("Closed OneLake client", extra={"domain": domain})
             except Exception as e:
                 logger.warning(
-                    "Error closing OneLake client", extra={"domain": domain, "error": str(e)}
+                    "Error closing OneLake client",
+                    extra={"domain": domain, "error": str(e)},
                 )
         self.onelake_clients.clear()
 
@@ -389,11 +394,15 @@ class UploadWorker:
                 if self.instance_id
                 else f"{self.domain}-upload"
             ),
-            "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
+            "auto_offset_reset": consumer_config_dict.get(
+                "auto_offset_reset", "earliest"
+            ),
             "enable_auto_commit": False,
             "max_poll_records": self.batch_size,
             "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
-            "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 300000),
+            "max_poll_interval_ms": consumer_config_dict.get(
+                "max_poll_interval_ms", 300000
+            ),
             # Connection timeout settings
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
@@ -402,11 +411,15 @@ class UploadWorker:
 
         # Add optional consumer settings if present in worker config
         if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict["heartbeat_interval_ms"]
+            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
+                "heartbeat_interval_ms"
+            ]
         if "fetch_min_bytes" in consumer_config_dict:
             consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
         if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict["fetch_max_wait_ms"]
+            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
+                "fetch_max_wait_ms"
+            ]
 
         # Add security configuration
         if self.config.security_protocol != "PLAINTEXT":
@@ -414,7 +427,9 @@ class UploadWorker:
             consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                consumer_config["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
+                consumer_config["sasl_oauth_token_provider"] = (
+                    create_kafka_oauth_callback()
+                )
             elif self.config.sasl_mechanism == "PLAIN":
                 consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
                 consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
@@ -426,7 +441,9 @@ class UploadWorker:
             "Consumer started",
             extra={
                 "topic": self.topic,
-                "consumer_group": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+                "consumer_group": self.config.get_consumer_group(
+                    self.domain, self.WORKER_NAME
+                ),
             },
         )
 
@@ -534,7 +551,9 @@ class UploadWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Error in consume loop", extra={"error": str(e)}, exc_info=True)
+                logger.error(
+                    "Error in consume loop", extra={"error": str(e)}, exc_info=True
+                )
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
@@ -549,15 +568,22 @@ class UploadWorker:
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
-        tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
+        tasks = [
+            asyncio.create_task(self._process_single_with_semaphore(msg))
+            for msg in messages
+        ]
 
-        results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
+        results: List[UploadResult] = await asyncio.gather(
+            *tasks, return_exceptions=True
+        )
 
         # Handle any exceptions
         for upload_result in results:
             if isinstance(upload_result, Exception):
                 logger.error(
-                    "Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True
+                    "Unexpected error in upload",
+                    extra={"error": str(upload_result)},
+                    exc_info=True,
                 )
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
 
@@ -565,9 +591,13 @@ class UploadWorker:
         try:
             await self._consumer.commit()
         except Exception as e:
-            logger.error("Failed to commit offsets", extra={"error": str(e)}, exc_info=True)
+            logger.error(
+                "Failed to commit offsets", extra={"error": str(e)}, exc_info=True
+            )
 
-    async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
+    async def _process_single_with_semaphore(
+        self, message: PipelineMessage
+    ) -> UploadResult:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
@@ -595,7 +625,9 @@ class UploadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.add(trace_id)
 
-            record_message_consumed(self.topic, consumer_group, len(message.value), success=True)
+            record_message_consumed(
+                self.topic, consumer_group, len(message.value), success=True
+            )
 
             # Verify cached file exists
             cache_path = Path(cached_message.local_cache_path)
@@ -741,7 +773,9 @@ class UploadWorker:
             try:
                 # Re-parse message in case it wasn't parsed yet (e.g., JSON parsing failed)
                 if cached_message is None:
-                    cached_message = CachedDownloadMessage.model_validate_json(message.value)
+                    cached_message = CachedDownloadMessage.model_validate_json(
+                        message.value
+                    )
 
                 result_message = DownloadResultMessage(
                     media_id=cached_message.media_id,

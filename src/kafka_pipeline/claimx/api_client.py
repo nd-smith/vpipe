@@ -230,7 +230,9 @@ class ClaimXApiClient(LoggedClass):
             start_time = asyncio.get_event_loop().time()
             try:
                 if self._session is None:
-                    raise RuntimeError("HTTP session not initialized - call _ensure_session() first")
+                    raise RuntimeError(
+                        "HTTP session not initialized - call _ensure_session() first"
+                    )
                 async with self._session.request(
                     method,
                     url,
@@ -352,7 +354,7 @@ class ClaimXApiClient(LoggedClass):
         response = await self._request(
             "GET",
             "/export/project/projectId",
-            params={"projectNumber": claim_number}  # API uses projectNumber param
+            params={"projectNumber": claim_number},  # API uses projectNumber param
         )
 
         # API may return just the ID as a number, or in a dict

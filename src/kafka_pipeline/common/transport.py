@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 
 class TransportType(str, Enum):
     """Transport protocol type."""
+
     EVENTHUB = "eventhub"
     KAFKA = "kafka"
 
@@ -133,7 +134,8 @@ def _strip_entity_path(connection_string: str) -> str:
     so the SDK's `eventhub_name` parameter can be used instead.
     """
     parts = [
-        part for part in connection_string.split(";")
+        part
+        for part in connection_string.split(";")
         if part.strip() and not part.startswith("EntityPath=")
     ]
     return ";".join(parts)
@@ -251,6 +253,7 @@ def _resolve_eventhub_consumer_group(
 # =============================================================================
 # Factory functions
 # =============================================================================
+
 
 def create_producer(
     config: KafkaConfig,

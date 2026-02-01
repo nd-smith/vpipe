@@ -100,7 +100,9 @@ class EventIngesterWorker:
         self._dedup_cache_timestamps: dict[str, float] = {}  # trace_id -> timestamp
 
         # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(domain, "event_ingester", "processing")
+        processing_config = config.get_worker_config(
+            domain, "event_ingester", "processing"
+        )
         health_port = processing_config.get("health_port", 8092)
         self.health_server = HealthCheckServer(
             port=health_port,
@@ -115,7 +117,9 @@ class EventIngesterWorker:
                 "worker_name": "event_ingester",
                 "instance_id": instance_id,
                 "events_topic": config.get_topic(domain, "events"),
-                "enrichment_topic": self.producer_config.get_topic(domain, "enrichment_pending"),
+                "enrichment_topic": self.producer_config.get_topic(
+                    domain, "enrichment_pending"
+                ),
                 "pipeline_domain": self.domain,
                 "separate_producer_config": producer_config is not None,
             },
@@ -216,7 +220,8 @@ class EventIngesterWorker:
                 span.set_tag("event.type", event.type)
                 span.set_tag("event.status_subtype", event.status_subtype)
                 span.set_tag(
-                    "event.attachment_count", len(event.attachments) if event.attachments else 0
+                    "event.attachment_count",
+                    len(event.attachments) if event.attachments else 0,
                 )
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
@@ -310,10 +315,14 @@ class EventIngesterWorker:
             span.set_tag("span.kind", "internal")
             span.set_tag("trace_id", event.trace_id)
             span.set_tag("event_id", event_id)
-            span.set_tag("attachment_count", len(event.attachments) if event.attachments else 0)
+            span.set_tag(
+                "attachment_count", len(event.attachments) if event.attachments else 0
+            )
 
             # Parse original timestamp from event
-            original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
+            original_timestamp = datetime.fromisoformat(
+                event.utc_datetime.replace("Z", "+00:00")
+            )
 
             # Create enrichment task with all event data
             enrichment_task = XACTEnrichmentTask(
@@ -333,7 +342,9 @@ class EventIngesterWorker:
             # CRITICAL: Must await send confirmation before allowing offset commit
             try:
                 metadata = await self.producer.send(
-                    topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
+                    topic=self.producer_config.get_topic(
+                        self.domain, "enrichment_pending"
+                    ),
                     key=event.trace_id,
                     value=enrichment_task,
                     headers={"trace_id": event.trace_id, "event_id": event_id},
@@ -353,7 +364,9 @@ class EventIngesterWorker:
                         "event_id": event_id,
                         "status_subtype": event.status_subtype,
                         "assignment_id": assignment_id,
-                        "attachment_count": len(event.attachments) if event.attachments else 0,
+                        "attachment_count": (
+                            len(event.attachments) if event.attachments else 0
+                        ),
                         "partition": metadata.partition,
                         "offset": metadata.offset,
                     },
@@ -361,7 +374,9 @@ class EventIngesterWorker:
             except Exception as e:
                 # Record send failure metric
                 record_processing_error(
-                    topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
+                    topic=self.producer_config.get_topic(
+                        self.domain, "enrichment_pending"
+                    ),
                     consumer_group=f"{self.domain}-event-ingester",
                     error_type="SEND_FAILED",
                 )
@@ -449,7 +464,9 @@ class EventIngesterWorker:
         # If cache is full, evict oldest entries (simple LRU)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
             # Sort by timestamp and remove oldest 10%
-            sorted_items = sorted(self._dedup_cache_timestamps.items(), key=lambda x: x[1])
+            sorted_items = sorted(
+                self._dedup_cache_timestamps.items(), key=lambda x: x[1]
+            )
             evict_count = self._dedup_cache_max_size // 10
             for trace_id_to_evict, _ in sorted_items[:evict_count]:
                 self._dedup_cache.pop(trace_id_to_evict, None)

@@ -19,7 +19,10 @@ from kafka_pipeline.plugins.shared.registry import (
     register_plugin,
 )
 from kafka_pipeline.plugins.shared.loader import load_plugins_from_directory
-from kafka_pipeline.plugins.shared.connections import ConnectionManager, ConnectionConfig
+from kafka_pipeline.plugins.shared.connections import (
+    ConnectionManager,
+    ConnectionConfig,
+)
 from kafka_pipeline.plugins.shared.enrichment import (
     EnrichmentHandler,
     EnrichmentContext,

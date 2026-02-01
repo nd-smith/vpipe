@@ -139,7 +139,9 @@ async def run_claimx_enrichment_worker(
             domain="claimx",
         )
     else:
-        from kafka_pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
+        from kafka_pipeline.claimx.workers.enrichment_worker import (
+            ClaimXEnrichmentWorker,
+        )
 
         worker = ClaimXEnrichmentWorker(
             config=kafka_config,
@@ -231,7 +233,9 @@ async def run_claimx_upload_worker(
     else:
         from kafka_pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
 
-        worker = ClaimXUploadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
+        worker = ClaimXUploadWorker(
+            config=kafka_config, domain="claimx", instance_id=instance_id
+        )
 
     await execute_worker_with_shutdown(
         worker,
@@ -292,7 +296,9 @@ async def run_claimx_delta_events_worker(
     """Consumes events from claimx events topic and writes to claimx_events Delta table.
     Runs independently of ClaimXEventIngesterWorker with its own consumer group."""
     from kafka_pipeline.common.producer import BaseKafkaProducer
-    from kafka_pipeline.claimx.workers.delta_events_worker import ClaimXDeltaEventsWorker
+    from kafka_pipeline.claimx.workers.delta_events_worker import (
+        ClaimXDeltaEventsWorker,
+    )
 
     await execute_worker_with_producer(
         worker_class=ClaimXDeltaEventsWorker,
@@ -342,7 +348,9 @@ async def run_claimx_entity_delta_worker(
     instance_id: Optional[int] = None,
 ):
     """Consumes EntityRowsMessage from claimx.entities.rows and writes to Delta tables."""
-    from kafka_pipeline.claimx.workers.entity_delta_worker import ClaimXEntityDeltaWorker
+    from kafka_pipeline.claimx.workers.entity_delta_worker import (
+        ClaimXEntityDeltaWorker,
+    )
 
     from core.logging.context import set_log_context
 

@@ -105,7 +105,9 @@ class MediaHandler(EventHandler):
     supports_batching = True
     batch_key = "project_id"
 
-    async def handle_batch(self, events: List[ClaimXEventMessage]) -> List[EnrichmentResult]:
+    async def handle_batch(
+        self, events: List[ClaimXEventMessage]
+    ) -> List[EnrichmentResult]:
         """Process batch of media events for same project."""
         if not events:
             return []
@@ -116,7 +118,9 @@ class MediaHandler(EventHandler):
         start_time = datetime.now(timezone.utc)
 
         try:
-            fetch_strategy = "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
+            fetch_strategy = (
+                "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
+            )
             log_with_context(
                 logger,
                 logging.DEBUG,

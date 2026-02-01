@@ -196,7 +196,9 @@ class FileBackedTokenCredential:
         self._cached_token = token
         self._token_acquired_at = datetime.now(timezone.utc)
 
-        self._logger.debug("FileBackedTokenCredential refreshed token for %s", self._resource)
+        self._logger.debug(
+            "FileBackedTokenCredential refreshed token for %s", self._resource
+        )
         return token
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
@@ -206,7 +208,9 @@ class FileBackedTokenCredential:
         if self._token_acquired_at:
             expires_on = int((self._token_acquired_at + timedelta(hours=1)).timestamp())
         else:
-            expires_on = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
+            expires_on = int(
+                (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()
+            )
 
         return AccessToken(self._cached_token, expires_on)
 
@@ -259,7 +263,9 @@ class OneLakeClient(LoggedClass):
         default_upload_max_single_put_mb = 64
 
         self._max_pool_size = (
-            max_pool_size if max_pool_size is not None else default_upload_max_concurrency
+            max_pool_size
+            if max_pool_size is not None
+            else default_upload_max_concurrency
         )
         self._upload_block_size_mb = default_upload_block_size_mb
         self._upload_max_single_put_mb = default_upload_max_single_put_mb
@@ -267,7 +273,9 @@ class OneLakeClient(LoggedClass):
         self._connection_timeout = connection_timeout
         self._request_timeout = request_timeout
 
-        self.account_host, self.container, self.base_directory = parse_abfss_path(base_path)
+        self.account_host, self.container, self.base_directory = parse_abfss_path(
+            base_path
+        )
 
         self._service_client: Optional[DataLakeServiceClient] = None
         self._file_system_client = None
@@ -347,7 +355,9 @@ class OneLakeClient(LoggedClass):
             if auth.client_id is None:
                 raise RuntimeError("Azure client_id is required for SPN authentication")
             if auth.client_secret is None:
-                raise RuntimeError("Azure client_secret is required for SPN authentication")
+                raise RuntimeError(
+                    "Azure client_secret is required for SPN authentication"
+                )
 
             credential = ClientSecretCredential(
                 tenant_id=auth.tenant_id,
@@ -386,7 +396,9 @@ class OneLakeClient(LoggedClass):
             transport=transport,
             connection_timeout=self._connection_timeout,
         )
-        self._file_system_client = self._service_client.get_file_system_client(self.container)
+        self._file_system_client = self._service_client.get_file_system_client(
+            self.container
+        )
 
         self._session = session
 

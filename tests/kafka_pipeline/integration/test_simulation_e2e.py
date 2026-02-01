@@ -367,7 +367,7 @@ async def test_xact_simulation_e2e_basic(test_harness: SimulationTestHarness):
 
     # Start XACT pipeline workers
     workers = [
-        "xact-local-ingester",
+        "xact-event-ingester",
         "xact-enricher",
         "xact-download",
         "xact-upload",

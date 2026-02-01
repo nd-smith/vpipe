@@ -132,7 +132,9 @@ class HealthCheckServer:
 
         # Ready if all dependencies are healthy and circuit is closed
         old_ready = self._ready
-        self._ready = self._kafka_connected and self._api_reachable and not self._circuit_open
+        self._ready = (
+            self._kafka_connected and self._api_reachable and not self._circuit_open
+        )
 
         if old_ready != self._ready:
             logger.info(

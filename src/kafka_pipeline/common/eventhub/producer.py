@@ -16,7 +16,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from azure.eventhub import EventData, EventHubProducerClient, TransportType
-from aiokafka.structs import RecordMetadata  # Keep for backward compatibility during migration
+from aiokafka.structs import (
+    RecordMetadata,
+)  # Keep for backward compatibility during migration
 from pydantic import BaseModel
 
 from core.logging import get_logger, log_with_context, log_exception
@@ -128,6 +130,7 @@ class EventHubProducer:
             # Apply SSL dev bypass if configured
             # This must be done before creating the client
             from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
             apply_ssl_dev_bypass()
 
             # Create producer with AMQP over WebSocket transport
@@ -265,7 +268,9 @@ class EventHubProducer:
         except Exception as e:
             record_message_produced(self.eventhub_name, len(value_bytes), success=False)
             record_producer_error(self.eventhub_name, type(e).__name__)
-            log_exception(logger, e, "Failed to send message", entity=self.eventhub_name, key=key)
+            log_exception(
+                logger, e, "Failed to send message", entity=self.eventhub_name, key=key
+            )
             raise
 
     async def send_batch(
@@ -330,10 +335,14 @@ class EventHubProducer:
             self._producer.send_batch(batch)
 
             duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(topic=self.eventhub_name).observe(duration)
+            message_processing_duration_seconds.labels(
+                topic=self.eventhub_name
+            ).observe(duration)
 
             for _ in messages:
-                record_message_produced(self.eventhub_name, total_bytes // len(messages), success=True)
+                record_message_produced(
+                    self.eventhub_name, total_bytes // len(messages), success=True
+                )
 
             log_with_context(
                 logger,
@@ -346,16 +355,22 @@ class EventHubProducer:
 
             # Return ProduceResult list for transport-agnostic interface
             return [
-                EventHubRecordMetadata(topic=self.eventhub_name, partition=0, offset=i).to_produce_result()
+                EventHubRecordMetadata(
+                    topic=self.eventhub_name, partition=0, offset=i
+                ).to_produce_result()
                 for i in range(len(messages))
             ]
 
         except Exception as e:
             duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(topic=self.eventhub_name).observe(duration)
+            message_processing_duration_seconds.labels(
+                topic=self.eventhub_name
+            ).observe(duration)
 
             for _ in messages:
-                record_message_produced(self.eventhub_name, total_bytes // len(messages), success=False)
+                record_message_produced(
+                    self.eventhub_name, total_bytes // len(messages), success=False
+                )
             record_producer_error(self.eventhub_name, type(e).__name__)
 
             log_exception(

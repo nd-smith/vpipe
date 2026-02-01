@@ -50,7 +50,9 @@ def create_simulation_enrichment_worker(
 
     if domain == "claimx":
         from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
-        from kafka_pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
+        from kafka_pipeline.claimx.workers.enrichment_worker import (
+            ClaimXEnrichmentWorker,
+        )
 
         # Create mock API client with fixtures
         mock_client = MockClaimXAPIClient(fixtures_dir=simulation_config.fixtures_dir)
@@ -252,7 +254,9 @@ def create_simulation_itel_cabinet_worker(
         >>> # Worker will write to /tmp/pcesdopodappv1_simulation/itel_submissions/
     """
     import logging
-    from kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker import ItelCabinetApiWorker
+    from kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker import (
+        ItelCabinetApiWorker,
+    )
     from kafka_pipeline.plugins.shared.connections import ConnectionManager
     import os
     from pathlib import Path
@@ -262,7 +266,9 @@ def create_simulation_itel_cabinet_worker(
 
     # Load worker configuration
     config_dir = Path(__file__).parent.parent.parent / "config"
-    workers_config_path = config_dir / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
+    workers_config_path = (
+        config_dir / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
+    )
 
     if not workers_config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {workers_config_path}")

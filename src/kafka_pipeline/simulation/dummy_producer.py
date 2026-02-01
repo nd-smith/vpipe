@@ -175,7 +175,9 @@ async def main():
         base_url="http://localhost:8765",  # Will be updated by file server
         plugin_profile=args.plugin_profile,
         itel_trigger_percentage=args.itel_trigger_percentage,
-        include_itel_triggers=(args.plugin_profile == "mixed" or args.plugin_profile is None),
+        include_itel_triggers=(
+            args.plugin_profile == "mixed" or args.plugin_profile is None
+        ),
     )
 
     # Create file server config
@@ -189,7 +191,9 @@ async def main():
     # Check if we should skip embedded file server (for Docker with separate file-server service)
     import os
 
-    skip_embedded_file_server = os.getenv("SKIP_EMBEDDED_FILE_SERVER", "false").lower() == "true"
+    skip_embedded_file_server = (
+        os.getenv("SKIP_EMBEDDED_FILE_SERVER", "false").lower() == "true"
+    )
     external_file_server_url = os.getenv("EXTERNAL_FILE_SERVER_URL")
 
     # Create dummy source config

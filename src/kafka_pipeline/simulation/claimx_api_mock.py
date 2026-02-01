@@ -95,7 +95,9 @@ class MockClaimXAPIClient(LoggedClass):
 
         # Failure injection configuration (load from environment)
         self._failure_rate = float(os.getenv("CLAIMX_API_FAILURE_RATE", "0"))
-        self._failure_duration_sec = int(os.getenv("CLAIMX_API_FAILURE_DURATION_SEC", "0"))
+        self._failure_duration_sec = int(
+            os.getenv("CLAIMX_API_FAILURE_DURATION_SEC", "0")
+        )
         self._failure_status = int(os.getenv("CLAIMX_API_FAILURE_STATUS", "500"))
         self._failure_start_time: Optional[float] = None
         self._total_requests = 0
@@ -338,7 +340,9 @@ class MockClaimXAPIClient(LoggedClass):
             # Filter by media_ids if specified
             if media_ids:
                 media_ids_str = [str(mid) for mid in media_ids]
-                media_list = [m for m in media_list if str(m.get("media_id")) in media_ids_str]
+                media_list = [
+                    m for m in media_list if str(m.get("media_id")) in media_ids_str
+                ]
 
             return media_list
 
@@ -505,7 +509,9 @@ class MockClaimXAPIClient(LoggedClass):
             "policyholder_email": f"{first.lower()}.{last.lower()}@example.com",
             "policyholder_phone": f"({rng.randint(200, 999)}) {rng.randint(200, 999)}-{rng.randint(1000, 9999)}",
             "property_address": f"{rng.randint(100, 9999)} {rng.choice(streets)} {rng.choice(suffixes)}, {city}, {state} {rng.randint(10000, 99999)}",
-            "date_of_loss": (now - timedelta(days=rng.randint(1, 15))).strftime("%Y-%m-%d"),
+            "date_of_loss": (now - timedelta(days=rng.randint(1, 15))).strftime(
+                "%Y-%m-%d"
+            ),
         }
 
     def _generate_fake_media(

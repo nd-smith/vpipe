@@ -148,7 +148,9 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
             elif col_type == pl.Datetime("us", "UTC"):
                 # Handle datetime conversion
                 if isinstance(val, str):
-                    processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                    processed[col_name] = datetime.fromisoformat(
+                        val.replace("Z", "+00:00")
+                    )
                 elif isinstance(val, datetime):
                     if val.tzinfo is None:
                         processed[col_name] = val.replace(tzinfo=timezone.utc)
@@ -187,7 +189,9 @@ class ItelCabinetDeltaWriter(BaseDeltaWriter):
                 processed[col_name] = None
             elif col_type == pl.Datetime("us", "UTC"):
                 if isinstance(val, str):
-                    processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                    processed[col_name] = datetime.fromisoformat(
+                        val.replace("Z", "+00:00")
+                    )
                 elif isinstance(val, datetime):
                     if val.tzinfo is None:
                         processed[col_name] = val.replace(tzinfo=timezone.utc)

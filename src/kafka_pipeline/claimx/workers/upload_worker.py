@@ -128,7 +128,9 @@ class ClaimXUploadWorker:
             )
 
         # Get worker-specific processing config
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        processing_config = config.get_worker_config(
+            domain, self.WORKER_NAME, "processing"
+        )
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
 
@@ -292,7 +294,8 @@ class ClaimXUploadWorker:
                     await self.onelake_client.close()
                 except Exception as cleanup_error:
                     logger.warning(
-                        "Error cleaning up OneLake client", extra={"error": str(cleanup_error)}
+                        "Error cleaning up OneLake client",
+                        extra={"error": str(cleanup_error)},
                     )
                 finally:
                     self.onelake_client = None
@@ -318,7 +321,9 @@ class ClaimXUploadWorker:
         except asyncio.CancelledError:
             logger.info("ClaimX upload worker cancelled")
         except Exception as e:
-            logger.error("ClaimX upload worker error", extra={"error": str(e)}, exc_info=True)
+            logger.error(
+                "ClaimX upload worker error", extra={"error": str(e)}, exc_info=True
+            )
             raise
         finally:
             self._running = False
@@ -338,7 +343,9 @@ class ClaimXUploadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info("Graceful shutdown requested, will stop after current batch completes")
+        logger.info(
+            "Graceful shutdown requested, will stop after current batch completes"
+        )
         self._running = False
 
     async def stop(self) -> None:
@@ -426,11 +433,15 @@ class ClaimXUploadWorker:
                 if self.instance_id
                 else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
             ),
-            "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
+            "auto_offset_reset": consumer_config_dict.get(
+                "auto_offset_reset", "earliest"
+            ),
             "enable_auto_commit": False,
             "max_poll_records": self.batch_size,
             "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
-            "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 300000),
+            "max_poll_interval_ms": consumer_config_dict.get(
+                "max_poll_interval_ms", 300000
+            ),
             # Connection timeout settings
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
@@ -439,11 +450,15 @@ class ClaimXUploadWorker:
 
         # Add optional consumer settings if present in worker config
         if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict["heartbeat_interval_ms"]
+            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
+                "heartbeat_interval_ms"
+            ]
         if "fetch_min_bytes" in consumer_config_dict:
             consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
         if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict["fetch_max_wait_ms"]
+            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
+                "fetch_max_wait_ms"
+            ]
 
         # Add security configuration
         if self.config.security_protocol != "PLAINTEXT":
@@ -451,7 +466,9 @@ class ClaimXUploadWorker:
             consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                consumer_config["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
+                consumer_config["sasl_oauth_token_provider"] = (
+                    create_kafka_oauth_callback()
+                )
             elif self.config.sasl_mechanism == "PLAIN":
                 consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
                 consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
@@ -463,7 +480,9 @@ class ClaimXUploadWorker:
             "Consumer started",
             extra={
                 "topic": self.topic,
-                "consumer_group": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+                "consumer_group": self.config.get_consumer_group(
+                    self.domain, self.WORKER_NAME
+                ),
             },
         )
 
@@ -513,9 +532,11 @@ class ClaimXUploadWorker:
                     update_assigned_partitions(consumer_group, len(assignment))
 
                 # Fetch batch of messages
-                batch: Dict[str, List[AIOConsumerRecord]] = await self._consumer.getmany(
-                    timeout_ms=1000,
-                    max_records=self.batch_size,
+                batch: Dict[str, List[AIOConsumerRecord]] = (
+                    await self._consumer.getmany(
+                        timeout_ms=1000,
+                        max_records=self.batch_size,
+                    )
                 )
 
                 if not batch:
@@ -533,7 +554,9 @@ class ClaimXUploadWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Error in consume loop", extra={"error": str(e)}, exc_info=True)
+                logger.error(
+                    "Error in consume loop", extra={"error": str(e)}, exc_info=True
+                )
                 record_processing_error(self.topic, consumer_group, "consume_error")
                 await asyncio.sleep(1)
 
@@ -554,9 +577,14 @@ class ClaimXUploadWorker:
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
-        tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
+        tasks = [
+            asyncio.create_task(self._process_single_with_semaphore(msg))
+            for msg in messages
+        ]
 
-        results: List[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
+        results: List[UploadResult] = await asyncio.gather(
+            *tasks, return_exceptions=True
+        )
 
         # CRITICAL (Issue #38): Verify all uploads succeeded before committing offsets
         failed_count = 0
@@ -566,7 +594,9 @@ class ClaimXUploadWorker:
         for upload_result in results:
             if isinstance(upload_result, Exception):
                 logger.error(
-                    "Unexpected error in upload", extra={"error": str(upload_result)}, exc_info=True
+                    "Unexpected error in upload",
+                    extra={"error": str(upload_result)},
+                    exc_info=True,
                 )
                 record_processing_error(self.topic, consumer_group, "unexpected_error")
                 exception_count += 1
@@ -577,7 +607,8 @@ class ClaimXUploadWorker:
                     failed_count += 1
             else:
                 logger.warning(
-                    "Unexpected result type", extra={"result_type": str(type(upload_result))}
+                    "Unexpected result type",
+                    extra={"result_type": str(type(upload_result))},
                 )
                 exception_count += 1
 
@@ -594,7 +625,9 @@ class ClaimXUploadWorker:
                     },
                 )
             except Exception as e:
-                logger.error("Failed to commit offsets", extra={"error": str(e)}, exc_info=True)
+                logger.error(
+                    "Failed to commit offsets", extra={"error": str(e)}, exc_info=True
+                )
         else:
             logger.warning(
                 "Skipping offset commit due to upload failures in batch",
@@ -606,7 +639,9 @@ class ClaimXUploadWorker:
                 },
             )
 
-    async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
+    async def _process_single_with_semaphore(
+        self, message: PipelineMessage
+    ) -> UploadResult:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
@@ -619,15 +654,21 @@ class ClaimXUploadWorker:
 
         try:
             # Parse message
-            cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
+            cached_message = ClaimXCachedDownloadMessage.model_validate_json(
+                message.value
+            )
             media_id = cached_message.media_id
 
             # Track in-flight
             async with self._in_flight_lock:
                 self._in_flight_tasks.add(media_id)
 
-            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-            record_message_consumed(self.topic, consumer_group, len(message.value), success=True)
+            consumer_group = self.config.get_consumer_group(
+                self.domain, self.WORKER_NAME
+            )
+            record_message_consumed(
+                self.topic, consumer_group, len(message.value), success=True
+            )
 
             # Track records processed
             self._records_processed += 1
@@ -639,7 +680,9 @@ class ClaimXUploadWorker:
 
             # Upload to OneLake (using claimx domain-specific path)
             if self.onelake_client is None:
-                raise RuntimeError("OneLake client not initialized - call start() first")
+                raise RuntimeError(
+                    "OneLake client not initialized - call start() first"
+                )
             from kafka_pipeline.common.telemetry import get_tracer
 
             tracer = get_tracer(__name__)
@@ -727,7 +770,9 @@ class ClaimXUploadWorker:
                 project_id=project_id,
                 processing_time_ms=processing_time_ms,
             )
-            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+            consumer_group = self.config.get_consumer_group(
+                self.domain, self.WORKER_NAME
+            )
             record_processing_error(self.topic, consumer_group, "upload_error")
             self._records_failed += 1
 
@@ -736,7 +781,9 @@ class ClaimXUploadWorker:
             try:
                 # Re-parse message in case it wasn't parsed yet
                 if "cached_message" not in locals() or cached_message is None:
-                    cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
+                    cached_message = ClaimXCachedDownloadMessage.model_validate_json(
+                        message.value
+                    )
 
                 result_message = ClaimXUploadResultMessage(
                     media_id=cached_message.media_id,
@@ -760,7 +807,8 @@ class ClaimXUploadWorker:
                 )
             except Exception as produce_error:
                 logger.error(
-                    "Failed to produce failure result", extra={"error": str(produce_error)}
+                    "Failed to produce failure result",
+                    extra={"error": str(produce_error)},
                 )
 
             return UploadResult(
@@ -809,7 +857,9 @@ class ClaimXUploadWorker:
                         in_flight = len(self._in_flight_tasks)
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    processed_cycle = (
+                        self._records_processed - self._last_cycle_processed
+                    )
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     # Use standardized cycle output format

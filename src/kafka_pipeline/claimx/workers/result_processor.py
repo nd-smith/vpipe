@@ -104,7 +104,9 @@ class ClaimXResultProcessor:
         self.batch_timeout_seconds = batch_timeout_seconds or self.BATCH_TIMEOUT_SECONDS
 
         # Get topic from hierarchical config or use provided/default
-        self.results_topic = results_topic or config.get_topic(self.domain, "downloads_results")
+        self.results_topic = results_topic or config.get_topic(
+            self.domain, "downloads_results"
+        )
         self.consumer: Optional[BaseKafkaConsumer] = None
 
         # Consumer group from hierarchical config
@@ -142,7 +144,9 @@ class ClaimXResultProcessor:
         self._running = False
 
         # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(self.domain, self.worker_name, "processing")
+        processing_config = config.get_worker_config(
+            self.domain, self.worker_name, "processing"
+        )
         health_port = processing_config.get("health_port", 8087)
         self.health_server = HealthCheckServer(
             port=health_port,
@@ -496,7 +500,9 @@ class ClaimXResultProcessor:
                         pending = len(self._batch)
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    processed_cycle = (
+                        self._records_processed - self._last_cycle_processed
+                    )
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     # Use standardized cycle output format

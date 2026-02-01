@@ -67,7 +67,9 @@ def _extract_s3_expires(url: str) -> Optional[str]:
         # Parse timestamp - S3 dates are always UTC
         from datetime import timedelta
 
-        signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=timezone.utc
+        )
         ttl_seconds = int(expires_str)
         expires_at = signed_at + timedelta(seconds=ttl_seconds)
 

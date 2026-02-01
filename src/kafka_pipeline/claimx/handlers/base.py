@@ -9,7 +9,17 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Type, TypeVar, TYPE_CHECKING
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Type,
+    TypeVar,
+    TYPE_CHECKING,
+)
 
 from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -158,7 +168,9 @@ def with_api_error_handling(
                 if log_context:
                     event_log_context.update(log_context(event))
 
-                duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+                duration_ms = int(
+                    (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                )
                 log_with_context(
                     logger,
                     logging.WARNING,
@@ -185,7 +197,9 @@ def with_api_error_handling(
                 if log_context:
                     event_log_context.update(log_context(event))
 
-                duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+                duration_ms = int(
+                    (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                )
                 log_exception(
                     logger,
                     e,
@@ -271,7 +285,9 @@ class EventHandler(ABC):
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
         pass
 
-    async def handle_batch(self, events: List[ClaimXEventMessage]) -> List[EnrichmentResult]:
+    async def handle_batch(
+        self, events: List[ClaimXEventMessage]
+    ) -> List[EnrichmentResult]:
         """Default processes events independently. Override for optimized batch processing."""
         import asyncio
 
@@ -365,7 +381,9 @@ class EventHandler(ABC):
         # Log event type distribution
         event_type_counts: Dict[str, int] = {}
         for event in events:
-            event_type_counts[event.event_type] = event_type_counts.get(event.event_type, 0) + 1
+            event_type_counts[event.event_type] = (
+                event_type_counts.get(event.event_type, 0) + 1
+            )
 
         log_with_context(
             logger,
@@ -400,7 +418,9 @@ class EventHandler(ABC):
 
         return handler_result
 
-    async def _process_batched(self, events: List[ClaimXEventMessage]) -> List[EnrichmentResult]:
+    async def _process_batched(
+        self, events: List[ClaimXEventMessage]
+    ) -> List[EnrichmentResult]:
         """Process events in batches grouped by batch_key, concurrently."""
         import asyncio
 
@@ -507,7 +527,11 @@ class EventHandler(ABC):
                 "status": (
                     "success"
                     if enrichment_result.success
-                    else ("failed_permanent" if not enrichment_result.is_retryable else "failed")
+                    else (
+                        "failed_permanent"
+                        if not enrichment_result.is_retryable
+                        else "failed"
+                    )
                 ),
                 "error_message": enrichment_result.error,
                 "error_category": (
@@ -547,7 +571,9 @@ class EventHandler(ABC):
 
         if succeeded > 0:
             # Calculate average duration per successful event
-            avg_duration = duration_seconds / succeeded if succeeded else duration_seconds
+            avg_duration = (
+                duration_seconds / succeeded if succeeded else duration_seconds
+            )
             claimx_handler_duration_seconds.labels(
                 handler_name=self.name, status="success"
             ).observe(avg_duration)
@@ -555,12 +581,16 @@ class EventHandler(ABC):
         if failed > 0:
             # Calculate average duration per failed event
             avg_duration = duration_seconds / failed if failed else duration_seconds
-            claimx_handler_duration_seconds.labels(handler_name=self.name, status="failed").observe(
-                avg_duration
-            )
+            claimx_handler_duration_seconds.labels(
+                handler_name=self.name, status="failed"
+            ).observe(avg_duration)
 
-        claimx_handler_events_total.labels(handler_name=self.name, status="success").inc(succeeded)
-        claimx_handler_events_total.labels(handler_name=self.name, status="failed").inc(failed)
+        claimx_handler_events_total.labels(
+            handler_name=self.name, status="success"
+        ).inc(succeeded)
+        claimx_handler_events_total.labels(handler_name=self.name, status="failed").inc(
+            failed
+        )
 
         return HandlerResult(
             handler_name=self.name,
@@ -587,7 +617,9 @@ class NoOpHandler(EventHandler):
 
         try:
             rows = self.extract_rows(event)
-            duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+            duration_ms = int(
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            )
 
             row_counts = {
                 "projects": len(rows.projects),
@@ -623,7 +655,9 @@ class NoOpHandler(EventHandler):
                 handler_name=self.name,
                 **extract_log_context(event),
             )
-            duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+            duration_ms = int(
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            )
 
             return EnrichmentResult(
                 event=event,
@@ -708,7 +742,9 @@ class HandlerRegistry:
             if handler_class:
                 groups[handler_class].append(event)
             else:
-                unhandled_types[event.event_type] = unhandled_types.get(event.event_type, 0) + 1
+                unhandled_types[event.event_type] = (
+                    unhandled_types.get(event.event_type, 0) + 1
+                )
 
         handler_distribution = {cls.__name__: len(evts) for cls, evts in groups.items()}
 
@@ -735,7 +771,10 @@ class HandlerRegistry:
         return dict(groups)
 
     def get_registered_handlers(self) -> Dict[str, str]:
-        return {event_type: handler.__name__ for event_type, handler in self._handlers.items()}
+        return {
+            event_type: handler.__name__
+            for event_type, handler in self._handlers.items()
+        }
 
 
 def get_handler_registry() -> HandlerRegistry:

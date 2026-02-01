@@ -99,8 +99,12 @@ class ClaimXEnrichmentWorker:
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.instance_id = instance_id
-        self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
-        self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
+        self.enrichment_topic = enrichment_topic or config.get_topic(
+            domain, "enrichment_pending"
+        )
+        self.download_topic = download_topic or config.get_topic(
+            domain, "downloads_pending"
+        )
         self.entity_rows_topic = config.get_topic(domain, "enriched")
         self.enable_delta_writes = enable_delta_writes
 
@@ -111,7 +115,9 @@ class ClaimXEnrichmentWorker:
             self.worker_id = self.WORKER_NAME
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
-        self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
+        self.processing_config = config.get_worker_config(
+            domain, "enrichment_worker", "processing"
+        )
         self.max_poll_records = self.processing_config.get("max_poll_records", 100)
 
         self._retry_delays = config.get_retry_delays(domain)
@@ -174,7 +180,9 @@ class ClaimXEnrichmentWorker:
                 "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
                 "instance_id": instance_id,
-                "consumer_group": config.get_consumer_group(domain, "enrichment_worker"),
+                "consumer_group": config.get_consumer_group(
+                    domain, "enrichment_worker"
+                ),
                 "topics": self.topics,
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
@@ -191,7 +199,9 @@ class ClaimXEnrichmentWorker:
     async def _preload_project_cache(self) -> None:
         """Preload project cache with existing project IDs from Delta table to reduce API calls."""
         if not self._projects_table_path:
-            logger.warning("Cannot preload project cache - projects_table_path not configured")
+            logger.warning(
+                "Cannot preload project cache - projects_table_path not configured"
+            )
             return
 
         try:
@@ -335,7 +345,10 @@ class ClaimXEnrichmentWorker:
                 await plugin.on_load()
                 logger.debug(
                     "Plugin loaded",
-                    extra={"plugin_name": plugin.name, "plugin_version": plugin.version},
+                    extra={
+                        "plugin_name": plugin.name,
+                        "plugin_version": plugin.version,
+                    },
                 )
             except Exception as e:
                 logger.error(
@@ -363,7 +376,10 @@ class ClaimXEnrichmentWorker:
             self.consumer = self._create_consumer()
             await self.consumer.start()
             update_connection_status(
-                True, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+                True,
+                self.consumer_config.get_consumer_group(
+                    self.domain, "enrichment_worker"
+                ),
             )
 
             self.health_server.set_ready(
@@ -412,7 +428,10 @@ class ClaimXEnrichmentWorker:
         if self.consumer:
             await self.consumer.stop()
             update_connection_status(
-                False, self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+                False,
+                self.consumer_config.get_consumer_group(
+                    self.domain, "enrichment_worker"
+                ),
             )
 
         if self.producer:
@@ -430,7 +449,9 @@ class ClaimXEnrichmentWorker:
         self._running = False
 
     def _create_consumer(self) -> AIOKafkaConsumer:
-        group_id = self.consumer_config.get_consumer_group(self.domain, "enrichment_worker")
+        group_id = self.consumer_config.get_consumer_group(
+            self.domain, "enrichment_worker"
+        )
 
         consumer_config_dict = self.consumer_config.get_worker_config(
             self.domain, "enrichment_worker", "consumer"
@@ -445,16 +466,22 @@ class ClaimXEnrichmentWorker:
                 else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
             ),
             "enable_auto_commit": False,
-            "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
+            "auto_offset_reset": consumer_config_dict.get(
+                "auto_offset_reset", "earliest"
+            ),
             "metadata_max_age_ms": 30000,
             "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 45000),
-            "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 600000),
+            "max_poll_interval_ms": consumer_config_dict.get(
+                "max_poll_interval_ms", 600000
+            ),
             "request_timeout_ms": self.consumer_config.request_timeout_ms,
             "connections_max_idle_ms": self.consumer_config.connections_max_idle_ms,
         }
 
         if "heartbeat_interval_ms" in consumer_config_dict:
-            common_args["heartbeat_interval_ms"] = consumer_config_dict["heartbeat_interval_ms"]
+            common_args["heartbeat_interval_ms"] = consumer_config_dict[
+                "heartbeat_interval_ms"
+            ]
 
         if self.consumer_config.security_protocol != "PLAINTEXT":
             common_args["security_protocol"] = self.consumer_config.security_protocol
@@ -494,13 +521,17 @@ class ClaimXEnrichmentWorker:
                     await self._wait_for_pending_tasks(timeout_seconds=30)
 
                 await self.consumer.commit()
-                update_assigned_partitions(self.consumer_group, len(self.consumer.assignment()))
+                update_assigned_partitions(
+                    self.consumer_group, len(self.consumer.assignment())
+                )
 
         except asyncio.CancelledError:
             logger.debug("Consumption loop cancelled")
             raise
         except Exception as e:
-            logger.error("Error in consumption loop", extra={"error": str(e)}, exc_info=True)
+            logger.error(
+                "Error in consumption loop", extra={"error": str(e)}, exc_info=True
+            )
             raise
         finally:
             logger.info("Consumption loop ended")
@@ -794,7 +825,9 @@ class ClaimXEnrichmentWorker:
         if not entity_rows.media:
             return
 
-        download_tasks = DownloadTaskFactory.create_download_tasks_from_media(entity_rows.media)
+        download_tasks = DownloadTaskFactory.create_download_tasks_from_media(
+            entity_rows.media
+        )
         if download_tasks:
             await self._produce_download_tasks(download_tasks)
 
@@ -883,7 +916,9 @@ class ClaimXEnrichmentWorker:
             self._records_succeeded += 1
 
             # Step 5: Execute plugins for post-processing
-            should_continue = await self._execute_plugins(task, entity_rows, handler_result)
+            should_continue = await self._execute_plugins(
+                task, entity_rows, handler_result
+            )
             if not should_continue:
                 return
 
@@ -894,7 +929,9 @@ class ClaimXEnrichmentWorker:
             await self._dispatch_download_tasks(entity_rows)
 
             # Log completion
-            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            elapsed_ms = (
+                datetime.now(timezone.utc) - start_time
+            ).total_seconds() * 1000
             logger.debug(
                 "Enrichment task complete",
                 extra={
@@ -970,7 +1007,9 @@ class ClaimXEnrichmentWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    processed_cycle = (
+                        self._records_processed - self._last_cycle_processed
+                    )
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     logger.info(

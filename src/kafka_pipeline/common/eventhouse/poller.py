@@ -174,7 +174,9 @@ class KQLEventPoller:
         self._backfill_stop_time: Optional[datetime] = None
 
         if config.backfill_start_stamp:
-            self._backfill_start_time = self._parse_timestamp(config.backfill_start_stamp)
+            self._backfill_start_time = self._parse_timestamp(
+                config.backfill_start_stamp
+            )
         if config.backfill_stop_stamp:
             self._backfill_stop_time = self._parse_timestamp(config.backfill_stop_stamp)
 
@@ -246,7 +248,9 @@ class KQLEventPoller:
 
         await self._sink.start()
         self._running = True
-        logger.info("KQLEventPoller started", extra={"sink_type": type(self._sink).__name__})
+        logger.info(
+            "KQLEventPoller started", extra={"sink_type": type(self._sink).__name__}
+        )
 
     async def _test_eventhouse_connectivity(self) -> None:
         """Test eventhouse connectivity by reading a small sample of records.
@@ -307,7 +311,9 @@ class KQLEventPoller:
                     f"Eventhouse sample record {i + 1}/{len(result.rows)}",
                     extra={"record": row},
                 )
-                print(f"[CONNECTIVITY TEST] Record {i + 1}: {json.dumps(row, default=str)}")
+                print(
+                    f"[CONNECTIVITY TEST] Record {i + 1}: {json.dumps(row, default=str)}"
+                )
 
             logger.info("=== Eventhouse Connectivity Test Complete ===")
 
@@ -320,9 +326,7 @@ class KQLEventPoller:
                     "error_type": type(e).__name__,
                 },
             )
-            print(
-                f"[CONNECTIVITY TEST] FAILED - Could not read from '{table}': {e}"
-            )
+            print(f"[CONNECTIVITY TEST] FAILED - Could not read from '{table}': {e}")
             raise
 
     # FIXED: Restored Asynchronous Context Manager Protocol
@@ -357,7 +361,8 @@ class KQLEventPoller:
             try:
                 await self._poll_cycle()
                 await asyncio.wait_for(
-                    self._shutdown_event.wait(), timeout=self.config.poll_interval_seconds
+                    self._shutdown_event.wait(),
+                    timeout=self.config.poll_interval_seconds,
                 )
             except asyncio.TimeoutError:
                 pass
@@ -418,7 +423,11 @@ class KQLEventPoller:
         poll_from = self._last_ingestion_time or (now - timedelta(hours=1))
 
         query = self._build_query(
-            self.config.source_table, poll_from, now, self.config.batch_size, self._last_trace_id
+            self.config.source_table,
+            poll_from,
+            now,
+            self.config.batch_size,
+            self._last_trace_id,
         )
         result = await self._kql_client.execute_query(query)
         if not result.rows:

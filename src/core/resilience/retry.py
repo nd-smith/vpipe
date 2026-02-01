@@ -233,10 +233,15 @@ def with_retry(
                         )
                     else:
                         cat = classify_exception(wrapped)
-                        error_category = cat.value if hasattr(cat, "value") else str(cat)
+                        error_category = (
+                            cat.value if hasattr(cat, "value") else str(cat)
+                        )
 
                     # Handle auth errors - refresh before retry decision
-                    if isinstance(wrapped, PipelineError) and wrapped.should_refresh_auth:
+                    if (
+                        isinstance(wrapped, PipelineError)
+                        and wrapped.should_refresh_auth
+                    ):
                         logger.info(
                             "Auth error detected for %s, refreshing credentials",
                             func.__name__,
@@ -251,7 +256,10 @@ def with_retry(
                     # Check if should retry
                     if not config.should_retry(wrapped, attempt):
                         error_type = type(wrapped).__name__
-                        if isinstance(wrapped, PipelineError) and not wrapped.is_retryable:
+                        if (
+                            isinstance(wrapped, PipelineError)
+                            and not wrapped.is_retryable
+                        ):
                             logger.warning(
                                 "Permanent error for %s, not retrying: %s",
                                 func.__name__,
@@ -301,9 +309,7 @@ def with_retry(
                     if using_server_delay:
                         log_extras["server_retry_after"] = wrapped.retry_after
                         log_extras["delay_source"] = "server"
-                        log_message = (
-                            "Retryable error for %s, will retry (using server-provided delay)"
-                        )
+                        log_message = "Retryable error for %s, will retry (using server-provided delay)"
                     else:
                         log_extras["delay_source"] = "exponential_backoff"
                         log_message = "Retryable error for %s, will retry"

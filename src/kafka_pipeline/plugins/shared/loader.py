@@ -307,7 +307,9 @@ def _create_plugin_from_config(config: Dict[str, Any]) -> Optional[Plugin]:
         return None
 
 
-def _create_task_trigger_from_config(config: Dict[str, Any]) -> Optional[TaskTriggerPlugin]:
+def _create_task_trigger_from_config(
+    config: Dict[str, Any],
+) -> Optional[TaskTriggerPlugin]:
     """
     Create TaskTriggerPlugin from YAML config.
 

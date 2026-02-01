@@ -129,7 +129,9 @@ class PipelineVerifier:
 
                 # Analyze temporal pattern of duplicates
                 duplicated_trace_ids = set(duplicate_analysis["trace_id"].to_list())
-                duplicate_df = df.filter(pl.col("trace_id").is_in(list(duplicated_trace_ids)[:100]))
+                duplicate_df = df.filter(
+                    pl.col("trace_id").is_in(list(duplicated_trace_ids)[:100])
+                )
 
                 # Check if duplicates have different ingested_at times
                 if len(duplicate_df) > 0:
@@ -155,8 +157,12 @@ class PipelineVerifier:
                     max_time_span = temporal_analysis["time_span_seconds"].max()
 
                     results["temporal_analysis"] = {
-                        "avg_time_span_between_duplicates_seconds": round(avg_time_span or 0, 2),
-                        "max_time_span_between_duplicates_seconds": round(max_time_span or 0, 2),
+                        "avg_time_span_between_duplicates_seconds": round(
+                            avg_time_span or 0, 2
+                        ),
+                        "max_time_span_between_duplicates_seconds": round(
+                            max_time_span or 0, 2
+                        ),
                     }
 
             # Event type distribution
@@ -172,8 +178,12 @@ class PipelineVerifier:
             # Check for events with/without attachments
             # Note: attachment_count might be a different column name
             if "attachment_count" in df.columns:
-                events_with_attachments = df.filter(pl.col("attachment_count") > 0).shape[0]
-                events_without_attachments = df.filter(pl.col("attachment_count") == 0).shape[0]
+                events_with_attachments = df.filter(
+                    pl.col("attachment_count") > 0
+                ).shape[0]
+                events_without_attachments = df.filter(
+                    pl.col("attachment_count") == 0
+                ).shape[0]
                 results["attachment_analysis"] = {
                     "events_with_attachments": events_with_attachments,
                     "events_without_attachments": events_without_attachments,
@@ -253,7 +263,9 @@ def print_report(results: dict) -> None:
         print(f"\nERROR: {results['error']}")
         return
 
-    print(f"\nTime Range: {results['time_range']['since']} to {results['time_range']['until']}")
+    print(
+        f"\nTime Range: {results['time_range']['since']} to {results['time_range']['until']}"
+    )
 
     print("\n--- Summary ---")
     print(f"Total rows in Delta table:     {results['total_rows']:,}")
@@ -264,11 +276,17 @@ def print_report(results: dict) -> None:
     if "duplicate_analysis" in results:
         print("\n--- Duplicate Analysis ---")
         duplicate_analysis = results["duplicate_analysis"]
-        print(f"Trace IDs with duplicates:     {duplicate_analysis['trace_ids_with_duplicates']:,}")
-        print(f"Max duplicates per trace_id:   {duplicate_analysis['max_duplicates_per_trace_id']}")
+        print(
+            f"Trace IDs with duplicates:     {duplicate_analysis['trace_ids_with_duplicates']:,}"
+        )
+        print(
+            f"Max duplicates per trace_id:   {duplicate_analysis['max_duplicates_per_trace_id']}"
+        )
         print("\nSample duplicate trace_ids:")
         for duplicate_sample in duplicate_analysis["sample_duplicates"][:5]:
-            print(f"  {duplicate_sample['trace_id']}: {duplicate_sample['count']} occurrences")
+            print(
+                f"  {duplicate_sample['trace_id']}: {duplicate_sample['count']} occurrences"
+            )
 
     if "temporal_analysis" in results:
         print("\n--- Temporal Pattern ---")
@@ -283,7 +301,9 @@ def print_report(results: dict) -> None:
     if "attachment_analysis" in results:
         print("\n--- Attachment Analysis ---")
         attachment_analysis = results["attachment_analysis"]
-        print(f"Events WITH attachments:       {attachment_analysis['events_with_attachments']:,}")
+        print(
+            f"Events WITH attachments:       {attachment_analysis['events_with_attachments']:,}"
+        )
         print(
             f"Events WITHOUT attachments:    {attachment_analysis['events_without_attachments']:,}"
         )
@@ -307,11 +327,15 @@ def print_report(results: dict) -> None:
             print("   1. KQL Poller overlap_minutes causing re-polling")
             print("   2. Multiple poller instances running simultaneously")
             print("   3. Daily maintenance job not running or failing")
-            print("   4. Eventhouse source has higher duplicate rate than expected (>0.5%)")
+            print(
+                "   4. Eventhouse source has higher duplicate rate than expected (>0.5%)"
+            )
             print("")
             print("   Recommended actions:")
             print("   1. Check for multiple poller pods/processes")
-            print("   2. Verify daily maintenance job is running (see fabric_notebooks/)")
+            print(
+                "   2. Verify daily maintenance job is running (see fabric_notebooks/)"
+            )
             print("   3. Check Eventhouse source duplicate rate")
         elif dup_pct > 1:
             print("⚠️  Moderate duplicate rate detected.")
@@ -388,7 +412,9 @@ def main():
             total = hourly_stat.get("total_rows", 0)
             unique = hourly_stat.get("unique_events", 0)
             dup = total - unique
-            print(f"  {hour_str}: {total:,} rows ({unique:,} unique, {dup:,} duplicates)")
+            print(
+                f"  {hour_str}: {total:,} rows ({unique:,} unique, {dup:,} duplicates)"
+            )
 
     return 0
 

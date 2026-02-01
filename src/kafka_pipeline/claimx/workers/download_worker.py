@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set
 
 import aiohttp
 from aiokafka import AIOKafkaConsumer
@@ -123,13 +123,17 @@ class ClaimXDownloadWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        self.temp_dir = temp_dir or Path(tempfile.gettempdir()) / "claimx_download_worker"
+        self.temp_dir = (
+            temp_dir or Path(tempfile.gettempdir()) / "claimx_download_worker"
+        )
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
         self.cache_dir = Path(config.cache_dir) / domain
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        processing_config = config.get_worker_config(
+            domain, self.WORKER_NAME, "processing"
+        )
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
 
@@ -243,11 +247,14 @@ class ClaimXDownloadWorker:
             # In simulation mode, use mock API client (doesn't need real credentials)
             from kafka_pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
 
-            self.api_client = MockClaimXAPIClient(fixtures_dir=self._simulation_config.fixtures_dir)
+            self.api_client = MockClaimXAPIClient(
+                fixtures_dir=self._simulation_config.fixtures_dir
+            )
             logger.info("Using MockClaimXAPIClient for simulation mode")
         else:
             self.api_client = ClaimXApiClient(
-                base_url=self.config.claimx_api_url or "https://api.test.claimxperience.com",
+                base_url=self.config.claimx_api_url
+                or "https://api.test.claimxperience.com",
                 token=self.config.claimx_api_token,
                 timeout_seconds=self.config.claimx_api_timeout_seconds,
                 max_concurrent=self.config.claimx_api_concurrency,
@@ -314,9 +321,13 @@ class ClaimXDownloadWorker:
                 else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
             ),
             "enable_auto_commit": False,
-            "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
+            "auto_offset_reset": consumer_config_dict.get(
+                "auto_offset_reset", "earliest"
+            ),
             "max_poll_records": self.batch_size,
-            "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 300000),
+            "max_poll_interval_ms": consumer_config_dict.get(
+                "max_poll_interval_ms", 300000
+            ),
             "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
@@ -324,11 +335,15 @@ class ClaimXDownloadWorker:
         }
 
         if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict["heartbeat_interval_ms"]
+            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
+                "heartbeat_interval_ms"
+            ]
         if "fetch_min_bytes" in consumer_config_dict:
             consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
         if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict["fetch_max_wait_ms"]
+            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
+                "fetch_max_wait_ms"
+            ]
 
         if self.config.security_protocol != "PLAINTEXT":
             consumer_config["security_protocol"] = self.config.security_protocol
@@ -350,7 +365,9 @@ class ClaimXDownloadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info("Graceful shutdown requested, will stop after current batch completes")
+        logger.info(
+            "Graceful shutdown requested, will stop after current batch completes"
+        )
         self._running = False
 
     async def stop(self) -> None:
@@ -636,7 +653,9 @@ class ClaimXDownloadWorker:
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+            consumer_group = self.config.get_consumer_group(
+                self.domain, self.WORKER_NAME
+            )
             duration = time.perf_counter() - start_time
             # Note: message_processing_duration_seconds metric not implemented
             # Note: claim_processing_seconds metric not implemented
@@ -681,7 +700,9 @@ class ClaimXDownloadWorker:
 
     async def _handle_batch_results(self, results: List[TaskResult]) -> bool:
         """Returns False if circuit breaker errors present (don't commit, will reprocess)."""
-        circuit_errors = [r for r in results if r.error and isinstance(r.error, CircuitOpenError)]
+        circuit_errors = [
+            r for r in results if r.error and isinstance(r.error, CircuitOpenError)
+        ]
 
         if circuit_errors:
             logger.warning(
@@ -692,7 +713,9 @@ class ClaimXDownloadWorker:
 
         return True
 
-    def _convert_to_download_task(self, task_message: ClaimXDownloadTask) -> DownloadTask:
+    def _convert_to_download_task(
+        self, task_message: ClaimXDownloadTask
+    ) -> DownloadTask:
         """Creates temp file path using media_id directory to avoid concurrent download conflicts."""
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.media_id / destination_filename
@@ -743,7 +766,9 @@ class ClaimXDownloadWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    processed_cycle = (
+                        self._records_processed - self._last_cycle_processed
+                    )
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     logger.info(

@@ -276,7 +276,9 @@ class KQLClient:
                     "error": str(e)[:200],
                 },
             )
-            raise StorageErrorClassifier.classify_kusto_error(e, {"operation": "connect"}) from e
+            raise StorageErrorClassifier.classify_kusto_error(
+                e, {"operation": "connect"}
+            ) from e
 
     async def close(self) -> None:
         """Close connection and cleanup resources."""

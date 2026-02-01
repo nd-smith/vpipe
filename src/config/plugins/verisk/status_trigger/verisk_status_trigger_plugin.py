@@ -129,7 +129,11 @@ class XACTStatusTriggerPlugin(Plugin):
         if not trigger_config:
             logger.debug(
                 f"No trigger configured for status: {status_subtype}",
-                extra={"plugin": self.name, "event_id": context.event_id, "status": status_subtype},
+                extra={
+                    "plugin": self.name,
+                    "event_id": context.event_id,
+                    "status": status_subtype,
+                },
             )
             return PluginResult(success=True, actions=[])
 
@@ -149,7 +153,9 @@ class XACTStatusTriggerPlugin(Plugin):
         )
 
         return PluginResult(
-            success=True, actions=actions, message=f"Triggered actions for status {status_subtype}"
+            success=True,
+            actions=actions,
+            message=f"Triggered actions for status {status_subtype}",
         )
 
     def _build_actions(
@@ -297,7 +303,10 @@ class XACTStatusTriggerPlugin(Plugin):
 
         # Only run if we have at least one trigger configured
         if not self.triggers_by_status:
-            logger.debug("No triggers configured, plugin will not run", extra={"plugin": self.name})
+            logger.debug(
+                "No triggers configured, plugin will not run",
+                extra={"plugin": self.name},
+            )
             return False
 
         return True

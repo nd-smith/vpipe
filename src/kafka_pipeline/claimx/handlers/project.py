@@ -329,16 +329,22 @@ class ProjectTransformer:
             "primary_phone_country_code": primary_phone_country_code,
             "date_received": parse_timestamp(project.get("dateReceived")),
             "date_contacted": parse_timestamp(project.get("dateContacted")),
-            "planned_inspection_date": parse_timestamp(project.get("plannedInspectionDate")),
+            "planned_inspection_date": parse_timestamp(
+                project.get("plannedInspectionDate")
+            ),
             "date_inspected": parse_timestamp(project.get("dateInspected")),
             "appointment_date": parse_timestamp(project.get("appointmentDate")),
             "custom_attribute1": safe_str(project.get("customAttribute1")),
             "custom_attribute2": safe_str(project.get("customAttribute2")),
             "custom_attribute3": safe_str(project.get("customAttribute3")),
-            "custom_external_unique_id": safe_str(project.get("customExternalUniqueId")),
+            "custom_external_unique_id": safe_str(
+                project.get("customExternalUniqueId")
+            ),
             "company_name": safe_str(inner.get("companyName")),
         }
-        return BaseTransformer.inject_metadata(row, event_id, include_last_enriched=False)
+        return BaseTransformer.inject_metadata(
+            row, event_id, include_last_enriched=False
+        )
 
     @staticmethod
     def to_contact_rows(
@@ -414,7 +420,9 @@ class ProjectTransformer:
                     "last_name": None,
                     "phone_number": None,
                     "phone_country_code": None,
-                    "is_primary_contact": safe_bool(member.get("primaryContact", False)),
+                    "is_primary_contact": safe_bool(
+                        member.get("primaryContact", False)
+                    ),
                     "master_file_name": safe_str(member.get("mfn")),
                     "updated_at": now_iso(),
                     "created_date": today,
@@ -424,7 +432,9 @@ class ProjectTransformer:
                 contacts.append(BaseTransformer.inject_metadata(row, event_id))
 
         # Log contact extraction summary
-        policyholder_count = sum(1 for c in contacts if c["contact_type"] == "POLICYHOLDER")
+        policyholder_count = sum(
+            1 for c in contacts if c["contact_type"] == "POLICYHOLDER"
+        )
         claim_rep_count = sum(1 for c in contacts if c["contact_type"] == "CLAIM_REP")
 
         log_with_context(

@@ -122,8 +122,14 @@ class AttachmentDownloader:
             url_info = check_presigned_url(task.url)
             # S3 presigned URLs are used by Xact - no refresh capability
             if url_info.url_type == "s3" and url_info.is_expired:
-                expires_at = url_info.expires_at.isoformat() if url_info.expires_at else "unknown"
-                signed_at = url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
+                expires_at = (
+                    url_info.expires_at.isoformat()
+                    if url_info.expires_at
+                    else "unknown"
+                )
+                signed_at = (
+                    url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
+                )
 
                 # Sanity check: expiration should always be after signing
                 # If not, there's a parsing bug we need to investigate
@@ -186,7 +192,9 @@ class AttachmentDownloader:
 
             # HEAD request to check Content-Length for streaming decision
             # (Optional optimization - could also just try streaming)
-            content_length = await self._get_content_length(task.url, session, task.timeout)
+            content_length = await self._get_content_length(
+                task.url, session, task.timeout
+            )
 
             # Check max size if specified
             if task.max_size and content_length and content_length > task.max_size:
@@ -284,7 +292,9 @@ class AttachmentDownloader:
         try:
             # Use asyncio.to_thread for mkdir to ensure proper synchronization
             # on Windows, where synchronous mkdir may not be immediately visible
-            await asyncio.to_thread(task.destination.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                task.destination.parent.mkdir, parents=True, exist_ok=True
+            )
             await asyncio.to_thread(task.destination.write_bytes, response.content)
 
             return DownloadOutcome.success_outcome(
@@ -301,7 +311,9 @@ class AttachmentDownloader:
             permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
             is_permanent = e.errno in permanent_errnos
 
-            error_category = ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
+            error_category = (
+                ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
+            )
             return DownloadOutcome.download_failure(
                 error_message=f"File write error: {str(e)}",
                 error_category=error_category,
@@ -314,7 +326,9 @@ class AttachmentDownloader:
         # Ensure parent directory exists
         # Use asyncio.to_thread for mkdir to ensure proper synchronization
         # on Windows, where synchronous mkdir may not be immediately visible
-        await asyncio.to_thread(task.destination.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(
+            task.destination.parent.mkdir, parents=True, exist_ok=True
+        )
 
         result, error = await download_to_file(
             url=task.url,

@@ -67,10 +67,14 @@ class ClaimXEventMessage(BaseModel):
 
     event_id: str = Field(..., description="Unique event identifier", min_length=1)
     event_type: str = Field(
-        ..., description="Event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)", min_length=1
+        ...,
+        description="Event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
+        min_length=1,
     )
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
-    ingested_at: datetime = Field(..., description="Timestamp when event was ingested from webhook")
+    ingested_at: datetime = Field(
+        ..., description="Timestamp when event was ingested from webhook"
+    )
     media_id: Optional[str] = Field(
         default=None, description="Media file ID (for file-related events)"
     )
@@ -111,7 +115,9 @@ class ClaimXEventMessage(BaseModel):
         event_id = row.get("event_id") or row.get("eventId") or ""
         event_type = row.get("event_type") or row.get("eventType") or ""
         project_id = row.get("project_id") or row.get("projectId") or ""
-        ingested_at = row.get("ingested_at") or row.get("IngestionTime") or datetime.now()
+        ingested_at = (
+            row.get("ingested_at") or row.get("IngestionTime") or datetime.now()
+        )
 
         # Generate deterministic ID if missing
         if not event_id:
@@ -119,7 +125,9 @@ class ClaimXEventMessage(BaseModel):
             # DO NOT use ingested_at (poller timestamp) - use ingestion_time from Eventhouse
             # Get stable Eventhouse ingestion timestamp from raw data
             ingestion_time = (
-                row.get("ingestion_time") or row.get("$IngestionTime") or row.get("IngestionTime")
+                row.get("ingestion_time")
+                or row.get("$IngestionTime")
+                or row.get("IngestionTime")
             )
 
             composite_parts = [project_id, event_type]
@@ -134,7 +142,9 @@ class ClaimXEventMessage(BaseModel):
             # Add optional identifiers for additional uniqueness
             media_id = row.get("media_id") or row.get("mediaId")
             task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
-            video_id = row.get("video_collaboration_id") or row.get("videoCollaborationId")
+            video_id = row.get("video_collaboration_id") or row.get(
+                "videoCollaborationId"
+            )
             master_file = row.get("master_file_name") or row.get("masterFileName")
 
             if media_id:
@@ -155,7 +165,8 @@ class ClaimXEventMessage(BaseModel):
             project_id=project_id,
             ingested_at=ingested_at,
             media_id=row.get("media_id") or row.get("mediaId"),
-            task_assignment_id=row.get("task_assignment_id") or row.get("taskAssignmentId"),
+            task_assignment_id=row.get("task_assignment_id")
+            or row.get("taskAssignmentId"),
             video_collaboration_id=row.get("video_collaboration_id")
             or row.get("videoCollaborationId"),
             master_file_name=row.get("master_file_name") or row.get("masterFileName"),
@@ -186,7 +197,10 @@ class ClaimXEventMessage(BaseModel):
                     "project_id": "proj_22222",
                     "ingested_at": "2024-12-25T14:15:00Z",
                     "task_assignment_id": "task_33333",
-                    "raw_data": {"taskName": "Review photos", "assignee": "adjuster@insurance.com"},
+                    "raw_data": {
+                        "taskName": "Review photos",
+                        "assignee": "adjuster@insurance.com",
+                    },
                 },
             ]
         }

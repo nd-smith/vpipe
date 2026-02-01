@@ -280,7 +280,10 @@ class ClaimXEntityWriter:
 
         # Check if simulation mode is enabled and override paths
         try:
-            from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
+            from kafka_pipeline.simulation import (
+                is_simulation_mode,
+                get_simulation_config,
+            )
 
             if is_simulation_mode():
                 simulation_config = get_simulation_config()
@@ -313,8 +316,12 @@ class ClaimXEntityWriter:
                             )
 
                 # Use local paths
-                projects_table_path = str(self.delta_base_path / table_names["projects"])
-                contacts_table_path = str(self.delta_base_path / table_names["contacts"])
+                projects_table_path = str(
+                    self.delta_base_path / table_names["projects"]
+                )
+                contacts_table_path = str(
+                    self.delta_base_path / table_names["contacts"]
+                )
                 media_table_path = str(self.delta_base_path / table_names["media"])
                 tasks_table_path = str(self.delta_base_path / table_names["tasks"])
                 task_templates_table_path = str(
@@ -323,7 +330,9 @@ class ClaimXEntityWriter:
                 external_links_table_path = str(
                     self.delta_base_path / table_names["external_links"]
                 )
-                video_collab_table_path = str(self.delta_base_path / table_names["video_collab"])
+                video_collab_table_path = str(
+                    self.delta_base_path / table_names["video_collab"]
+                )
 
                 self.logger.info(
                     "Simulation mode enabled - writing Delta Lake to local filesystem",
@@ -365,7 +374,9 @@ class ClaimXEntityWriter:
                     "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
                     "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
                 }
-                missing_info = [f"{name} ({env_var_hints[name]})" for name in empty_paths]
+                missing_info = [
+                    f"{name} ({env_var_hints[name]})" for name in empty_paths
+                ]
                 raise ValueError(
                     f"ClaimXEntityWriter requires table paths for all entity types. "
                     f"Missing paths for: {', '.join(missing_info)}. "
@@ -665,7 +676,9 @@ class ClaimXEntityWriter:
                     if col_type == pl.Datetime("us", "UTC") and isinstance(val, str):
                         # Parse ISO timestamp string (e.g., "2026-01-09T01:58:32.556819Z")
                         # Handle both "Z" suffix and "+00:00" timezone formats
-                        converted_row[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                        converted_row[col_name] = datetime.fromisoformat(
+                            val.replace("Z", "+00:00")
+                        )
                     elif col_type == pl.Date and isinstance(val, str):
                         # Parse date string (e.g., "2026-01-09" or from ISO timestamp)
                         if "T" in val:

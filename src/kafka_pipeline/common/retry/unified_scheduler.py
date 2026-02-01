@@ -406,7 +406,9 @@ class UnifiedRetryScheduler:
                 msg_key = original_key
             elif message.key:
                 msg_key = (
-                    message.key if isinstance(message.key, bytes) else message.key.encode("utf-8")
+                    message.key
+                    if isinstance(message.key, bytes)
+                    else message.key.encode("utf-8")
                 )
             else:
                 msg_key = None
@@ -445,7 +447,9 @@ class UnifiedRetryScheduler:
 
         await self._route_to_target(
             target_topic=target_topic,
-            message_key=original_key if isinstance(original_key, (str, bytes)) else message.key,
+            message_key=(
+                original_key if isinstance(original_key, (str, bytes)) else message.key
+            ),
             message_value=message.value,
             retry_count=retry_count,
             worker_type=worker_type,
@@ -469,7 +473,9 @@ class UnifiedRetryScheduler:
                 try:
                     # Decode header value (Kafka headers are bytes)
                     decoded_value = (
-                        value.decode("utf-8") if isinstance(value, bytes) else str(value)
+                        value.decode("utf-8")
+                        if isinstance(value, bytes)
+                        else str(value)
                     )
                     headers[key] = decoded_value
                 except Exception as e:
@@ -609,7 +615,9 @@ class UnifiedRetryScheduler:
                 now = datetime.now(timezone.utc)
 
                 # Process all messages that are ready
-                while self._delayed_queue and self._delayed_queue[0].scheduled_time <= now:
+                while (
+                    self._delayed_queue and self._delayed_queue[0].scheduled_time <= now
+                ):
                     delayed_msg = heapq.heappop(self._delayed_queue)
 
                     logger.debug(
@@ -705,7 +713,9 @@ class UnifiedRetryScheduler:
                             if msg.message_key
                             else None
                         ),
-                        "message_value": base64.b64encode(msg.message_value).decode("utf-8"),
+                        "message_value": base64.b64encode(msg.message_value).decode(
+                            "utf-8"
+                        ),
                         "headers": msg.headers,
                     }
                 )
@@ -783,7 +793,9 @@ class UnifiedRetryScheduler:
                 scheduled_time = datetime.fromisoformat(msg_data["scheduled_time"])
 
                 # Skip messages that are too old (more than max retry delay past due)
-                if (now - scheduled_time).total_seconds() > 300:  # 5 minutes grace period
+                if (
+                    now - scheduled_time
+                ).total_seconds() > 300:  # 5 minutes grace period
                     expired_count += 1
                     logger.debug(
                         "Skipping expired message from persistence",

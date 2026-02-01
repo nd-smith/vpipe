@@ -81,7 +81,8 @@ class AzureCredentialProvider:
 
         if not AZURE_IDENTITY_AVAILABLE:
             raise AzureAuthError(
-                "azure-identity library not installed. " "Install with: pip install azure-identity"
+                "azure-identity library not installed. "
+                "Install with: pip install azure-identity"
             )
 
         if self.client_secret and self.client_id and self.tenant_id:
@@ -105,7 +106,9 @@ class AzureCredentialProvider:
     def _read_token_file(self, resource: str) -> str:
         """Read token from file. Supports JSON dict or plain text."""
         if not self.token_file:
-            raise AzureAuthError("Token file authentication requested but AZURE_TOKEN_FILE not set")
+            raise AzureAuthError(
+                "Token file authentication requested but AZURE_TOKEN_FILE not set"
+            )
 
         token_path = Path(self.token_file)
         if not token_path.exists():
@@ -190,7 +193,9 @@ class AzureCredentialProvider:
             token = access_token.token
 
             self._cache.set(resource, token)
-            logger.debug("Acquired token from Service Principal", extra={"resource": resource})
+            logger.debug(
+                "Acquired token from Service Principal", extra={"resource": resource}
+            )
             return token
 
         except Exception as e:
@@ -205,7 +210,12 @@ class AzureCredentialProvider:
 
     def get_storage_options(self, force_refresh: bool = False) -> Dict[str, str]:
         """Get storage options for delta-rs. Returns SPN credentials directly if available, else token."""
-        if self.client_secret and self.client_id and self.tenant_id and not self.token_file:
+        if (
+            self.client_secret
+            and self.client_id
+            and self.tenant_id
+            and not self.token_file
+        ):
             return {
                 "azure_client_id": self.client_id,
                 "azure_client_secret": self.client_secret,
@@ -216,7 +226,9 @@ class AzureCredentialProvider:
             token = self.get_storage_token(force_refresh)
             return {"azure_storage_token": token}
         except AzureAuthError:
-            logger.error("Failed to get storage token - authentication will fail at access time")
+            logger.error(
+                "Failed to get storage token - authentication will fail at access time"
+            )
             return {}
 
     def get_kusto_token(self, cluster_uri: str, force_refresh: bool = False) -> str:
@@ -224,7 +236,9 @@ class AzureCredentialProvider:
 
     def clear_cache(self, resource: Optional[str] = None) -> None:
         self._cache.clear(resource)
-        logger.debug("Cleared token cache", extra={"resource": resource if resource else "all"})
+        logger.debug(
+            "Cleared token cache", extra={"resource": resource if resource else "all"}
+        )
 
     def get_diagnostics(self) -> Dict:
         diag = {

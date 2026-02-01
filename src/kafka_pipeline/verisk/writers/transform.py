@@ -113,7 +113,9 @@ def _extract_row_fields(data_dict: Optional[Dict]) -> Dict[str, Any]:
         "claim_number": _safe_get(data_dict, "adm", "coverageLoss", "claimNumber"),
         "contact_type": _safe_get(data_dict, "contact", "type"),
         "contact_name": _safe_get(data_dict, "contact", "name"),
-        "contact_phone_type": _safe_get(data_dict, "contact", "contactMethods", "phone", "type"),
+        "contact_phone_type": _safe_get(
+            data_dict, "contact", "contactMethods", "phone", "type"
+        ),
         "contact_phone_number": _safe_get(
             data_dict, "contact", "contactMethods", "phone", "number"
         ),
@@ -143,7 +145,10 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("type").str.split(".").list.last().alias("status_subtype"),
             pl.col("version"),
             pl.col("utcDateTime").cast(pl.Datetime("us", "UTC")).alias("ingested_at"),
-            pl.col("utcDateTime").cast(pl.Datetime("us", "UTC")).dt.date().alias("event_date"),
+            pl.col("utcDateTime")
+            .cast(pl.Datetime("us", "UTC"))
+            .dt.date()
+            .alias("event_date"),
             pl.col("traceId").alias("trace_id"),
             event_id_expr,  # Successfully added to the schema here
         ]

@@ -63,13 +63,22 @@ class EventMessage(BaseModel):
         description="Full event type string (e.g., 'verisk.claims.property.xn.documentsReceived')",
         min_length=1,
     )
-    version: Union[int, str] = Field(..., description="Event version (integer preferred)")
-    utc_datetime: str = Field(..., description="Event timestamp as ISO string", alias="utcDateTime")
+    version: Union[int, str] = Field(
+        ..., description="Event version (integer preferred)"
+    )
+    utc_datetime: str = Field(
+        ..., description="Event timestamp as ISO string", alias="utcDateTime"
+    )
     trace_id: str = Field(
-        ..., description="Unique event identifier (from traceId)", min_length=1, alias="traceId"
+        ...,
+        description="Unique event identifier (from traceId)",
+        min_length=1,
+        alias="traceId",
     )
     event_id: Optional[str] = Field(
-        default=None, description="Unique event ID generated during ingestion", alias="eventId"
+        default=None,
+        description="Unique event ID generated during ingestion",
+        alias="eventId",
     )
     data: str = Field(..., description="Raw JSON string with nested event data")
 

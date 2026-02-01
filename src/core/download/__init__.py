@@ -31,7 +31,12 @@ Example usage:
 """
 
 from core.download.downloader import AttachmentDownloader
-from core.download.http_client import DownloadError, DownloadResponse, create_session, download_url
+from core.download.http_client import (
+    DownloadError,
+    DownloadResponse,
+    create_session,
+    download_url,
+)
 from core.download.models import DownloadOutcome, DownloadTask
 from core.download.streaming import (
     CHUNK_SIZE,

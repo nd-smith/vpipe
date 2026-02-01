@@ -192,7 +192,8 @@ class JSONFormatter(logging.Formatter):
         being converted to strings, enabling efficient ADX aggregations.
         """
         log_entry: Dict[str, Any] = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+            + "Z",
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
@@ -271,7 +272,9 @@ class ConsoleFormatter(logging.Formatter):
         trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
 
         if batch_id and trace_id:
-            return f"{prefix} - [batch:{batch_id}] [{trace_id[:8]}] {record.getMessage()}"
+            return (
+                f"{prefix} - [batch:{batch_id}] [{trace_id[:8]}] {record.getMessage()}"
+            )
         elif batch_id:
             return f"{prefix} - [batch:{batch_id}] {record.getMessage()}"
         elif trace_id:

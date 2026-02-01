@@ -66,7 +66,9 @@ class DownloadOutcome:
 
     @classmethod
     def validation_failure(
-        cls, validation_error: str, error_category: ErrorCategory = ErrorCategory.PERMANENT
+        cls,
+        validation_error: str,
+        error_category: ErrorCategory = ErrorCategory.PERMANENT,
     ) -> "DownloadOutcome":
         """Create validation failure outcome (URL or file type validation)."""
         return cls(

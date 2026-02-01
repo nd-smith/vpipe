@@ -63,13 +63,17 @@ class ProjectCache:
             ttl_seconds: Time-to-live in seconds. If None, uses DEFAULT_TTL_SECONDS.
                          Set to 0 to disable TTL (items never expire).
         """
-        self._ttl_seconds = ttl_seconds if ttl_seconds is not None else DEFAULT_TTL_SECONDS
+        self._ttl_seconds = (
+            ttl_seconds if ttl_seconds is not None else DEFAULT_TTL_SECONDS
+        )
         # Maps project_id -> timestamp when added
         self._projects: Dict[str, float] = {}
         self._hits = 0
         self._misses = 0
         self._expirations = 0
-        logger.debug("ProjectCache initialized", extra={"ttl_seconds": self._ttl_seconds})
+        logger.debug(
+            "ProjectCache initialized", extra={"ttl_seconds": self._ttl_seconds}
+        )
 
     def has(self, project_id: str) -> bool:
         """

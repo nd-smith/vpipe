@@ -54,6 +54,7 @@ _initialization_attempted = False
 # Configuration loading
 # =============================================================================
 
+
 def _load_checkpoint_config() -> dict:
     """Load checkpoint store configuration from config.yaml.
 
@@ -104,6 +105,7 @@ def _load_checkpoint_config() -> dict:
 # =============================================================================
 # Factory functions
 # =============================================================================
+
 
 async def get_checkpoint_store() -> Optional[BlobCheckpointStore]:
     """Get or create the singleton BlobCheckpointStore instance.

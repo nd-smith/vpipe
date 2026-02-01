@@ -47,8 +47,12 @@ logger = get_logger(__name__)
 
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
-WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "claimx" / "claimx_mitigation_task" / "workers.yaml"
-CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
+WORKERS_CONFIG_PATH = (
+    CONFIG_DIR / "plugins" / "claimx" / "claimx_mitigation_task" / "workers.yaml"
+)
+CONNECTIONS_CONFIG_PATH = (
+    CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
+)
 
 
 class MitigationTrackingWorker:
@@ -158,13 +162,16 @@ class MitigationTrackingWorker:
 
                 except ValueError as e:
                     # Validation error - log and skip message
-                    logger.error(f"Validation error: {e}", extra={"offset": record.offset})
+                    logger.error(
+                        f"Validation error: {e}", extra={"offset": record.offset}
+                    )
                     await self.consumer.commit()  # Skip bad message
 
                 except Exception as e:
                     # Processing error - log, commit to skip, and continue
                     logger.exception(
-                        f"Failed to process message: {e}", extra={"offset": record.offset}
+                        f"Failed to process message: {e}",
+                        extra={"offset": record.offset},
                     )
                     # Commit to skip failed message and continue polling
                     await self.consumer.commit()
@@ -206,7 +213,9 @@ def load_worker_config() -> dict:
     workers = config_data.get("workers", {})
 
     if "mitigation_tracking" not in workers:
-        raise ValueError(f"Worker 'mitigation_tracking' not found in {WORKERS_CONFIG_PATH}")
+        raise ValueError(
+            f"Worker 'mitigation_tracking' not found in {WORKERS_CONFIG_PATH}"
+        )
 
     return workers["mitigation_tracking"]
 

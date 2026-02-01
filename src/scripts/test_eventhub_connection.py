@@ -31,11 +31,15 @@ import time
 
 def _get_connection_string() -> str:
     """Get namespace connection string, stripping EntityPath if present."""
-    conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING") or os.getenv("EVENTHUB_CONNECTION_STRING")
+    conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING") or os.getenv(
+        "EVENTHUB_CONNECTION_STRING"
+    )
     if not conn:
         return ""
     # Strip EntityPath (we pass eventhub_name separately)
-    parts = [p for p in conn.split(";") if p.strip() and not p.startswith("EntityPath=")]
+    parts = [
+        p for p in conn.split(";") if p.strip() and not p.startswith("EntityPath=")
+    ]
     return ";".join(parts)
 
 
@@ -51,10 +55,15 @@ def test_producer_sync(connection_string: str, eventhub_name: str):
     print("\n=== Testing Event Hub Producer (Sync) ===")
 
     # Apply SSL bypass if configured
-    disable_ssl = os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes")
+    disable_ssl = os.getenv("DISABLE_SSL_VERIFY", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
     if disable_ssl:
         print("Warning: SSL verification disabled (DISABLE_SSL_VERIFY=true)")
         from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
         apply_ssl_dev_bypass()
 
     try:
@@ -95,18 +104,26 @@ def test_producer_sync(connection_string: str, eventhub_name: str):
     except Exception as e:
         print(f"\nProducer test FAILED: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
-async def test_consumer_async(connection_string: str, eventhub_name: str, consumer_group: str):
+async def test_consumer_async(
+    connection_string: str, eventhub_name: str, consumer_group: str
+):
     """Test Event Hub consumer (async API)."""
     print("\n=== Testing Event Hub Consumer (Async) ===")
 
     # Apply SSL bypass if configured
-    disable_ssl = os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes")
+    disable_ssl = os.getenv("DISABLE_SSL_VERIFY", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
     if disable_ssl:
         from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
         apply_ssl_dev_bypass()
 
     try:
@@ -143,9 +160,13 @@ async def test_consumer_async(connection_string: str, eventhub_name: str, consum
                 raise KeyboardInterrupt("Max messages received")
 
         async def on_error(partition_context, error):
-            print(f"  Error in partition {partition_context.partition_id if partition_context else 'unknown'}: {error}")
+            print(
+                f"  Error in partition {partition_context.partition_id if partition_context else 'unknown'}: {error}"
+            )
 
-        print(f"Waiting for up to {max_messages} messages (timeout: {timeout_seconds}s)...")
+        print(
+            f"Waiting for up to {max_messages} messages (timeout: {timeout_seconds}s)..."
+        )
 
         try:
             async with consumer:
@@ -174,6 +195,7 @@ async def test_consumer_async(connection_string: str, eventhub_name: str, consum
     except Exception as e:
         print(f"\nConsumer test FAILED: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -209,7 +231,9 @@ def main():
         sys.exit(1)
 
     eventhub_name = _get_eventhub_name(args.entity)
-    consumer_group = args.consumer_group or os.getenv("EVENTHUB_CONSUMER_GROUP", "$Default")
+    consumer_group = args.consumer_group or os.getenv(
+        "EVENTHUB_CONSUMER_GROUP", "$Default"
+    )
 
     # Extract connection info for display
     print("\nConnection Info:")
@@ -227,7 +251,9 @@ def main():
     # Only run consumer test if producer succeeded
     consumer_ok = False
     if producer_ok:
-        consumer_ok = asyncio.run(test_consumer_async(connection_string, eventhub_name, consumer_group))
+        consumer_ok = asyncio.run(
+            test_consumer_async(connection_string, eventhub_name, consumer_group)
+        )
 
     # Summary
     print("\n" + "=" * 60)

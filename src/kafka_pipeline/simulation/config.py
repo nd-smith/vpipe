@@ -46,7 +46,9 @@ class SimulationConfig:
     allow_localhost_urls: bool = True
 
     # Fixtures directory for mock data
-    fixtures_dir: Path = field(default_factory=lambda: Path(__file__).parent / "fixtures")
+    fixtures_dir: Path = field(
+        default_factory=lambda: Path(__file__).parent / "fixtures"
+    )
 
     # Delta Lake configuration for simulation mode
     truncate_tables_on_start: bool = False  # Clean tables before run
@@ -224,13 +226,19 @@ class SimulationConfig:
         if config_path is None:
             # Try dedicated simulation config first
             sim_config_path = (
-                Path(__file__).parent.parent.parent.parent / "config" / "simulation.yaml"
+                Path(__file__).parent.parent.parent.parent
+                / "config"
+                / "simulation.yaml"
             )
             if sim_config_path.exists():
                 config_path = sim_config_path
             else:
                 # Fall back to main config
-                config_path = Path(__file__).parent.parent.parent.parent / "config" / "config.yaml"
+                config_path = (
+                    Path(__file__).parent.parent.parent.parent
+                    / "config"
+                    / "config.yaml"
+                )
 
         if not config_path.exists():
             # Return default disabled config (still validates in __post_init__)
@@ -256,23 +264,30 @@ class SimulationConfig:
             local_storage_path=Path(
                 os.getenv(
                     "SIMULATION_STORAGE_PATH",
-                    simulation_data.get("local_storage_path", "/tmp/pcesdopodappv1_simulation"),
+                    simulation_data.get(
+                        "local_storage_path", "/tmp/pcesdopodappv1_simulation"
+                    ),
                 )
             ),
             local_delta_path=Path(
                 os.getenv(
                     "SIMULATION_DELTA_PATH",
-                    simulation_data.get("local_delta_path", "/tmp/pcesdopodappv1_simulation/delta"),
+                    simulation_data.get(
+                        "local_delta_path", "/tmp/pcesdopodappv1_simulation/delta"
+                    ),
                 )
             ),
             allow_localhost_urls=os.getenv(
-                "SIMULATION_ALLOW_LOCALHOST", str(simulation_data.get("allow_localhost_urls", True))
+                "SIMULATION_ALLOW_LOCALHOST",
+                str(simulation_data.get("allow_localhost_urls", True)),
             ).lower()
             in ("true", "1", "yes"),
             fixtures_dir=Path(
                 os.getenv(
                     "SIMULATION_FIXTURES_DIR",
-                    simulation_data.get("fixtures_dir", str(Path(__file__).parent / "fixtures")),
+                    simulation_data.get(
+                        "fixtures_dir", str(Path(__file__).parent / "fixtures")
+                    ),
                 )
             ),
             truncate_tables_on_start=os.getenv(
@@ -281,7 +296,8 @@ class SimulationConfig:
             ).lower()
             in ("true", "1", "yes"),
             delta_write_mode=os.getenv(
-                "SIMULATION_DELTA_WRITE_MODE", simulation_data.get("delta_write_mode", "append")
+                "SIMULATION_DELTA_WRITE_MODE",
+                simulation_data.get("delta_write_mode", "append"),
             ),
         )
 
@@ -306,16 +322,24 @@ class SimulationConfig:
         # Construct config - validation happens in __post_init__
         return cls(
             enabled=enabled,
-            local_storage_path=Path(os.getenv("SIMULATION_STORAGE_PATH", "/tmp/pcesdopodappv1_simulation")),
+            local_storage_path=Path(
+                os.getenv("SIMULATION_STORAGE_PATH", "/tmp/pcesdopodappv1_simulation")
+            ),
             local_delta_path=Path(
-                os.getenv("SIMULATION_DELTA_PATH", "/tmp/pcesdopodappv1_simulation/delta")
+                os.getenv(
+                    "SIMULATION_DELTA_PATH", "/tmp/pcesdopodappv1_simulation/delta"
+                )
             ),
             allow_localhost_urls=os.getenv("SIMULATION_ALLOW_LOCALHOST", "true").lower()
             in ("true", "1", "yes"),
             fixtures_dir=Path(
-                os.getenv("SIMULATION_FIXTURES_DIR", str(Path(__file__).parent / "fixtures"))
+                os.getenv(
+                    "SIMULATION_FIXTURES_DIR", str(Path(__file__).parent / "fixtures")
+                )
             ),
-            truncate_tables_on_start=os.getenv("SIMULATION_TRUNCATE_TABLES", "false").lower()
+            truncate_tables_on_start=os.getenv(
+                "SIMULATION_TRUNCATE_TABLES", "false"
+            ).lower()
             in ("true", "1", "yes"),
             delta_write_mode=os.getenv("SIMULATION_DELTA_WRITE_MODE", "append"),
         )

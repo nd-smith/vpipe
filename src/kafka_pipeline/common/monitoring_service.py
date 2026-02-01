@@ -298,10 +298,12 @@ class MonitoringService:
                         "partitions": [],
                     }
 
-                lag_by_consumer_group[consumer_group]["topics"][topic]["total_lag"] += lag_value
-                lag_by_consumer_group[consumer_group]["topics"][topic]["partitions"].append(
-                    {"partition": partition, "lag": lag_value}
-                )
+                lag_by_consumer_group[consumer_group]["topics"][topic][
+                    "total_lag"
+                ] += lag_value
+                lag_by_consumer_group[consumer_group]["topics"][topic][
+                    "partitions"
+                ].append({"partition": partition, "lag": lag_value})
 
             # Convert topics dict to list for easier JSON serialization
             for cg_data in lag_by_consumer_group.values():
@@ -323,7 +325,9 @@ class MonitoringService:
                 # Consumer groups typically follow pattern: domain-worker_type
                 potential_group_name = f"{worker['domain']}-{worker['worker_type']}"
                 if potential_group_name in lag_by_consumer_group:
-                    worker_info["consumer_lag"] = lag_by_consumer_group[potential_group_name]
+                    worker_info["consumer_lag"] = lag_by_consumer_group[
+                        potential_group_name
+                    ]
 
                 worker_status.append(worker_info)
 
@@ -372,7 +376,9 @@ class MonitoringService:
 
 async def main():
     """Run the monitoring service."""
-    parser = argparse.ArgumentParser(description="Monitoring aggregator service for Kafka pipeline")
+    parser = argparse.ArgumentParser(
+        description="Monitoring aggregator service for Kafka pipeline"
+    )
     parser.add_argument(
         "--prometheus-url",
         default="http://localhost:9090",

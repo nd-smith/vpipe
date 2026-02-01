@@ -130,7 +130,9 @@ class DeltaRetryHandler:
         # Retry configuration with defaults
         self._retry_delays = retry_delays or [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
         self._max_retries = len(self._retry_delays)
-        self._retry_topic_prefix = retry_topic_prefix or "com.allstate.pcesdopodappv1.delta-events.retry"
+        self._retry_topic_prefix = (
+            retry_topic_prefix or "com.allstate.pcesdopodappv1.delta-events.retry"
+        )
         self._dlq_topic = dlq_topic or "com.allstate.pcesdopodappv1.delta-events.dlq"
 
         logger.info(

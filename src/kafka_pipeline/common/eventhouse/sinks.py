@@ -96,7 +96,10 @@ class KafkaSink:
             topic=self._topic,
         )
         await self._producer.start()
-        logger.info("KafkaSink started", extra={"domain": self.config.domain, "topic": self._topic})
+        logger.info(
+            "KafkaSink started",
+            extra={"domain": self.config.domain, "topic": self._topic},
+        )
 
     async def stop(self) -> None:
         """Shutdown Kafka producer."""

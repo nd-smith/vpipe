@@ -123,9 +123,7 @@ class DownloadWorker:
 
         # Create worker_id with instance suffix (coolname) if provided
         if instance_id:
-            self.worker_id = (
-                f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
-            )
+            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
         else:
             self.worker_id = self.WORKER_NAME
 
@@ -143,7 +141,9 @@ class DownloadWorker:
         self._running = False
 
         # Worker-specific processing config
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        processing_config = config.get_worker_config(
+            domain, self.WORKER_NAME, "processing"
+        )
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
         self.timeout_seconds = processing_config.get("timeout_seconds", 60)
@@ -321,20 +321,28 @@ class DownloadWorker:
                 else f"{self.domain}-download"
             ),
             "enable_auto_commit": False,
-            "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
+            "auto_offset_reset": consumer_config_dict.get(
+                "auto_offset_reset", "earliest"
+            ),
             "max_poll_records": self.batch_size,
-            "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 300000),
+            "max_poll_interval_ms": consumer_config_dict.get(
+                "max_poll_interval_ms", 300000
+            ),
             "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
             "connections_max_idle_ms": self.config.connections_max_idle_ms,
         }
         if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict["heartbeat_interval_ms"]
+            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
+                "heartbeat_interval_ms"
+            ]
         if "fetch_min_bytes" in consumer_config_dict:
             consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
         if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict["fetch_max_wait_ms"]
+            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
+                "fetch_max_wait_ms"
+            ]
 
         if self.config.security_protocol != "PLAINTEXT":
             consumer_config["security_protocol"] = self.config.security_protocol
@@ -359,7 +367,9 @@ class DownloadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info("Graceful shutdown requested, will stop after current batch completes")
+        logger.info(
+            "Graceful shutdown requested, will stop after current batch completes"
+        )
         self._running = False
 
     async def stop(self) -> None:
@@ -490,7 +500,9 @@ class DownloadWorker:
                 messages: List[PipelineMessage] = []
                 for topic_partition, records in data.items():
                     # Convert ConsumerRecord to PipelineMessage
-                    messages.extend([from_consumer_record(record) for record in records])
+                    messages.extend(
+                        [from_consumer_record(record) for record in records]
+                    )
 
                 if not messages:
                     continue
@@ -662,7 +674,11 @@ class DownloadWorker:
                 if not outcome.success:
                     span.set_tag(
                         "error.category",
-                        outcome.error_category.value if outcome.error_category else "unknown",
+                        (
+                            outcome.error_category.value
+                            if outcome.error_category
+                            else "unknown"
+                        ),
                     )
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
@@ -670,7 +686,9 @@ class DownloadWorker:
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
                 self._mark_processed(task_message.media_id)
-                consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+                consumer_group = self.config.get_consumer_group(
+                    self.domain, self.WORKER_NAME
+                )
                 record_message_consumed(
                     message.topic, consumer_group, len(message.value), success=True
                 )
@@ -687,7 +705,9 @@ class DownloadWorker:
                 )
             else:
                 await self._handle_failure(task_message, outcome, processing_time_ms)
-                consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+                consumer_group = self.config.get_consumer_group(
+                    self.domain, self.WORKER_NAME
+                )
                 record_message_consumed(
                     message.topic, consumer_group, len(message.value), success=False
                 )
@@ -702,7 +722,11 @@ class DownloadWorker:
                     outcome=outcome,
                     processing_time_ms=processing_time_ms,
                     success=False,
-                    error=CircuitOpenError("download_worker", 60.0) if is_circuit_error else None,
+                    error=(
+                        CircuitOpenError("download_worker", 60.0)
+                        if is_circuit_error
+                        else None
+                    ),
                 )
 
         finally:
@@ -713,7 +737,9 @@ class DownloadWorker:
         """
         Returns False if any circuit breaker errors exist (messages will be reprocessed).
         """
-        circuit_errors = [r for r in results if r.error and isinstance(r.error, CircuitOpenError)]
+        circuit_errors = [
+            r for r in results if r.error and isinstance(r.error, CircuitOpenError)
+        ]
 
         if circuit_errors:
             logger.warning(
@@ -724,7 +750,9 @@ class DownloadWorker:
 
         return True
 
-    def _convert_to_download_task(self, task_message: DownloadTaskMessage) -> DownloadTask:
+    def _convert_to_download_task(
+        self, task_message: DownloadTaskMessage
+    ) -> DownloadTask:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.trace_id / destination_filename
 

@@ -55,7 +55,9 @@ async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event):
 
     eventhouse_source = pipeline_config.verisk_eventhouse
     if not eventhouse_source:
-        raise ValueError("Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse")
+        raise ValueError(
+            "Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse"
+        )
 
     eventhouse_config = EventhouseConfig(
         cluster_url=eventhouse_source.cluster_url,
@@ -262,7 +264,9 @@ async def run_download_worker(
     """
     from kafka_pipeline.verisk.workers.download_worker import DownloadWorker
 
-    worker = DownloadWorker(config=kafka_config, domain="verisk", instance_id=instance_id)
+    worker = DownloadWorker(
+        config=kafka_config, domain="verisk", instance_id=instance_id
+    )
     await execute_worker_with_shutdown(
         worker,
         stage_name="xact-download",
@@ -306,7 +310,9 @@ async def run_upload_worker(
     else:
         from kafka_pipeline.verisk.workers.upload_worker import UploadWorker
 
-        worker = UploadWorker(config=kafka_config, domain="verisk", instance_id=instance_id)
+        worker = UploadWorker(
+            config=kafka_config, domain="verisk", instance_id=instance_id
+        )
 
     await execute_worker_with_shutdown(
         worker,
@@ -341,7 +347,9 @@ async def run_result_processor(
             "when enable_delta_writes=True. Configure via DELTA_INVENTORY_TABLE_PATH "
             "environment variable or delta.xact.inventory_table_path in config.yaml."
         )
-        raise ValueError("inventory_table_path is required when delta writes are enabled")
+        raise ValueError(
+            "inventory_table_path is required when delta writes are enabled"
+        )
 
     await execute_worker_with_producer(
         worker_class=ResultProcessor,
@@ -351,7 +359,9 @@ async def run_result_processor(
         stage_name="xact-result-processor",
         shutdown_event=shutdown_event,
         worker_kwargs={
-            "inventory_table_path": inventory_table_path if enable_delta_writes else None,
+            "inventory_table_path": (
+                inventory_table_path if enable_delta_writes else None
+            ),
             "failed_table_path": (
                 failed_table_path if enable_delta_writes and failed_table_path else None
             ),
@@ -394,7 +404,10 @@ async def run_dummy_source(
     """Generates synthetic insurance claim data for testing.
     Includes file server, realistic data generators for XACT/ClaimX, and configurable event rates.
     """
-    from kafka_pipeline.common.dummy.source import DummyDataSource, load_dummy_source_config
+    from kafka_pipeline.common.dummy.source import (
+        DummyDataSource,
+        load_dummy_source_config,
+    )
     from core.logging.context import set_log_context
 
     set_log_context(stage="dummy-source")

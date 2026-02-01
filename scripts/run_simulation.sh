@@ -136,8 +136,8 @@ if [[ "$DOMAIN" == "claimx" ]]; then
 else
     # XACT pipeline
 
-    echo "  Starting xact-local-ingester..."
-    python -m kafka_pipeline --worker xact-local-ingester > /tmp/pcesdopodappv1_xact_ingester.log 2>&1 &
+    echo "  Starting xact-event-ingester..."
+    python -m kafka_pipeline --worker xact-event-ingester > /tmp/pcesdopodappv1_xact_ingester.log 2>&1 &
     PIDS+=($!)
     sleep 2
 

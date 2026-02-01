@@ -145,9 +145,13 @@ def create_kafka_oauth_callback(
             ) from e
         except Exception as e:
             logger.error(
-                "Unexpected error in Kafka OAuth callback", extra={"error": str(e)}, exc_info=True
+                "Unexpected error in Kafka OAuth callback",
+                extra={"error": str(e)},
+                exc_info=True,
             )
-            raise KafkaOAuthError(f"Unexpected error acquiring Kafka OAuth token: {str(e)}") from e
+            raise KafkaOAuthError(
+                f"Unexpected error acquiring Kafka OAuth token: {str(e)}"
+            ) from e
 
     return oauth_callback
 

@@ -210,7 +210,12 @@ class MonitoringServer:
     ) -> None:
         """Extract worker statistics from parsed metrics."""
         # Initialize workers
-        worker_names = ["download_worker", "upload_worker", "result_processor", "event_ingester"]
+        worker_names = [
+            "download_worker",
+            "upload_worker",
+            "result_processor",
+            "event_ingester",
+        ]
         for name in worker_names:
             display_name = name.replace("_", " ").title()
             data.workers[name] = WorkerStats(name=display_name)
@@ -221,7 +226,12 @@ class MonitoringServer:
             connected = entry["value"] == 1.0
             # Map component to worker
             if component == "consumer":
-                for w in ["download_worker", "upload_worker", "result_processor", "event_ingester"]:
+                for w in [
+                    "download_worker",
+                    "upload_worker",
+                    "result_processor",
+                    "event_ingester",
+                ]:
                     if w in data.workers:
                         data.workers[w].connected = connected
             elif component == "producer":
@@ -239,11 +249,17 @@ class MonitoringServer:
             # Sum all errors - metrics don't have worker label, use topic to infer
             topic = entry["labels"].get("topic", "")
             if "pending" in topic or "retry" in topic:
-                data.workers.get("download_worker", WorkerStats("")).errors += int(entry["value"])
+                data.workers.get("download_worker", WorkerStats("")).errors += int(
+                    entry["value"]
+                )
             elif "cached" in topic:
-                data.workers.get("upload_worker", WorkerStats("")).errors += int(entry["value"])
+                data.workers.get("upload_worker", WorkerStats("")).errors += int(
+                    entry["value"]
+                )
             elif "results" in topic:
-                data.workers.get("result_processor", WorkerStats("")).errors += int(entry["value"])
+                data.workers.get("result_processor", WorkerStats("")).errors += int(
+                    entry["value"]
+                )
 
         # Circuit breaker state
         for entry in metrics.get("kafka_circuit_breaker_state", []):
@@ -285,7 +301,10 @@ class MonitoringServer:
                 "closed": '<span class="badge bg-success">Closed</span>',
                 "open": '<span class="badge bg-danger">Open</span>',
                 "half-open": '<span class="badge bg-warning">Half-Open</span>',
-            }.get(worker.circuit_breaker, '<span class="badge bg-secondary">Unknown</span>')
+            }.get(
+                worker.circuit_breaker,
+                '<span class="badge bg-secondary">Unknown</span>',
+            )
 
             error_class = "text-danger" if worker.errors > 0 else ""
 
@@ -470,7 +489,10 @@ async def main() -> None:
     """Main entry point for standalone monitoring server."""
     parser = argparse.ArgumentParser(description="Kafka Pipeline Monitoring Dashboard")
     parser.add_argument(
-        "--port", type=int, default=DEFAULT_PORT, help=f"HTTP server port (default: {DEFAULT_PORT})"
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"HTTP server port (default: {DEFAULT_PORT})",
     )
     parser.add_argument(
         "--metrics-url",

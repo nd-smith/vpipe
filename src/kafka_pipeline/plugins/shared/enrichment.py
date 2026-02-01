@@ -153,7 +153,9 @@ class TransformHandler(EnrichmentHandler):
                 output[output_key] = value
             elif output_key in defaults:
                 output[output_key] = defaults[output_key]
-                logger.debug(f"Using default value for {output_key}: {defaults[output_key]}")
+                logger.debug(
+                    f"Using default value for {output_key}: {defaults[output_key]}"
+                )
 
         # Apply defaults for missing fields
         for key, default_value in defaults.items():
@@ -219,7 +221,9 @@ class ValidationHandler(EnrichmentHandler):
             value = self._get_value(context, field)
 
             if value == expected:
-                return EnrichmentResult.skip_message(f"Field '{field}' equals '{expected}'")
+                return EnrichmentResult.skip_message(
+                    f"Field '{field}' equals '{expected}'"
+                )
         required_fields = self.config.get("required_fields", [])
         for field in required_fields:
             value = self._get_value(context, field)
@@ -404,11 +408,16 @@ class BatchingHandler(EnrichmentHandler):
             time_since_last_flush = current_time - self._last_flush
 
             # Check if we should flush
-            should_flush = len(self._batch) >= batch_size or time_since_last_flush >= batch_timeout
+            should_flush = (
+                len(self._batch) >= batch_size or time_since_last_flush >= batch_timeout
+            )
 
             if should_flush:
                 batch_field = self.config.get("batch_field", "items")
-                batch_data = {batch_field: self._batch.copy(), "batch_size": len(self._batch)}
+                batch_data = {
+                    batch_field: self._batch.copy(),
+                    "batch_size": len(self._batch),
+                }
 
                 logger.info(
                     f"Flushing batch of {len(self._batch)} messages "
@@ -432,7 +441,10 @@ class BatchingHandler(EnrichmentHandler):
                 return None
 
             batch_field = self.config.get("batch_field", "items")
-            batch_data = {batch_field: self._batch.copy(), "batch_size": len(self._batch)}
+            batch_data = {
+                batch_field: self._batch.copy(),
+                "batch_size": len(self._batch),
+            }
 
             logger.info(f"Force flushing batch of {len(self._batch)} messages")
 
@@ -477,7 +489,8 @@ def create_handler_from_config(config: dict[str, Any]) -> EnrichmentHandler:
             raise ValueError(f"Failed to load handler '{handler_type}': {e}")
 
     raise ValueError(
-        f"Unknown handler type '{handler_type}'. " f"Available: {list(BUILTIN_HANDLERS.keys())}"
+        f"Unknown handler type '{handler_type}'. "
+        f"Available: {list(BUILTIN_HANDLERS.keys())}"
     )
 
 
@@ -489,7 +502,9 @@ class EnrichmentPipeline:
         self.handlers = handlers
 
     async def execute(
-        self, message: dict[str, Any], connection_manager: Optional[ConnectionManager] = None
+        self,
+        message: dict[str, Any],
+        connection_manager: Optional[ConnectionManager] = None,
     ) -> EnrichmentResult:
         """Execute all handlers in sequence."""
         context = EnrichmentContext(

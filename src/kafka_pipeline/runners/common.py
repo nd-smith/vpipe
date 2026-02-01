@@ -95,7 +95,9 @@ async def execute_worker_with_shutdown(
 
     async def shutdown_watcher():
         await shutdown_event.wait()
-        logger.info(f"Shutdown signal received, stopping {stage_name}{logger_suffix}...")
+        logger.info(
+            f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
+        )
         stop_fn = getattr(worker_instance, stop_method)
         await stop_fn()
 
@@ -180,7 +182,9 @@ async def execute_worker_with_producer(
 
     async def shutdown_watcher():
         await shutdown_event.wait()
-        logger.info(f"Shutdown signal received, stopping {stage_name}{logger_suffix}...")
+        logger.info(
+            f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
+        )
         await worker.stop()
 
     watcher_task = asyncio.create_task(shutdown_watcher())

@@ -25,7 +25,9 @@ def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwa
     }
 
 
-def build_xact_json_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwargs):
+def build_xact_json_poller_args(
+    pipeline_config, shutdown_event: asyncio.Event, **kwargs
+):
     """Build arguments for xact-json-poller worker.
 
     Environment variables:
@@ -40,7 +42,8 @@ def build_xact_json_poller_args(pipeline_config, shutdown_event: asyncio.Event, 
         "output_path": os.getenv("JSON_OUTPUT_PATH", "output/xact_events.jsonl"),
         "rotate_size_mb": float(os.getenv("JSON_ROTATE_SIZE_MB", "100")),
         "pretty_print": os.getenv("JSON_PRETTY_PRINT", "false").lower() == "true",
-        "include_metadata": os.getenv("JSON_INCLUDE_METADATA", "true").lower() == "true",
+        "include_metadata": os.getenv("JSON_INCLUDE_METADATA", "true").lower()
+        == "true",
     }
 
 
@@ -91,7 +94,8 @@ def build_xact_delta_writer_args(
         events_table_path = pipeline_config.events_table_path
         if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
             events_table_path = (
-                pipeline_config.verisk_eventhouse.xact_events_table_path or events_table_path
+                pipeline_config.verisk_eventhouse.xact_events_table_path
+                or events_table_path
             )
 
     if not events_table_path:
@@ -139,7 +143,9 @@ def build_claimx_delta_writer_args(
     if not claimx_events_table_path:
         claimx_events_table_path = os.getenv("CLAIMX_DELTA_EVENTS_TABLE", "")
     if not claimx_events_table_path and pipeline_config.claimx_eventhouse:
-        claimx_events_table_path = pipeline_config.claimx_eventhouse.claimx_events_table_path
+        claimx_events_table_path = (
+            pipeline_config.claimx_eventhouse.claimx_events_table_path
+        )
 
     if not claimx_events_table_path:
         raise ValueError(
@@ -171,6 +177,7 @@ def build_claimx_enricher_args(
     # Get simulation config if simulation mode is enabled
     if simulation_mode:
         from kafka_pipeline.simulation import get_simulation_config
+
         args["simulation_config"] = get_simulation_config()
 
     return args
@@ -205,17 +212,32 @@ def build_claimx_entity_writer_args(
     Reads env vars directly and passes explicit paths to the runner (same pattern as
     claimx-delta-writer) to avoid issues with pipeline_config loading order.
     """
+
     # Read each table path from env vars (primary, then alternative)
     def get_table_path(primary_env: str, alt_env: str) -> str:
         return os.getenv(primary_env, "") or os.getenv(alt_env, "")
 
-    projects_table_path = get_table_path("CLAIMX_PROJECTS_TABLE_PATH", "CLAIMX_DELTA_PROJECTS_TABLE")
-    contacts_table_path = get_table_path("CLAIMX_CONTACTS_TABLE_PATH", "CLAIMX_DELTA_CONTACTS_TABLE")
-    media_table_path = get_table_path("CLAIMX_MEDIA_TABLE_PATH", "CLAIMX_DELTA_MEDIA_TABLE")
-    tasks_table_path = get_table_path("CLAIMX_TASKS_TABLE_PATH", "CLAIMX_DELTA_TASKS_TABLE")
-    task_templates_table_path = get_table_path("CLAIMX_TASK_TEMPLATES_TABLE_PATH", "CLAIMX_DELTA_TASK_TEMPLATES_TABLE")
-    external_links_table_path = get_table_path("CLAIMX_EXTERNAL_LINKS_TABLE_PATH", "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE")
-    video_collab_table_path = get_table_path("CLAIMX_VIDEO_COLLAB_TABLE_PATH", "CLAIMX_DELTA_VIDEO_COLLAB_TABLE")
+    projects_table_path = get_table_path(
+        "CLAIMX_PROJECTS_TABLE_PATH", "CLAIMX_DELTA_PROJECTS_TABLE"
+    )
+    contacts_table_path = get_table_path(
+        "CLAIMX_CONTACTS_TABLE_PATH", "CLAIMX_DELTA_CONTACTS_TABLE"
+    )
+    media_table_path = get_table_path(
+        "CLAIMX_MEDIA_TABLE_PATH", "CLAIMX_DELTA_MEDIA_TABLE"
+    )
+    tasks_table_path = get_table_path(
+        "CLAIMX_TASKS_TABLE_PATH", "CLAIMX_DELTA_TASKS_TABLE"
+    )
+    task_templates_table_path = get_table_path(
+        "CLAIMX_TASK_TEMPLATES_TABLE_PATH", "CLAIMX_DELTA_TASK_TEMPLATES_TABLE"
+    )
+    external_links_table_path = get_table_path(
+        "CLAIMX_EXTERNAL_LINKS_TABLE_PATH", "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE"
+    )
+    video_collab_table_path = get_table_path(
+        "CLAIMX_VIDEO_COLLAB_TABLE_PATH", "CLAIMX_DELTA_VIDEO_COLLAB_TABLE"
+    )
 
     # Validate all paths are set
     table_paths = {
@@ -279,14 +301,6 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
         ),
         "args_builder": build_xact_event_ingester_args,
     },
-    "xact-local-ingester": {
-        "runner": verisk_runners.run_local_event_ingester,
-        "args_builder": lambda pc, se, **kw: {
-            "local_kafka_config": kw.get("local_kafka_config"),
-            "shutdown_event": se,
-            "domain": pc.domain,
-        },
-    },
     "xact-delta-writer": {
         "runner": verisk_runners.run_delta_events_worker,
         "args_builder": build_xact_delta_writer_args,
@@ -306,8 +320,9 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "shutdown_event": se,
                 "simulation_mode": sim_mode,
                 "simulation_config": (
-                    __import__("kafka_pipeline.simulation", fromlist=["get_simulation_config"])
-                    .get_simulation_config()
+                    __import__(
+                        "kafka_pipeline.simulation", fromlist=["get_simulation_config"]
+                    ).get_simulation_config()
                     if sim_mode
                     else None
                 ),
@@ -329,8 +344,9 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "shutdown_event": se,
                 "simulation_mode": sim_mode,
                 "simulation_config": (
-                    __import__("kafka_pipeline.simulation", fromlist=["get_simulation_config"])
-                    .get_simulation_config()
+                    __import__(
+                        "kafka_pipeline.simulation", fromlist=["get_simulation_config"]
+                    ).get_simulation_config()
                     if sim_mode
                     else None
                 ),
@@ -375,8 +391,9 @@ WORKER_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "shutdown_event": se,
                 "simulation_mode": sim_mode,
                 "simulation_config": (
-                    __import__("kafka_pipeline.simulation", fromlist=["get_simulation_config"])
-                    .get_simulation_config()
+                    __import__(
+                        "kafka_pipeline.simulation", fromlist=["get_simulation_config"]
+                    ).get_simulation_config()
                     if sim_mode
                     else None
                 ),

@@ -109,11 +109,19 @@ class BaseKafkaConsumer:
 
         kafka_consumer_config.update(
             {
-                "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
-                "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
+                "enable_auto_commit": self.consumer_config.get(
+                    "enable_auto_commit", False
+                ),
+                "auto_offset_reset": self.consumer_config.get(
+                    "auto_offset_reset", "earliest"
+                ),
                 "max_poll_records": self.consumer_config.get("max_poll_records", 100),
-                "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
-                "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
+                "max_poll_interval_ms": self.consumer_config.get(
+                    "max_poll_interval_ms", 300000
+                ),
+                "session_timeout_ms": self.consumer_config.get(
+                    "session_timeout_ms", 30000
+                ),
             }
         )
 
@@ -122,13 +130,17 @@ class BaseKafkaConsumer:
                 "heartbeat_interval_ms"
             ]
         if "fetch_min_bytes" in self.consumer_config:
-            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config["fetch_min_bytes"]
-        if "fetch_max_wait_ms" in self.consumer_config:
-            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config["fetch_max_wait_ms"]
-        if "partition_assignment_strategy" in self.consumer_config:
-            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config[
-                "partition_assignment_strategy"
+            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config[
+                "fetch_min_bytes"
             ]
+        if "fetch_max_wait_ms" in self.consumer_config:
+            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config[
+                "fetch_max_wait_ms"
+            ]
+        if "partition_assignment_strategy" in self.consumer_config:
+            kafka_consumer_config["partition_assignment_strategy"] = (
+                self.consumer_config["partition_assignment_strategy"]
+            )
 
         if self.config.security_protocol != "PLAINTEXT":
             kafka_consumer_config["security_protocol"] = self.config.security_protocol
@@ -145,8 +157,12 @@ class BaseKafkaConsumer:
                 oauth_callback = create_kafka_oauth_callback()
                 kafka_consumer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
-                kafka_consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                kafka_consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
+                kafka_consumer_config["sasl_plain_username"] = (
+                    self.config.sasl_plain_username
+                )
+                kafka_consumer_config["sasl_plain_password"] = (
+                    self.config.sasl_plain_password
+                )
             elif self.config.sasl_mechanism == "GSSAPI":
                 kafka_consumer_config["sasl_kerberos_service_name"] = (
                     self.config.sasl_kerberos_service_name
@@ -254,7 +270,10 @@ class BaseKafkaConsumer:
 
         while self._running and self._consumer:
             try:
-                if self.max_batches is not None and self._batch_count >= self.max_batches:
+                if (
+                    self.max_batches is not None
+                    and self._batch_count >= self.max_batches
+                ):
                     log_with_context(
                         logger,
                         logging.INFO,
@@ -330,7 +349,8 @@ class BaseKafkaConsumer:
             span.set_tag("messaging.kafka.offset", message.offset)
             span.set_tag("messaging.kafka.consumer_group", self.group_id)
             span.set_tag(
-                "messaging.message.id", message.key.decode("utf-8") if message.key else None
+                "messaging.message.id",
+                message.key.decode("utf-8") if message.key else None,
             )
             span.set_tag("span.kind", "consumer")
 
@@ -392,10 +412,16 @@ class BaseKafkaConsumer:
 
                     # Pass PipelineMessage to error handler
                     pipeline_message = from_consumer_record(message)
-                    await self._handle_processing_error(pipeline_message, message, e, duration)
+                    await self._handle_processing_error(
+                        pipeline_message, message, e, duration
+                    )
 
     async def _handle_processing_error(
-        self, pipeline_message: PipelineMessage, message: ConsumerRecord, error: Exception, duration: float
+        self,
+        pipeline_message: PipelineMessage,
+        message: ConsumerRecord,
+        error: Exception,
+        duration: float,
     ) -> None:
         """Error classification with DLQ routing for PERMANENT errors, retry for others."""
         classified_error = KafkaErrorClassifier.classify_consumer_error(
@@ -488,14 +514,18 @@ class BaseKafkaConsumer:
             return
 
         try:
-            update_consumer_offset(message.topic, message.partition, self.group_id, message.offset)
+            update_consumer_offset(
+                message.topic, message.partition, self.group_id, message.offset
+            )
 
             tp = TopicPartition(message.topic, message.partition)
             partition_metadata = self._consumer.highwater(tp)
 
             if partition_metadata is not None:
                 lag = partition_metadata - (message.offset + 1)
-                update_consumer_lag(message.topic, message.partition, self.group_id, lag)
+                update_consumer_lag(
+                    message.topic, message.partition, self.group_id, lag
+                )
 
         except Exception as e:
             log_with_context(
@@ -546,8 +576,12 @@ class BaseKafkaConsumer:
                 oauth_callback = create_kafka_oauth_callback()
                 dlq_producer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
-                dlq_producer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                dlq_producer_config["sasl_plain_password"] = self.config.sasl_plain_password
+                dlq_producer_config["sasl_plain_username"] = (
+                    self.config.sasl_plain_username
+                )
+                dlq_producer_config["sasl_plain_password"] = (
+                    self.config.sasl_plain_password
+                )
             elif self.config.sasl_mechanism == "GSSAPI":
                 dlq_producer_config["sasl_kerberos_service_name"] = (
                     self.config.sasl_kerberos_service_name
@@ -564,7 +598,10 @@ class BaseKafkaConsumer:
         )
 
     async def _send_to_dlq(
-        self, pipeline_message: PipelineMessage, error: Exception, error_category: ErrorCategory
+        self,
+        pipeline_message: PipelineMessage,
+        error: Exception,
+        error_category: ErrorCategory,
     ) -> None:
         """Send failed message to {topic}.dlq with full context (original message + error details)."""
         await self._ensure_dlq_producer()
@@ -580,8 +617,14 @@ class BaseKafkaConsumer:
             "original_topic": pipeline_message.topic,
             "original_partition": pipeline_message.partition,
             "original_offset": pipeline_message.offset,
-            "original_key": pipeline_message.key.decode("utf-8") if pipeline_message.key else None,
-            "original_value": pipeline_message.value.decode("utf-8") if pipeline_message.value else None,
+            "original_key": (
+                pipeline_message.key.decode("utf-8") if pipeline_message.key else None
+            ),
+            "original_value": (
+                pipeline_message.value.decode("utf-8")
+                if pipeline_message.value
+                else None
+            ),
             "original_headers": {
                 k: v.decode("utf-8") if isinstance(v, bytes) else v
                 for k, v in (pipeline_message.headers or [])
@@ -598,7 +641,9 @@ class BaseKafkaConsumer:
         }
 
         dlq_value = json.dumps(dlq_message).encode("utf-8")
-        dlq_key = pipeline_message.key or f"dlq-{pipeline_message.offset}".encode("utf-8")
+        dlq_key = pipeline_message.key or f"dlq-{pipeline_message.offset}".encode(
+            "utf-8"
+        )
 
         dlq_headers = [
             ("dlq_source_topic", pipeline_message.topic.encode("utf-8")),

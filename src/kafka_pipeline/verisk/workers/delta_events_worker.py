@@ -112,15 +112,25 @@ class DeltaEventsWorker:
             self.worker_id = self.WORKER_NAME
 
         # Batch configuration - use worker-specific config
-        processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
+        processing_config = config.get_worker_config(
+            domain, "delta_events_writer", "processing"
+        )
         self.batch_size = processing_config.get("batch_size", 100)
         self.max_batches = processing_config.get("max_batches")  # None = unlimited
-        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 10.0)
+        self.batch_timeout_seconds = processing_config.get(
+            "batch_timeout_seconds", 10.0
+        )
 
         # Retry configuration from worker processing settings
-        self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
-        self._retry_topic_prefix = processing_config.get("retry_topic_prefix", "com.allstate.pcesdopodappv1.delta-events.retry")
-        self._dlq_topic = processing_config.get("dlq_topic", "com.allstate.pcesdopodappv1.delta-events.dlq")
+        self._retry_delays = processing_config.get(
+            "retry_delays", [300, 600, 1200, 2400]
+        )
+        self._retry_topic_prefix = processing_config.get(
+            "retry_topic_prefix", "com.allstate.pcesdopodappv1.delta-events.retry"
+        )
+        self._dlq_topic = processing_config.get(
+            "dlq_topic", "com.allstate.pcesdopodappv1.delta-events.dlq"
+        )
 
         # Batch state
         self._batch: List[Dict[str, Any]] = []
@@ -170,7 +180,9 @@ class DeltaEventsWorker:
                 "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
                 "instance_id": instance_id,
-                "consumer_group": config.get_consumer_group(domain, "delta_events_writer"),
+                "consumer_group": config.get_consumer_group(
+                    domain, "delta_events_writer"
+                ),
                 "events_topic": config.get_topic(domain, "events"),
                 "events_table_path": events_table_path,
                 "batch_size": self.batch_size,
@@ -413,9 +425,13 @@ class DeltaEventsWorker:
             event_ids = []
             for event_dict in batch_to_write[:10]:
                 if event_dict.get("traceId") or event_dict.get("trace_id"):
-                    trace_ids.append(event_dict.get("traceId") or event_dict.get("trace_id"))
+                    trace_ids.append(
+                        event_dict.get("traceId") or event_dict.get("trace_id")
+                    )
                 if event_dict.get("eventId") or event_dict.get("event_id"):
-                    event_ids.append(event_dict.get("eventId") or event_dict.get("event_id"))
+                    event_ids.append(
+                        event_dict.get("eventId") or event_dict.get("event_id")
+                    )
             logger.warning(
                 "Batch write failed, routing to retry topic",
                 extra={
@@ -451,7 +467,9 @@ class DeltaEventsWorker:
             span.set_tag("batch_size", batch_size)
             span.set_tag("table", "xact_events")
             try:
-                success = await self.delta_writer.write_raw_events(batch, batch_id=batch_id)
+                success = await self.delta_writer.write_raw_events(
+                    batch, batch_id=batch_id
+                )
 
                 span.set_tag("write.success", success)
                 record_delta_write(

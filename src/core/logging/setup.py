@@ -97,7 +97,9 @@ class ArchivingTimedRotatingFileHandler(TimedRotatingFileHandler):
                 shutil.move(str(rotated_file), str(archive_file))
             except Exception as e:
                 # Log to stderr if we can't move the file (don't use logger to avoid recursion)
-                print(f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr)
+                print(
+                    f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr
+                )
 
 
 class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
@@ -138,7 +140,9 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
         onelake_client=None,
         log_retention_hours=2,
     ):
-        super().__init__(filename, when, interval, backupCount, encoding, delay, utc, archive_dir)
+        super().__init__(
+            filename, when, interval, backupCount, encoding, delay, utc, archive_dir
+        )
         self.max_bytes = max_bytes
         self.onelake_client = onelake_client
         self.log_retention_hours = log_retention_hours
@@ -163,7 +167,7 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
         if self.max_bytes > 0:
             msg = "%s\n" % self.format(record)
             self.stream.seek(0, 2)  # Go to end of file
-            if self.stream.tell() + len(msg.encode('utf-8')) >= self.max_bytes:
+            if self.stream.tell() + len(msg.encode("utf-8")) >= self.max_bytes:
                 return 1
 
         return 0
@@ -209,7 +213,10 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
                 print(f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr)
 
             except Exception as e:
-                print(f"Warning: Failed to upload log {rotated_file}: {e}", file=sys.stderr)
+                print(
+                    f"Warning: Failed to upload log {rotated_file}: {e}",
+                    file=sys.stderr,
+                )
 
     def _cleanup_old_logs(self):
         """Remove log files older than retention period."""
@@ -231,7 +238,9 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
                         log_file.unlink()
                         print(f"Cleaned up old log: {log_file.name}", file=sys.stderr)
                 except Exception as e:
-                    print(f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr)
+                    print(
+                        f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr
+                    )
 
 
 def get_log_file_path(
@@ -361,7 +370,9 @@ def setup_logging(
     # Console handler (always created)
     console_formatter = ConsoleFormatter()
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        safe_stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -386,7 +397,9 @@ def setup_logging(
         instance_id = coolname.generate_slug(2) if use_instance_id else None
 
         # Build log file path with subfolders
-        log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
+        log_file = get_log_file_path(
+            log_dir, domain=domain, stage=stage, instance_id=instance_id
+        )
 
         # Ensure directory exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -417,7 +430,9 @@ def setup_logging(
 
         # Create OneLake client if upload enabled
         onelake_client = None
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv("ONELAKE_BASE_PATH")
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv(
+            "ONELAKE_BASE_PATH"
+        )
         if upload_enabled:
             if not onelake_log_path:
                 print(
@@ -432,7 +447,10 @@ def setup_logging(
 
                     onelake_client = OneLakeClient(base_path=onelake_log_path)
                 except Exception as e:
-                    print(f"Warning: Failed to initialize OneLake client for log upload: {e}", file=sys.stderr)
+                    print(
+                        f"Warning: Failed to initialize OneLake client for log upload: {e}",
+                        file=sys.stderr,
+                    )
                     upload_enabled = False
 
         # Choose handler based on upload configuration
@@ -545,7 +563,9 @@ def setup_multi_worker_logging(
 
     # Add console handler (receives all logs)
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        safe_stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -573,7 +593,9 @@ def setup_multi_worker_logging(
 
         # Add per-worker file handlers with auto-archiving
         for worker in workers:
-            log_file = get_log_file_path(log_dir, domain=domain, stage=worker, instance_id=instance_id)
+            log_file = get_log_file_path(
+                log_dir, domain=domain, stage=worker, instance_id=instance_id
+            )
             log_file.parent.mkdir(parents=True, exist_ok=True)
 
             try:
@@ -709,7 +731,9 @@ def _do_crash_log_upload(reason: str) -> None:
 
     # Phase 2: Get or create OneLake client
     if onelake_client is None:
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv("ONELAKE_BASE_PATH")
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv(
+            "ONELAKE_BASE_PATH"
+        )
         if not onelake_log_path:
             crash_logger.warning(
                 "No OneLake path configured for crash log upload "

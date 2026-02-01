@@ -45,7 +45,9 @@ def _expand_env_vars(data: Any) -> Any:
 
         def replacer(match):
             var_name = match.group(1)
-            default_value = match.group(2) if match.group(2) is not None else match.group(0)
+            default_value = (
+                match.group(2) if match.group(2) is not None else match.group(0)
+            )
             return os.getenv(var_name, default_value)
 
         return re.sub(pattern, replacer, data)
@@ -115,7 +117,11 @@ class KafkaConfig:
     # =========================================================================
     onelake_base_path: str = ""  # Fallback path
     onelake_domain_paths: Dict[str, str] = field(default_factory=dict)
-    cache_dir: str = field(default_factory=lambda: str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"))
+    cache_dir: str = field(
+        default_factory=lambda: str(
+            Path(tempfile.gettempdir()) / "kafka_pipeline_cache"
+        )
+    )
 
     # =========================================================================
     # CLAIMX API CONFIGURATION
@@ -214,7 +220,9 @@ class KafkaConfig:
         Checks required fields, Kafka timeout constraints, and numeric ranges.
         """
         if not self.bootstrap_servers:
-            raise ValueError("bootstrap_servers is required in kafka.connection section")
+            raise ValueError(
+                "bootstrap_servers is required in kafka.connection section"
+            )
 
         self._validate_consumer_settings(self.consumer_defaults, "consumer_defaults")
         self._validate_producer_settings(self.producer_defaults, "producer_defaults")
@@ -235,25 +243,25 @@ class KafkaConfig:
 
                 if "consumer" in worker_config:
                     self._validate_consumer_settings(
-                        worker_config["consumer"], f"{domain_name}.{worker_name}.consumer"
+                        worker_config["consumer"],
+                        f"{domain_name}.{worker_name}.consumer",
                     )
 
                 if "producer" in worker_config:
                     self._validate_producer_settings(
-                        worker_config["producer"], f"{domain_name}.{worker_name}.producer"
+                        worker_config["producer"],
+                        f"{domain_name}.{worker_name}.producer",
                     )
 
                 if "processing" in worker_config:
                     self._validate_processing_settings(
-                        worker_config["processing"], f"{domain_name}.{worker_name}.processing"
+                        worker_config["processing"],
+                        f"{domain_name}.{worker_name}.processing",
                     )
 
     @staticmethod
     def _validate_enum(
-        settings: Dict[str, Any],
-        key: str,
-        valid_values: List[Any],
-        context: str
+        settings: Dict[str, Any], key: str, valid_values: List[Any], context: str
     ) -> None:
         """Validate that a setting's value is in a list of valid values."""
         if key in settings and settings[key] not in valid_values:
@@ -268,7 +276,7 @@ class KafkaConfig:
         key: str,
         min_value: float,
         inclusive: bool,
-        context: str
+        context: str,
     ) -> None:
         """Validate that a setting's value meets a minimum threshold."""
         if key in settings:
@@ -278,9 +286,7 @@ class KafkaConfig:
                     f"{context}: {key} must be >= {min_value}, got {value}"
                 )
             elif not inclusive and value <= min_value:
-                raise ValueError(
-                    f"{context}: {key} must be > {min_value}, got {value}"
-                )
+                raise ValueError(f"{context}: {key} must be > {min_value}, got {value}")
 
     @staticmethod
     def _validate_range(
@@ -288,7 +294,7 @@ class KafkaConfig:
         key: str,
         min_value: float,
         max_value: float,
-        context: str
+        context: str,
     ) -> None:
         """Validate that a setting's value is within a range (inclusive)."""
         if key in settings:
@@ -299,10 +305,7 @@ class KafkaConfig:
                 )
 
     def _validate_kafka_settings(
-        self,
-        settings: Dict[str, Any],
-        context: str,
-        setting_type: str
+        self, settings: Dict[str, Any], context: str, setting_type: str
     ) -> None:
         """Generic validator for Kafka settings (consumer, producer, or processing).
 
@@ -333,37 +336,69 @@ class KafkaConfig:
                     )
 
             # Consumer field validations
-            self._validate_min(settings, "max_poll_records", 1, inclusive=True, context=context)
-            self._validate_enum(settings, "auto_offset_reset", ["earliest", "latest", "none"], context)
-            self._validate_enum(settings, "partition_assignment_strategy", ["RoundRobin", "Range", "Sticky"], context)
+            self._validate_min(
+                settings, "max_poll_records", 1, inclusive=True, context=context
+            )
+            self._validate_enum(
+                settings, "auto_offset_reset", ["earliest", "latest", "none"], context
+            )
+            self._validate_enum(
+                settings,
+                "partition_assignment_strategy",
+                ["RoundRobin", "Range", "Sticky"],
+                context,
+            )
 
         elif setting_type == "producer":
             # Producer field validations
             self._validate_enum(settings, "acks", ["0", "1", "all", 0, 1], context)
-            self._validate_enum(settings, "compression_type", ["none", "gzip", "snappy", "lz4", "zstd"], context)
+            self._validate_enum(
+                settings,
+                "compression_type",
+                ["none", "gzip", "snappy", "lz4", "zstd"],
+                context,
+            )
             self._validate_min(settings, "retries", 0, inclusive=True, context=context)
-            self._validate_min(settings, "batch_size", 0, inclusive=True, context=context)
-            self._validate_min(settings, "linger_ms", 0, inclusive=True, context=context)
+            self._validate_min(
+                settings, "batch_size", 0, inclusive=True, context=context
+            )
+            self._validate_min(
+                settings, "linger_ms", 0, inclusive=True, context=context
+            )
 
         elif setting_type == "processing":
             # Processing field validations
             self._validate_range(settings, "concurrency", 1, 50, context)
-            self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
-            self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
-            self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
+            self._validate_min(
+                settings, "batch_size", 1, inclusive=True, context=context
+            )
+            self._validate_min(
+                settings, "timeout_seconds", 0, inclusive=False, context=context
+            )
+            self._validate_min(
+                settings, "flush_timeout_seconds", 0, inclusive=False, context=context
+            )
 
         else:
-            raise ValueError(f"Invalid setting_type: {setting_type}. Must be 'consumer', 'producer', or 'processing'")
+            raise ValueError(
+                f"Invalid setting_type: {setting_type}. Must be 'consumer', 'producer', or 'processing'"
+            )
 
-    def _validate_consumer_settings(self, settings: Dict[str, Any], context: str) -> None:
+    def _validate_consumer_settings(
+        self, settings: Dict[str, Any], context: str
+    ) -> None:
         """Validate consumer settings against Kafka requirements and logical constraints."""
         self._validate_kafka_settings(settings, context, "consumer")
 
-    def _validate_producer_settings(self, settings: Dict[str, Any], context: str) -> None:
+    def _validate_producer_settings(
+        self, settings: Dict[str, Any], context: str
+    ) -> None:
         """Validate producer settings."""
         self._validate_kafka_settings(settings, context, "producer")
 
-    def _validate_processing_settings(self, settings: Dict[str, Any], context: str) -> None:
+    def _validate_processing_settings(
+        self, settings: Dict[str, Any], context: str
+    ) -> None:
         """Validate processing settings."""
         self._validate_kafka_settings(settings, context, "processing")
 
@@ -394,7 +429,8 @@ def load_config(
 
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n" f"Expected file: config/config.yaml"
+            f"Configuration file not found: {config_path}\n"
+            f"Expected file: config/config.yaml"
         )
 
     logger.info(f"Loading configuration from file: {config_path}")
@@ -453,7 +489,9 @@ def load_config(
         sasl_mechanism=connection.get("sasl_mechanism", "OAUTHBEARER"),
         sasl_plain_username=connection.get("sasl_plain_username", ""),
         sasl_plain_password=connection.get("sasl_plain_password", ""),
-        sasl_kerberos_service_name=connection.get("sasl_kerberos_service_name", "kafka"),
+        sasl_kerberos_service_name=connection.get(
+            "sasl_kerberos_service_name", "kafka"
+        ),
         schema_registry_url=connection.get("schema_registry_url", ""),
         request_timeout_ms=connection.get("request_timeout_ms", 120000),
         metadata_max_age_ms=connection.get("metadata_max_age_ms", 300000),
@@ -464,11 +502,15 @@ def load_config(
         claimx=claimx_config,
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
-        cache_dir=storage.get("cache_dir") or str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"),
-        claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH") or os.getenv("CLAIMX_API_URL") or claimx_api.get("base_url", ""),
+        cache_dir=storage.get("cache_dir")
+        or str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"),
+        claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH")
+        or os.getenv("CLAIMX_API_URL")
+        or claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=int(
-            os.getenv("CLAIMX_API_TIMEOUT_SECONDS") or claimx_api.get("timeout_seconds", 30)
+            os.getenv("CLAIMX_API_TIMEOUT_SECONDS")
+            or claimx_api.get("timeout_seconds", 30)
         ),
         claimx_api_concurrency=int(
             os.getenv("CLAIMX_API_CONCURRENCY") or claimx_api.get("max_concurrent", 20)

@@ -259,7 +259,10 @@ class PluginOrchestrator:
                     exc_info=True,
                 )
                 results.append(
-                    (plugin.name, PluginResult(success=False, message=f"Error: {str(e)}"))
+                    (
+                        plugin.name,
+                        PluginResult(success=False, message=f"Error: {str(e)}"),
+                    )
                 )
 
         return OrchestratorResult(
@@ -387,7 +390,9 @@ class ActionExecutor:
                 event_id=context.event_id,
                 event_type=context.event_type,
                 project_id=context.project_id,
-                payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
+                payload_keys=(
+                    list(payload.keys()) if isinstance(payload, dict) else None
+                ),
             )
 
     async def _http_webhook(
@@ -695,7 +700,9 @@ class ActionExecutor:
         claim_number = params.get("claim_number")
         task_type = params.get("task_type")
         task_data = params.get("task_data", {})
-        use_primary_contact_as_sender = params.get("use_primary_contact_as_sender", True)
+        use_primary_contact_as_sender = params.get(
+            "use_primary_contact_as_sender", True
+        )
         sender_username = params.get("sender_username")
 
         # Resolve project_id from claim_number if needed
@@ -714,7 +721,9 @@ class ActionExecutor:
                     connection_name=connection_name,
                     method="GET",
                     path="/export/project/projectId",
-                    params={"projectNumber": claim_number},  # API uses projectNumber param
+                    params={
+                        "projectNumber": claim_number
+                    },  # API uses projectNumber param
                 )
 
                 if response.status >= 400:
@@ -736,7 +745,9 @@ class ActionExecutor:
                 if isinstance(response_data, int):
                     project_id = response_data
                 elif isinstance(response_data, dict):
-                    project_id = response_data.get("projectId") or response_data.get("id")
+                    project_id = response_data.get("projectId") or response_data.get(
+                        "id"
+                    )
 
                 if not project_id:
                     log_with_context(

@@ -94,16 +94,16 @@ class DummyDataSource:
         # Start file server (or use external one)
         if self.config.skip_embedded_file_server:
             if self.config.external_file_server_url:
-                logger.info(f"Using external file server at {self.config.external_file_server_url}")
+                logger.info(
+                    f"Using external file server at {self.config.external_file_server_url}"
+                )
                 self._generator.config.base_url = self.config.external_file_server_url
             else:
                 logger.warning(
                     "skip_embedded_file_server=True but no external_file_server_url provided"
                 )
                 # Use default localhost URL anyway
-                self._generator.config.base_url = (
-                    f"http://{self.config.file_server.host}:{self.config.file_server.port}"
-                )
+                self._generator.config.base_url = f"http://{self.config.file_server.host}:{self.config.file_server.port}"
         else:
             self._file_server = DummyFileServer(self.config.file_server)
             await self._file_server.start()
@@ -113,7 +113,9 @@ class DummyDataSource:
             )
             # Use localhost for local testing with embedded file server
             if self.config.file_server.host == "0.0.0.0":
-                self._generator.config.base_url = f"http://localhost:{self.config.file_server.port}"
+                self._generator.config.base_url = (
+                    f"http://localhost:{self.config.file_server.port}"
+                )
 
         # Create producers for each domain
         for domain in self.config.domains:
@@ -240,7 +242,10 @@ class DummyDataSource:
 
             logger.info(
                 "Burst complete",
-                extra={"events_in_burst": len(tasks), "total_events": self._total_events},
+                extra={
+                    "events_in_burst": len(tasks),
+                    "total_events": self._total_events,
+                },
             )
 
             # Wait for next burst
@@ -261,7 +266,9 @@ class DummyDataSource:
         if self.config.max_runtime_seconds and self._start_time:
             elapsed = (datetime.now(timezone.utc) - self._start_time).total_seconds()
             if elapsed >= self.config.max_runtime_seconds:
-                logger.info(f"Reached max runtime limit: {self.config.max_runtime_seconds}s")
+                logger.info(
+                    f"Reached max runtime limit: {self.config.max_runtime_seconds}s"
+                )
                 return True
 
         return False
@@ -351,7 +358,9 @@ class DummyDataSource:
             if domain == "verisk":
                 event_data = self._generator.generate_xact_event()
             elif domain == "claimx":
-                event_data = self._generator.generate_claimx_event(event_type=event_type)
+                event_data = self._generator.generate_claimx_event(
+                    event_type=event_type
+                )
             else:
                 raise ValueError(f"Unknown domain: {domain}")
             events.append(event_data)
@@ -397,8 +406,12 @@ def load_dummy_source_config(
         include_failures=gen_cfg.get("include_failures", False),
         failure_rate=gen_cfg.get("failure_rate", 0.05),
         plugin_profile=gen_cfg.get("plugin_profile"),  # Support plugin profiles
-        itel_trigger_percentage=gen_cfg.get("itel_trigger_percentage", 0.3),  # 30% default
-        include_itel_triggers=gen_cfg.get("include_itel_triggers", True),  # Enabled by default
+        itel_trigger_percentage=gen_cfg.get(
+            "itel_trigger_percentage", 0.3
+        ),  # 30% default
+        include_itel_triggers=gen_cfg.get(
+            "include_itel_triggers", True
+        ),  # Enabled by default
     )
 
     # File server config

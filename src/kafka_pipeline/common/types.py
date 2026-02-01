@@ -85,7 +85,6 @@ await consumer.seek(partition, offset=12345)
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-
 __all__ = [
     "PipelineMessage",
     "ProduceResult",
@@ -210,7 +209,7 @@ def from_consumer_record(record) -> PipelineMessage:
     # Convert headers from aiokafka format to PipelineMessage format
     # aiokafka: List[Tuple[str, bytes]] or None
     headers = None
-    if hasattr(record, 'headers') and record.headers:
+    if hasattr(record, "headers") and record.headers:
         headers = [(k, v) for k, v in record.headers]
 
     return PipelineMessage(

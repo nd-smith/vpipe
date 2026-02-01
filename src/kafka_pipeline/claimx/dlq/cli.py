@@ -55,7 +55,9 @@ from kafka_pipeline.claimx.schemas.tasks import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -192,7 +194,9 @@ class DLQManager:
             topic = self.download_dlq_topic
             schema_class = FailedDownloadMessage
         else:
-            raise ValueError(f"Invalid DLQ type: {dlq_type}. Must be 'enrichment' or 'download'")
+            raise ValueError(
+                f"Invalid DLQ type: {dlq_type}. Must be 'enrichment' or 'download'"
+            )
 
         consumer_config = self._get_consumer_config()
         consumer = AIOKafkaConsumer(topic, **consumer_config)
@@ -216,7 +220,9 @@ class DLQManager:
                     message_data = {
                         "partition": record.partition,
                         "offset": record.offset,
-                        "timestamp": datetime.fromtimestamp(record.timestamp / 1000).isoformat(),
+                        "timestamp": datetime.fromtimestamp(
+                            record.timestamp / 1000
+                        ).isoformat(),
                         "key": record.key.decode() if record.key else None,
                     }
 
@@ -253,7 +259,9 @@ class DLQManager:
                     count += 1
 
                 except Exception as e:
-                    logger.error(f"Failed to parse message at offset {record.offset}: {e}")
+                    logger.error(
+                        f"Failed to parse message at offset {record.offset}: {e}"
+                    )
                     continue
 
             return messages
@@ -294,7 +302,9 @@ class DLQManager:
             task_class = ClaimXDownloadTask
             id_field = "media_id"
         else:
-            raise ValueError(f"Invalid DLQ type: {dlq_type}. Must be 'enrichment' or 'download'")
+            raise ValueError(
+                f"Invalid DLQ type: {dlq_type}. Must be 'enrichment' or 'download'"
+            )
 
         consumer_config = self._get_consumer_config()
         consumer = AIOKafkaConsumer(dlq_topic, **consumer_config)
@@ -344,7 +354,9 @@ class DLQManager:
                     logger.info(f"Replayed {id_field}={message_id} to {pending_topic}")
 
                 except Exception as e:
-                    logger.error(f"Failed to replay message at offset {record.offset}: {e}")
+                    logger.error(
+                        f"Failed to replay message at offset {record.offset}: {e}"
+                    )
                     continue
 
             await producer.flush()
@@ -378,7 +390,9 @@ class DLQManager:
         elif dlq_type == "download":
             topic = self.download_dlq_topic
         else:
-            raise ValueError(f"Invalid DLQ type: {dlq_type}. Must be 'enrichment' or 'download'")
+            raise ValueError(
+                f"Invalid DLQ type: {dlq_type}. Must be 'enrichment' or 'download'"
+            )
 
         if not confirm:
             response = input(
@@ -548,19 +562,28 @@ Examples:
         "dlq_type", choices=["enrichment", "download"], help="Which DLQ to inspect"
     )
     parser_inspect.add_argument(
-        "--limit", type=int, default=10, help="Maximum number of messages to retrieve (default: 10)"
+        "--limit",
+        type=int,
+        default=10,
+        help="Maximum number of messages to retrieve (default: 10)",
     )
     parser_inspect.set_defaults(func=cmd_inspect)
 
     # Replay command
-    parser_replay = subparsers.add_parser("replay", help="Replay DLQ messages to pending topic")
+    parser_replay = subparsers.add_parser(
+        "replay", help="Replay DLQ messages to pending topic"
+    )
     parser_replay.add_argument(
         "dlq_type", choices=["enrichment", "download"], help="Which DLQ to replay from"
     )
     parser_replay.add_argument(
-        "--event-ids", type=str, help="Comma-separated list of event/media IDs to replay"
+        "--event-ids",
+        type=str,
+        help="Comma-separated list of event/media IDs to replay",
     )
-    parser_replay.add_argument("--all", action="store_true", help="Replay all messages in DLQ")
+    parser_replay.add_argument(
+        "--all", action="store_true", help="Replay all messages in DLQ"
+    )
     parser_replay.set_defaults(func=cmd_replay)
 
     # Purge command
@@ -568,7 +591,9 @@ Examples:
     parser_purge.add_argument(
         "dlq_type", choices=["enrichment", "download"], help="Which DLQ to purge"
     )
-    parser_purge.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+    parser_purge.add_argument(
+        "--yes", action="store_true", help="Skip confirmation prompt"
+    )
     parser_purge.set_defaults(func=cmd_purge)
 
     # Parse arguments

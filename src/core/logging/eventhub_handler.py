@@ -177,7 +177,9 @@ class EventHubLogHandler(logging.Handler):
                 except Exception:
                     pass
 
-    async def _send_batch(self, producer: EventHubProducerClient, batch: list[str]) -> None:
+    async def _send_batch(
+        self, producer: EventHubProducerClient, batch: list[str]
+    ) -> None:
         """
         Send a batch of logs to Event Hub.
 

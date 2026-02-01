@@ -195,7 +195,9 @@ class VideoCollabTransformer:
             full_name = " ".join(parts) if parts else None
 
         row = {
-            "video_collaboration_id": safe_int(data.get("videoCollaborationId") or data.get("id")),
+            "video_collaboration_id": safe_int(
+                data.get("videoCollaborationId") or data.get("id")
+            ),
             "claim_id": safe_int(data.get("claimId")),
             "mfn": safe_str(data.get("mfn")),
             "claim_number": safe_str(data.get("claimNumber")),
@@ -211,7 +213,9 @@ class VideoCollabTransformer:
             "total_time_seconds": safe_decimal_str(data.get("totalTimeSeconds")),
             "total_time": safe_str(data.get("totalTime")),
             "created_date": parse_timestamp(data.get("createdDate")),
-            "live_call_first_session": parse_timestamp(data.get("liveCallFirstSession")),
+            "live_call_first_session": parse_timestamp(
+                data.get("liveCallFirstSession")
+            ),
             "live_call_last_session": parse_timestamp(data.get("liveCallLastSession")),
             "company_id": safe_int(data.get("companyId")),
             "company_name": safe_str(data.get("companyName")),

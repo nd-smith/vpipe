@@ -48,7 +48,9 @@ class PresignedUrlInfo:
         """Check if URL expires within N seconds (for buffer logic)."""
         if not self.expires_at:
             return False
-        return datetime.now(timezone.utc) + timedelta(seconds=seconds) >= self.expires_at
+        return (
+            datetime.now(timezone.utc) + timedelta(seconds=seconds) >= self.expires_at
+        )
 
 
 def check_presigned_url(url: str) -> PresignedUrlInfo:
@@ -128,7 +130,9 @@ def _parse_s3_url(url: str) -> PresignedUrlInfo:
             )
 
         # Parse timestamp - S3 dates are always UTC, make timezone-aware
-        signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=timezone.utc
+        )
         ttl_seconds = int(expires_str)
         expires_at = signed_at + timedelta(seconds=ttl_seconds)
 

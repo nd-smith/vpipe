@@ -37,7 +37,9 @@ class ItelCabinetPipeline:
         self.kafka = kafka_producer
         self.config = config
         self.claimx_connection = config.get("claimx_connection", "claimx_api")
-        self.output_topic = config.get("output_topic", "pcesdopodappv1-itel-cabinet-completed")
+        self.output_topic = config.get(
+            "output_topic", "pcesdopodappv1-itel-cabinet-completed"
+        )
 
         logger.info(
             "ItelCabinetPipeline initialized",
@@ -66,7 +68,9 @@ class ItelCabinetPipeline:
 
         self._validate_event(event)
         if event.task_status == "COMPLETED":
-            submission, attachments, readable_report = await self._enrich_completed_task(event)
+            submission, attachments, readable_report = (
+                await self._enrich_completed_task(event)
+            )
         else:
             submission, attachments, readable_report = None, [], None
             logger.debug(
@@ -92,13 +96,15 @@ class ItelCabinetPipeline:
         """
         if event.task_id != 32513:
             raise ValueError(
-                f"Invalid task_id: {event.task_id}. " f"Expected 32513 (iTel Cabinet Repair Form)"
+                f"Invalid task_id: {event.task_id}. "
+                f"Expected 32513 (iTel Cabinet Repair Form)"
             )
 
         valid_statuses = ["ASSIGNED", "IN_PROGRESS", "COMPLETED"]
         if event.task_status not in valid_statuses:
             raise ValueError(
-                f"Invalid task_status: {event.task_status}. " f"Expected one of: {valid_statuses}"
+                f"Invalid task_status: {event.task_status}. "
+                f"Expected one of: {valid_statuses}"
             )
 
         logger.debug("Event validation passed")
@@ -112,7 +118,9 @@ class ItelCabinetPipeline:
         2. Fetch project media for URL lookup
         3. Parse form, attachments, and readable report
         """
-        logger.info("Enriching completed task", extra={"assignment_id": event.assignment_id})
+        logger.info(
+            "Enriching completed task", extra={"assignment_id": event.assignment_id}
+        )
 
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
         project_id = int(task_data.get("projectId", event.project_id))
@@ -134,7 +142,9 @@ class ItelCabinetPipeline:
                 media_url_map,
             )
 
-            readable_report = get_readable_report(task_data, event.event_id, media_url_map)
+            readable_report = get_readable_report(
+                task_data, event.event_id, media_url_map
+            )
             span.set_tag("assignment_id", event.assignment_id)
             span.set_tag("task_id", event.task_id)
             span.set_tag("project_id", project_id)
@@ -153,7 +163,9 @@ class ItelCabinetPipeline:
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
-        logger.debug(f"Fetching assignment from ClaimX", extra={"assignment_id": assignment_id})
+        logger.debug(
+            f"Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
+        )
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -313,7 +325,8 @@ class ItelCabinetPipeline:
 
         except Exception as e:
             logger.warning(
-                f"Failed to resolve redirect URL: {e}", extra={"url_prefix": claimx_url[:80]}
+                f"Failed to resolve redirect URL: {e}",
+                extra={"url_prefix": claimx_url[:80]},
             )
             return claimx_url  # Fall back to original URL
 
@@ -323,7 +336,9 @@ class ItelCabinetPipeline:
         submission: Optional[CabinetSubmission],
         attachments: list[CabinetAttachment],
     ) -> None:
-        logger.info("Writing to Delta tables", extra={"assignment_id": event.assignment_id})
+        logger.info(
+            "Writing to Delta tables", extra={"assignment_id": event.assignment_id}
+        )
         if submission:
             submission_row = submission.to_dict()
         else:
@@ -410,5 +425,6 @@ class ItelCabinetPipeline:
         )
 
         logger.info(
-            "Published to API worker successfully", extra={"assignment_id": event.assignment_id}
+            "Published to API worker successfully",
+            extra={"assignment_id": event.assignment_id},
         )

@@ -129,7 +129,9 @@ class DownloadRetryHandler:
                     "error": str(error)[:200],
                 },
             )
-            await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
+            await self._send_to_dlq(
+                task, error, error_category, url_refresh_attempted=False
+            )
             return
 
         if retry_count >= self._max_retries:
@@ -146,7 +148,9 @@ class DownloadRetryHandler:
             #                 domain="claimx",
             #                 error_category=error_category.value,
             #             )
-            await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
+            await self._send_to_dlq(
+                task, error, error_category, url_refresh_attempted=False
+            )
             return
 
         # For transient/unknown errors, check if URL refresh is needed
@@ -180,13 +184,17 @@ class DownloadRetryHandler:
                         "retry_count": retry_count,
                     },
                 )
-                await self._send_to_dlq(task, error, error_category, url_refresh_attempted=True)
+                await self._send_to_dlq(
+                    task, error, error_category, url_refresh_attempted=True
+                )
                 return
 
         # Send to next retry topic
         await self._send_to_retry_topic(task, error, error_category)
 
-    def _should_refresh_url(self, error: Exception, error_category: ErrorCategory) -> bool:
+    def _should_refresh_url(
+        self, error: Exception, error_category: ErrorCategory
+    ) -> bool:
         """
         Determine if URL refresh should be attempted based on error.
 
@@ -212,7 +220,9 @@ class DownloadRetryHandler:
 
         return any(indicator in error_str for indicator in url_expiration_indicators)
 
-    async def _try_refresh_url(self, task: ClaimXDownloadTask) -> Optional[ClaimXDownloadTask]:
+    async def _try_refresh_url(
+        self, task: ClaimXDownloadTask
+    ) -> Optional[ClaimXDownloadTask]:
         """
         Attempt to refresh presigned URL from ClaimX API.
 
@@ -279,7 +289,9 @@ class DownloadRetryHandler:
             # Add metadata about URL refresh
             if not hasattr(updated_task, "metadata"):
                 updated_task.metadata = {}
-            updated_task.metadata["url_refreshed_at"] = datetime.now(timezone.utc).isoformat()
+            updated_task.metadata["url_refreshed_at"] = datetime.now(
+                timezone.utc
+            ).isoformat()
             updated_task.metadata["original_url"] = task.download_url[:200]  # Truncate
 
             return updated_task

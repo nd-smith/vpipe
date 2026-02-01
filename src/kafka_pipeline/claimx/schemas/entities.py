@@ -70,7 +70,8 @@ class EntityRowsMessage(BaseModel):
         default=None, description="Original ClaimX event ID for end-to-end traceability"
     )
     event_type: Optional[str] = Field(
-        default=None, description="Original event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)"
+        default=None,
+        description="Original event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
     )
     project_id: Optional[str] = Field(
         default=None, description="Project ID from the original event"
@@ -91,13 +92,16 @@ class EntityRowsMessage(BaseModel):
         default_factory=list, description="Task entity rows (table: claimx_tasks)"
     )
     task_templates: List[Dict[str, Any]] = Field(
-        default_factory=list, description="Task template rows (table: claimx_task_templates)"
+        default_factory=list,
+        description="Task template rows (table: claimx_task_templates)",
     )
     external_links: List[Dict[str, Any]] = Field(
-        default_factory=list, description="External link rows (table: claimx_external_links)"
+        default_factory=list,
+        description="External link rows (table: claimx_external_links)",
     )
     video_collab: List[Dict[str, Any]] = Field(
-        default_factory=list, description="Video collaboration rows (table: claimx_video_collab)"
+        default_factory=list,
+        description="Video collaboration rows (table: claimx_video_collab)",
     )
 
     def is_empty(self) -> bool:

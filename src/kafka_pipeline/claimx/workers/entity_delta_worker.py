@@ -94,9 +94,13 @@ class ClaimXEntityDeltaWorker:
         )
 
         # Get processing config
-        processing_config = config.get_worker_config(domain, "entity_delta_writer", "processing")
+        processing_config = config.get_worker_config(
+            domain, "entity_delta_writer", "processing"
+        )
         self.batch_size = processing_config.get("batch_size", 100)
-        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 30.0)
+        self.batch_timeout_seconds = processing_config.get(
+            "batch_timeout_seconds", 30.0
+        )
         self.max_retries = processing_config.get("max_retries", 3)
 
         # Retry config
@@ -468,7 +472,9 @@ class ClaimXEntityDeltaWorker:
                     self._last_cycle_log = time_module.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
+                    processed_cycle = (
+                        self._records_processed - self._last_cycle_processed
+                    )
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     # Use standardized cycle output format

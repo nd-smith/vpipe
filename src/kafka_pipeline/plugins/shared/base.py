@@ -209,7 +209,8 @@ class PluginResult:
             success=True,
             actions=[
                 PluginAction(
-                    action_type=ActionType.LOG, params={"level": level, "message": message}
+                    action_type=ActionType.LOG,
+                    params={"level": level, "message": message},
                 )
             ],
         )
@@ -221,7 +222,9 @@ class PluginResult:
             success=True,
             terminate_pipeline=True,
             message=f"Filtered: {reason}",
-            actions=[PluginAction(action_type=ActionType.FILTER, params={"reason": reason})],
+            actions=[
+                PluginAction(action_type=ActionType.FILTER, params={"reason": reason})
+            ],
         )
 
     @classmethod
@@ -350,7 +353,9 @@ class PluginResult:
 
         return cls(
             success=True,
-            actions=[PluginAction(action_type=ActionType.CREATE_CLAIMX_TASK, params=params)],
+            actions=[
+                PluginAction(action_type=ActionType.CREATE_CLAIMX_TASK, params=params)
+            ],
         )
 
 
@@ -432,7 +437,11 @@ class PluginContext:
         elif root == "data":
             obj = self.data
         elif root == "headers":
-            return self.headers.get(".".join(parts[1:])) if len(parts) > 1 else self.headers
+            return (
+                self.headers.get(".".join(parts[1:]))
+                if len(parts) > 1
+                else self.headers
+            )
         elif root == "event_id":
             return self.event_id
         elif root == "event_type":

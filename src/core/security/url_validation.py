@@ -124,7 +124,8 @@ def validate_download_url(
     is_localhost = hostname_lower in ("localhost", "127.0.0.1")
     # In simulation mode, also treat Docker internal hostnames as localhost
     is_simulation_internal = allow_localhost and (
-        hostname_lower.endswith("-simulation") or hostname_lower.startswith("pcesdopodappv1_")
+        hostname_lower.endswith("-simulation")
+        or hostname_lower.startswith("pcesdopodappv1_")
     )
 
     # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
@@ -132,7 +133,9 @@ def validate_download_url(
         return _validate_localhost_url(url, parsed)
 
     # For non-localhost or localhost when not allowed, use production validation
-    return _validate_production_url(url, parsed, hostname, hostname_lower, allowed_domains)
+    return _validate_production_url(
+        url, parsed, hostname, hostname_lower, allowed_domains
+    )
 
 
 def _is_production_environment() -> bool:

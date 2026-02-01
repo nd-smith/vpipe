@@ -48,18 +48,26 @@ class ClaimXCachedDownloadMessage(BaseModel):
         ... )
     """
 
-    media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
+    media_id: str = Field(
+        ..., description="Media file identifier from ClaimX", min_length=1
+    )
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     download_url: str = Field(
-        ..., description="Original S3 presigned URL the file was downloaded from", min_length=1
+        ...,
+        description="Original S3 presigned URL the file was downloaded from",
+        min_length=1,
     )
     destination_path: str = Field(
         ..., description="Target path in OneLake (relative to base path)", min_length=1
     )
     local_cache_path: str = Field(
-        ..., description="Absolute path to cached file on local filesystem", min_length=1
+        ...,
+        description="Absolute path to cached file on local filesystem",
+        min_length=1,
     )
-    bytes_downloaded: int = Field(..., description="Size of the downloaded file in bytes", ge=0)
+    bytes_downloaded: int = Field(
+        ..., description="Size of the downloaded file in bytes", ge=0
+    )
     content_type: Optional[str] = Field(
         default=None, description="MIME type of the downloaded file (if available)"
     )

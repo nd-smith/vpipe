@@ -51,8 +51,12 @@ logger = get_logger(__name__)
 
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
-WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
-CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "app.itel.yaml"
+WORKERS_CONFIG_PATH = (
+    CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
+)
+CONNECTIONS_CONFIG_PATH = (
+    CONFIG_DIR / "plugins" / "shared" / "connections" / "app.itel.yaml"
+)
 
 
 class ItelCabinetApiWorker:
@@ -94,7 +98,9 @@ class ItelCabinetApiWorker:
 
         # Setup simulation mode if config provided
         if self.simulation_config:
-            self.output_dir = self.simulation_config.local_storage_path / "itel_submissions"
+            self.output_dir = (
+                self.simulation_config.local_storage_path / "itel_submissions"
+            )
             self.output_dir.mkdir(parents=True, exist_ok=True)
             logger.info(
                 "iTel Cabinet worker running in simulation mode",
@@ -200,7 +206,8 @@ class ItelCabinetApiWorker:
 
                 except Exception as e:
                     logger.exception(
-                        f"Failed to process message: {e}", extra={"offset": record.offset}
+                        f"Failed to process message: {e}",
+                        extra={"offset": record.offset},
                     )
                     # Don't commit - will retry
 
@@ -273,9 +280,9 @@ class ItelCabinetApiWorker:
             # Set span attributes
             span.set_tag("http.method", self.api_config.get("method", "POST"))
             span.set_tag("http.url", self.api_config["endpoint"])
-            assignment_id = api_payload.get("meta", {}).get("assignmentId") or api_payload.get(
+            assignment_id = api_payload.get("meta", {}).get(
                 "assignmentId"
-            )
+            ) or api_payload.get("assignmentId")
             if assignment_id:
                 span.set_tag("assignment_id", assignment_id)
 
@@ -348,7 +355,9 @@ class ItelCabinetApiWorker:
             },
         )
 
-    async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
+    async def _write_simulation_payload(
+        self, api_payload: dict, original_payload: dict
+    ):
         """Write payload to simulation directory (simulation mode).
 
         In simulation mode, submissions are written to /tmp/pcesdopodappv1_simulation/itel_submissions/
@@ -361,9 +370,9 @@ class ItelCabinetApiWorker:
         """
         # Extract assignment_id from meta or fall back to submission
         meta = api_payload.get("meta", {})
-        assignment_id = meta.get("assignmentId") or original_payload.get("submission", {}).get(
-            "assignment_id", "unknown"
-        )
+        assignment_id = meta.get("assignmentId") or original_payload.get(
+            "submission", {}
+        ).get("assignment_id", "unknown")
 
         # Create filename with timestamp for uniqueness
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
@@ -432,7 +441,9 @@ def load_worker_config() -> dict:
     workers = config_data.get("workers", {})
 
     if "itel_cabinet_api" not in workers:
-        raise ValueError(f"Worker 'itel_cabinet_api' not found in {WORKERS_CONFIG_PATH}")
+        raise ValueError(
+            f"Worker 'itel_cabinet_api' not found in {WORKERS_CONFIG_PATH}"
+        )
 
     return workers["itel_cabinet_api"]
 

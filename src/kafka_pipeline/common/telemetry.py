@@ -147,7 +147,11 @@ def initialize_telemetry(
         return
 
     # Check if telemetry is disabled via environment variable
-    telemetry_enabled = os.getenv("ENABLE_TELEMETRY", "true").lower() not in ("false", "0", "no")
+    telemetry_enabled = os.getenv("ENABLE_TELEMETRY", "true").lower() not in (
+        "false",
+        "0",
+        "no",
+    )
     if not telemetry_enabled:
         logger.info("Telemetry disabled via ENABLE_TELEMETRY environment variable")
         _initialized = True
@@ -171,7 +175,9 @@ def initialize_telemetry(
             _telemetry_available = True
             logger.info("Prometheus client loaded successfully")
     except ImportError as e:
-        logger.warning(f"prometheus-client not available: {e}. Metrics will be disabled.")
+        logger.warning(
+            f"prometheus-client not available: {e}. Metrics will be disabled."
+        )
         enable_metrics = False
 
     _initialized = True

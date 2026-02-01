@@ -28,7 +28,9 @@ from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 from aiokafka import AIOKafkaProducer
-from aiokafka.structs import ConsumerRecord  # Keep for backward compatibility during migration
+from aiokafka.structs import (
+    ConsumerRecord,
+)  # Keep for backward compatibility during migration
 
 from core.logging import get_logger, log_with_context, log_exception, MessageLogContext
 from core.errors.exceptions import ErrorCategory
@@ -63,7 +65,9 @@ class EventHubConsumerRecord:
     - EventData.properties (dict) -> PipelineMessage.headers (List[Tuple[str, bytes]])
     """
 
-    def __init__(self, event_data: EventData, eventhub_name: str, partition: str) -> None:
+    def __init__(
+        self, event_data: EventData, eventhub_name: str, partition: str
+    ) -> None:
         """Convert EventData to PipelineMessage.
 
         Args:
@@ -94,7 +98,7 @@ class EventHubConsumerRecord:
         self._message = PipelineMessage(
             topic=eventhub_name,
             partition=int(partition) if partition else 0,
-            offset=event_data.offset if hasattr(event_data, 'offset') else 0,
+            offset=event_data.offset if hasattr(event_data, "offset") else 0,
             timestamp=timestamp_ms,
             key=key_bytes,
             value=event_data.body_as_bytes(),
@@ -185,7 +189,9 @@ class EventHubConsumer:
         self._running = False
         self._enable_message_commit = enable_message_commit
         self._dlq_producer: Optional[EventHubProducer] = None
-        self._current_partition_context = {}  # Track partition contexts for checkpointing
+        self._current_partition_context = (
+            {}
+        )  # Track partition contexts for checkpointing
 
         # DLQ configuration mapping
         self._dlq_entity_map = self._build_dlq_entity_map()
@@ -216,20 +222,27 @@ class EventHubConsumer:
             logger.warning("Consumer already running, ignoring duplicate start call")
             return
 
-        checkpoint_mode = "with blob storage checkpoint persistence" if self.checkpoint_store else "with in-memory checkpoints only"
+        checkpoint_mode = (
+            "with blob storage checkpoint persistence"
+            if self.checkpoint_store
+            else "with in-memory checkpoints only"
+        )
         log_with_context(
             logger,
             logging.INFO,
             f"Starting Event Hub consumer {checkpoint_mode}",
             entity=self.eventhub_name,
             consumer_group=self.consumer_group,
-            checkpoint_persistence="blob_storage" if self.checkpoint_store else "in_memory",
+            checkpoint_persistence=(
+                "blob_storage" if self.checkpoint_store else "in_memory"
+            ),
         )
 
         try:
             # Apply SSL dev bypass if configured
             # This must be done before creating the client
             from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
             apply_ssl_dev_bypass()
 
             # Create consumer with AMQP over WebSocket transport
@@ -252,7 +265,9 @@ class EventHubConsumer:
                 "Event Hub consumer started successfully",
                 entity=self.eventhub_name,
                 consumer_group=self.consumer_group,
-                checkpoint_persistence="blob_storage" if self.checkpoint_store else "in_memory",
+                checkpoint_persistence=(
+                    "blob_storage" if self.checkpoint_store else "in_memory"
+                ),
             )
 
             # Start consuming
@@ -337,7 +352,9 @@ class EventHubConsumer:
 
             # Convert EventData to transport-agnostic PipelineMessage
             # This adapter handles all conversion from EventHub-specific types
-            record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
+            record_adapter = EventHubConsumerRecord(
+                event, self.eventhub_name, partition_id
+            )
             message = record_adapter.to_pipeline_message()
 
             # Process the message
@@ -394,11 +411,15 @@ class EventHubConsumer:
             # Clean up partition context
             self._current_partition_context.pop(partition_id, None)
             # Update metrics
-            update_assigned_partitions(self.consumer_group, len(self._current_partition_context))
+            update_assigned_partitions(
+                self.consumer_group, len(self._current_partition_context)
+            )
 
         async def on_error(partition_context, error):
             """Called when error occurs during consumption."""
-            partition_id = partition_context.partition_id if partition_context else "unknown"
+            partition_id = (
+                partition_context.partition_id if partition_context else "unknown"
+            )
             log_exception(
                 logger,
                 error,
@@ -436,7 +457,8 @@ class EventHubConsumer:
             span.set_tag("messaging.kafka.offset", message.offset)
             span.set_tag("messaging.kafka.consumer_group", self.consumer_group)
             span.set_tag(
-                "messaging.message.id", message.key.decode("utf-8") if message.key else None
+                "messaging.message.id",
+                message.key.decode("utf-8") if message.key else None,
             )
             span.set_tag("span.kind", "consumer")
 
@@ -697,7 +719,9 @@ class EventHubConsumer:
         )
 
         error_category = classified_error.category
-        record_processing_error(message.topic, self.consumer_group, error_category.value)
+        record_processing_error(
+            message.topic, self.consumer_group, error_category.value
+        )
 
         common_context = {
             "error_category": error_category.value,

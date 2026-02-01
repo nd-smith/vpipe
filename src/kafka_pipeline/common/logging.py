@@ -57,7 +57,9 @@ def logged_operation(
 
             @functools.wraps(func)
             async def async_wrapper(self, *args, **kwargs):
-                _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
+                _logger = getattr(self, "_logger", None) or get_logger(
+                    self.__class__.__module__
+                )
                 op_name = operation_name or func.__name__
                 full_op = f"{self.__class__.__name__}.{op_name}"
 
@@ -77,7 +79,9 @@ def logged_operation(
 
             @functools.wraps(func)
             def sync_wrapper(self, *args, **kwargs):
-                _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
+                _logger = getattr(self, "_logger", None) or get_logger(
+                    self.__class__.__module__
+                )
                 op_name = operation_name or func.__name__
                 full_op = f"{self.__class__.__name__}.{op_name}"
 
@@ -136,7 +140,13 @@ class LoggedClass:
             **extra: Additional context fields
         """
         context: Dict[str, Any] = {}
-        for attr in ["table_path", "primary_keys", "circuit_name", "api_url", "base_url"]:
+        for attr in [
+            "table_path",
+            "primary_keys",
+            "circuit_name",
+            "api_url",
+            "base_url",
+        ]:
             if hasattr(self, attr):
                 value = getattr(self, attr)
                 if value is not None:
@@ -162,7 +172,13 @@ class LoggedClass:
             **extra: Additional context fields
         """
         context: Dict[str, Any] = {}
-        for attr in ["table_path", "primary_keys", "circuit_name", "api_url", "base_url"]:
+        for attr in [
+            "table_path",
+            "primary_keys",
+            "circuit_name",
+            "api_url",
+            "base_url",
+        ]:
             if hasattr(self, attr):
                 value = getattr(self, attr)
                 if value is not None:
@@ -248,7 +264,9 @@ def with_api_error_handling(func: F) -> F:
 
         @functools.wraps(func)
         async def async_wrapper(self, *args, **kwargs):
-            _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
+            _logger = getattr(self, "_logger", None) or get_logger(
+                self.__class__.__module__
+            )
             try:
                 return await func(self, *args, **kwargs)
             except Exception as e:
@@ -260,7 +278,9 @@ def with_api_error_handling(func: F) -> F:
 
         @functools.wraps(func)
         def sync_wrapper(self, *args, **kwargs):
-            _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
+            _logger = getattr(self, "_logger", None) or get_logger(
+                self.__class__.__module__
+            )
             try:
                 return func(self, *args, **kwargs)
             except Exception as e:

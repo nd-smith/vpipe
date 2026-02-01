@@ -20,7 +20,10 @@ from aiokafka.errors import KafkaError
 
 from kafka_pipeline.common.producer import BaseKafkaProducer
 from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
-from kafka_pipeline.plugins.shared.connections import ConnectionManager, ConnectionConfig
+from kafka_pipeline.plugins.shared.connections import (
+    ConnectionManager,
+    ConnectionConfig,
+)
 from kafka_pipeline.plugins.shared.enrichment import (
     EnrichmentPipeline,
     create_handler_from_config,
@@ -235,7 +238,9 @@ class PluginActionWorker:
         """Fetch and process a batch of messages."""
         try:
             # Fetch batch of messages
-            data = await self.consumer.getmany(timeout_ms=1000, max_records=self.config.batch_size)
+            data = await self.consumer.getmany(
+                timeout_ms=1000, max_records=self.config.batch_size
+            )
 
             if not data:
                 # No messages, check for batch timeout flush
@@ -300,7 +305,9 @@ class PluginActionWorker:
             await self._send_to_api(result.data, message_data)
 
         except Exception as e:
-            logger.exception(f"Unexpected error processing message offset {message.offset}: {e}")
+            logger.exception(
+                f"Unexpected error processing message offset {message.offset}: {e}"
+            )
             await self._handle_error(message.value, str(e))
             self.messages_failed += 1
 
@@ -326,7 +333,9 @@ class PluginActionWorker:
             response_body = await response.text()
 
             if status >= 400:
-                logger.error(f"API request failed with status {status}: {response_body[:200]}")
+                logger.error(
+                    f"API request failed with status {status}: {response_body[:200]}"
+                )
                 await self._handle_error(
                     original_message,
                     f"API error {status}: {response_body[:200]}",

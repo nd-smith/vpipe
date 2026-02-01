@@ -54,7 +54,9 @@ class ClaimXEventIngesterWorker:
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.instance_id = instance_id
-        self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
+        self.enrichment_topic = enrichment_topic or config.get_topic(
+            domain, "enrichment_pending"
+        )
         self.producer: Optional[BaseKafkaProducer] = None
         self.consumer: Optional[BaseKafkaConsumer] = None
 
@@ -83,7 +85,9 @@ class ClaimXEventIngesterWorker:
         self._dedup_cache: dict[str, float] = {}
         self._dedup_cache_ttl_seconds = 86400
         self._dedup_cache_max_size = 100_000
-        processing_config = config.get_worker_config(domain, "event_ingester", "processing")
+        processing_config = config.get_worker_config(
+            domain, "event_ingester", "processing"
+        )
         health_port = processing_config.get("health_port", 0)
         health_enabled = processing_config.get("health_enabled", True)
         self.health_server = HealthCheckServer(
@@ -330,7 +334,9 @@ class ClaimXEventIngesterWorker:
                 "task_assignment_id": event.task_assignment_id,
             },
         )
-        with tracer.start_as_current_span("event.process", kind=SpanKind.INTERNAL) as span:
+        with tracer.start_as_current_span(
+            "event.process", kind=SpanKind.INTERNAL
+        ) as span:
             span.set_attribute("event.id", event.event_id)
             span.set_attribute("event.type", event.event_type)
             span.set_attribute("project.id", event.project_id)
@@ -464,8 +470,12 @@ class ClaimXEventIngesterWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
-                    deduped_cycle = self._records_deduplicated - self._last_cycle_deduped
+                    processed_cycle = (
+                        self._records_processed - self._last_cycle_processed
+                    )
+                    deduped_cycle = (
+                        self._records_deduplicated - self._last_cycle_deduped
+                    )
 
                     logger.info(
                         format_cycle_output(

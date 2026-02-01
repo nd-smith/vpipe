@@ -53,7 +53,9 @@ class MetricsCollector(Protocol):
     """Protocol for metrics collection (optional dependency)."""
 
     def increment_counter(self, name: str, labels: Optional[dict] = None) -> None: ...
-    def set_gauge(self, name: str, value: float, labels: Optional[dict] = None) -> None: ...
+    def set_gauge(
+        self, name: str, value: float, labels: Optional[dict] = None
+    ) -> None: ...
 
 
 class ErrorClassifier(Protocol):
@@ -551,7 +553,10 @@ def get_circuit_breaker(
     with _registry_lock:
         if name not in _breakers:
             _breakers[name] = CircuitBreaker(
-                name, config, metrics_collector=metrics_collector, error_classifier=error_classifier
+                name,
+                config,
+                metrics_collector=metrics_collector,
+                error_classifier=error_classifier,
             )
             logger.debug(
                 "Created circuit breaker: circuit_name=%s",

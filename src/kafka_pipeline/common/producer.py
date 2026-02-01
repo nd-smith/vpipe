@@ -107,7 +107,9 @@ class BaseKafkaProducer:
                 None if compression == "none" else compression
             )
         if "max_request_size" in self.producer_config:
-            kafka_producer_config["max_request_size"] = self.producer_config["max_request_size"]
+            kafka_producer_config["max_request_size"] = self.producer_config[
+                "max_request_size"
+            ]
         if "max_request_size" not in self.producer_config:
             kafka_producer_config["max_request_size"] = 10 * 1024 * 1024
         if self.config.security_protocol != "PLAINTEXT":
@@ -125,8 +127,12 @@ class BaseKafkaProducer:
                 oauth_callback = create_kafka_oauth_callback()
                 kafka_producer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
-                kafka_producer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                kafka_producer_config["sasl_plain_password"] = self.config.sasl_plain_password
+                kafka_producer_config["sasl_plain_username"] = (
+                    self.config.sasl_plain_username
+                )
+                kafka_producer_config["sasl_plain_password"] = (
+                    self.config.sasl_plain_password
+                )
             elif self.config.sasl_mechanism == "GSSAPI":
                 kafka_producer_config["sasl_kerberos_service_name"] = (
                     self.config.sasl_kerberos_service_name
@@ -174,10 +180,14 @@ class BaseKafkaProducer:
             try:
                 loop = asyncio.get_running_loop()
                 if loop.is_closed():
-                    logger.warning("Event loop is closed, skipping graceful producer shutdown")
+                    logger.warning(
+                        "Event loop is closed, skipping graceful producer shutdown"
+                    )
                     return
             except RuntimeError:
-                logger.warning("No running event loop, skipping graceful producer shutdown")
+                logger.warning(
+                    "No running event loop, skipping graceful producer shutdown"
+                )
                 return
 
             await self._producer.flush()
@@ -318,7 +328,9 @@ class BaseKafkaProducer:
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in results:
-                record_message_produced(topic, total_bytes // len(results), success=True)
+                record_message_produced(
+                    topic, total_bytes // len(results), success=True
+                )
 
             log_with_context(
                 logger,
@@ -336,7 +348,9 @@ class BaseKafkaProducer:
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in messages:
-                record_message_produced(topic, total_bytes // len(messages), success=False)
+                record_message_produced(
+                    topic, total_bytes // len(messages), success=False
+                )
             record_producer_error(topic, type(e).__name__)
             log_exception(
                 logger,

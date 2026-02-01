@@ -108,7 +108,10 @@ def parse_url_expiration(url: str) -> dict:
         if system_date and expires_ms:
             expires_at_ms = system_date + expires_ms
             expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
-            return {"expires_at": expires_at.isoformat(), "ttl_seconds": expires_ms // 1000}
+            return {
+                "expires_at": expires_at.isoformat(),
+                "ttl_seconds": expires_ms // 1000,
+            }
     except (ValueError, IndexError, TypeError) as e:
         logger.debug(f"Could not parse URL expiration: {e}")
     return {}
@@ -199,11 +202,17 @@ COLUMN_MAP = {
     ("Linear Feet Capture", "Countertops (linear feet)"): "countertops_lf",
     ("Linear Feet Capture", "Lower Cabinets (linear feet)"): "lower_cabinets_lf",
     ("Linear Feet Capture", "Upper Cabinets (linear feet)"): "upper_cabinets_lf",
-    ("Linear Feet Capture", "Full-Height Cabinets (linear feet)"): "full_height_cabinets_lf",
+    (
+        "Linear Feet Capture",
+        "Full-Height Cabinets (linear feet)",
+    ): "full_height_cabinets_lf",
     ("Linear Feet Capture", "Island Cabinets (linear feet)"): "island_cabinets_lf",
     # Lower Cabinets
     ("Cabinet Types Damaged", "Lower Cabinets Damaged?"): "lower_cabinets_damaged",
-    ("Lower Cabinets", "Enter Number of Damaged Lower Boxes"): "num_damaged_lower_boxes",
+    (
+        "Lower Cabinets",
+        "Enter Number of Damaged Lower Boxes",
+    ): "num_damaged_lower_boxes",
     ("Lower Cabinets", "Are The Lower Cabinets Detached?"): "lower_cabinets_detached",
     (
         "Lower Cabinets",
@@ -221,10 +230,16 @@ COLUMN_MAP = {
         "Capture Lower End Panel",
         "Is there lower cabinet end panel damage?",
     ): "lower_end_panel_damage_present",
-    ("Lower Cabinet Counter Type", "Select Lower Cabinet Counter Type"): "lower_counter_type",
+    (
+        "Lower Cabinet Counter Type",
+        "Select Lower Cabinet Counter Type",
+    ): "lower_counter_type",
     # Upper Cabinets
     ("Cabinet Types Damaged", "Upper Cabinets Damaged?"): "upper_cabinets_damaged",
-    ("Upper Cabinets", "Enter Number of Damaged Upper Boxes"): "num_damaged_upper_boxes",
+    (
+        "Upper Cabinets",
+        "Enter Number of Damaged Upper Boxes",
+    ): "num_damaged_upper_boxes",
     ("Upper Cabinets", "Are The Upper Cabinets Detached?"): "upper_cabinets_detached",
     (
         "Upper Cabinets",
@@ -243,7 +258,10 @@ COLUMN_MAP = {
         "Is there upper cabinet end panel damage?",
     ): "upper_end_panel_damage_present",
     # Full Height
-    ("Cabinet Types Damaged", "Full Height Cabinets Damaged?"): "full_height_cabinets_damaged",
+    (
+        "Cabinet Types Damaged",
+        "Full Height Cabinets Damaged?",
+    ): "full_height_cabinets_damaged",
     (
         "Full Height/Pantry Cabinets",
         "Enter Number of Damaged Full Height Boxes",
@@ -266,8 +284,14 @@ COLUMN_MAP = {
     ): "full_height_finished_end_panels_damaged",
     # Island
     ("Cabinet Types Damaged", "Island Cabinets Damaged?"): "island_cabinets_damaged",
-    ("Island Cabinets", "Enter Number of Damaged Island Boxes"): "num_damaged_island_boxes",
-    ("Island Cabinets", "Are The Island Cabinets Detached?"): "island_cabinets_detached",
+    (
+        "Island Cabinets",
+        "Enter Number of Damaged Island Boxes",
+    ): "num_damaged_island_boxes",
+    (
+        "Island Cabinets",
+        "Are The Island Cabinets Detached?",
+    ): "island_cabinets_detached",
     (
         "Island Cabinets",
         "Are All The Face Frames, Doors, And Drawers Available?",
@@ -284,7 +308,10 @@ COLUMN_MAP = {
         "Capture Island End Panel",
         "Is there island cabinet end panel damage?",
     ): "island_end_panel_damage_present",
-    ("Island Cabinet Counter Type", "Select Island Cabinet Counter Type"): "island_counter_type",
+    (
+        "Island Cabinet Counter Type",
+        "Select Island Cabinet Counter Type",
+    ): "island_counter_type",
     # General
     ("Damage Description", "Enter Damaged Description"): "damage_description",
     (
@@ -396,10 +423,14 @@ class DataBuilder:
                 api_obj.external_link_data.url if api_obj.external_link_data else None
             ),
             "customer_first_name": (
-                api_obj.external_link_data.first_name if api_obj.external_link_data else None
+                api_obj.external_link_data.first_name
+                if api_obj.external_link_data
+                else None
             ),
             "customer_last_name": (
-                api_obj.external_link_data.last_name if api_obj.external_link_data else None
+                api_obj.external_link_data.last_name
+                if api_obj.external_link_data
+                else None
             ),
             "customer_email": (
                 api_obj.external_link_data.email if api_obj.external_link_data else None
@@ -421,10 +452,14 @@ class DataBuilder:
                 "status": api_obj.status,
                 "dates": {
                     "assigned": (
-                        api_obj.date_assigned.isoformat() if api_obj.date_assigned else None
+                        api_obj.date_assigned.isoformat()
+                        if api_obj.date_assigned
+                        else None
                     ),
                     "completed": (
-                        api_obj.date_completed.isoformat() if api_obj.date_completed else None
+                        api_obj.date_completed.isoformat()
+                        if api_obj.date_completed
+                        else None
                     ),
                 },
             },
@@ -436,8 +471,12 @@ class DataBuilder:
             first_url = next(iter(media_url_map.values()), None)
             url_expiration = parse_url_expiration(first_url)
             if url_expiration:
-                readable_report["meta"]["media_urls_expire_at"] = url_expiration["expires_at"]
-                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration["ttl_seconds"]
+                readable_report["meta"]["media_urls_expire_at"] = url_expiration[
+                    "expires_at"
+                ]
+                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration[
+                    "ttl_seconds"
+                ]
 
         # For the raw_data column (preserves original group structure)
         raw_data_flat = defaultdict(list)
@@ -459,8 +498,12 @@ class DataBuilder:
                         form_row[col_name] = answer_val
 
                     # 2. Map to Attachments Table
-                    topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
-                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
+                    topic = DataBuilder.get_topic_category(
+                        clean_group_name, clean_question_text
+                    )
+                    if qa.response_answer_export.type == "image" and isinstance(
+                        answer_val, list
+                    ):
                         for idx, media_id in enumerate(answer_val):
                             attachments_rows.append(
                                 {
@@ -468,7 +511,9 @@ class DataBuilder:
                                     "project_id": api_obj.project_id,
                                     "event_id": event_id,
                                     "control_id": qa.form_control.id,
-                                    "question_key": _get_question_key(clean_question_text),
+                                    "question_key": _get_question_key(
+                                        clean_question_text
+                                    ),
                                     "question_text": clean_question_text,
                                     "topic_category": topic,
                                     "media_id": media_id,
@@ -476,13 +521,17 @@ class DataBuilder:
                                     "created_at": now,
                                     "is_active": True,
                                     "media_type": "image/jpeg",  # Default assumption
-                                    "url": media_url_map.get(media_id),  # Download URL from ClaimX
+                                    "url": media_url_map.get(
+                                        media_id
+                                    ),  # Download URL from ClaimX
                                 }
                             )
 
                     # 3. Populate Readable Report (Categorized)
                     # For image type, transform answer from list of IDs to list of objects with media_id and url
-                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
+                    if qa.response_answer_export.type == "image" and isinstance(
+                        answer_val, list
+                    ):
                         enriched_answer = [
                             {"media_id": media_id, "url": media_url_map.get(media_id)}
                             for media_id in answer_val
@@ -500,7 +549,11 @@ class DataBuilder:
 
                     # 4. Populate Raw Data Blob (Grouped by original section)
                     raw_data_flat[clean_group_name].append(
-                        {"q": clean_question_text, "a": answer_val, "id": qa.form_control.id}
+                        {
+                            "q": clean_question_text,
+                            "a": answer_val,
+                            "id": qa.form_control.id,
+                        }
                     )
 
         # Finalize Form Row with raw_data blob
@@ -565,7 +618,9 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         KeyError: If required fields are missing
         ValueError: If data is malformed
     """
-    logger.debug(f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}")
+    logger.debug(
+        f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}"
+    )
 
     api_obj = from_dict(ApiResponse, task_data)
     form_row, _, _ = DataBuilder.process(api_obj, event_id)
@@ -609,7 +664,9 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         lower_face_frames_doors_drawers_damaged=form_row.get(
             "lower_face_frames_doors_drawers_damaged"
         ),
-        lower_finished_end_panels_damaged=form_row.get("lower_finished_end_panels_damaged"),
+        lower_finished_end_panels_damaged=form_row.get(
+            "lower_finished_end_panels_damaged"
+        ),
         lower_end_panel_damage_present=form_row.get("lower_end_panel_damage_present"),
         lower_counter_type=form_row.get("lower_counter_type"),
         # Upper cabinets
@@ -623,7 +680,9 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         upper_face_frames_doors_drawers_damaged=form_row.get(
             "upper_face_frames_doors_drawers_damaged"
         ),
-        upper_finished_end_panels_damaged=form_row.get("upper_finished_end_panels_damaged"),
+        upper_finished_end_panels_damaged=form_row.get(
+            "upper_finished_end_panels_damaged"
+        ),
         upper_end_panel_damage_present=form_row.get("upper_end_panel_damage_present"),
         # Full height cabinets
         full_height_cabinets_damaged=form_row.get("full_height_cabinets_damaged"),
@@ -650,7 +709,9 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         island_face_frames_doors_drawers_damaged=form_row.get(
             "island_face_frames_doors_drawers_damaged"
         ),
-        island_finished_end_panels_damaged=form_row.get("island_finished_end_panels_damaged"),
+        island_finished_end_panels_damaged=form_row.get(
+            "island_finished_end_panels_damaged"
+        ),
         island_end_panel_damage_present=form_row.get("island_end_panel_damage_present"),
         island_counter_type=form_row.get("island_counter_type"),
         # Metadata - use existing timestamps from form_row
@@ -725,7 +786,9 @@ def get_readable_report(
     Returns:
         Readable report dict with topics organized by category and media URLs enriched
     """
-    logger.debug(f"Generating readable report for assignment_id={task_data.get('assignmentId')}")
+    logger.debug(
+        f"Generating readable report for assignment_id={task_data.get('assignmentId')}"
+    )
 
     # Convert to typed dataclass using from_dict
     api_obj = from_dict(ApiResponse, task_data)

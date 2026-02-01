@@ -185,7 +185,9 @@ class ItelCabinetDataGenerator:
             assignor_email=f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
             damage_description=scenario["description"],
             additional_notes=self._generate_additional_notes(),
-            countertops_lf=scenario.get("lower_lf", 0) if scenario.get("lower_damaged") else 0,
+            countertops_lf=(
+                scenario.get("lower_lf", 0) if scenario.get("lower_damaged") else 0
+            ),
             # Customer info
             customer_first_name=claim.policyholder["first_name"],
             customer_last_name=claim.policyholder["last_name"],
@@ -193,48 +195,76 @@ class ItelCabinetDataGenerator:
             customer_phone=claim.policyholder["phone"],
             # Lower cabinets
             lower_cabinets_damaged=scenario.get("lower_damaged", False),
-            lower_cabinets_lf=scenario.get("lower_lf") if scenario.get("lower_damaged") else None,
+            lower_cabinets_lf=(
+                scenario.get("lower_lf") if scenario.get("lower_damaged") else None
+            ),
             num_damaged_lower_boxes=(
-                scenario.get("num_damaged_lower") if scenario.get("lower_damaged") else None
+                scenario.get("num_damaged_lower")
+                if scenario.get("lower_damaged")
+                else None
             ),
             lower_cabinets_detached=(
-                scenario.get("detached", False) if scenario.get("lower_damaged") else None
+                scenario.get("detached", False)
+                if scenario.get("lower_damaged")
+                else None
             ),
             lower_face_frames_doors_drawers_available=(
-                self.rng.choice([True, False]) if scenario.get("lower_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("lower_damaged")
+                else None
             ),
             lower_face_frames_doors_drawers_damaged=(
-                self.rng.choice([True, False]) if scenario.get("lower_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("lower_damaged")
+                else None
             ),
             lower_finished_end_panels_damaged=(
-                self.rng.choice([True, False]) if scenario.get("lower_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("lower_damaged")
+                else None
             ),
             lower_end_panel_damage_present=(
-                self.rng.choice([True, False]) if scenario.get("lower_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("lower_damaged")
+                else None
             ),
             lower_counter_type=(
                 scenario.get("counter_type") if scenario.get("lower_damaged") else None
             ),
             # Upper cabinets
             upper_cabinets_damaged=scenario.get("upper_damaged", False),
-            upper_cabinets_lf=scenario.get("upper_lf") if scenario.get("upper_damaged") else None,
+            upper_cabinets_lf=(
+                scenario.get("upper_lf") if scenario.get("upper_damaged") else None
+            ),
             num_damaged_upper_boxes=(
-                scenario.get("num_damaged_upper") if scenario.get("upper_damaged") else None
+                scenario.get("num_damaged_upper")
+                if scenario.get("upper_damaged")
+                else None
             ),
             upper_cabinets_detached=(
-                scenario.get("detached", False) if scenario.get("upper_damaged") else None
+                scenario.get("detached", False)
+                if scenario.get("upper_damaged")
+                else None
             ),
             upper_face_frames_doors_drawers_available=(
-                self.rng.choice([True, False]) if scenario.get("upper_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("upper_damaged")
+                else None
             ),
             upper_face_frames_doors_drawers_damaged=(
-                self.rng.choice([True, False]) if scenario.get("upper_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("upper_damaged")
+                else None
             ),
             upper_finished_end_panels_damaged=(
-                self.rng.choice([True, False]) if scenario.get("upper_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("upper_damaged")
+                else None
             ),
             upper_end_panel_damage_present=(
-                self.rng.choice([True, False]) if scenario.get("upper_damaged") else None
+                self.rng.choice([True, False])
+                if scenario.get("upper_damaged")
+                else None
             ),
             upper_counter_type=(
                 scenario.get("counter_type") if scenario.get("upper_damaged") else None
@@ -250,25 +280,29 @@ class ItelCabinetDataGenerator:
         if scenario.get("lower_damaged"):
             num_lower_box = self.rng.randint(1, 3)
             form_data.lower_cabinet_box_photos = [
-                f"media_{self.rng.randint(100000, 999999)}" for _ in range(num_lower_box)
+                f"media_{self.rng.randint(100000, 999999)}"
+                for _ in range(num_lower_box)
             ]
 
             if form_data.lower_end_panel_damage_present:
                 num_lower_panel = self.rng.randint(1, 2)
                 form_data.lower_cabinet_end_panel_photos = [
-                    f"media_{self.rng.randint(100000, 999999)}" for _ in range(num_lower_panel)
+                    f"media_{self.rng.randint(100000, 999999)}"
+                    for _ in range(num_lower_panel)
                 ]
 
         if scenario.get("upper_damaged"):
             num_upper_box = self.rng.randint(1, 3)
             form_data.upper_cabinet_box_photos = [
-                f"media_{self.rng.randint(100000, 999999)}" for _ in range(num_upper_box)
+                f"media_{self.rng.randint(100000, 999999)}"
+                for _ in range(num_upper_box)
             ]
 
             if form_data.upper_end_panel_damage_present:
                 num_upper_panel = self.rng.randint(1, 2)
                 form_data.upper_cabinet_end_panel_photos = [
-                    f"media_{self.rng.randint(100000, 999999)}" for _ in range(num_upper_panel)
+                    f"media_{self.rng.randint(100000, 999999)}"
+                    for _ in range(num_upper_panel)
                 ]
 
         return form_data
@@ -286,7 +320,9 @@ class ItelCabinetDataGenerator:
         ]
         return self.rng.choice(notes) if self.rng.random() > 0.3 else ""
 
-    def build_claimx_task_details(self, form_data: ItelCabinetFormData, claim) -> Dict[str, Any]:
+    def build_claimx_task_details(
+        self, form_data: ItelCabinetFormData, claim
+    ) -> Dict[str, Any]:
         """Build a mock ClaimX API response for task details.
 
         This mimics what the ClaimX API lookup handler would return,
@@ -308,7 +344,9 @@ class ItelCabinetDataGenerator:
             "project_id": form_data.project_id,
             "assignment_id": form_data.assignment_id,
             "status": form_data.status,
-            "submitted_at": form_data.date_completed if form_data.date_completed else None,
+            "submitted_at": (
+                form_data.date_completed if form_data.date_completed else None
+            ),
             "created_at": form_data.date_assigned,
             "updated_at": form_data.date_completed or form_data.date_assigned,
             # Form responses - this is the key part that the form parser extracts
@@ -336,7 +374,9 @@ class ItelCabinetDataGenerator:
 
         return task_details
 
-    def _build_form_responses(self, form_data: ItelCabinetFormData) -> List[Dict[str, Any]]:
+    def _build_form_responses(
+        self, form_data: ItelCabinetFormData
+    ) -> List[Dict[str, Any]]:
         """Build form responses array matching ClaimX form structure."""
         responses = []
 
@@ -487,7 +527,9 @@ class ItelCabinetDataGenerator:
 
         return responses
 
-    def _build_form_attachments(self, form_data: ItelCabinetFormData) -> List[Dict[str, Any]]:
+    def _build_form_attachments(
+        self, form_data: ItelCabinetFormData
+    ) -> List[Dict[str, Any]]:
         """Build form attachments array matching ClaimX structure."""
         attachments = []
 
