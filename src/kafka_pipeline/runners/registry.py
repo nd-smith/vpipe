@@ -17,6 +17,12 @@ from kafka_pipeline.runners import claimx_runners, verisk_runners
 logger = logging.getLogger(__name__)
 
 
+# NOTE: The build_*_args functions below are DEPRECATED and no longer used.
+# They are kept temporarily to avoid breaking the registry dict structure.
+# run_worker_from_registry() now builds kwargs directly.
+# These functions can be safely deleted in a future commit.
+
+
 def build_xact_poller_args(pipeline_config, shutdown_event: asyncio.Event, **kwargs):
     return {
         "pipeline_config": pipeline_config,
@@ -448,18 +454,19 @@ async def run_worker_from_registry(
         if pipeline_config.event_source != EventSourceType.EVENTHOUSE:
             raise ValueError(f"{worker_name} requires EVENT_SOURCE=eventhouse")
 
-    # Build arguments
-    args_builder = worker_def["args_builder"]
-    kwargs = args_builder(
-        pipeline_config,
-        shutdown_event,
-        enable_delta_writes=enable_delta_writes,
-        eventhub_config=eventhub_config,
-        local_kafka_config=local_kafka_config,
-        simulation_mode=simulation_mode,
-    )
+    # Build arguments - pass all common parameters directly
+    # (args_builder pattern removed - functions above are now unused dead code)
+    kwargs = {
+        "pipeline_config": pipeline_config,
+        "shutdown_event": shutdown_event,
+        "enable_delta_writes": enable_delta_writes,
+        "eventhub_config": eventhub_config,
+        "local_kafka_config": local_kafka_config,
+        "kafka_config": local_kafka_config,
+        "simulation_mode": simulation_mode,
+        "domain": pipeline_config.domain,
+    }
 
-    # Add instance_id if provided
     if instance_id is not None:
         kwargs["instance_id"] = instance_id
 
