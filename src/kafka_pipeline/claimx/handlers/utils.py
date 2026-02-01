@@ -5,9 +5,14 @@ Consolidates type conversion, timestamp handling, and timing utilities
 used across handler modules.
 """
 
+import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def safe_int(value: Any) -> int | None:
@@ -16,20 +21,10 @@ def safe_int(value: Any) -> int | None:
     try:
         return int(value)
     except (ValueError, TypeError):
-        return None
-
-
-def safe_int32(value: Any) -> int | None:
-    # Returns None for values outside int32 range (-2147483648 to 2147483647)
-    if value is None:
-        return None
-    try:
-        v = int(value)
-        # Check int32 bounds
-        if -2147483648 <= v <= 2147483647:
-            return v
-        return None
-    except (ValueError, TypeError):
+        logger.warning(
+            "Type conversion failed",
+            extra={"value": str(value)[:100], "target_type": "int"},
+        )
         return None
 
 
@@ -43,7 +38,6 @@ def safe_str(value: Any) -> str | None:
 def safe_str_id(value: Any) -> str | None:
     if value is None:
         return None
-    # Handle numeric values
     if isinstance(value, (int, float)):
         return str(int(value))
     s = str(value).strip()
@@ -66,16 +60,23 @@ def safe_float(value: Any) -> float | None:
     try:
         return float(value)
     except (ValueError, TypeError):
+        logger.warning(
+            "Type conversion failed",
+            extra={"value": str(value)[:100], "target_type": "float"},
+        )
         return None
 
 
 def safe_decimal_str(value: Any) -> str | None:
-    # Returns decimal string to avoid float precision issues
     if value is None:
         return None
     try:
         return str(Decimal(str(value)))
     except (InvalidOperation, ValueError, TypeError):
+        logger.warning(
+            "Type conversion failed",
+            extra={"value": str(value)[:100], "target_type": "decimal"},
+        )
         return None
 
 
