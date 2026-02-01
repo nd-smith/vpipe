@@ -736,7 +736,6 @@ class ClaimXEventhouseSourceConfig:
             ),
             claimx_events_table_path=(
                 os.getenv("CLAIMX_EVENTS_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_EVENTS_TABLE")
                 or poller_data.get("events_table_path", "")
             ),
             claimx_events_window_hours=int(

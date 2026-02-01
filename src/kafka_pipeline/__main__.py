@@ -45,6 +45,34 @@ def get_shutdown_event() -> asyncio.Event:
     return _shutdown_event
 
 
+async def run_error_mode(worker_name: str, error_msg: str) -> None:
+    """Run health server in error state until shutdown signal."""
+    shutdown_event = get_shutdown_event()
+
+    health_server = HealthCheckServer(
+        port=8080,
+        worker_name=worker_name,
+        enabled=True,
+    )
+    health_server.set_error(error_msg)
+
+    await health_server.start()
+    logger.info(
+        "Health server running in error mode",
+        extra={
+            "port": health_server.actual_port,
+            "worker": worker_name,
+            "error": error_msg,
+        },
+    )
+
+    await asyncio.to_thread(upload_crash_logs, error_msg)
+
+    await shutdown_event.wait()
+    logger.info("Shutdown signal received in error mode")
+    await health_server.stop()
+
+
 async def run_worker_pool(
     worker_fn: Callable[..., Coroutine[Any, Any, None]],
     count: int,
@@ -516,38 +544,10 @@ def main():
             asyncio.set_event_loop(loop)
             setup_signal_handlers(loop)
 
-            async def run_error_mode():
-                """Run health server in error state until shutdown signal."""
-                shutdown_event = get_shutdown_event()
-
-                # Start health server in error state on port 8080 (matches Jenkinsfile probes)
-                health_server = HealthCheckServer(
-                    port=8080,
-                    worker_name=args.worker,
-                    enabled=True,
-                )
-                health_server.set_error(f"Configuration error: {error_msg}")
-
-                await health_server.start()
-                logger.info(
-                    "Health server running in error mode",
-                    extra={
-                        "port": health_server.actual_port,
-                        "worker": args.worker,
-                        "error": error_msg,
-                    },
-                )
-
-                # Upload crash logs in background thread so health server stays responsive
-                await asyncio.to_thread(upload_crash_logs, f"Configuration error: {error_msg}")
-
-                # Wait for shutdown signal
-                await shutdown_event.wait()
-                logger.info("Shutdown signal received in error mode")
-                await health_server.stop()
-
             try:
-                loop.run_until_complete(run_error_mode())
+                loop.run_until_complete(
+                    run_error_mode(args.worker, f"Configuration error: {error_msg}")
+                )
             except KeyboardInterrupt:
                 logger.info(
                     "Keyboard interrupt received in error mode, shutting down..."
@@ -659,38 +659,10 @@ def main():
         logger.warning("Entering ERROR MODE - health endpoint will remain alive")
 
         # Run in error mode: keep health endpoint alive but report not ready
-        async def run_fatal_error_mode():
-            """Run health server in error state after fatal error."""
-            shutdown_event = get_shutdown_event()
-
-            # Start health server in error state on port 8080 (matches Jenkinsfile probes)
-            health_server = HealthCheckServer(
-                port=8080,
-                worker_name=args.worker,
-                enabled=True,
-            )
-            health_server.set_error(f"Fatal error: {error_msg}")
-
-            await health_server.start()
-            logger.info(
-                "Health server running in error mode after fatal error",
-                extra={
-                    "port": health_server.actual_port,
-                    "worker": args.worker,
-                    "error": error_msg,
-                },
-            )
-
-            # Upload crash logs in background thread so health server stays responsive
-            await asyncio.to_thread(upload_crash_logs, f"Fatal error: {error_msg}")
-
-            # Wait for shutdown signal
-            await shutdown_event.wait()
-            logger.info("Shutdown signal received in error mode")
-            await health_server.stop()
-
         try:
-            loop.run_until_complete(run_fatal_error_mode())
+            loop.run_until_complete(
+                run_error_mode(args.worker, f"Fatal error: {error_msg}")
+            )
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received in error mode, shutting down...")
     finally:
