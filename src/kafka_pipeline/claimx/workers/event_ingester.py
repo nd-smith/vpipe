@@ -81,11 +81,9 @@ class ClaimXEventIngesterWorker:
         self._last_cycle_processed = 0
         self._last_cycle_deduped = 0
 
-        # In-memory dedup cache prevents duplicate event processing when
-        # Eventhouse sends duplicates or Kafka retries deliver same message twice
-        self._dedup_cache: dict[str, float] = {}
-        self._dedup_cache_ttl_seconds = 86400
-        self._dedup_cache_max_size = 100_000
+        # Simple dedup set for recent events
+        # Kafka offset management + idempotent producer handles most duplicates
+        self._recent_events: set[str] = set()
         processing_config = config.get_worker_config(
             domain, "event_ingester", "processing"
         )
@@ -278,18 +276,9 @@ class ClaimXEventIngesterWorker:
 
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         start_time = time.perf_counter()
-        from kafka_pipeline.common.telemetry import SpanKind, get_tracer
-
-        tracer = get_tracer(__name__)
         try:
-            with tracer.start_active_span("event.parse") as scope:
-                span = scope.span if hasattr(scope, "span") else scope
-                span.set_tag("span.kind", "internal")
-                message_data = json.loads(record.value.decode("utf-8"))
-                event = ClaimXEventMessage.from_eventhouse_row(message_data)
-                span.set_tag("event.type", event.event_type)
-                span.set_tag("event.project_id", event.project_id)
-                span.set_tag("trace_id", event.event_id)
+            message_data = json.loads(record.value.decode("utf-8"))
+            event = ClaimXEventMessage.from_eventhouse_row(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse ClaimXEventMessage",
@@ -330,16 +319,9 @@ class ClaimXEventIngesterWorker:
                 "task_assignment_id": event.task_assignment_id,
             },
         )
-        with tracer.start_as_current_span(
-            "event.process", kind=SpanKind.INTERNAL
-        ) as span:
-            span.set_attribute("event.id", event.event_id)
-            span.set_attribute("event.type", event.event_type)
-            span.set_attribute("project.id", event.project_id)
-            await self._create_enrichment_task(event)
+        await self._create_enrichment_task(event)
 
         self._mark_processed(event_id)
-        self._cleanup_dedup_cache()
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
             topic=self.consumer_config.get_topic(self.domain, "events"),
@@ -390,52 +372,10 @@ class ClaimXEventIngesterWorker:
             raise
 
     def _is_duplicate(self, event_id: str) -> bool:
-        now = time.time()
-        if event_id in self._dedup_cache:
-            cached_time = self._dedup_cache[event_id]
-            if now - cached_time < self._dedup_cache_ttl_seconds:
-                return True
-            del self._dedup_cache[event_id]
-
-        return False
+        return event_id in self._recent_events
 
     def _mark_processed(self, event_id: str) -> None:
-        now = time.time()
-        if len(self._dedup_cache) >= self._dedup_cache_max_size:
-            sorted_items = sorted(self._dedup_cache.items(), key=lambda x: x[1])
-            evict_count = self._dedup_cache_max_size // 10
-            for event_id_to_evict, _ in sorted_items[:evict_count]:
-                del self._dedup_cache[event_id_to_evict]
-
-            logger.debug(
-                "Evicted old entries from event dedup cache",
-                extra={
-                    "evicted_count": evict_count,
-                    "cache_size": len(self._dedup_cache),
-                },
-            )
-
-        self._dedup_cache[event_id] = now
-
-    def _cleanup_dedup_cache(self) -> None:
-        now = time.time()
-        expired_keys = [
-            event_id
-            for event_id, cached_time in self._dedup_cache.items()
-            if now - cached_time >= self._dedup_cache_ttl_seconds
-        ]
-
-        for event_id in expired_keys:
-            del self._dedup_cache[event_id]
-
-        if expired_keys:
-            logger.debug(
-                "Cleaned up expired event dedup cache entries",
-                extra={
-                    "expired_count": len(expired_keys),
-                    "cache_size": len(self._dedup_cache),
-                },
-            )
+        self._recent_events.add(event_id)
 
     async def _periodic_cycle_output(self) -> None:
         logger.info(

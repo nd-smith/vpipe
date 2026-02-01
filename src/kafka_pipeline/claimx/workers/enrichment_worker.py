@@ -604,17 +604,7 @@ class ClaimXEnrichmentWorker:
         Returns:
             HandlerResult with entity rows and metadata
         """
-        from kafka_pipeline.common.telemetry import get_tracer
-
-        tracer = get_tracer(__name__)
-        with tracer.start_active_span("claimx.api.enrich") as scope:
-            span = scope.span if hasattr(scope, "span") else scope
-            span.set_tag("span.kind", "client")
-            span.set_tag("event.id", task.event_id)
-            span.set_tag("event.type", task.event_type)
-            span.set_tag("project.id", task.project_id)
-            handler_result = await handler.process([event])
-
+        handler_result = await handler.process([event])
         return handler_result
 
     def _dispatch_entity_rows(
