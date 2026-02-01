@@ -10,6 +10,8 @@ import os
 import re
 from urllib.parse import urlparse, urlunparse
 
+from core.security.exceptions import URLValidationError
+
 # Allowed schemes for attachment downloads
 ALLOWED_SCHEMES: set[str] = {"https", "http"}
 
@@ -68,7 +70,7 @@ def validate_download_url(
     url: str,
     allowed_domains: set[str] | None = None,
     allow_localhost: bool = False,
-) -> tuple[bool, str]:
+) -> None:
     """
     Validate URL against domain allowlist to prevent SSRF attacks.
 
@@ -81,22 +83,22 @@ def validate_download_url(
         allowed_domains: Set of allowed domain names (None = use default allowlist)
         allow_localhost: Allow localhost URLs for simulation mode (auto-blocked in production)
 
-    Returns:
-        Tuple of (is_valid, error_message)
+    Raises:
+        URLValidationError: If URL validation fails
     """
     if not url:
-        return False, "Empty URL"
+        raise URLValidationError("Empty URL")
 
     # Parse URL safely
     try:
         parsed = urlparse(url)
     except Exception as e:
-        return False, f"Invalid URL format: {e}"
+        raise URLValidationError(f"Invalid URL format: {e}")
 
     # Extract hostname
     hostname = parsed.hostname
     if not hostname:
-        return False, "No hostname in URL"
+        raise URLValidationError("No hostname in URL")
 
     # Normalize hostname to lowercase for comparison
     hostname_lower = hostname.lower()
@@ -114,7 +116,7 @@ def validate_download_url(
                 "environment": os.getenv("ENVIRONMENT", "unknown"),
             },
         )
-        return False, (
+        raise URLValidationError(
             "Localhost URLs are not allowed in production. "
             "This indicates a configuration error - simulation mode should not be enabled in production."
         )
@@ -129,12 +131,11 @@ def validate_download_url(
 
     # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
     if (is_localhost or is_simulation_internal) and allow_localhost:
-        return _validate_localhost_url(url, parsed)
+        _validate_localhost_url(url, parsed)
+        return
 
     # For non-localhost or localhost when not allowed, use production validation
-    return _validate_production_url(
-        url, parsed, hostname, hostname_lower, allowed_domains
-    )
+    _validate_production_url(url, parsed, hostname, hostname_lower, allowed_domains)
 
 
 def _is_production_environment() -> bool:
@@ -157,7 +158,7 @@ def _is_production_environment() -> bool:
     return False
 
 
-def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
+def _validate_localhost_url(url: str, parsed) -> None:
     """
     Validate localhost URL for simulation mode.
 
@@ -168,8 +169,8 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
         url: Original URL string
         parsed: Already-parsed URL object from urlparse()
 
-    Returns:
-        Tuple of (is_valid, error_message)
+    Raises:
+        URLValidationError: If validation fails
     """
     from core.logging.setup import get_logger
 
@@ -179,7 +180,9 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
     # We allow https too for flexibility, but http is typical for local servers
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https"):
-        return False, f"Localhost URLs must use http or https scheme, got: {scheme}"
+        raise URLValidationError(
+            f"Localhost URLs must use http or https scheme, got: {scheme}"
+        )
 
     # Verify hostname is actually localhost, 127.0.0.1, or simulation internal hostname
     hostname_lower = (parsed.hostname or "").lower()
@@ -189,7 +192,7 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
         or hostname_lower.startswith("pcesdopodappv1_")
     )
     if not is_valid_internal:
-        return False, f"Invalid localhost/internal hostname: {hostname_lower}"
+        raise URLValidationError(f"Invalid localhost/internal hostname: {hostname_lower}")
 
     # Check for path traversal attempts
     if ".." in parsed.path:
@@ -197,7 +200,7 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
             "Blocked localhost URL with path traversal attempt",
             extra={"url_path": parsed.path},
         )
-        return False, "Path traversal detected in URL"
+        raise URLValidationError("Path traversal detected in URL")
 
     # Check for credential injection (user:pass@localhost)
     if "@" in url and parsed.username:
@@ -205,7 +208,7 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
             "Blocked localhost URL with credential injection attempt",
             extra={"url_username": parsed.username},
         )
-        return False, "Credential injection detected in URL"
+        raise URLValidationError("Credential injection detected in URL")
 
     # Check for suspicious query parameters (common in SSRF attacks)
     if parsed.query:
@@ -218,7 +221,9 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
                     "Blocked localhost URL with suspicious query parameter",
                     extra={"query_pattern": pattern},
                 )
-                return False, f"Suspicious query parameter detected: {pattern}"
+                raise URLValidationError(
+                    f"Suspicious query parameter detected: {pattern}"
+                )
 
     # Log localhost URL access for audit trail
     logger.debug(
@@ -231,8 +236,6 @@ def _validate_localhost_url(url: str, parsed) -> tuple[bool, str]:
         },
     )
 
-    return True, ""
-
 
 def _validate_production_url(
     url: str,
@@ -240,7 +243,7 @@ def _validate_production_url(
     hostname: str,
     hostname_lower: str,
     allowed_domains: set[str] | None,
-) -> tuple[bool, str]:
+) -> None:
     """
     Validate URL for production use with standard SSRF protection.
 
@@ -251,8 +254,8 @@ def _validate_production_url(
         hostname_lower: Lowercase hostname for comparison
         allowed_domains: Set of allowed domains (None = use defaults)
 
-    Returns:
-        Tuple of (is_valid, error_message)
+    Raises:
+        URLValidationError: If validation fails
     """
     # Get allowed domains
     if allowed_domains is None:
@@ -263,24 +266,21 @@ def _validate_production_url(
     # Require HTTPS for production URLs
     scheme = parsed.scheme.lower()
     if scheme not in ALLOWED_SCHEMES:
-        return False, f"Invalid scheme: {scheme}"
+        raise URLValidationError(f"Invalid scheme: {scheme}")
     if scheme != "https":
-        return False, f"Must be HTTPS, got {scheme}"
+        raise URLValidationError(f"Must be HTTPS, got {scheme}")
 
     # Block localhost/127.0.0.1 and other blocked hosts
     if hostname_lower in BLOCKED_HOSTS:
-        return False, f"Blocked host: {hostname}"
+        raise URLValidationError(f"Blocked host: {hostname}")
 
     # Block private IPs
     if is_private_ip(hostname):
-        return False, f"Private IP address not allowed: {hostname}"
+        raise URLValidationError(f"Private IP address not allowed: {hostname}")
 
     # Check domain allowlist
     if hostname_lower not in allowed_domains:
-        return False, f"Domain not in allowlist: {hostname}"
-
-    # All checks passed
-    return True, ""
+        raise URLValidationError(f"Domain not in allowlist: {hostname}")
 
 
 def is_private_ip(hostname: str) -> bool:

@@ -21,6 +21,11 @@ Review checklist:
     [ ] No bypass vectors exist
 """
 
+from core.security.exceptions import (
+    FileValidationError,
+    URLValidationError,
+    ValidationError,
+)
 from core.security.file_validation import (
     ALLOWED_CONTENT_TYPES,
     ALLOWED_EXTENSIONS,
@@ -45,6 +50,10 @@ from core.security.url_validation import (
 )
 
 __all__ = [
+    # Exceptions
+    "ValidationError",
+    "URLValidationError",
+    "FileValidationError",
     # URL validation
     "validate_download_url",
     "get_allowed_domains",

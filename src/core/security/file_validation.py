@@ -7,6 +7,8 @@ Supports validation by file extension and Content-Type header.
 
 from urllib.parse import parse_qs, urlparse
 
+from core.security.exceptions import FileValidationError
+
 # Allowed file extensions (case-insensitive)
 ALLOWED_EXTENSIONS: set[str] = {
     # Documents
@@ -139,7 +141,7 @@ def validate_file_type(
     content_type: str | None = None,
     allowed_extensions: set[str] | None = None,
     allowed_content_types: set[str] | None = None,
-) -> tuple[bool, str]:
+) -> None:
     """
     Validate file type against allowed extensions and content types.
 
@@ -152,11 +154,11 @@ def validate_file_type(
         allowed_extensions: Custom allowed extensions (None = use defaults)
         allowed_content_types: Custom allowed MIME types (None = use defaults)
 
-    Returns:
-        Tuple of (is_valid, error_message)
+    Raises:
+        FileValidationError: If validation fails
     """
     if not filename_or_url:
-        return False, "Empty filename or URL"
+        raise FileValidationError("Empty filename or URL")
 
     # Use default allowed lists if not provided
     if allowed_extensions is None:
@@ -171,19 +173,19 @@ def validate_file_type(
     # Extract and validate extension
     extension = extract_extension(filename_or_url)
     if extension is None:
-        return False, "No file extension found"
+        raise FileValidationError("No file extension found")
 
     if extension not in allowed_extensions:
-        return False, f"File extension '{extension}' not allowed"
+        raise FileValidationError(f"File extension '{extension}' not allowed")
 
     # Validate Content-Type if provided
     if content_type:
         normalized_ct = normalize_content_type(content_type)
         if not normalized_ct:
-            return False, "Invalid Content-Type header"
+            raise FileValidationError("Invalid Content-Type header")
 
         if normalized_ct not in allowed_content_types:
-            return False, f"Content-Type '{normalized_ct}' not allowed"
+            raise FileValidationError(f"Content-Type '{normalized_ct}' not allowed")
 
         # Additional check: extension and Content-Type should be compatible
         # (defense against spoofing)
@@ -194,13 +196,9 @@ def validate_file_type(
                 expected_mimes = {expected_mimes}
 
             if normalized_ct not in expected_mimes:
-                return (
-                    False,
-                    f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'",
+                raise FileValidationError(
+                    f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'"
                 )
-
-    # All checks passed
-    return True, ""
 
 
 def is_allowed_extension(extension: str) -> bool:
