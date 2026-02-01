@@ -96,7 +96,7 @@ class ClaimXEnrichmentWorker:
         self.entity_rows_topic = config.get_topic(domain, "enriched")
         self.enable_delta_writes = enable_delta_writes
 
-        # Create worker_id with instance suffix (coolname) if provided
+        # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:

@@ -99,7 +99,7 @@ class ClaimXDeltaEventsWorker:
         self.consumer: BaseKafkaConsumer | None = None
         self.producer = producer
 
-        # Create worker_id with instance suffix (coolname) if provided
+        # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:

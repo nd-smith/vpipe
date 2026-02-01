@@ -105,7 +105,7 @@ class UploadWorker:
         self.domain = domain
         self.instance_id = instance_id
 
-        # Create worker_id with instance suffix (coolname) if provided
+        # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
             self.worker_id = (
                 f"{self.WORKER_NAME}-{instance_id}"  # e.g., "upload_worker-happy-tiger"

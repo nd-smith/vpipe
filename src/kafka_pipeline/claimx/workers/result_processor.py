@@ -93,7 +93,7 @@ class ClaimXResultProcessor:
         self.worker_name = "result_processor"
         self.instance_id = instance_id
 
-        # Create worker_id with instance suffix (coolname) if provided
+        # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:

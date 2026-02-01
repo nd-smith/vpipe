@@ -7,12 +7,11 @@ import os
 import secrets
 import shutil
 import sys
+import threading
 import time
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-
-import coolname
 
 from core.logging.context import set_log_context
 from core.logging.filters import StageContextFilter
@@ -25,6 +24,21 @@ DEFAULT_ROTATION_INTERVAL = 1  # Interval for rotation (every 1 hour)
 DEFAULT_BACKUP_COUNT = 24  # Keep 24 hours of logs by default
 DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
+
+# Instance ID counter for multi-worker deployments
+# Use ordinal numbers (0, 1, 2, ...) instead of random names for production monitoring
+_instance_counter = 0
+_instance_counter_lock = threading.Lock()
+
+
+def _get_next_instance_id() -> str:
+    """Get next instance ID as ordinal number (thread-safe)."""
+    global _instance_counter
+    with _instance_counter_lock:
+        instance_id = str(_instance_counter)
+        _instance_counter += 1
+        return instance_id
+
 
 # Noisy loggers to suppress
 NOISY_LOGGERS = [
@@ -255,13 +269,13 @@ def get_log_file_path(
     New Structure: {log_dir}/{domain}/{YYYY-MM-DD}/{domain}_{stage}_{MMDD}_{HHMM}_{phrase}.log
 
     Examples:
-        logs/xact/2026-01-05/xact_download_0105_1430_happy-tiger.log
-        logs/claimx/2026-01-05/claimx_enricher_0105_0930_calm-ocean.log
+        logs/xact/2026-01-05/xact_download_0105_1430_0.log
+        logs/claimx/2026-01-05/claimx_enricher_0105_0930_1.log
 
     When instance_id is provided, it's appended to the filename to prevent
     file locking conflicts when multiple workers of the same type run
-    concurrently. If instance_id is not provided, a random coolname phrase
-    is generated.
+    concurrently. If instance_id is not provided, an ordinal number is
+    generated.
 
     Args:
         log_dir: Base log directory
@@ -287,14 +301,14 @@ def get_log_file_path(
     else:
         base_name = f"pipeline_{date_str}_{time_str}"
 
-    # Generate or use instance ID (coolname phrase)
+    # Generate or use instance ID (ordinal number)
     if instance_id:
         phrase = instance_id
     else:
-        # Generate a random 2-word coolname phrase (e.g., "happy-tiger")
-        phrase = coolname.generate_slug(2)
+        # Generate ordinal instance ID (e.g., "0", "1", "2")
+        phrase = _get_next_instance_id()
 
-    # Append phrase to filename
+    # Append instance ID to filename
     filename = f"{base_name}_{phrase}.log"
 
     # Build path with subfolders
@@ -392,9 +406,9 @@ def setup_logging(
         console_handler.setLevel(console_level)
         console_handler.setFormatter(console_formatter)
 
-        # Generate human-readable instance ID for multi-worker isolation
-        # Uses coolname to generate phrases like "happy-tiger" or "calm-ocean"
-        instance_id = coolname.generate_slug(2) if use_instance_id else None
+        # Generate ordinal instance ID for multi-worker isolation
+        # Uses ordinal numbers (0, 1, 2, ...) for clear identification in production
+        instance_id = _get_next_instance_id() if use_instance_id else None
 
         # Build log file path with subfolders
         log_file = get_log_file_path(
@@ -580,8 +594,8 @@ def setup_multi_worker_logging(
         console_handler.setLevel(console_level)
         root_logger.addHandler(console_handler)
 
-        # Generate human-readable instance ID for multi-instance isolation
-        instance_id = coolname.generate_slug(2) if use_instance_id else None
+        # Generate ordinal instance ID for multi-instance isolation
+        instance_id = _get_next_instance_id() if use_instance_id else None
 
         # Create formatters
         if json_format:
