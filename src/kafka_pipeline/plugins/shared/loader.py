@@ -14,7 +14,6 @@ import yaml
 from core.logging import log_with_context
 from kafka_pipeline.plugins.shared.base import Plugin
 from kafka_pipeline.plugins.shared.registry import PluginRegistry, get_plugin_registry
-from kafka_pipeline.plugins.shared.task_trigger import TaskTriggerPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -22,32 +21,24 @@ logger = logging.getLogger(__name__)
 def load_plugins_from_directory(
     plugins_dir: str,
     registry: PluginRegistry | None = None,
+    exclude_dirs: set[str] = None,
 ) -> list[Plugin]:
     """
     Load all plugins from a directory structure.
 
-    Scans plugins_dir for subdirectories, each representing a plugin.
-    Each plugin directory should contain a config.yaml file.
-
-    Directory structure:
-        config/plugins/
-            shared/
-                task_trigger/
-                    config.yaml
-                    README.md (optional)
-            plugin_name/
-                config.yaml
-                README.md (optional)
+    Each plugin directory should contain a config.yaml or plugin.yaml file.
 
     Args:
-        plugins_dir: Path to plugins directory (e.g., "config/plugins")
+        plugins_dir: Path to plugins directory
         registry: Registry to register plugins to (uses global if not provided)
+        exclude_dirs: Directory names to exclude (default: {"connections"})
 
     Returns:
         List of loaded plugins
     """
     registry = registry or get_plugin_registry()
     plugins_path = Path(plugins_dir)
+    exclude_dirs = exclude_dirs or {"connections"}
 
     if not plugins_path.exists():
         log_with_context(
@@ -69,15 +60,11 @@ def load_plugins_from_directory(
 
     plugins_loaded = []
 
-    # Recursively scan for config.yaml files in all subdirectories
-    # This supports nested directory structures like:
-    #   plugins/claimx/my_plugin/config.yaml
-    #   plugins/xact/status_trigger/config.yaml
-    config_files = list(plugins_path.rglob("config.yaml"))
-    config_files.extend(plugins_path.rglob("plugin.yaml"))
-
-    # Skip shared/connections directory (contains connection configs, not plugins)
-    config_files = [f for f in config_files if "connections" not in f.parts]
+    config_files = []
+    for pattern in ("config.yaml", "plugin.yaml"):
+        for config_file in plugins_path.rglob(pattern):
+            if not any(excluded in config_file.parts for excluded in exclude_dirs):
+                config_files.append(config_file)
 
     if not config_files:
         log_with_context(
@@ -145,20 +132,7 @@ def load_plugins_from_yaml(
     config_path: str,
     registry: PluginRegistry | None = None,
 ) -> list[Plugin]:
-    """
-    Load plugin configurations from YAML file.
-
-    Supports two formats:
-    1. New generic format with 'plugins' list (module/class specification)
-    2. Legacy 'task_triggers' format
-
-    Args:
-        config_path: Path to YAML configuration file
-        registry: Registry to register plugins to (uses global if not provided)
-
-    Returns:
-        List of loaded plugins
-    """
+    """Load plugin configurations from YAML file."""
     registry = registry or get_plugin_registry()
     path = Path(config_path)
 
@@ -184,19 +158,9 @@ def load_plugins_from_yaml(
         return []
 
     plugins_loaded = []
-
-    # Load plugins from new generic format
     plugins_config = config.get("plugins", [])
     for plugin_config in plugins_config:
         plugin = _create_plugin_from_config(plugin_config)
-        if plugin:
-            registry.register(plugin)
-            plugins_loaded.append(plugin)
-
-    # Load legacy task triggers (backwards compatibility)
-    task_triggers = config.get("task_triggers", [])
-    for trigger_config in task_triggers:
-        plugin = _create_task_trigger_from_config(trigger_config)
         if plugin:
             registry.register(plugin)
             plugins_loaded.append(plugin)
@@ -306,56 +270,6 @@ def _create_plugin_from_config(config: dict[str, Any]) -> Plugin | None:
         return None
 
 
-def _create_task_trigger_from_config(
-    config: dict[str, Any],
-) -> TaskTriggerPlugin | None:
-    """
-    Create TaskTriggerPlugin from YAML config.
-
-    Expected format:
-        name: my_task_trigger
-        description: "Triggers on specific tasks"
-        enabled: true
-        triggers:
-          - task_id: 456
-            name: "Photo Documentation"
-            on_assigned:
-              publish_to_topic: task-456-assigned
-            on_completed:
-              publish_to_topic: task-456-completed
-              webhook: https://api.example.com/notify
-    """
-    if not config.get("enabled", True):
-        return None
-
-    name = config.get("name", "task_trigger")
-    description = config.get("description", "")
-
-    # Convert triggers list to dict keyed by task_id
-    triggers_dict = {}
-    for trigger in config.get("triggers", []):
-        task_id = trigger.get("task_id")
-        if task_id is not None:
-            triggers_dict[task_id] = {
-                "name": trigger.get("name", f"Task {task_id}"),
-                "on_assigned": trigger.get("on_assigned"),
-                "on_completed": trigger.get("on_completed"),
-                "on_any": trigger.get("on_any"),
-            }
-
-    plugin = TaskTriggerPlugin(
-        config={
-            "triggers": triggers_dict,
-            "include_task_data": config.get("include_task_data", True),
-            "include_project_data": config.get("include_project_data", False),
-        }
-    )
-
-    # Override metadata
-    plugin.name = name
-    plugin.description = description
-
-    return plugin
 
 
 def load_plugins_from_config(
