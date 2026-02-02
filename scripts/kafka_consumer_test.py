@@ -51,6 +51,7 @@ consumer = KafkaConsumer(
     sasl_plain_username="$ConnectionString",
     sasl_plain_password=conn_str,
     ssl_context=ssl_context,
+    api_version=(1, 0, 0),  # skip auto-detection; Event Hubs drops ApiVersionsRequest
     group_id=consumer_group,
     auto_offset_reset=auto_offset_reset,
     consumer_timeout_ms=60000,
