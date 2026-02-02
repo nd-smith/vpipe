@@ -141,12 +141,13 @@ class TaskTriggerPlugin(Plugin):
 
     async def execute(self, context: PluginContext) -> PluginResult:
         """
-                Check if task matches a trigger and execute actions.
+        Check if task matches a trigger and execute actions.
 
-                Args:
-        v
-                Returns:
-                    PluginResult with actions to execute
+        Args:
+            context: Plugin execution context with event and enriched data
+
+        Returns:
+            PluginResult with actions to execute
         """
         # Get task data from enriched entities
         task = context.get_first_task()

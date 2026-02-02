@@ -123,11 +123,6 @@ class EventIngesterWorker:
             },
         )
 
-    @property
-    def config(self) -> KafkaConfig:
-        """Backward-compatible property returning consumer_config."""
-        return self.consumer_config
-
     async def start(self) -> None:
         logger.info("Starting EventIngesterWorker")
         self._running = True

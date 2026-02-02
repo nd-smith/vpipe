@@ -142,6 +142,7 @@ class DownloadWorker:
 
         self._consumer: AIOKafkaConsumer | None = None
         self._running = False
+        self._initialized = False
 
         # Worker-specific processing config
         processing_config = config.get_worker_config(
@@ -263,6 +264,7 @@ class DownloadWorker:
         await self._create_consumer()
 
         self._running = True
+        self._initialized = True
 
         self._stats_logger = PeriodicStatsLogger(
             interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,

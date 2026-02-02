@@ -356,8 +356,8 @@ def main():
     )
     parser.add_argument(
         "--table-path",
-        default=os.getenv("XACT_EVENTS_TABLE_PATH", ""),
-        help="Path to xact_events Delta table (default: XACT_EVENTS_TABLE_PATH env var)",
+        default=os.getenv("VERISK_EVENTS_TABLE_PATH", ""),
+        help="Path to verisk_events Delta table (default: VERISK_EVENTS_TABLE_PATH env var)",
     )
     parser.add_argument(
         "--since",
