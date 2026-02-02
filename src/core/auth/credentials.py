@@ -6,6 +6,7 @@ Thread-safe via TokenCache. Auth priority: token file > cached token > SPN secre
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from core.auth.token_cache import TokenCache
 

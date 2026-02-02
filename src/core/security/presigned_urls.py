@@ -207,3 +207,26 @@ def _parse_claimx_url(url: str) -> PresignedUrlInfo:
             is_expired=False,
             parse_error=f"Parse error: {e}",
         )
+
+
+def extract_expires_at_iso(url: str) -> str | None:
+    """
+    Extract expiration timestamp from presigned URL as ISO format string.
+
+    Args:
+        url: Presigned URL to parse
+
+    Returns:
+        ISO format timestamp string (e.g., "2024-01-15T14:30:00+00:00") or None if:
+        - URL is not a presigned URL
+        - URL has parse errors
+        - Expiration timestamp cannot be determined
+    """
+    info = check_presigned_url(url)
+
+    # Return None if not a presigned URL or if there's a parse error
+    if not info.is_presigned or info.parse_error or not info.expires_at:
+        return None
+
+    # Return ISO format timestamp
+    return info.expires_at.isoformat()

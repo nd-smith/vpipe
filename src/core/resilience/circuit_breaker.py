@@ -543,6 +543,56 @@ def get_circuit_breaker(
         return _breakers[name]
 
 
+def circuit_protected(
+    name: str,
+    config: CircuitBreakerConfig | None = None,
+    metrics_collector: MetricsCollector | None = None,
+    error_classifier: ErrorClassifier | None = None,
+):
+    """
+    Decorator to protect a function with a circuit breaker.
+
+    Usage:
+        @circuit_protected("my_service", CircuitBreakerConfig(failure_threshold=5))
+        def call_external_service():
+            return external_api.call()
+
+    Args:
+        name: Circuit breaker name
+        config: Circuit breaker configuration
+        metrics_collector: Optional metrics collector
+        error_classifier: Optional error classifier
+
+    Returns:
+        Decorator function
+    """
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        breaker = get_circuit_breaker(name, config, metrics_collector, error_classifier)
+
+        def wrapper(*args, **kwargs) -> T:
+            with breaker._lock:
+                breaker._stats.total_calls += 1
+                if not breaker._can_execute():
+                    breaker._stats.rejected_calls += 1
+                    retry_after = breaker._get_retry_after()
+                    raise CircuitOpenError(breaker.name, retry_after)
+
+            try:
+                result = func(*args, **kwargs)
+                with breaker._lock:
+                    breaker._record_success()
+                return result
+            except Exception as e:
+                with breaker._lock:
+                    breaker._record_failure(e)
+                raise
+
+        return wrapper
+
+    return decorator
+
+
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerConfig",
@@ -551,6 +601,7 @@ __all__ = [
     "CircuitStats",
     "ErrorClassifier",
     "MetricsCollector",
+    "circuit_protected",
     "get_circuit_breaker",
     # Standard configs
     "CLAIMX_API_CIRCUIT_CONFIG",

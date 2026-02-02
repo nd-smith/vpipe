@@ -896,3 +896,21 @@ class ActionExecutor:
         )
 
 
+# Global registry instance for testing
+_global_registry: PluginRegistry | None = None
+
+
+def get_global_registry() -> PluginRegistry:
+    """Get or create the global plugin registry instance."""
+    global _global_registry
+    if _global_registry is None:
+        _global_registry = PluginRegistry()
+    return _global_registry
+
+
+def reset_plugin_registry() -> None:
+    """Reset the global plugin registry (for testing)."""
+    global _global_registry
+    _global_registry = None
+
+
