@@ -279,7 +279,7 @@ async def run_all_workers(
 
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
         events_table_path = (
-            pipeline_config.verisk_eventhouse.xact_events_table_path
+            pipeline_config.verisk_eventhouse.verisk_events_table_path
             or pipeline_config.events_table_path
         )
     else:

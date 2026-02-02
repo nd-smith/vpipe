@@ -62,8 +62,8 @@ class TestEventhouseSourceConfig:
             poll_interval_seconds=60,
             batch_size=500,
             query_timeout_seconds=180,
-            xact_events_table_path="abfss://container@storage.dfs.core.windows.net/xact_events",
-            xact_events_window_hours=48,
+            verisk_events_table_path="abfss://container@storage.dfs.core.windows.net/xact_events",
+            verisk_events_window_hours=48,
             eventhouse_query_window_hours=2,
             overlap_minutes=10,
         )
@@ -88,8 +88,8 @@ class TestEventhouseSourceConfig:
             "POLL_INTERVAL_SECONDS": "45",
             "POLL_BATCH_SIZE": "750",
             "EVENTHOUSE_QUERY_TIMEOUT": "150",
-            "XACT_EVENTS_TABLE_PATH": "abfss://test/xact_events",
-            "DEDUP_XACT_EVENTS_WINDOW_HOURS": "36",
+            "VERISK_EVENTS_TABLE_PATH": "abfss://test/xact_events",
+            "DEDUP_VERISK_EVENTS_WINDOW_HOURS": "36",
             "DEDUP_EVENTHOUSE_WINDOW_HOURS": "3",
             "DEDUP_OVERLAP_MINUTES": "8",
         }
