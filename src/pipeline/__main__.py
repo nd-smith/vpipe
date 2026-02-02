@@ -439,9 +439,10 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
-    from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+    if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
+        from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
 
-    apply_ssl_dev_bypass()
+        apply_ssl_dev_bypass()
 
     global logger
     args = parse_args()

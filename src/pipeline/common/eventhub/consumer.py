@@ -20,6 +20,7 @@ Checkpoint persistence:
 import asyncio
 import json
 import logging
+import os
 import socket
 import time
 from collections.abc import Awaitable, Callable
@@ -237,9 +238,10 @@ class EventHubConsumer:
         try:
             # Apply SSL dev bypass if configured
             # This must be done before creating the client
-            from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+            if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
+                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
 
-            apply_ssl_dev_bypass()
+                apply_ssl_dev_bypass()
 
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
