@@ -7,6 +7,7 @@ Each worker entry specifies:
 """
 
 import asyncio
+import inspect
 from typing import Any
 
 from pipeline.runners import claimx_runners, verisk_runners
@@ -154,6 +155,10 @@ async def run_worker_from_registry(
     if instance_id is not None:
         kwargs["instance_id"] = instance_id
 
-    # Run the worker
+    # Run the worker, passing only kwargs that match the runner's signature
     runner = worker_def["runner"]
-    await runner(**kwargs)
+    sig = inspect.signature(runner)
+    filtered_kwargs = {
+        k: v for k, v in kwargs.items() if k in sig.parameters
+    }
+    await runner(**filtered_kwargs)
