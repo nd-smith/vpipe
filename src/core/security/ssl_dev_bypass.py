@@ -74,9 +74,70 @@ def apply_ssl_dev_bypass() -> None:
         # name "SSLContext" from the ssl module's globals. After we replace
         # ssl.SSLContext with this subclass, that super() call resolves back
         # to _UnverifiedSSLContext, causing infinite recursion.
+        #
+        # We must ALSO override every property whose setter in the parent
+        # class uses super(SSLContext, SSLContext), because any code that
+        # later assigns ctx.verify_mode = ..., ctx.options |= ..., etc.
+        # will trigger the parent's setter and recurse. Overriding them
+        # here short-circuits the chain by going straight to the C-level
+        # descriptors on _ssl._SSLContext.
+
         def __init__(self, *args, **kwargs):
             _ssl._SSLContext.check_hostname.__set__(self, False)
             _ssl._SSLContext.verify_mode.__set__(self, ssl.CERT_NONE)
+
+        # -- verify_mode / check_hostname: always force bypass values ------
+
+        @property
+        def verify_mode(self):
+            return _ssl._SSLContext.verify_mode.__get__(self, type(self))
+
+        @verify_mode.setter
+        def verify_mode(self, value):
+            _ssl._SSLContext.check_hostname.__set__(self, False)
+            _ssl._SSLContext.verify_mode.__set__(self, ssl.CERT_NONE)
+
+        @property
+        def check_hostname(self):
+            return _ssl._SSLContext.check_hostname.__get__(self, type(self))
+
+        @check_hostname.setter
+        def check_hostname(self, value):
+            _ssl._SSLContext.check_hostname.__set__(self, False)
+
+        # -- remaining properties: pass through via C descriptors ----------
+
+        @property
+        def options(self):
+            return _ssl._SSLContext.options.__get__(self, type(self))
+
+        @options.setter
+        def options(self, value):
+            _ssl._SSLContext.options.__set__(self, value)
+
+        @property
+        def verify_flags(self):
+            return _ssl._SSLContext.verify_flags.__get__(self, type(self))
+
+        @verify_flags.setter
+        def verify_flags(self, value):
+            _ssl._SSLContext.verify_flags.__set__(self, value)
+
+        @property
+        def minimum_version(self):
+            return _ssl._SSLContext.minimum_version.__get__(self, type(self))
+
+        @minimum_version.setter
+        def minimum_version(self, value):
+            _ssl._SSLContext.minimum_version.__set__(self, value)
+
+        @property
+        def maximum_version(self):
+            return _ssl._SSLContext.maximum_version.__get__(self, type(self))
+
+        @maximum_version.setter
+        def maximum_version(self, value):
+            _ssl._SSLContext.maximum_version.__set__(self, value)
 
     ssl.SSLContext = _UnverifiedSSLContext
 
