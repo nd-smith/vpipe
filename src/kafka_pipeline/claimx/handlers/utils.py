@@ -18,6 +18,10 @@ LOG_VALUE_TRUNCATE = 100  # For truncating values in log messages
 LOG_ERROR_TRUNCATE_SHORT = 200  # For shorter error messages
 LOG_ERROR_TRUNCATE_LONG = 500  # For longer error messages
 
+# API call counts for error handling decorator
+API_CALLS_SINGLE = 1  # Single API fetch (e.g., project verification only)
+API_CALLS_WITH_VERIFICATION = 2  # Primary fetch + project verification
+
 
 def safe_int(value: Any) -> int | None:
     if value is None:

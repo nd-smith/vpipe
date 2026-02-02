@@ -17,6 +17,7 @@ from kafka_pipeline.claimx.handlers.base import (
     with_api_error_handling,
 )
 from kafka_pipeline.claimx.handlers.utils import (
+    API_CALLS_WITH_VERIFICATION,
     elapsed_ms,
     safe_int,
 )
@@ -44,7 +45,7 @@ class TaskHandler(EventHandler):
     HANDLER_NAME = "task"
 
     @with_api_error_handling(
-        api_calls=2,  # Task + Project verification
+        api_calls=API_CALLS_WITH_VERIFICATION,  # Task + Project verification
         log_context=lambda e: {
             "event_id": e.event_id,
             "task_assignment_id": e.task_assignment_id,

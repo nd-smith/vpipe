@@ -17,6 +17,7 @@ from kafka_pipeline.claimx.handlers.base import (
     with_api_error_handling,
 )
 from kafka_pipeline.claimx.handlers.utils import (
+    API_CALLS_WITH_VERIFICATION,
     elapsed_ms,
 )
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
@@ -40,7 +41,7 @@ class VideoCollabHandler(EventHandler):
     HANDLER_NAME = "video"
 
     @with_api_error_handling(
-        api_calls=2,  # Video + Project verification
+        api_calls=API_CALLS_WITH_VERIFICATION,  # Video + Project verification
         log_context=lambda e: {"event_id": e.event_id, "project_id": e.project_id},
     )
     async def handle_event(

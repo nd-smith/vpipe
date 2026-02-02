@@ -22,7 +22,11 @@ from kafka_pipeline.claimx.handlers.base import (
     register_handler,
     with_api_error_handling,
 )
-from kafka_pipeline.claimx.handlers.utils import elapsed_ms, now_datetime
+from kafka_pipeline.claimx.handlers.utils import (
+    API_CALLS_SINGLE,
+    elapsed_ms,
+    now_datetime,
+)
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
@@ -70,7 +74,7 @@ class ProjectUpdateHandler(EventHandler):
     HANDLER_NAME = "project_update"
 
     @with_api_error_handling(
-        api_calls=1,  # Project verification (when required)
+        api_calls=API_CALLS_SINGLE,  # Project verification (when required)
         log_context=lambda e: {"event_id": e.event_id, "project_id": e.project_id},
     )
     async def handle_event(
