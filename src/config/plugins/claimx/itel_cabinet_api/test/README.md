@@ -31,7 +31,7 @@ In `config/plugins/claimx/itel_cabinet_api/workers.yaml`:
 ```yaml
 itel_cabinet_api_worker:
   enrichment_handlers:
-    - type: kafka_pipeline.plugins.itel_cabinet_api.handlers.itel_api_sender:ItelApiSender
+    - type: pipeline.plugins.itel_cabinet_api.handlers.itel_api_sender:ItelApiSender
       config:
         test_mode: true                                           # Enable test mode
         test_output_dir: "config/plugins/claimx/itel_cabinet_api/test"  # Output directory

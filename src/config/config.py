@@ -202,7 +202,7 @@ class KafkaConfig:
     onelake_domain_paths: dict[str, str] = field(default_factory=dict)
     cache_dir: str = field(
         default_factory=lambda: str(
-            Path(tempfile.gettempdir()) / "kafka_pipeline_cache"
+            Path(tempfile.gettempdir()) / "pipeline_cache"
         )
     )
 
@@ -253,7 +253,7 @@ class KafkaConfig:
         1. Worker-specific config (e.g., verisk.download_worker.consumer)
         2. Default config (consumer_defaults or producer_defaults)
         """
-        domain_config = self.verisk if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
@@ -275,7 +275,7 @@ class KafkaConfig:
         return result
 
     def get_topic(self, domain: str, topic_key: str) -> str:
-        domain_config = self.verisk if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
@@ -297,7 +297,7 @@ class KafkaConfig:
         if "group_id" in worker_config:
             return worker_config["group_id"]
 
-        domain_config = self.verisk if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
 
@@ -307,7 +307,7 @@ class KafkaConfig:
         This is the single retry topic used for all retry types in the domain.
         Routing is handled via message headers (target_topic, scheduled_retry_time).
         """
-        domain_config = self.verisk if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         topics = domain_config.get("topics", {})
 
         # Check if retry topic is explicitly configured
@@ -318,7 +318,7 @@ class KafkaConfig:
         return f"{domain}.retry"
 
     def get_retry_delays(self, domain: str) -> list[int]:
-        domain_config = self.verisk if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         return domain_config.get("retry_delays", [300, 600, 1200, 2400])
 
     def get_max_retries(self, domain: str) -> int:
@@ -668,7 +668,7 @@ def load_config(
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
         cache_dir=storage.get("cache_dir")
-        or str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"),
+        or str(Path(tempfile.gettempdir()) / "pipeline_cache"),
         claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH")
         or os.getenv("CLAIMX_API_URL")
         or claimx_api.get("base_url", ""),

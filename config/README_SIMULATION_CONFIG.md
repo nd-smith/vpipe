@@ -31,7 +31,7 @@ The `simulation.yaml` file contains all simulation-specific settings:
 export SIMULATION_MODE=true
 
 # All settings loaded from config/simulation.yaml
-python -m kafka_pipeline claimx-enricher
+python -m pipeline claimx-enricher
 ```
 
 ### **2. Using Environment Variables Only**
@@ -44,7 +44,7 @@ export SIMULATION_STORAGE_PATH=/custom/path
 export SIMULATION_DELTA_PATH=/custom/delta
 export SIMULATION_TRUNCATE_TABLES=true
 
-python -m kafka_pipeline claimx-enricher
+python -m pipeline claimx-enricher
 ```
 
 ### **3. Using Main Config (Legacy)**
@@ -182,7 +182,7 @@ SIMULATION_SCENARIO=load_test MAX_EVENTS=5000 ./scripts/run_simulation.sh
 
 4. Use it:
    ```bash
-   SIMULATION_CONFIG=config/simulation.local.yaml python -m kafka_pipeline claimx-enricher
+   SIMULATION_CONFIG=config/simulation.local.yaml python -m pipeline claimx-enricher
    ```
 
 ### **Option 2: Environment Variables Only**
@@ -211,7 +211,7 @@ Check which config is being used:
 
 ```bash
 # Start any worker in simulation mode
-SIMULATION_MODE=true python -m kafka_pipeline claimx-enricher
+SIMULATION_MODE=true python -m pipeline claimx-enricher
 
 # Look for log message:
 # "Loaded simulation config from: /path/to/config/simulation.yaml"
@@ -320,7 +320,7 @@ cp config/config.yaml config/simulation.yaml
 
 ```bash
 # Force specific config file
-SIMULATION_CONFIG=/path/to/config/simulation.yaml python -m kafka_pipeline claimx-enricher
+SIMULATION_CONFIG=/path/to/config/simulation.yaml python -m pipeline claimx-enricher
 ```
 
 ### **"Settings not taking effect"**
@@ -377,7 +377,7 @@ export SIMULATION_TRUNCATE_TABLES=true  # Clean Delta tables on start
 
 ```bash
 export SIMULATION_MODE=true
-python -m kafka_pipeline.simulation.dummy_producer \
+python -m pipeline.simulation.dummy_producer \
   --domains claimx \
   --plugin-profile itel_cabinet_api \
   --max-events 20
@@ -403,4 +403,4 @@ This keeps simulation and production completely separate and safe.
 
 - Read the main simulation guide: `docs/SIMULATION_TESTING.md`
 - Check quick reference: `docs/SIMULATION_QUICK_REFERENCE.md`
-- Review technical docs: `kafka_pipeline/simulation/README.md`
+- Review technical docs: `pipeline/simulation/README.md`

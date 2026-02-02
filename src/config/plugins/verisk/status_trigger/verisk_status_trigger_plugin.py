@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any
 
 from core.logging.setup import get_logger
-from kafka_pipeline.plugins.shared.base import (
+from pipeline.plugins.shared.base import (
     ActionType,
     Domain,
     PipelineStage,

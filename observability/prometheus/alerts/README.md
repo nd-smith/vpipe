@@ -45,7 +45,7 @@ Alerts are classified into three severity levels:
 
 ## Alert Groups
 
-### kafka_pipeline_consumer
+### pipeline_consumer
 
 Monitors consumer health and message consumption.
 
@@ -56,7 +56,7 @@ Monitors consumer health and message consumption.
 | `KafkaConsumerDisconnected` | Critical | connection down for 1m | Consumer lost connection to Kafka broker |
 | `KafkaConsumerNoPartitions` | Warning | 0 partitions for 3m | Consumer has no assigned partitions |
 
-### kafka_pipeline_dlq
+### pipeline_dlq
 
 Monitors dead-letter queue for systematic failures.
 
@@ -66,7 +66,7 @@ Monitors dead-letter queue for systematic failures.
 | `KafkaDLQGrowthWarning` | Warning | rate > 5/min for 10m | Elevated DLQ message rate |
 | `KafkaDLQSizeHigh` | Warning | > 1,000 messages for 30m | Large number of messages requiring manual review |
 
-### kafka_pipeline_errors
+### pipeline_errors
 
 Monitors error rates and processing failures.
 
@@ -76,7 +76,7 @@ Monitors error rates and processing failures.
 | `KafkaDownloadFailureRateHigh` | Critical | > 5% for 5m | High download failure rate |
 | `KafkaProducerErrorsHigh` | Warning | rate > 1/sec for 5m | Elevated producer error rate |
 
-### kafka_pipeline_circuit_breaker
+### pipeline_circuit_breaker
 
 Monitors circuit breaker state and failures.
 
@@ -86,7 +86,7 @@ Monitors circuit breaker state and failures.
 | `KafkaCircuitBreakerHalfOpen` | Info | half-open for 1m | Circuit breaker testing service recovery |
 | `KafkaCircuitBreakerFailuresHigh` | Warning | rate > 5 failures/10m | Frequent circuit breaker failures |
 
-### kafka_pipeline_performance
+### pipeline_performance
 
 Monitors processing latency and throughput.
 
@@ -96,7 +96,7 @@ Monitors processing latency and throughput.
 | `KafkaProcessingLatencyWarning` | Warning | p95 > 5s for 10m | Elevated processing latency |
 | `KafkaThroughputLow` | Warning | < 100 msg/s for 10m | Low overall pipeline throughput |
 
-### kafka_pipeline_delta
+### pipeline_delta
 
 Monitors Delta Lake write operations.
 
@@ -106,7 +106,7 @@ Monitors Delta Lake write operations.
 | `KafkaDeltaWriteLatencyHigh` | Warning | p95 > 30s for 10m | High Delta write latency |
 | `KafkaDeltaWriteSuccessRateLow` | Warning | < 95% for 10m | Low Delta write success rate |
 
-### kafka_pipeline_producer
+### pipeline_producer
 
 Monitors producer health and connectivity.
 
@@ -114,7 +114,7 @@ Monitors producer health and connectivity.
 |-------|----------|-----------|-------------|
 | `KafkaProducerDisconnected` | Critical | connection down for 1m | Producer lost connection to Kafka broker |
 
-### kafka_pipeline_health
+### pipeline_health
 
 Monitors overall worker and system health.
 
@@ -323,7 +323,7 @@ alertmanager_notifications_failed_total
 ## Metrics Reference
 
 For complete metrics documentation, see:
-- `src/kafka_pipeline/metrics.py`: Metric definitions and instrumentation
+- `src/pipeline/metrics.py`: Metric definitions and instrumentation
 - `observability/grafana/dashboards/`: Grafana dashboards using these metrics
 
 ## Support and Feedback

@@ -424,7 +424,7 @@ services:
   itel-cabinet-tracking:
     image: kafka-pipeline:latest
     container_name: itel-cabinet-tracking
-    command: ["python", "-m", "kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker"]
+    command: ["python", "-m", "pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker"]
     env_file:
       - .env
     volumes:
@@ -440,7 +440,7 @@ services:
   itel-cabinet-api:
     image: kafka-pipeline:latest
     container_name: itel-cabinet-api
-    command: ["python", "-m", "kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker"]
+    command: ["python", "-m", "pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker"]
     env_file:
       - .env
     volumes:
@@ -456,7 +456,7 @@ services:
   claimx-mitigation-tracking:
     image: kafka-pipeline:latest
     container_name: claimx-mitigation-tracking
-    command: ["python", "-m", "kafka_pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker"]
+    command: ["python", "-m", "pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker"]
     env_file:
       - .env
     volumes:
@@ -491,4 +491,4 @@ volumes:
 
 networks:
   default:
-    name: kafka_pipeline_network
+    name: pipeline_network

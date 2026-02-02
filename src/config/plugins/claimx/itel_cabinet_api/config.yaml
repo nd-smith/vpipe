@@ -17,7 +17,7 @@
 
 # Plugin metadata
 name: itel_cabinet_api
-module: kafka_pipeline.plugins.shared.task_trigger
+module: pipeline.plugins.shared.task_trigger
 class: TaskTriggerPlugin
 enabled: true
 priority: 50

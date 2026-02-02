@@ -45,7 +45,7 @@ def verify_itel_submissions(output_dir: Path, verbose: bool = False) -> bool:
     if not submissions:
         print(f"⚠️  No submissions found in {output_dir}")
         print("\nTo generate submissions, run:")
-        print("  SIMULATION_MODE=true python -m kafka_pipeline dummy-source \\")
+        print("  SIMULATION_MODE=true python -m pipeline dummy-source \\")
         print("    --domains claimx \\")
         print("    --plugin-profile itel_cabinet_api \\")
         print("    --max-events 10")

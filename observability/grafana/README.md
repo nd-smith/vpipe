@@ -262,7 +262,7 @@ Workers (Prometheus Client) → Prometheus (scrapes workers) → Grafana
 
 3. **Via Terraform** (infrastructure as code):
    ```hcl
-   resource "grafana_dashboard" "kafka_pipeline_overview" {
+   resource "grafana_dashboard" "pipeline_overview" {
      config_json = file("${path.module}/observability/grafana/dashboards/kafka-pipeline-overview.json")
    }
    ```
@@ -448,7 +448,7 @@ For issues or questions:
 
 1. **Documentation**: See `docs/kafka-greenfield-implementation-plan.md`
 2. **Runbooks**: See `docs/runbooks/` for operational procedures
-3. **Metrics**: See `src/kafka_pipeline/metrics.py` for metric definitions
+3. **Metrics**: See `src/pipeline/metrics.py` for metric definitions
 4. **Alerts**: See `../prometheus/alerts/kafka-pipeline.yml` for alert rules
 
 ---

@@ -319,13 +319,13 @@ class TestUploadCrashLogs:
     def mock_onelake_module(self):
         """Inject a mock OneLakeClient via sys.modules for the lazy import."""
         mock_client_cls = MagicMock()
-        mock_module = ModuleType("kafka_pipeline.common.storage.onelake")
+        mock_module = ModuleType("pipeline.common.storage.onelake")
         mock_module.OneLakeClient = mock_client_cls
 
         # Ensure parent modules exist in sys.modules
         modules_to_inject = {
-            "kafka_pipeline.common.storage": ModuleType("kafka_pipeline.common.storage"),
-            "kafka_pipeline.common.storage.onelake": mock_module,
+            "pipeline.common.storage": ModuleType("pipeline.common.storage"),
+            "pipeline.common.storage.onelake": mock_module,
         }
 
         with patch.dict(sys.modules, modules_to_inject):

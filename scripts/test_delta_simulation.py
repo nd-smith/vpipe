@@ -44,7 +44,7 @@ def test_simulation_config():
         return False
 
     try:
-        from kafka_pipeline.simulation import is_simulation_mode, get_simulation_config
+        from pipeline.simulation import is_simulation_mode, get_simulation_config
 
         # Test detection
         if not is_simulation_mode():
@@ -81,7 +81,7 @@ def test_write_delta_table():
     print("=" * 60)
 
     try:
-        from kafka_pipeline.simulation import get_simulation_config
+        from pipeline.simulation import get_simulation_config
 
         config = get_simulation_config()
         test_table_path = config.local_delta_path / "test_table"
@@ -140,8 +140,8 @@ def test_entity_writer_simulation():
     print("=" * 60)
 
     try:
-        from kafka_pipeline.simulation import get_simulation_config
-        from kafka_pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
+        from pipeline.simulation import get_simulation_config
+        from pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
 
         config = get_simulation_config()
 

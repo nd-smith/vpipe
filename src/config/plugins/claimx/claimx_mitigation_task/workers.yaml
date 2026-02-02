@@ -18,7 +18,7 @@ workers:
   # and publishes to success topic.
   #
   # Startup:
-  #   python -m kafka_pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker
+  #   python -m pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker
   # ===========================================================================
   mitigation_tracking:
     # Kafka settings

@@ -23,7 +23,7 @@ workers:
   # Processes task events, enriches COMPLETED tasks, writes to Delta tables.
   #
   # Startup:
-  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
   # ===========================================================================
   itel_cabinet_tracking:
     # Kafka settings
@@ -47,10 +47,10 @@ workers:
   # Consumes completed tasks from tracking worker and sends to iTel API.
   #
   # Startup:
-  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
   #
   # Dev Mode (writes to files instead of API):
-  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
   # ===========================================================================
   itel_cabinet_api:
     # Kafka settings

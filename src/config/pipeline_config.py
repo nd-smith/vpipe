@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from config.config import ClaimXDomainConfig, KafkaConfig, VeriskDomainConfig
 
 if TYPE_CHECKING:
-    from kafka_pipeline.simulation.config import SimulationConfig
+    from pipeline.simulation.config import SimulationConfig
 
 # Default config file: config/config.yaml in src/ directory
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -195,7 +195,7 @@ class LocalKafkaConfig:
     onelake_domain_paths: dict[str, str] = field(default_factory=dict)
 
     # Cache directory
-    cache_dir: str = "/tmp/kafka_pipeline_cache"
+    cache_dir: str = "/tmp/pipeline_cache"
 
     # Delta events writer settings
     delta_events_batch_size: int = 1000
@@ -369,7 +369,7 @@ class LocalKafkaConfig:
             ),
             onelake_domain_paths=onelake_domain_paths,
             cache_dir=os.getenv(
-                "CACHE_DIR", storage_data.get("cache_dir", "/tmp/kafka_pipeline_cache")
+                "CACHE_DIR", storage_data.get("cache_dir", "/tmp/pipeline_cache")
             ),
             delta_events_batch_size=int(
                 os.getenv(
@@ -902,7 +902,7 @@ class PipelineConfig:
         simulation_config = None
         if "simulation" in yaml_data or os.getenv("SIMULATION_MODE"):
             try:
-                from kafka_pipeline.simulation import SimulationConfig
+                from pipeline.simulation import SimulationConfig
 
                 simulation_config = SimulationConfig.from_config_file(resolved_path)
             except ImportError:

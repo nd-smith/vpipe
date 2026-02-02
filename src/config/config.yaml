@@ -83,7 +83,7 @@ kafka:
     onelake_domain_paths:
       verisk: ""
       claimx: ""
-    cache_dir: ${CACHE_DIR:-/tmp/kafka_pipeline_cache}
+    cache_dir: ${CACHE_DIR:-/tmp/pipeline_cache}
 
 # =============================================================================
 # LOCAL / INTERNAL PIPELINE KAFKA

@@ -14,7 +14,7 @@ simulation:
   allow_localhost_urls: true
 
   # Fixtures directory for mock API data
-  # Relative paths are resolved from kafka_pipeline/simulation/
+  # Relative paths are resolved from pipeline/simulation/
   fixtures_dir: fixtures
 
   # Delta Lake configuration

@@ -222,7 +222,7 @@ def inspect_delta_tables(delta_path: Path, show_sizes: bool = True) -> None:
         print(f"❌ Delta path does not exist: {delta_path}")
         print()
         print("To create simulation Delta tables, run:")
-        print("  SIMULATION_MODE=true python -m kafka_pipeline claimx-entity-delta-writer")
+        print("  SIMULATION_MODE=true python -m pipeline claimx-entity-delta-writer")
         return
 
     # Inspect each table

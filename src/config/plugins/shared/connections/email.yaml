@@ -122,7 +122,7 @@ connections:
 #   export EMAIL_SERVICE_API_KEY="your-api-key-here"
 #
 # Plugin Usage Example:
-#   from kafka_pipeline.plugins.shared.base import PluginResult
+#   from pipeline.plugins.shared.base import PluginResult
 #
 #   # Using the factory method (recommended)
 #   return PluginResult.email(

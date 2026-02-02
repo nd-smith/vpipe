@@ -14,7 +14,7 @@
 
 # Plugin metadata
 name: claimx_mitigation_task
-module: kafka_pipeline.plugins.shared.task_trigger
+module: pipeline.plugins.shared.task_trigger
 class: TaskTriggerPlugin
 enabled: true
 priority: 50

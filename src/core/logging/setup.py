@@ -457,7 +457,7 @@ def setup_logging(
                 upload_enabled = False
             else:
                 try:
-                    from kafka_pipeline.common.storage.onelake import OneLakeClient
+                    from pipeline.common.storage.onelake import OneLakeClient
 
                     onelake_client = OneLakeClient(base_path=onelake_log_path)
                 except Exception as e:
@@ -540,7 +540,7 @@ def setup_multi_worker_logging(
     Log files are organized by domain and date with human-readable names:
         logs/kafka/2026-01-05/kafka_download_0105_1430_happy-tiger.log
         logs/kafka/2026-01-05/kafka_upload_0105_1430_happy-tiger.log
-        logs/kafka/2026-01-05/kafka_pipeline_0105_1430_happy-tiger.log  (combined)
+        logs/kafka/2026-01-05/pipeline_0105_1430_happy-tiger.log  (combined)
 
     When use_instance_id is True (default), a human-readable phrase is appended to
     log filenames to prevent file locking conflicts when multiple instances
@@ -660,7 +660,7 @@ def setup_multi_worker_logging(
         for logger_name in NOISY_LOGGERS:
             logging.getLogger(logger_name).setLevel(logging.WARNING)
 
-    logger = logging.getLogger("kafka_pipeline")
+    logger = logging.getLogger("pipeline")
     logger.debug(
         f"Multi-worker logging initialized: workers={workers}, domain={domain}, stdout_only={log_to_stdout}",
         extra={"stage": "pipeline", "domain": domain},
@@ -754,7 +754,7 @@ def _do_crash_log_upload(reason: str) -> None:
             return
 
         try:
-            from kafka_pipeline.common.storage.onelake import OneLakeClient
+            from pipeline.common.storage.onelake import OneLakeClient
 
             onelake_client = OneLakeClient(base_path=onelake_log_path)
         except Exception as e:

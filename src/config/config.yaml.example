@@ -494,7 +494,7 @@ kafka:
     onelake_base_path: ""
 
     # Local directory for caching downloads awaiting upload
-    cache_dir: "/tmp/kafka_pipeline_cache"
+    cache_dir: "/tmp/pipeline_cache"
 
 
 # =============================================================================
