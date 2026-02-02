@@ -17,6 +17,7 @@ from kafka_pipeline.claimx.handlers.base import (
 )
 from kafka_pipeline.claimx.handlers import transformers
 from kafka_pipeline.claimx.handlers.utils import (
+    LOG_ERROR_TRUNCATE_SHORT,
     elapsed_ms,
     now_datetime,
 )
@@ -131,7 +132,7 @@ class ProjectHandler(EventHandler):
                 logging.WARNING,
                 "API error for project",
                 handler_name=ProjectHandler.HANDLER_NAME,
-                error_message=str(e)[:200],
+                error_message=str(e)[:LOG_ERROR_TRUNCATE_SHORT],
                 error_category=e.category.value if e.category else None,
                 http_status=e.status_code,
                 is_retryable=e.is_retryable,

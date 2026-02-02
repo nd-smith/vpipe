@@ -17,6 +17,7 @@ from kafka_pipeline.claimx.handlers.base import (
     register_handler,
 )
 from kafka_pipeline.claimx.handlers.utils import (
+    LOG_ERROR_TRUNCATE_SHORT,
     elapsed_ms,
     safe_int,
 )
@@ -155,7 +156,7 @@ class MediaHandler(EventHandler):
                 "API error for project media",
                 handler_name=MediaHandler.HANDLER_NAME,
                 project_id=project_id,
-                error_message=str(e)[:200],
+                error_message=str(e)[:LOG_ERROR_TRUNCATE_SHORT],
                 error_category=e.category.value if e.category else None,
                 http_status=e.status_code,
                 is_retryable=e.is_retryable,

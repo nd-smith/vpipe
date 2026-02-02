@@ -10,6 +10,10 @@ from datetime import UTC, datetime, timedelta
 from config.config import KafkaConfig
 from core.logging import get_logger
 from core.types import ErrorCategory
+from kafka_pipeline.claimx.handlers.utils import (
+    LOG_ERROR_TRUNCATE_LONG,
+    LOG_ERROR_TRUNCATE_SHORT,
+)
 from kafka_pipeline.claimx.schemas.results import FailedEnrichmentMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from kafka_pipeline.common.producer import BaseKafkaProducer
@@ -120,7 +124,7 @@ class EnrichmentRetryHandler:
                 "Permanent error detected, sending to DLQ without retry",
                 extra={
                     "event_id": task.event_id,
-                    "error": str(error)[:200],
+                    "error": str(error)[:LOG_ERROR_TRUNCATE_SHORT],
                 },
             )
             await self._send_to_dlq(task, error, error_category)
@@ -173,7 +177,7 @@ class EnrichmentRetryHandler:
         updated_task.retry_count += 1
 
         # Add error context to metadata (truncate to prevent huge messages)
-        error_message = str(error)[:500]
+        error_message = str(error)[:LOG_ERROR_TRUNCATE_LONG]
         if updated_task.metadata is None:
             updated_task.metadata = {}
         updated_task.metadata["last_error"] = error_message
@@ -269,7 +273,7 @@ class EnrichmentRetryHandler:
                 "project_id": task.project_id,
                 "retry_count": task.retry_count,
                 "error_category": error_category.value,
-                "final_error": error_message[:200],
+                "final_error": error_message[:LOG_ERROR_TRUNCATE_SHORT],
             },
         )
 

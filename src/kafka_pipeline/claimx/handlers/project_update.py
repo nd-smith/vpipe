@@ -67,6 +67,7 @@ class ProjectUpdateHandler(EventHandler):
         "PROJECT_AUTO_XA_LINKING_UNSUCCESSFUL",
     ]
     supports_batching = False
+    HANDLER_NAME = "project_update"
 
     @with_api_error_handling(
         api_calls=1,  # Project verification (when required)
@@ -126,7 +127,7 @@ class ProjectUpdateHandler(EventHandler):
             logger,
             logging.DEBUG,
             "Project update event processed",
-            handler_name="project_update",
+            handler_name=ProjectUpdateHandler.HANDLER_NAME,
             fields_updated=list(fields_to_update.keys()),
             project_verification=event_config["requires_verification"],
             **extract_log_context(event),

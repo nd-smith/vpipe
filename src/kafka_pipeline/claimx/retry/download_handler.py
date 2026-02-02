@@ -12,6 +12,11 @@ from config.config import KafkaConfig
 from core.logging import get_logger
 from core.types import ErrorCategory
 from kafka_pipeline.claimx.api_client import ClaimXApiClient
+from kafka_pipeline.claimx.handlers.utils import (
+    LOG_ERROR_TRUNCATE_LONG,
+    LOG_ERROR_TRUNCATE_SHORT,
+    LOG_VALUE_TRUNCATE,
+)
 from kafka_pipeline.claimx.schemas.results import FailedDownloadMessage
 from kafka_pipeline.claimx.schemas.tasks import ClaimXDownloadTask
 from kafka_pipeline.common.metrics import (
@@ -112,7 +117,7 @@ class DownloadRetryHandler:
             extra={
                 "media_id": task.media_id,
                 "project_id": task.project_id,
-                "download_url": task.download_url[:100],  # Truncate URL
+                "download_url": task.download_url[:LOG_VALUE_TRUNCATE],  # Truncate URL
                 "retry_count": retry_count,
                 "error_category": error_category.value,
                 "error_type": type(error).__name__,
@@ -125,7 +130,7 @@ class DownloadRetryHandler:
                 "Permanent error detected, sending to DLQ without retry",
                 extra={
                     "media_id": task.media_id,
-                    "error": str(error)[:200],
+                    "error": str(error)[:LOG_ERROR_TRUNCATE_SHORT],
                 },
             )
             await self._send_to_dlq(
@@ -158,7 +163,7 @@ class DownloadRetryHandler:
                 "Detected potential URL expiration, attempting refresh",
                 extra={
                     "media_id": task.media_id,
-                    "error": str(error)[:200],
+                    "error": str(error)[:LOG_ERROR_TRUNCATE_SHORT],
                 },
             )
 
@@ -169,7 +174,7 @@ class DownloadRetryHandler:
                     "Successfully refreshed download URL",
                     extra={
                         "media_id": task.media_id,
-                        "new_url": task.download_url[:100],
+                        "new_url": task.download_url[:LOG_VALUE_TRUNCATE],
                     },
                 )
             else:
@@ -289,7 +294,7 @@ class DownloadRetryHandler:
             updated_task.metadata["url_refreshed_at"] = datetime.now(
                 UTC
             ).isoformat()
-            updated_task.metadata["original_url"] = task.download_url[:200]  # Truncate
+            updated_task.metadata["original_url"] = task.download_url[:LOG_ERROR_TRUNCATE_SHORT]  # Truncate
 
             return updated_task
 
@@ -330,7 +335,7 @@ class DownloadRetryHandler:
         updated_task.retry_count += 1
 
         # Add error context to metadata (truncate to prevent huge messages)
-        error_message = str(error)[:500]
+        error_message = str(error)[:LOG_ERROR_TRUNCATE_LONG]
         if not hasattr(updated_task, "metadata"):
             updated_task.metadata = {}
         updated_task.metadata["last_error"] = error_message
@@ -422,7 +427,7 @@ class DownloadRetryHandler:
                 "retry_count": task.retry_count,
                 "error_category": error_category.value,
                 "url_refresh_attempted": url_refresh_attempted,
-                "final_error": error_message[:200],
+                "final_error": error_message[:LOG_ERROR_TRUNCATE_SHORT],
             },
         )
 

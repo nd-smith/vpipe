@@ -20,6 +20,7 @@ from typing import (
 from core.logging import get_logger, log_exception, log_with_context
 from core.types import ErrorCategory
 from kafka_pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
+from kafka_pipeline.claimx.handlers.utils import LOG_ERROR_TRUNCATE_SHORT
 from kafka_pipeline.claimx.schemas.entities import EntityRowsMessage
 from kafka_pipeline.claimx.schemas.events import ClaimXEventMessage
 from kafka_pipeline.common.logging import extract_log_context
@@ -168,7 +169,7 @@ def with_api_error_handling(
                     logging.WARNING,
                     "API error",
                     handler_name=handler_name,
-                    error_message=str(e)[:200],
+                    error_message=str(e)[:LOG_ERROR_TRUNCATE_SHORT],
                     error_category=e.category.value if e.category else None,
                     http_status=e.status_code,
                     duration_ms=duration_ms,
