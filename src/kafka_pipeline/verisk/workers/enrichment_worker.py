@@ -134,7 +134,7 @@ class XACTEnrichmentWorker:
         health_enabled = self.processing_config.get("health_enabled", True)
         self.health_server = HealthCheckServer(
             port=health_port,
-            worker_name="xact-enrichment-worker",
+            worker_name=self.WORKER_NAME,
             enabled=health_enabled,
         )
 

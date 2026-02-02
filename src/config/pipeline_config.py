@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from config.config import KafkaConfig
+from config.config import ClaimXDomainConfig, KafkaConfig, VeriskDomainConfig
 
 if TYPE_CHECKING:
     from kafka_pipeline.simulation.config import SimulationConfig
@@ -157,7 +157,7 @@ class EventHubConfig:
             consumer_defaults={
                 "auto_offset_reset": self.auto_offset_reset,
             },
-            xact=verisk_config,
+            verisk=verisk_config,
         )
 
 
@@ -201,10 +201,10 @@ class LocalKafkaConfig:
     delta_events_batch_size: int = 1000
 
     # ClaimX domain config (loaded from yaml)
-    claimx_config: dict[str, Any] = field(default_factory=dict)
+    claimx_config: ClaimXDomainConfig = field(default_factory=dict)
 
     # Verisk domain config (loaded from yaml) - preserves full yaml structure
-    verisk_config: dict[str, Any] = field(default_factory=dict)
+    verisk_config: VeriskDomainConfig = field(default_factory=dict)
 
     # ClaimX API settings
     claimx_api_url: str = ""
@@ -447,7 +447,7 @@ class LocalKafkaConfig:
             sasl_mechanism=self.sasl_mechanism,
             sasl_plain_username=self.sasl_plain_username,
             sasl_plain_password=self.sasl_plain_password,
-            xact=verisk_config,
+            verisk=verisk_config,
             claimx=self.claimx_config,
             onelake_base_path=self.onelake_base_path,
             onelake_domain_paths=self.onelake_domain_paths,

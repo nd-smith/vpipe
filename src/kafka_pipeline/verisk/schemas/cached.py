@@ -120,10 +120,8 @@ class CachedDownloadMessage(BaseModel):
     )
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
-        """Ensure string fields are not empty or whitespace-only."""
-        if not v or not v.strip():
-            raise ValueError(f"{info.field_name} cannot be empty or whitespace")
-        return v.strip()
+        """Strip whitespace from string fields."""
+        return v.strip() if isinstance(v, str) else v
 
     @field_serializer("original_timestamp", "downloaded_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:

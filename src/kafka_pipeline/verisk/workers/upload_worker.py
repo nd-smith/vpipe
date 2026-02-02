@@ -46,6 +46,7 @@ from kafka_pipeline.common.types import PipelineMessage, from_consumer_record
 from kafka_pipeline.verisk.schemas.cached import CachedDownloadMessage
 from kafka_pipeline.verisk.schemas.results import DownloadResultMessage
 from kafka_pipeline.verisk.workers.consumer_factory import create_consumer
+from kafka_pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from kafka_pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = get_logger(__name__)
@@ -169,7 +170,7 @@ class UploadWorker:
         health_port = processing_config.get("health_port", 8091)
         self.health_server = HealthCheckServer(
             port=health_port,
-            worker_name="xact-uploader",
+            worker_name=self.WORKER_NAME,
         )
 
         # Cycle output tracking
@@ -177,8 +178,7 @@ class UploadWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._bytes_uploaded = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         # Log configured domains
         configured_domains = list(config.onelake_domain_paths.keys())
@@ -270,6 +270,15 @@ class UploadWorker:
 
         self._running = True
 
+        # Start periodic stats logger
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="upload",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
+
         # Update health check readiness
         self.health_server.set_ready(kafka_connected=True)
 
@@ -323,6 +332,10 @@ class UploadWorker:
 
         logger.info("Stopping upload worker...")
         self._running = False
+
+        # Stop periodic stats logger
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         # Signal shutdown
         if self._shutdown_event:
@@ -405,18 +418,6 @@ class UploadWorker:
         _logged_waiting_for_assignment = False
         _logged_assignment_received = False
 
-        # Log initial cycle 0
-        logger.info(
-            f"{format_cycle_output(0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "upload",
-                "cycle": 0,
-            },
-        )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
         while self._running:
             try:
                 # Check partition assignment before fetching
@@ -458,32 +459,6 @@ class UploadWorker:
                     timeout_ms=1000,
                     max_records=self.batch_size,
                 )
-
-                # Log cycle output at regular intervals
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-                    in_flight = len(self._in_flight_tasks)
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "upload",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "bytes_uploaded": self._bytes_uploaded,
-                            "in_flight": in_flight,
-                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
-                        },
-                    )
 
                 if not batch:
                     continue
@@ -752,6 +727,22 @@ class UploadWorker:
             # Remove from in-flight tracking
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(trace_id)
+
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Get cycle statistics for periodic logging."""
+        msg = format_cycle_output(
+            cycle_count=cycle_count,
+            succeeded=self._records_succeeded,
+            failed=self._records_failed,
+        )
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "bytes_uploaded": self._bytes_uploaded,
+            "in_flight": len(self._in_flight_tasks),
+        }
+        return msg, extra
 
     async def _cleanup_cache_file(self, cache_path: Path) -> None:
         try:

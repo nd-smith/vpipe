@@ -17,12 +17,95 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import yaml
 
 # Configure module logger
 logger = logging.getLogger(__name__)
+
+
+# =========================================================================
+# TYPEDDICT DEFINITIONS FOR CONFIGURATION STRUCTURE
+# =========================================================================
+
+
+class WorkerConfig(TypedDict, total=False):
+    """Configuration structure for a worker component (consumer, producer, or processing).
+
+    This TypedDict defines the expected structure for worker configurations
+    in the YAML config file. Using TypedDict provides IDE autocomplete and
+    type checking for configuration access.
+
+    Attributes:
+        consumer: Consumer-specific settings (group_id, max_poll_records, etc.)
+        producer: Producer-specific settings (acks, compression_type, etc.)
+        processing: Processing-specific settings (concurrency, batch_size, etc.)
+    """
+
+    consumer: dict[str, Any]
+    producer: dict[str, Any]
+    processing: dict[str, Any]
+
+
+class VeriskDomainConfig(TypedDict, total=False):
+    """Configuration structure for the Verisk domain.
+
+    Attributes:
+        topics: Mapping of topic keys to topic names (e.g., {"events": "xact.events.raw"})
+        event_ingester: Configuration for the event ingester worker
+        download_worker: Configuration for the download worker
+        upload_worker: Configuration for the upload worker
+        enrichment_worker: Configuration for the enrichment worker
+        consumer_group_prefix: Prefix for consumer group names
+        retry_delays: List of retry delay durations in seconds
+        max_retries: Maximum number of retry attempts
+    """
+
+    topics: dict[str, str]
+    event_ingester: WorkerConfig
+    download_worker: WorkerConfig
+    upload_worker: WorkerConfig
+    enrichment_worker: WorkerConfig
+    consumer_group_prefix: str
+    retry_delays: list[int]
+    max_retries: int
+
+
+class ClaimXDomainConfig(TypedDict, total=False):
+    """Configuration structure for the ClaimX domain.
+
+    Attributes:
+        topics: Mapping of topic keys to topic names
+        event_ingester: Configuration for the event ingester worker
+        enrichment_worker: Configuration for the enrichment worker
+        download_worker: Configuration for the download worker
+        consumer_group_prefix: Prefix for consumer group names
+        retry_delays: List of retry delay durations in seconds
+        max_retries: Maximum number of retry attempts
+    """
+
+    topics: dict[str, str]
+    event_ingester: WorkerConfig
+    enrichment_worker: WorkerConfig
+    download_worker: WorkerConfig
+    consumer_group_prefix: str
+    retry_delays: list[int]
+    max_retries: int
+
+
+class StorageConfig(TypedDict, total=False):
+    """Configuration structure for storage settings.
+
+    Attributes:
+        onelake_base_path: Base path for OneLake storage (fallback)
+        onelake_domain_paths: Domain-specific OneLake paths (e.g., {"verisk": "path/to/verisk"})
+        cache_dir: Local cache directory path
+    """
+
+    onelake_base_path: str
+    onelake_domain_paths: dict[str, str]
+    cache_dir: str
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -109,8 +192,8 @@ class KafkaConfig:
     # =========================================================================
     # DOMAIN CONFIGURATIONS (verisk and claimx)
     # =========================================================================
-    verisk: dict[str, Any] = field(default_factory=dict)
-    claimx: dict[str, Any] = field(default_factory=dict)
+    verisk: VeriskDomainConfig = field(default_factory=dict)
+    claimx: ClaimXDomainConfig = field(default_factory=dict)
 
     # =========================================================================
     # STORAGE CONFIGURATION
@@ -131,6 +214,19 @@ class KafkaConfig:
     claimx_api_timeout_seconds: int = 30
     claimx_api_concurrency: int = 20
 
+    @property
+    def xact(self) -> VeriskDomainConfig:
+        """Backwards compatibility for 'xact' field name.
+
+        This property provides access to the verisk domain configuration
+        using the legacy 'xact' field name for backwards compatibility
+        with code that hasn't been updated yet.
+
+        Returns:
+            VeriskDomainConfig: The verisk domain configuration with type hints.
+        """
+        return self.verisk
+
     def get_worker_config(
         self,
         domain: str,
@@ -138,6 +234,20 @@ class KafkaConfig:
         component: str,  # "consumer", "producer", or "processing"
     ) -> dict[str, Any]:
         """Get merged configuration for a specific worker's component.
+
+        Returns a merged dictionary with worker-specific settings taking priority over defaults.
+
+        Args:
+            domain: Domain name ("xact" or "claimx")
+            worker_name: Name of the worker (e.g., "download_worker", "event_ingester")
+            component: Component type ("consumer", "producer", or "processing")
+
+        Returns:
+            dict[str, Any]: Merged configuration for the specified component.
+                For better type safety, use get_storage_config() for storage settings.
+
+        Raises:
+            ValueError: If domain is not configured or component is invalid.
 
         Merge priority (highest to lowest):
         1. Worker-specific config (e.g., verisk.download_worker.consumer)
@@ -214,6 +324,25 @@ class KafkaConfig:
     def get_max_retries(self, domain: str) -> int:
         return len(self.get_retry_delays(domain))
 
+    def get_storage_config(self) -> StorageConfig:
+        """Get storage configuration with type hints.
+
+        Returns a typed dictionary containing all storage-related settings including
+        OneLake paths and cache directory configuration.
+
+        Returns:
+            StorageConfig: Typed dictionary with storage settings for better IDE support
+                and type checking. Contains:
+                - onelake_base_path: Fallback base path for OneLake storage
+                - onelake_domain_paths: Domain-specific OneLake paths
+                - cache_dir: Local cache directory path
+        """
+        return StorageConfig(
+            onelake_base_path=self.onelake_base_path,
+            onelake_domain_paths=self.onelake_domain_paths,
+            cache_dir=self.cache_dir,
+        )
+
     def validate(self) -> None:
         """Validate configuration for correctness and constraints.
 
@@ -258,6 +387,9 @@ class KafkaConfig:
                         worker_config["processing"],
                         f"{domain_name}.{worker_name}.processing",
                     )
+
+        self._validate_urls()
+        self._validate_directories()
 
     @staticmethod
     def _validate_enum(
@@ -401,6 +533,39 @@ class KafkaConfig:
     ) -> None:
         """Validate processing settings."""
         self._validate_kafka_settings(settings, context, "processing")
+
+    def _validate_urls(self) -> None:
+        """Validate HTTP/HTTPS URLs are well-formed."""
+        from urllib.parse import urlparse
+
+        urls_to_check = [
+            ("schema_registry_url", self.schema_registry_url),
+            ("claimx_api_url", self.claimx_api_url),
+        ]
+
+        for field_name, url in urls_to_check:
+            if url:
+                self._validate_url(url, field_name)
+
+    def _validate_url(self, url: str, field_name: str) -> None:
+        """Validate single URL."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"{field_name} must be HTTP/HTTPS URL: {url}")
+        if not parsed.netloc:
+            raise ValueError(f"{field_name} missing hostname: {url}")
+
+    def _validate_directories(self) -> None:
+        """Validate cache_dir is writable if it exists."""
+        import os
+        from pathlib import Path
+
+        if self.cache_dir:
+            cache_path = Path(self.cache_dir)
+            if cache_path.exists() and not os.access(cache_path, os.W_OK):
+                raise ValueError(f"cache_dir not writable: {cache_path}")
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

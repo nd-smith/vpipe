@@ -40,6 +40,7 @@ from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
+from kafka_pipeline.common.decorators import set_log_context_from_message
 from kafka_pipeline.common.health import HealthCheckServer
 from kafka_pipeline.common.metrics import (
     record_message_consumed,
@@ -141,6 +142,7 @@ class DownloadWorker:
         self.topics = [config.get_topic(domain, "downloads_pending")]
 
         self._consumer: AIOKafkaConsumer | None = None
+        self._consumer_group: str | None = None
         self._running = False
         self._initialized = False
 
@@ -184,7 +186,7 @@ class DownloadWorker:
         health_port = processing_config.get("health_port", 8090)
         self.health_server = HealthCheckServer(
             port=health_port,
-            worker_name="xact-downloader",
+            worker_name=self.WORKER_NAME,
         )
 
         # Cycle output tracking
@@ -262,6 +264,7 @@ class DownloadWorker:
         self.retry_handler = RetryHandler(self.config, self.producer)
 
         await self._create_consumer()
+        self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
         self._running = True
         self._initialized = True
@@ -278,9 +281,8 @@ class DownloadWorker:
 
         # Update metrics
         update_connection_status("consumer", connected=True)
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         partition_count = len(self._consumer.assignment()) if self._consumer else 0
-        update_assigned_partitions(consumer_group, partition_count)
+        update_assigned_partitions(self._consumer_group, partition_count)
 
         logger.info(
             "Download worker started successfully",
@@ -372,8 +374,7 @@ class DownloadWorker:
 
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-        update_assigned_partitions(consumer_group, 0)
+        update_assigned_partitions(self._consumer_group, 0)
 
         logger.info("Download worker stopped successfully")
 
@@ -407,8 +408,6 @@ class DownloadWorker:
     async def _consume_batch_loop(self) -> None:
         logger.info("Starting batch consumption loop")
 
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-
         _logged_waiting_for_assignment = False
         _logged_assignment_received = False
 
@@ -422,7 +421,7 @@ class DownloadWorker:
                         logger.info(
                             "Waiting for partition assignment (consumer group rebalance in progress)",
                             extra={
-                                "consumer_group": consumer_group,
+                                "consumer_group": self._consumer_group,
                                 "topics": self.topics,
                             },
                         )
@@ -435,13 +434,13 @@ class DownloadWorker:
                     logger.info(
                         "Partition assignment received, starting message consumption",
                         extra={
-                            "consumer_group": consumer_group,
+                            "consumer_group": self._consumer_group,
                             "partition_count": len(assignment),
                             "partitions": partition_info,
                         },
                     )
                     _logged_assignment_received = True
-                    update_assigned_partitions(consumer_group, len(assignment))
+                    update_assigned_partitions(self._consumer_group, len(assignment))
 
                 data = await self._consumer.getmany(
                     timeout_ms=1000,
@@ -533,6 +532,7 @@ class DownloadWorker:
 
         return [r for r in processed_results if r is not None]
 
+    @set_log_context_from_message
     async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
         start_time = time.perf_counter()
 
@@ -591,11 +591,8 @@ class DownloadWorker:
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
-                consumer_group = self.config.get_consumer_group(
-                    self.domain, self.WORKER_NAME
-                )
                 record_message_consumed(
-                    message.topic, consumer_group, len(message.value), success=True
+                    message.topic, self._consumer_group, len(message.value), success=True
                 )
 
                 self._records_succeeded += 1
@@ -610,11 +607,8 @@ class DownloadWorker:
                 )
             else:
                 await self._handle_failure(task_message, outcome, processing_time_ms)
-                consumer_group = self.config.get_consumer_group(
-                    self.domain, self.WORKER_NAME
-                )
                 record_message_consumed(
-                    message.topic, consumer_group, len(message.value), success=False
+                    message.topic, self._consumer_group, len(message.value), success=False
                 )
 
                 await self._cleanup_empty_temp_dir(download_task.destination.parent)
@@ -787,7 +781,7 @@ class DownloadWorker:
 
         record_processing_error(
             self.config.get_topic(self.domain, "downloads_pending"),
-            self.config.get_consumer_group(self.domain, self.WORKER_NAME),
+            self._consumer_group,
             error_category.value,
         )
 

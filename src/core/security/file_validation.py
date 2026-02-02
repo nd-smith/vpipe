@@ -56,20 +56,21 @@ ALLOWED_CONTENT_TYPES: set[str] = {
 }
 
 # Extension to primary MIME type mapping (for validation)
-EXTENSION_TO_MIME = {
-    "pdf": "application/pdf",
+# All values are sets to allow multiple valid MIME types per extension
+EXTENSION_TO_MIME: dict[str, set[str]] = {
+    "pdf": {"application/pdf"},
     "xml": {"application/xml", "text/xml"},
-    "txt": "text/plain",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "png": "image/png",
-    "gif": "image/gif",
-    "bmp": "image/bmp",
-    "tiff": "image/tiff",
-    "tif": "image/tiff",
-    "webp": "image/webp",
-    "mov": "video/quicktime",
-    "mp4": "video/mp4",
+    "txt": {"text/plain"},
+    "jpg": {"image/jpeg"},
+    "jpeg": {"image/jpeg"},
+    "png": {"image/png"},
+    "gif": {"image/gif"},
+    "bmp": {"image/bmp"},
+    "tiff": {"image/tiff"},
+    "tif": {"image/tiff"},
+    "webp": {"image/webp"},
+    "mov": {"video/quicktime"},
+    "mp4": {"video/mp4"},
 }
 
 
@@ -190,15 +191,10 @@ def validate_file_type(
         # Additional check: extension and Content-Type should be compatible
         # (defense against spoofing)
         expected_mimes = EXTENSION_TO_MIME.get(extension)
-        if expected_mimes:
-            # Handle both single MIME type and set of MIME types
-            if isinstance(expected_mimes, str):
-                expected_mimes = {expected_mimes}
-
-            if normalized_ct not in expected_mimes:
-                raise FileValidationError(
-                    f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'"
-                )
+        if expected_mimes and normalized_ct not in expected_mimes:
+            raise FileValidationError(
+                f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'"
+            )
 
 
 def is_allowed_extension(extension: str) -> bool:

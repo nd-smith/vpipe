@@ -494,6 +494,102 @@ class ResultProcessor:
             )
             raise
 
+    async def _flush_batch_common(
+        self,
+        batch: list[DownloadResultMessage],
+        writer: DeltaInventoryWriter | DeltaFailedAttachmentsWriter,
+        table_name: str,
+        counter_attr: str,
+    ) -> None:
+        """
+        Unified batch flush logic.
+
+        Handles batch snapshotting, Delta write, metrics, and retry routing.
+
+        Args:
+            batch: Batch list to flush
+            writer: Delta writer to use
+            table_name: Table name for logging and metrics
+            counter_attr: Attribute name for tracking written batches
+        """
+        if not batch:
+            return
+
+        # Generate batch ID for log correlation
+        batch_id = uuid.uuid4().hex[:8]
+
+        # Snapshot current batch and reset
+        batch_snapshot = batch.copy()
+        batch.clear()
+        self._last_flush = time.monotonic()
+
+        batch_size = len(batch_snapshot)
+
+        # Write to Delta table
+        # Uses asyncio.to_thread internally for non-blocking I/O
+        success = await writer.write_results(batch_snapshot)
+
+        # Record metrics
+        record_delta_write(
+            table=table_name,
+            event_count=batch_size,
+            success=success,
+        )
+
+        if success:
+            # Update counters
+            setattr(self, counter_attr, getattr(self, counter_attr) + 1)
+            self._total_records_written += batch_size
+
+            # Commit offsets after successful Delta write
+            await self._consumer.commit()
+
+            # Build progress message for success batches
+            if table_name == "xact_attachments":
+                if self.max_batches:
+                    progress = f"Batch {self._batches_written}/{self.max_batches}"
+                else:
+                    progress = f"Batch {self._batches_written}"
+                log_message = f"{progress}: Successfully wrote {batch_size} records to {table_name}"
+            else:
+                log_message = f"Successfully wrote {batch_size} records to {table_name}"
+
+            logger.info(
+                log_message,
+                extra={
+                    "batch_id": batch_id,
+                    "batch_size": batch_size,
+                    "batches_written": getattr(self, counter_attr),
+                    "total_records_written": self._total_records_written,
+                    "first_trace_id": batch_snapshot[0].trace_id,
+                    "last_trace_id": batch_snapshot[-1].trace_id,
+                },
+            )
+        else:
+            # Route failed batch to retry topics
+            extra = {
+                "batch_id": batch_id,
+                "batch_size": batch_size,
+                "first_trace_id": batch_snapshot[0].trace_id,
+                "last_trace_id": batch_snapshot[-1].trace_id,
+            }
+            if table_name != "xact_attachments":
+                extra["table"] = table_name
+
+            logger.warning(
+                "Delta write failed, routing batch to retry topic",
+                extra=extra,
+            )
+            # Convert DownloadResultMessage objects to dicts for retry handler
+            batch_dicts = [msg.model_dump() for msg in batch_snapshot]
+            await self._retry_handler.handle_batch_failure(
+                batch=batch_dicts,
+                error=Exception(f"Delta write to {table_name} failed"),
+                retry_count=0,
+                error_category="transient",
+                batch_id=batch_id,
+            )
+
     async def _flush_batch(self) -> None:
         """
         Flush current batch (internal, assumes lock held).
@@ -504,74 +600,12 @@ class ResultProcessor:
 
         Note: This method assumes the caller holds self._batch_lock
         """
-        if not self._batch:
-            return
-
-        # Generate batch ID for log correlation
-        batch_id = uuid.uuid4().hex[:8]
-
-        # Snapshot current batch and reset
-        batch = self._batch
-        self._batch = []
-        self._last_flush = time.monotonic()
-
-        batch_size = len(batch)
-
-        # Write to Delta inventory table
-        # Uses asyncio.to_thread internally for non-blocking I/O
-        success = await self._inventory_writer.write_results(batch)
-
-        # Record metrics
-        record_delta_write(
-            table="xact_attachments",
-            event_count=batch_size,
-            success=success,
+        await self._flush_batch_common(
+            self._batch,
+            self._inventory_writer,
+            "xact_attachments",
+            "_batches_written",
         )
-
-        if success:
-            self._batches_written += 1
-            self._total_records_written += batch_size
-
-            # Commit offsets after successful Delta write
-            await self._consumer.commit()
-
-            # Build progress message
-            if self.max_batches:
-                progress = f"Batch {self._batches_written}/{self.max_batches}"
-            else:
-                progress = f"Batch {self._batches_written}"
-
-            logger.info(
-                f"{progress}: Successfully wrote {batch_size} records to xact_attachments",
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "batches_written": self._batches_written,
-                    "total_records_written": self._total_records_written,
-                    "first_trace_id": batch[0].trace_id,
-                    "last_trace_id": batch[-1].trace_id,
-                },
-            )
-        else:
-            # Route failed batch to retry topics
-            logger.warning(
-                "Delta write failed, routing batch to retry topic",
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "first_trace_id": batch[0].trace_id,
-                    "last_trace_id": batch[-1].trace_id,
-                },
-            )
-            # Convert DownloadResultMessage objects to dicts for retry handler
-            batch_dicts = [msg.model_dump() for msg in batch]
-            await self._retry_handler.handle_batch_failure(
-                batch=batch_dicts,
-                error=Exception("Delta write to xact_attachments failed"),
-                retry_count=0,
-                error_category="transient",
-                batch_id=batch_id,
-            )
 
     async def _flush_failed_batch(self) -> None:
         """
@@ -583,68 +617,15 @@ class ResultProcessor:
 
         Note: This method assumes the caller holds self._batch_lock
         """
-        if not self._failed_batch or not self._failed_writer:
+        if not self._failed_writer:
             return
 
-        # Generate batch ID for log correlation
-        batch_id = uuid.uuid4().hex[:8]
-
-        # Snapshot current batch and reset
-        batch = self._failed_batch
-        self._failed_batch = []
-        self._last_flush = time.monotonic()
-
-        batch_size = len(batch)
-
-        # Write to Delta failed attachments table
-        # Uses asyncio.to_thread internally for non-blocking I/O
-        success = await self._failed_writer.write_results(batch)
-
-        # Record metrics
-        record_delta_write(
-            table="xact_attachments_failed",
-            event_count=batch_size,
-            success=success,
+        await self._flush_batch_common(
+            self._failed_batch,
+            self._failed_writer,
+            "xact_attachments_failed",
+            "_failed_batches_written",
         )
-
-        if success:
-            self._failed_batches_written += 1
-            self._total_records_written += batch_size
-
-            # Commit offsets after successful Delta write
-            await self._consumer.commit()
-
-            logger.info(
-                f"Successfully wrote {batch_size} records to xact_attachments_failed",
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "failed_batches_written": self._failed_batches_written,
-                    "first_trace_id": batch[0].trace_id,
-                    "last_trace_id": batch[-1].trace_id,
-                },
-            )
-        else:
-            # Route failed batch to retry topics
-            logger.warning(
-                "Delta write failed, routing batch to retry topic",
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "table": "xact_attachments_failed",
-                    "first_trace_id": batch[0].trace_id,
-                    "last_trace_id": batch[-1].trace_id,
-                },
-            )
-            # Convert DownloadResultMessage objects to dicts for retry handler
-            batch_dicts = [msg.model_dump() for msg in batch]
-            await self._retry_handler.handle_batch_failure(
-                batch=batch_dicts,
-                error=Exception("Delta write to xact_attachments_failed failed"),
-                retry_count=0,
-                error_category="transient",
-                batch_id=batch_id,
-            )
 
     @property
     def is_running(self) -> bool:
