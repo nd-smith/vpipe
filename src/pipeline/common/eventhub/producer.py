@@ -133,10 +133,13 @@ class EventHubProducer:
             # Create producer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # This is required for Azure Private Link endpoints
+            from core.security.ssl_dev_bypass import get_eventhub_ssl_kwargs
+
             self._producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
+                **get_eventhub_ssl_kwargs(),
             )
 
             # Test connection by getting properties

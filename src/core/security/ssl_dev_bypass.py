@@ -220,3 +220,37 @@ def apply_ssl_dev_bypass() -> None:
         "Patched: ssl.SSLContext, ssl.create_default_context, urllib3 context, "
         "requests.Session. Do NOT use this in production."
     )
+
+
+def get_eventhub_ssl_kwargs() -> dict:
+    """Get SSL-related kwargs for azure-eventhub SDK constructors.
+
+    When the SSL dev bypass is active, returns ``{'connection_verify': False}``
+    so the azure-eventhub SDK's pyamqp AMQP transport explicitly disables
+    certificate verification on its internal WebSocket / TLS connection.
+
+    This supplements the SSLContext monkey-patch (Layer 0) by using the SDK's
+    own ``connection_verify`` parameter.  The monkey-patch replaces
+    ``ssl.SSLContext`` globally, but the pyamqp transport may build its TLS
+    context through an internal path that is not fully covered — in particular
+    during the CBS (Claims-Based Security) token authentication handshake over
+    AMQP.  Passing ``connection_verify=False`` ensures the SDK propagates the
+    "no-verify" setting all the way through to CBS authentication, which
+    resolves CBS token failures seen behind corporate TLS-intercepting proxies.
+
+    Returns:
+        Dict with ``connection_verify`` key when bypass is active, empty dict
+        otherwise.  Intended to be unpacked into ``from_connection_string()``
+        or the ``EventHubProducerClient`` / ``EventHubConsumerClient``
+        constructors::
+
+            client = EventHubProducerClient.from_connection_string(
+                conn_str=conn,
+                eventhub_name=name,
+                transport_type=TransportType.AmqpOverWebsocket,
+                **get_eventhub_ssl_kwargs(),
+            )
+    """
+    if _patched:
+        return {"connection_verify": False}
+    return {}
