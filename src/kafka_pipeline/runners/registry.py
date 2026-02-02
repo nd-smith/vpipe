@@ -3,13 +3,11 @@
 This registry defines all available workers and how to execute them.
 Each worker entry specifies:
 - runner: The async function to execute
-- args_builder: Function to build arguments from pipeline config
 - requires: Optional list of requirements (e.g., "eventhouse")
 """
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 from kafka_pipeline.runners import claimx_runners, verisk_runners

@@ -32,7 +32,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from functools import wraps
 from typing import Protocol, TypeVar
 
 from core.errors.exceptions import CircuitOpenError

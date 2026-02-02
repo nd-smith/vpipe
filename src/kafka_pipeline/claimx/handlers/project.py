@@ -6,7 +6,6 @@ Handles: PROJECT_CREATED, PROJECT_MFN_ADDED
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
 
 from core.logging import get_logger, log_exception, log_with_context
 from core.types import ErrorCategory

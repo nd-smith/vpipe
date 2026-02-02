@@ -6,7 +6,6 @@ Handles: CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from core.logging import get_logger, log_with_context
 from core.types import ErrorCategory
