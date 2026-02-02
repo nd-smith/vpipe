@@ -6,7 +6,7 @@
 
 """Shared JSON serialization utilities for type-safe JSON encoding."""
 
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any

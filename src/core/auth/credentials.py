@@ -5,14 +5,14 @@ Thread-safe via TokenCache. Auth priority: token file > cached token > SPN secre
 
 import logging
 import os
-from typing import Dict, Optional
 from pathlib import Path
+from typing import Any
 
 from core.auth.token_cache import TokenCache
 
 try:
-    from azure.identity import ClientSecretCredential
     from azure.core.credentials import AccessToken
+    from azure.identity import ClientSecretCredential
 
     AZURE_IDENTITY_AVAILABLE = True
 except ImportError:
@@ -40,14 +40,14 @@ class AzureCredentialProvider:
 
     def __init__(
         self,
-        cache: Optional[TokenCache] = None,
-        token_file: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        cache: TokenCache | None = None,
+        token_file: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        tenant_id: str | None = None,
     ):
         self._cache = cache or TokenCache()
-        self._credential: Optional[ClientSecretCredential] = None
+        self._credential: ClientSecretCredential | None = None
 
         self.token_file = token_file
         self.client_id = client_id
@@ -68,20 +68,21 @@ class AzureCredentialProvider:
         return all([self.client_id, self.client_secret, self.tenant_id])
 
     @property
-    def auth_mode(self):
+    def auth_mode(self) -> str:
         if self.token_file:
             return "file"
         if self.has_spn_credentials:
             return "spn_secret"
         return "none"
 
-    def _get_azure_credential(self):
+    def _get_azure_credential(self) -> Any:
         if self._credential is not None:
             return self._credential
 
         if not AZURE_IDENTITY_AVAILABLE:
             raise AzureAuthError(
-                "azure-identity library not installed. " "Install with: pip install azure-identity"
+                "azure-identity library not installed. "
+                "Install with: pip install azure-identity"
             )
 
         if self.client_secret and self.client_id and self.tenant_id:
@@ -105,7 +106,9 @@ class AzureCredentialProvider:
     def _read_token_file(self, resource: str) -> str:
         """Read token from file. Supports JSON dict or plain text."""
         if not self.token_file:
-            raise AzureAuthError("Token file authentication requested but AZURE_TOKEN_FILE not set")
+            raise AzureAuthError(
+                "Token file authentication requested but AZURE_TOKEN_FILE not set"
+            )
 
         token_path = Path(self.token_file)
         if not token_path.exists():
@@ -116,7 +119,7 @@ class AzureCredentialProvider:
 
         try:
             content = token_path.read_text(encoding="utf-8-sig").strip()
-        except IOError as e:
+        except OSError as e:
             raise AzureAuthError(
                 f"Failed to read token file: {self.token_file}\n" f"Error: {str(e)}"
             ) from e
@@ -190,7 +193,9 @@ class AzureCredentialProvider:
             token = access_token.token
 
             self._cache.set(resource, token)
-            logger.debug("Acquired token from Service Principal", extra={"resource": resource})
+            logger.debug(
+                "Acquired token from Service Principal", extra={"resource": resource}
+            )
             return token
 
         except Exception as e:
@@ -203,9 +208,14 @@ class AzureCredentialProvider:
     def get_storage_token(self, force_refresh: bool = False) -> str:
         return self.get_token_for_resource(STORAGE_RESOURCE, force_refresh)
 
-    def get_storage_options(self, force_refresh: bool = False) -> Dict[str, str]:
+    def get_storage_options(self, force_refresh: bool = False) -> dict[str, str]:
         """Get storage options for delta-rs. Returns SPN credentials directly if available, else token."""
-        if self.client_secret and self.client_id and self.tenant_id and not self.token_file:
+        if (
+            self.client_secret
+            and self.client_id
+            and self.tenant_id
+            and not self.token_file
+        ):
             return {
                 "azure_client_id": self.client_id,
                 "azure_client_secret": self.client_secret,
@@ -216,17 +226,21 @@ class AzureCredentialProvider:
             token = self.get_storage_token(force_refresh)
             return {"azure_storage_token": token}
         except AzureAuthError:
-            logger.error("Failed to get storage token - authentication will fail at access time")
+            logger.error(
+                "Failed to get storage token - authentication will fail at access time"
+            )
             return {}
 
     def get_kusto_token(self, cluster_uri: str, force_refresh: bool = False) -> str:
         return self.get_token_for_resource(cluster_uri, force_refresh)
 
-    def clear_cache(self, resource: Optional[str] = None) -> None:
+    def clear_cache(self, resource: str | None = None) -> None:
         self._cache.clear(resource)
-        logger.debug("Cleared token cache", extra={"resource": resource if resource else "all"})
+        logger.debug(
+            "Cleared token cache", extra={"resource": resource if resource else "all"}
+        )
 
-    def get_diagnostics(self) -> Dict:
+    def get_diagnostics(self) -> dict:
         diag = {
             "auth_mode": self.auth_mode,
             "spn_configured": self.has_spn_credentials,
@@ -240,7 +254,7 @@ class AzureCredentialProvider:
         return diag
 
 
-_default_provider: Optional[AzureCredentialProvider] = None
+_default_provider: AzureCredentialProvider | None = None
 
 
 def get_default_provider() -> AzureCredentialProvider:
@@ -250,11 +264,11 @@ def get_default_provider() -> AzureCredentialProvider:
     return _default_provider
 
 
-def get_storage_options(force_refresh: bool = False) -> Dict[str, str]:
+def get_storage_options(force_refresh: bool = False) -> dict[str, str]:
     return get_default_provider().get_storage_options(force_refresh)
 
 
-def clear_token_cache(resource: Optional[str] = None) -> None:
+def clear_token_cache(resource: str | None = None) -> None:
     get_default_provider().clear_cache(resource)
 
 

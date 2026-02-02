@@ -12,7 +12,7 @@
 #
 # Related Files:
 #   - config/plugins/claimx/itel_cabinet_api/workers.yaml - Worker using this connection
-#   - kafka_pipeline/plugins/itel_cabinet_api/handlers/itel_api_sender.py - Handler implementation
+#   - pipeline/plugins/itel_cabinet_api/handlers/itel_api_sender.py - Handler implementation
 # =============================================================================
 
 connection:
@@ -21,7 +21,7 @@ connection:
   # ===========================================================================
   # Main connection for sending task tracking data to iTel Cabinet systems.
   #
-  # TODO: Update with actual iTel API details:
+  # PLACEHOLDER - Update with actual iTel API details when available:
   #   - Base URL
   #   - Authentication type (bearer, api_key, basic)
   #   - Specific endpoint paths
@@ -78,7 +78,7 @@ connection:
 # Testing Connection:
 #   Use ConnectionManager to test before deploying:
 #
-#   from kafka_pipeline.plugins.connections import ConnectionManager
+#   from pipeline.plugins.connections import ConnectionManager
 #   manager = ConnectionManager()
 #   # Load connection from this file
 #   await manager.start()

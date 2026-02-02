@@ -85,7 +85,7 @@ connections:
 # Testing Connection:
 #   Use ConnectionManager to test connections:
 #
-#   from kafka_pipeline.plugins.connections import ConnectionManager, ConnectionConfig
+#   from pipeline.plugins.connections import ConnectionManager, ConnectionConfig
 #   manager = ConnectionManager()
 #   # Load connections from this file
 #   await manager.start()

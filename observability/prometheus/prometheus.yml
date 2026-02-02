@@ -8,9 +8,9 @@ global:
 
 scrape_configs:
   # XACT Workers
-  - job_name: 'xact-local-ingester'
+  - job_name: 'xact-event-ingester'
     static_configs:
-      - targets: ['xact-local-ingester-sim:8000']
+      - targets: ['xact-event-ingester-sim:8000']
         labels:
           domain: 'xact'
           worker_type: 'ingester'

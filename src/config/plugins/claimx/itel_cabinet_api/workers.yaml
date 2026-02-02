@@ -8,7 +8,7 @@
 # 2. API worker - Transforms and sends to iTel API
 #
 # Architecture:
-#   Plugin → Kafka (itel.cabinet.task.tracking)
+#   Plugin → Kafka (pcesdopodappv1-itel-cabinet-pending)
 #                ↓
 #        ┌───────┴────────┐
 #        ↓                ↓
@@ -23,12 +23,12 @@ workers:
   # Processes task events, enriches COMPLETED tasks, writes to Delta tables.
   #
   # Startup:
-  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
   # ===========================================================================
   itel_cabinet_tracking:
     # Kafka settings
     kafka:
-      input_topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking
+      input_topic: pcesdopodappv1-itel-cabinet-pending
       consumer_group: itel_cabinet_tracking_group
 
     # Delta tables (table names, full paths constructed by worker)
@@ -39,7 +39,7 @@ workers:
     # Pipeline configuration
     pipeline:
       claimx_connection: claimx_api
-      output_topic: com.allstate.pcesdopodappv1.itel.cabinet.completed
+      output_topic: pcesdopodappv1-itel-cabinet-completed
 
   # ===========================================================================
   # iTel Cabinet API Worker
@@ -47,15 +47,15 @@ workers:
   # Consumes completed tasks from tracking worker and sends to iTel API.
   #
   # Startup:
-  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
   #
   # Dev Mode (writes to files instead of API):
-  #   python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
   # ===========================================================================
   itel_cabinet_api:
     # Kafka settings
     kafka:
-      input_topic: com.allstate.pcesdopodappv1.itel.cabinet.completed
+      input_topic: pcesdopodappv1-itel-cabinet-completed
       consumer_group: itel_cabinet_api_group
 
     # iTel API settings

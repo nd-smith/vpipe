@@ -3,9 +3,14 @@
 import logging
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
-from core.logging.context import get_log_context, set_log_context
+from core.logging.context import (
+    get_log_context,
+    get_message_context,
+    set_log_context,
+    set_message_context,
+)
 from core.logging.utilities import log_exception, log_with_context
 
 
@@ -21,10 +26,10 @@ class LogContext:
 
     def __init__(
         self,
-        cycle_id: Optional[str] = None,
-        stage: Optional[str] = None,
-        worker_id: Optional[str] = None,
-        domain: Optional[str] = None,
+        cycle_id: str | None = None,
+        stage: str | None = None,
+        worker_id: str | None = None,
+        domain: str | None = None,
     ):
         self.new_context = {
             "cycle_id": cycle_id,
@@ -32,7 +37,7 @@ class LogContext:
             "worker_id": worker_id,
             "domain": domain,
         }
-        self.old_context: Dict[str, str] = {}
+        self.old_context: dict[str, str] = {}
 
     def __enter__(self) -> "LogContext":
         self.old_context = get_log_context()
@@ -41,7 +46,7 @@ class LogContext:
                 set_log_context(**{key: value})
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         # Restore old context
         set_log_context(
             cycle_id=self.old_context.get("cycle_id", ""),
@@ -65,13 +70,13 @@ class StageLogContext(LogContext):
     def __init__(
         self,
         stage: str,
-        cycle_id: Optional[str] = None,
-        domain: Optional[str] = None,
+        cycle_id: str | None = None,
+        domain: str | None = None,
     ):
         super().__init__(stage=stage, cycle_id=cycle_id, domain=domain)
         self.stage = stage
-        self.start_time: Optional[float] = None
-        self.result_context: Dict[str, Any] = {}
+        self.start_time: float | None = None
+        self.result_context: dict[str, Any] = {}
 
     def __enter__(self) -> "StageLogContext":
         super().__enter__()
@@ -82,10 +87,54 @@ class StageLogContext(LogContext):
         """Set result context to be logged on exit."""
         self.result_context.update(kwargs)
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         duration_ms = (time.perf_counter() - self.start_time) * 1000
         self.result_context["duration_ms"] = round(duration_ms, 2)
         super().__exit__(exc_type, exc_val, exc_tb)
+        return False
+
+
+class MessageLogContext:
+    """
+    Context manager for message processing with automatic context setting.
+
+    Usage:
+        with MessageLogContext(topic="events", partition=0, offset=12345):
+            process_message()
+    """
+
+    def __init__(
+        self,
+        topic: str | None = None,
+        partition: int | None = None,
+        offset: int | None = None,
+        key: str | None = None,
+        consumer_group: str | None = None,
+    ):
+        self.new_context = {
+            "topic": topic,
+            "partition": partition,
+            "offset": offset,
+            "key": key,
+            "consumer_group": consumer_group,
+        }
+        self.old_context: dict[str, any] = {}
+
+    def __enter__(self) -> "MessageLogContext":
+        self.old_context = get_message_context()
+        for key, value in self.new_context.items():
+            if value is not None:
+                set_message_context(**{key: value})
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        set_message_context(
+            topic=self.old_context.get("message_topic", ""),
+            partition=self.old_context.get("message_partition", -1),
+            offset=self.old_context.get("message_offset", -1),
+            key=self.old_context.get("message_key", ""),
+            consumer_group=self.old_context.get("message_consumer_group", ""),
+        )
         return False
 
 
@@ -135,7 +184,7 @@ class OperationContext:
         logger: logging.Logger,
         operation: str,
         level: int = logging.DEBUG,
-        slow_threshold_ms: Optional[float] = 1000.0,
+        slow_threshold_ms: float | None = 1000.0,
         log_start: bool = False,
         **context: Any,
     ):
@@ -149,7 +198,7 @@ class OperationContext:
         self.slow_threshold_ms = slow_threshold_ms
         self.log_start = log_start
         self.context = context
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
 
     def __enter__(self) -> "OperationContext":
         self._start_time = time.perf_counter()
@@ -163,7 +212,7 @@ class OperationContext:
             )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         duration_ms = (time.perf_counter() - self._start_time) * 1000
 
         # Auto-promote to INFO if slow
@@ -201,7 +250,7 @@ def log_operation(
     logger: logging.Logger,
     operation: str,
     level: int = logging.DEBUG,
-    slow_threshold_ms: Optional[float] = 1000.0,
+    slow_threshold_ms: float | None = 1000.0,
     **context: Any,
 ):
     """Convenience context manager for ad-hoc operation logging."""

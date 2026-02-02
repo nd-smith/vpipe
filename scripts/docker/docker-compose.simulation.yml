@@ -106,7 +106,7 @@ services:
       dockerfile: Dockerfile
     image: kafka-pipeline:latest
     container_name: file-server-simulation
-    entrypoint: ["python", "-m", "kafka_pipeline.common.dummy.file_server"]
+    entrypoint: ["python", "-m", "pipeline.common.dummy.file_server"]
     profiles:
       - simulation
     ports:
@@ -125,7 +125,7 @@ services:
   dummy-producer:
     image: kafka-pipeline:latest
     container_name: dummy-producer-simulation
-    entrypoint: ["python", "-m", "kafka_pipeline.simulation.dummy_producer"]
+    entrypoint: ["python", "-m", "pipeline.simulation.dummy_producer"]
     command:
       - "--domains"
       - "claimx,xact"
@@ -160,10 +160,10 @@ services:
   # XACT SIMULATION WORKERS
   # =============================================================================
 
-  xact-local-ingester:
+  xact-event-ingester:
     image: kafka-pipeline:latest
-    container_name: xact-local-ingester-sim
-    command: ["--worker", "xact-local-ingester"]
+    container_name: xact-event-ingester-sim
+    command: ["--worker", "xact-event-ingester"]
     profiles:
       - simulation
     depends_on:

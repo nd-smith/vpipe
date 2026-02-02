@@ -2,7 +2,7 @@
 
 Loads from config/config.yaml with all settings in one place:
 - Shared connection settings and defaults
-- XACT domain configuration
+- Verisk domain configuration
 - ClaimX domain configuration
 - Storage, Delta, Eventhouse, and observability settings
 
@@ -17,7 +17,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, TypedDict
 
 import yaml
 
@@ -25,11 +25,94 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def load_yaml(path: Path) -> Dict[str, Any]:
+# =========================================================================
+# TYPEDDICT DEFINITIONS FOR CONFIGURATION STRUCTURE
+# =========================================================================
+
+
+class WorkerConfig(TypedDict, total=False):
+    """Configuration structure for a worker component (consumer, producer, or processing).
+
+    This TypedDict defines the expected structure for worker configurations
+    in the YAML config file. Using TypedDict provides IDE autocomplete and
+    type checking for configuration access.
+
+    Attributes:
+        consumer: Consumer-specific settings (group_id, max_poll_records, etc.)
+        producer: Producer-specific settings (acks, compression_type, etc.)
+        processing: Processing-specific settings (concurrency, batch_size, etc.)
+    """
+
+    consumer: dict[str, Any]
+    producer: dict[str, Any]
+    processing: dict[str, Any]
+
+
+class VeriskDomainConfig(TypedDict, total=False):
+    """Configuration structure for the Verisk domain.
+
+    Attributes:
+        topics: Mapping of topic keys to topic names (e.g., {"events": "xact.events.raw"})
+        event_ingester: Configuration for the event ingester worker
+        download_worker: Configuration for the download worker
+        upload_worker: Configuration for the upload worker
+        enrichment_worker: Configuration for the enrichment worker
+        consumer_group_prefix: Prefix for consumer group names
+        retry_delays: List of retry delay durations in seconds
+        max_retries: Maximum number of retry attempts
+    """
+
+    topics: dict[str, str]
+    event_ingester: WorkerConfig
+    download_worker: WorkerConfig
+    upload_worker: WorkerConfig
+    enrichment_worker: WorkerConfig
+    consumer_group_prefix: str
+    retry_delays: list[int]
+    max_retries: int
+
+
+class ClaimXDomainConfig(TypedDict, total=False):
+    """Configuration structure for the ClaimX domain.
+
+    Attributes:
+        topics: Mapping of topic keys to topic names
+        event_ingester: Configuration for the event ingester worker
+        enrichment_worker: Configuration for the enrichment worker
+        download_worker: Configuration for the download worker
+        consumer_group_prefix: Prefix for consumer group names
+        retry_delays: List of retry delay durations in seconds
+        max_retries: Maximum number of retry attempts
+    """
+
+    topics: dict[str, str]
+    event_ingester: WorkerConfig
+    enrichment_worker: WorkerConfig
+    download_worker: WorkerConfig
+    consumer_group_prefix: str
+    retry_delays: list[int]
+    max_retries: int
+
+
+class StorageConfig(TypedDict, total=False):
+    """Configuration structure for storage settings.
+
+    Attributes:
+        onelake_base_path: Base path for OneLake storage (fallback)
+        onelake_domain_paths: Domain-specific OneLake paths (e.g., {"verisk": "path/to/verisk"})
+        cache_dir: Local cache directory path
+    """
+
+    onelake_base_path: str
+    onelake_domain_paths: dict[str, str]
+    cache_dir: str
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
     """Load YAML file and return dict."""
     if not path.exists():
         return {}
-    with open(path, "r") as f:
+    with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -45,7 +128,9 @@ def _expand_env_vars(data: Any) -> Any:
 
         def replacer(match):
             var_name = match.group(1)
-            default_value = match.group(2) if match.group(2) is not None else match.group(0)
+            default_value = (
+                match.group(2) if match.group(2) is not None else match.group(0)
+            )
             return os.getenv(var_name, default_value)
 
         return re.sub(pattern, replacer, data)
@@ -69,7 +154,7 @@ class KafkaConfig:
           connection: {...}           # Shared connection settings
           consumer_defaults: {...}    # Default consumer settings
           producer_defaults: {...}    # Default producer settings
-          xact:                       # XACT domain
+          verisk:                     # Verisk domain
             topics: {...}
             event_ingester:
               consumer: {...}
@@ -78,7 +163,7 @@ class KafkaConfig:
             download_worker: {...}
             upload_worker: {...}
           claimx:                     # ClaimX domain
-            (same structure as xact)
+            (same structure as verisk)
           storage: {...}              # OneLake paths
 
     All timing values in milliseconds unless otherwise noted.
@@ -101,21 +186,25 @@ class KafkaConfig:
     # =========================================================================
     # DEFAULT SETTINGS (applied to all consumers/producers unless overridden)
     # =========================================================================
-    consumer_defaults: Dict[str, Any] = field(default_factory=dict)
-    producer_defaults: Dict[str, Any] = field(default_factory=dict)
+    consumer_defaults: dict[str, Any] = field(default_factory=dict)
+    producer_defaults: dict[str, Any] = field(default_factory=dict)
 
     # =========================================================================
-    # DOMAIN CONFIGURATIONS (xact and claimx)
+    # DOMAIN CONFIGURATIONS (verisk and claimx)
     # =========================================================================
-    xact: Dict[str, Any] = field(default_factory=dict)
-    claimx: Dict[str, Any] = field(default_factory=dict)
+    verisk: VeriskDomainConfig = field(default_factory=dict)
+    claimx: ClaimXDomainConfig = field(default_factory=dict)
 
     # =========================================================================
     # STORAGE CONFIGURATION
     # =========================================================================
     onelake_base_path: str = ""  # Fallback path
-    onelake_domain_paths: Dict[str, str] = field(default_factory=dict)
-    cache_dir: str = field(default_factory=lambda: str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"))
+    onelake_domain_paths: dict[str, str] = field(default_factory=dict)
+    cache_dir: str = field(
+        default_factory=lambda: str(
+            Path(tempfile.gettempdir()) / "pipeline_cache"
+        )
+    )
 
     # =========================================================================
     # CLAIMX API CONFIGURATION
@@ -125,19 +214,46 @@ class KafkaConfig:
     claimx_api_timeout_seconds: int = 30
     claimx_api_concurrency: int = 20
 
+    @property
+    def xact(self) -> VeriskDomainConfig:
+        """Backwards compatibility for 'xact' field name.
+
+        This property provides access to the verisk domain configuration
+        using the legacy 'xact' field name for backwards compatibility
+        with code that hasn't been updated yet.
+
+        Returns:
+            VeriskDomainConfig: The verisk domain configuration with type hints.
+        """
+        return self.verisk
+
     def get_worker_config(
         self,
         domain: str,
         worker_name: str,
         component: str,  # "consumer", "producer", or "processing"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get merged configuration for a specific worker's component.
 
+        Returns a merged dictionary with worker-specific settings taking priority over defaults.
+
+        Args:
+            domain: Domain name ("xact" or "claimx")
+            worker_name: Name of the worker (e.g., "download_worker", "event_ingester")
+            component: Component type ("consumer", "producer", or "processing")
+
+        Returns:
+            dict[str, Any]: Merged configuration for the specified component.
+                For better type safety, use get_storage_config() for storage settings.
+
+        Raises:
+            ValueError: If domain is not configured or component is invalid.
+
         Merge priority (highest to lowest):
-        1. Worker-specific config (e.g., xact.download_worker.consumer)
+        1. Worker-specific config (e.g., verisk.download_worker.consumer)
         2. Default config (consumer_defaults or producer_defaults)
         """
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
@@ -159,7 +275,7 @@ class KafkaConfig:
         return result
 
     def get_topic(self, domain: str, topic_key: str) -> str:
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         if not domain_config:
             raise ValueError(f"No configuration found for domain: {domain}")
 
@@ -181,7 +297,7 @@ class KafkaConfig:
         if "group_id" in worker_config:
             return worker_config["group_id"]
 
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
 
@@ -191,7 +307,7 @@ class KafkaConfig:
         This is the single retry topic used for all retry types in the domain.
         Routing is handled via message headers (target_topic, scheduled_retry_time).
         """
-        domain_config = self.xact if domain == "xact" else self.claimx
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         topics = domain_config.get("topics", {})
 
         # Check if retry topic is explicitly configured
@@ -201,12 +317,31 @@ class KafkaConfig:
         # Fall back to standard naming: {domain}.retry
         return f"{domain}.retry"
 
-    def get_retry_delays(self, domain: str) -> List[int]:
-        domain_config = self.xact if domain == "xact" else self.claimx
+    def get_retry_delays(self, domain: str) -> list[int]:
+        domain_config = self.verisk if domain in ("xact", "verisk") else self.claimx
         return domain_config.get("retry_delays", [300, 600, 1200, 2400])
 
     def get_max_retries(self, domain: str) -> int:
         return len(self.get_retry_delays(domain))
+
+    def get_storage_config(self) -> StorageConfig:
+        """Get storage configuration with type hints.
+
+        Returns a typed dictionary containing all storage-related settings including
+        OneLake paths and cache directory configuration.
+
+        Returns:
+            StorageConfig: Typed dictionary with storage settings for better IDE support
+                and type checking. Contains:
+                - onelake_base_path: Fallback base path for OneLake storage
+                - onelake_domain_paths: Domain-specific OneLake paths
+                - cache_dir: Local cache directory path
+        """
+        return StorageConfig(
+            onelake_base_path=self.onelake_base_path,
+            onelake_domain_paths=self.onelake_domain_paths,
+            cache_dir=self.cache_dir,
+        )
 
     def validate(self) -> None:
         """Validate configuration for correctness and constraints.
@@ -214,12 +349,14 @@ class KafkaConfig:
         Checks required fields, Kafka timeout constraints, and numeric ranges.
         """
         if not self.bootstrap_servers:
-            raise ValueError("bootstrap_servers is required in kafka.connection section")
+            raise ValueError(
+                "bootstrap_servers is required in kafka.connection section"
+            )
 
         self._validate_consumer_settings(self.consumer_defaults, "consumer_defaults")
         self._validate_producer_settings(self.producer_defaults, "producer_defaults")
 
-        for domain_name in ["xact", "claimx"]:
+        for domain_name in ["verisk", "claimx"]:
             domain_config = getattr(self, domain_name)
             if not domain_config:
                 continue
@@ -235,25 +372,28 @@ class KafkaConfig:
 
                 if "consumer" in worker_config:
                     self._validate_consumer_settings(
-                        worker_config["consumer"], f"{domain_name}.{worker_name}.consumer"
+                        worker_config["consumer"],
+                        f"{domain_name}.{worker_name}.consumer",
                     )
 
                 if "producer" in worker_config:
                     self._validate_producer_settings(
-                        worker_config["producer"], f"{domain_name}.{worker_name}.producer"
+                        worker_config["producer"],
+                        f"{domain_name}.{worker_name}.producer",
                     )
 
                 if "processing" in worker_config:
                     self._validate_processing_settings(
-                        worker_config["processing"], f"{domain_name}.{worker_name}.processing"
+                        worker_config["processing"],
+                        f"{domain_name}.{worker_name}.processing",
                     )
+
+        self._validate_urls()
+        self._validate_directories()
 
     @staticmethod
     def _validate_enum(
-        settings: Dict[str, Any],
-        key: str,
-        valid_values: List[Any],
-        context: str
+        settings: dict[str, Any], key: str, valid_values: list[Any], context: str
     ) -> None:
         """Validate that a setting's value is in a list of valid values."""
         if key in settings and settings[key] not in valid_values:
@@ -264,11 +404,11 @@ class KafkaConfig:
 
     @staticmethod
     def _validate_min(
-        settings: Dict[str, Any],
+        settings: dict[str, Any],
         key: str,
         min_value: float,
         inclusive: bool,
-        context: str
+        context: str,
     ) -> None:
         """Validate that a setting's value meets a minimum threshold."""
         if key in settings:
@@ -278,17 +418,15 @@ class KafkaConfig:
                     f"{context}: {key} must be >= {min_value}, got {value}"
                 )
             elif not inclusive and value <= min_value:
-                raise ValueError(
-                    f"{context}: {key} must be > {min_value}, got {value}"
-                )
+                raise ValueError(f"{context}: {key} must be > {min_value}, got {value}")
 
     @staticmethod
     def _validate_range(
-        settings: Dict[str, Any],
+        settings: dict[str, Any],
         key: str,
         min_value: float,
         max_value: float,
-        context: str
+        context: str,
     ) -> None:
         """Validate that a setting's value is within a range (inclusive)."""
         if key in settings:
@@ -299,10 +437,7 @@ class KafkaConfig:
                 )
 
     def _validate_kafka_settings(
-        self,
-        settings: Dict[str, Any],
-        context: str,
-        setting_type: str
+        self, settings: dict[str, Any], context: str, setting_type: str
     ) -> None:
         """Generic validator for Kafka settings (consumer, producer, or processing).
 
@@ -333,42 +468,107 @@ class KafkaConfig:
                     )
 
             # Consumer field validations
-            self._validate_min(settings, "max_poll_records", 1, inclusive=True, context=context)
-            self._validate_enum(settings, "auto_offset_reset", ["earliest", "latest", "none"], context)
-            self._validate_enum(settings, "partition_assignment_strategy", ["RoundRobin", "Range", "Sticky"], context)
+            self._validate_min(
+                settings, "max_poll_records", 1, inclusive=True, context=context
+            )
+            self._validate_enum(
+                settings, "auto_offset_reset", ["earliest", "latest", "none"], context
+            )
+            self._validate_enum(
+                settings,
+                "partition_assignment_strategy",
+                ["RoundRobin", "Range", "Sticky"],
+                context,
+            )
 
         elif setting_type == "producer":
             # Producer field validations
             self._validate_enum(settings, "acks", ["0", "1", "all", 0, 1], context)
-            self._validate_enum(settings, "compression_type", ["none", "gzip", "snappy", "lz4", "zstd"], context)
+            self._validate_enum(
+                settings,
+                "compression_type",
+                ["none", "gzip", "snappy", "lz4", "zstd"],
+                context,
+            )
             self._validate_min(settings, "retries", 0, inclusive=True, context=context)
-            self._validate_min(settings, "batch_size", 0, inclusive=True, context=context)
-            self._validate_min(settings, "linger_ms", 0, inclusive=True, context=context)
+            self._validate_min(
+                settings, "batch_size", 0, inclusive=True, context=context
+            )
+            self._validate_min(
+                settings, "linger_ms", 0, inclusive=True, context=context
+            )
 
         elif setting_type == "processing":
             # Processing field validations
             self._validate_range(settings, "concurrency", 1, 50, context)
-            self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
-            self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
-            self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
+            self._validate_min(
+                settings, "batch_size", 1, inclusive=True, context=context
+            )
+            self._validate_min(
+                settings, "timeout_seconds", 0, inclusive=False, context=context
+            )
+            self._validate_min(
+                settings, "flush_timeout_seconds", 0, inclusive=False, context=context
+            )
 
         else:
-            raise ValueError(f"Invalid setting_type: {setting_type}. Must be 'consumer', 'producer', or 'processing'")
+            raise ValueError(
+                f"Invalid setting_type: {setting_type}. Must be 'consumer', 'producer', or 'processing'"
+            )
 
-    def _validate_consumer_settings(self, settings: Dict[str, Any], context: str) -> None:
+    def _validate_consumer_settings(
+        self, settings: dict[str, Any], context: str
+    ) -> None:
         """Validate consumer settings against Kafka requirements and logical constraints."""
         self._validate_kafka_settings(settings, context, "consumer")
 
-    def _validate_producer_settings(self, settings: Dict[str, Any], context: str) -> None:
+    def _validate_producer_settings(
+        self, settings: dict[str, Any], context: str
+    ) -> None:
         """Validate producer settings."""
         self._validate_kafka_settings(settings, context, "producer")
 
-    def _validate_processing_settings(self, settings: Dict[str, Any], context: str) -> None:
+    def _validate_processing_settings(
+        self, settings: dict[str, Any], context: str
+    ) -> None:
         """Validate processing settings."""
         self._validate_kafka_settings(settings, context, "processing")
 
+    def _validate_urls(self) -> None:
+        """Validate HTTP/HTTPS URLs are well-formed."""
+        from urllib.parse import urlparse
 
-def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+        urls_to_check = [
+            ("schema_registry_url", self.schema_registry_url),
+            ("claimx_api_url", self.claimx_api_url),
+        ]
+
+        for field_name, url in urls_to_check:
+            if url:
+                self._validate_url(url, field_name)
+
+    def _validate_url(self, url: str, field_name: str) -> None:
+        """Validate single URL."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"{field_name} must be HTTP/HTTPS URL: {url}")
+        if not parsed.netloc:
+            raise ValueError(f"{field_name} missing hostname: {url}")
+
+    def _validate_directories(self) -> None:
+        """Validate cache_dir is writable if it exists."""
+        import os
+        from pathlib import Path
+
+        if self.cache_dir:
+            cache_path = Path(self.cache_dir)
+            if cache_path.exists() and not os.access(cache_path, os.W_OK):
+                raise ValueError(f"cache_dir not writable: {cache_path}")
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Deep merge overlay into base dict."""
     result = base.copy()
     for key, value in overlay.items():
@@ -380,8 +580,8 @@ def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]
 
 
 def load_config(
-    config_path: Optional[Path] = None,
-    overrides: Optional[Dict[str, Any]] = None,
+    config_path: Path | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> KafkaConfig:
     """Load Kafka configuration from config.yaml file.
 
@@ -394,10 +594,11 @@ def load_config(
 
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n" f"Expected file: config/config.yaml"
+            f"Configuration file not found: {config_path}\n"
+            f"Expected file: config/config.yaml"
         )
 
-    logger.info(f"Loading configuration from file: {config_path}")
+    logger.info("Loading configuration from file: %s", config_path)
     yaml_data = load_yaml(config_path)
     yaml_data = _expand_env_vars(yaml_data)
 
@@ -410,7 +611,7 @@ def load_config(
     kafka_config = yaml_data["kafka"]
 
     if overrides:
-        logger.debug(f"Applying overrides: {list(overrides.keys())}")
+        logger.debug("Applying overrides: %s", list(overrides.keys()))
         kafka_config = _deep_merge(kafka_config, overrides)
 
     connection = kafka_config.get("connection", {})
@@ -420,7 +621,7 @@ def load_config(
     consumer_defaults = kafka_config.get("consumer_defaults", {})
     producer_defaults = kafka_config.get("producer_defaults", {})
 
-    xact_config = kafka_config.get("xact", {})
+    verisk_config = kafka_config.get("verisk", {})
     claimx_config = kafka_config.get("claimx", {})
 
     # Merge storage settings from multiple sources
@@ -453,32 +654,38 @@ def load_config(
         sasl_mechanism=connection.get("sasl_mechanism", "OAUTHBEARER"),
         sasl_plain_username=connection.get("sasl_plain_username", ""),
         sasl_plain_password=connection.get("sasl_plain_password", ""),
-        sasl_kerberos_service_name=connection.get("sasl_kerberos_service_name", "kafka"),
+        sasl_kerberos_service_name=connection.get(
+            "sasl_kerberos_service_name", "kafka"
+        ),
         schema_registry_url=connection.get("schema_registry_url", ""),
         request_timeout_ms=connection.get("request_timeout_ms", 120000),
         metadata_max_age_ms=connection.get("metadata_max_age_ms", 300000),
         connections_max_idle_ms=connection.get("connections_max_idle_ms", 540000),
         consumer_defaults=consumer_defaults,
         producer_defaults=producer_defaults,
-        xact=xact_config,
+        verisk=verisk_config,
         claimx=claimx_config,
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
-        cache_dir=storage.get("cache_dir") or str(Path(tempfile.gettempdir()) / "kafka_pipeline_cache"),
-        claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH") or os.getenv("CLAIMX_API_URL") or claimx_api.get("base_url", ""),
+        cache_dir=storage.get("cache_dir")
+        or str(Path(tempfile.gettempdir()) / "pipeline_cache"),
+        claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH")
+        or os.getenv("CLAIMX_API_URL")
+        or claimx_api.get("base_url", ""),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=int(
-            os.getenv("CLAIMX_API_TIMEOUT_SECONDS") or claimx_api.get("timeout_seconds", 30)
+            os.getenv("CLAIMX_API_TIMEOUT_SECONDS")
+            or claimx_api.get("timeout_seconds", 30)
         ),
         claimx_api_concurrency=int(
             os.getenv("CLAIMX_API_CONCURRENCY") or claimx_api.get("max_concurrent", 20)
         ),
     )
 
-    logger.debug(f"Configuration loaded successfully:")
-    logger.debug(f"  - Bootstrap servers: {config.bootstrap_servers}")
-    logger.debug(f"  - XACT domain configured: {bool(config.xact)}")
-    logger.debug(f"  - ClaimX domain configured: {bool(config.claimx)}")
+    logger.debug("Configuration loaded successfully:")
+    logger.debug("  - Bootstrap servers: %s", config.bootstrap_servers)
+    logger.debug("  - Verisk domain configured: %s", bool(config.verisk))
+    logger.debug("  - ClaimX domain configured: %s", bool(config.claimx))
 
     logger.debug("Validating configuration...")
     config.validate()
@@ -487,7 +694,7 @@ def load_config(
     return config
 
 
-_kafka_config: Optional[KafkaConfig] = None
+_kafka_config: KafkaConfig | None = None
 
 
 def get_config() -> KafkaConfig:
@@ -598,8 +805,8 @@ Examples:
             else:
                 print("✓ Configuration validation passed")
                 print("  - Configuration structure: OK")
-                if config.xact:
-                    print("  - XACT domain: OK")
+                if config.verisk:
+                    print("  - Verisk domain: OK")
                 if config.claimx:
                     print("  - ClaimX domain: OK")
                 print("  - All settings validated: OK")

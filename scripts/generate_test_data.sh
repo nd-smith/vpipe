@@ -36,7 +36,7 @@ fi
 echo ""
 
 # Build command
-CMD="python -m kafka_pipeline.simulation.dummy_producer"
+CMD="python -m pipeline.simulation.dummy_producer"
 CMD="$CMD --domains $DOMAINS"
 CMD="$CMD --events-per-minute $EVENTS_PER_MINUTE"
 CMD="$CMD --max-events $MAX_EVENTS"

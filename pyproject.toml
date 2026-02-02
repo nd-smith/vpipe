@@ -117,10 +117,15 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by black)
-    "G001", # Allow logging .warn instead of .warning
-    "G002", # Allow logging with %
-    "G003", # Allow logging with +
-    "G010", # Allow logging with warn
+    "G001",  # Allow logging .warn instead of .warning
+    "G002",  # Allow logging with %
+    "G003",  # Allow logging with +
+    "G004",  # Allow f-strings in logging (minor performance impact)
+    "G010",  # Allow logging with warn
+    "G201",  # Allow .error(..., exc_info=True) instead of .exception()
+    "ARG001",  # Allow unused function arguments (often for API compatibility)
+    "ARG002",  # Allow unused method arguments (often for API compatibility)
+    "ARG005",  # Allow unused lambda arguments (often for API compatibility)
 ]
 
 [tool.ruff.lint.per-file-ignores]

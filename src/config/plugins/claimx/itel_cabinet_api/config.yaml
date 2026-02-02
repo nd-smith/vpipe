@@ -17,7 +17,7 @@
 
 # Plugin metadata
 name: itel_cabinet_api
-module: kafka_pipeline.plugins.shared.task_trigger
+module: pipeline.plugins.shared.task_trigger
 class: TaskTriggerPlugin
 enabled: true
 priority: 50
@@ -54,7 +54,7 @@ config:
         # Publish to unified tracking topic
         # Worker will consume from this topic, enrich with ClaimX API data,
         # and write to Delta table for historical analysis
-        publish_to_topic: itel.cabinet.task.tracking
+        publish_to_topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking
 
         log:
           level: info

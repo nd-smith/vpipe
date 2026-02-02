@@ -6,23 +6,21 @@ Provides JSON logging with correlation IDs and context propagation.
 
 from core.logging.context import (
     clear_log_context,
+    clear_message_context,
     get_log_context,
+    get_message_context,
     set_log_context,
+    set_message_context,
 )
 from core.logging.context_managers import (
     LogContext,
+    MessageLogContext,
     OperationContext,
     StageLogContext,
     log_operation,
     log_phase,
 )
 from core.logging.formatters import ConsoleFormatter, JSONFormatter
-from core.logging.kafka_context import (
-    KafkaLogContext,
-    clear_kafka_context,
-    get_kafka_context,
-    set_kafka_context,
-)
 from core.logging.setup import (
     generate_cycle_id,
     get_log_file_path,
@@ -51,11 +49,11 @@ __all__ = [
     "set_log_context",
     "get_log_context",
     "clear_log_context",
-    # Kafka Context
-    "set_kafka_context",
-    "get_kafka_context",
-    "clear_kafka_context",
-    "KafkaLogContext",
+    # Message Context
+    "set_message_context",
+    "get_message_context",
+    "clear_message_context",
+    "MessageLogContext",
     # Context Managers
     "LogContext",
     "StageLogContext",

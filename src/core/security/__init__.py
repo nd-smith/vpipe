@@ -21,6 +21,11 @@ Review checklist:
     [ ] No bypass vectors exist
 """
 
+from core.security.exceptions import (
+    FileValidationError,
+    URLValidationError,
+    ValidationError,
+)
 from core.security.file_validation import (
     ALLOWED_CONTENT_TYPES,
     ALLOWED_EXTENSIONS,
@@ -33,7 +38,6 @@ from core.security.file_validation import (
 from core.security.presigned_urls import (
     PresignedUrlInfo,
     check_presigned_url,
-    extract_expires_at_iso,
 )
 from core.security.url_validation import (
     ALLOWED_SCHEMES,
@@ -46,6 +50,10 @@ from core.security.url_validation import (
 )
 
 __all__ = [
+    # Exceptions
+    "ValidationError",
+    "URLValidationError",
+    "FileValidationError",
     # URL validation
     "validate_download_url",
     "get_allowed_domains",
@@ -56,7 +64,6 @@ __all__ = [
     "PRIVATE_RANGES",
     # Presigned URL handling
     "check_presigned_url",
-    "extract_expires_at_iso",
     "PresignedUrlInfo",
     # File type validation
     "validate_file_type",

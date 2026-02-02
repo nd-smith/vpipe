@@ -5,11 +5,9 @@ Provides consistent error handling for aiokafka exceptions,
 mapping them to typed PipelineError hierarchy with retry decisions.
 """
 
-from typing import Optional
 
 from core.errors.exceptions import (
     AuthError,
-    CircuitOpenError,
     KafkaError,
     PermanentError,
     PipelineError,
@@ -61,8 +59,35 @@ KAFKA_ERROR_MAPPINGS = {
     ],
 }
 
+# Azure EventHub error classifications based on azure-eventhub SDK exceptions
+EVENTHUB_ERROR_MAPPINGS = {
+    # Transient errors (retry recommended)
+    "transient": [
+        "EventHubError",
+        "ConnectionLostError",
+        "ConnectError",
+        "OperationTimeoutError",
+        "AMQPConnectionError",
+    ],
+    # Auth errors (credential refresh needed)
+    "auth": [
+        "AuthenticationError",
+        "ClientAuthenticationError",
+    ],
+    # Permanent errors (don't retry)
+    "permanent": [
+        "EventDataSendError",
+        "EventDataError",
+        "SchemaError",
+    ],
+    # Throttling (backoff needed)
+    "throttling": [
+        "ServerBusyError",
+    ],
+}
 
-def classify_kafka_error_type(error_type_name: str) -> Optional[str]:
+
+def classify_kafka_error_type(error_type_name: str) -> str | None:
     """
     Classify Kafka error by exception type name.
 
@@ -78,6 +103,29 @@ def classify_kafka_error_type(error_type_name: str) -> Optional[str]:
     return None
 
 
+def classify_error_type(error_type_name: str) -> str | None:
+    """
+    Classify error by exception type name, checking both Kafka and EventHub mappings.
+
+    Args:
+        error_type_name: Name of the exception class
+
+    Returns:
+        Error category: "transient", "auth", "permanent", "throttling", or None
+    """
+    # Check Kafka mappings first
+    for category, error_types in KAFKA_ERROR_MAPPINGS.items():
+        if error_type_name in error_types:
+            return category
+
+    # Check EventHub mappings if not found in Kafka
+    for category, error_types in EVENTHUB_ERROR_MAPPINGS.items():
+        if error_type_name in error_types:
+            return category
+
+    return None
+
+
 class KafkaErrorClassifier:
     """
     Centralized error classification for Kafka operations.
@@ -87,7 +135,9 @@ class KafkaErrorClassifier:
     """
 
     @staticmethod
-    def classify_consumer_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
+    def classify_consumer_error(
+        error: Exception, context: dict | None = None
+    ) -> PipelineError:
         """
         Classify a Kafka consumer error into appropriate exception type.
 
@@ -108,8 +158,8 @@ class KafkaErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Classify by exception type first
-        category = classify_kafka_error_type(error_type)
+        # Classify by exception type first (checks both Kafka and EventHub mappings)
+        category = classify_error_type(error_type)
 
         if category == "auth":
             return AuthError(
@@ -173,7 +223,8 @@ class KafkaErrorClassifier:
 
         # String-based fallback classification
         if any(
-            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
+            marker in error_str
+            for marker in ("unauthorized", "authentication", "authorization")
         ):
             return AuthError(
                 f"Kafka consumer auth error: {error}",
@@ -189,7 +240,8 @@ class KafkaErrorClassifier:
             )
 
         if any(
-            marker in error_str for marker in ("connection", "broker", "network", "node not ready")
+            marker in error_str
+            for marker in ("connection", "broker", "network", "node not ready")
         ):
             return ConnectionError(
                 f"Kafka consumer connection error: {error}",
@@ -205,7 +257,9 @@ class KafkaErrorClassifier:
         )
 
     @staticmethod
-    def classify_producer_error(error: Exception, context: Optional[dict] = None) -> PipelineError:
+    def classify_producer_error(
+        error: Exception, context: dict | None = None
+    ) -> PipelineError:
         """
         Classify a Kafka producer error into appropriate exception type.
 
@@ -226,8 +280,8 @@ class KafkaErrorClassifier:
         if context:
             error_context.update(context)
 
-        # Classify by exception type first
-        category = classify_kafka_error_type(error_type)
+        # Classify by exception type first (checks both Kafka and EventHub mappings)
+        category = classify_error_type(error_type)
 
         if category == "auth":
             return AuthError(
@@ -291,7 +345,8 @@ class KafkaErrorClassifier:
 
         # String-based fallback classification
         if any(
-            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
+            marker in error_str
+            for marker in ("unauthorized", "authentication", "authorization")
         ):
             return AuthError(
                 f"Kafka producer auth error: {error}",
@@ -306,7 +361,10 @@ class KafkaErrorClassifier:
                 context=error_context,
             )
 
-        if any(marker in error_str for marker in ("connection", "broker", "network", "leader")):
+        if any(
+            marker in error_str
+            for marker in ("connection", "broker", "network", "leader")
+        ):
             return ConnectionError(
                 f"Kafka producer connection error: {error}",
                 cause=error,
@@ -324,7 +382,7 @@ class KafkaErrorClassifier:
     def classify_kafka_error(
         error: Exception,
         operation_type: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> PipelineError:
         """
         Generic Kafka error classifier with operation routing.

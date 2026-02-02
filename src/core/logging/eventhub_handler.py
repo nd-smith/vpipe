@@ -12,10 +12,10 @@ Features:
 """
 
 import asyncio
+import contextlib
 import logging
 import queue
 import threading
-from typing import Optional
 
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
@@ -72,7 +72,7 @@ class EventHubLogHandler(logging.Handler):
         self.log_queue: queue.Queue = queue.Queue(maxsize=max_queue_size)
 
         # Background thread state
-        self._sender_thread: Optional[threading.Thread] = None
+        self._sender_thread: threading.Thread | None = None
         self._shutdown = threading.Event()
         self._circuit_open = False
         self._failure_count = 0
@@ -172,12 +172,12 @@ class EventHubLogHandler(logging.Handler):
 
             # Final flush on shutdown
             if batch and not self._circuit_open:
-                try:
+                with contextlib.suppress(Exception):
                     await self._send_batch(producer, batch)
-                except Exception:
-                    pass
 
-    async def _send_batch(self, producer: EventHubProducerClient, batch: list[str]) -> None:
+    async def _send_batch(
+        self, producer: EventHubProducerClient, batch: list[str]
+    ) -> None:
         """
         Send a batch of logs to Event Hub.
 

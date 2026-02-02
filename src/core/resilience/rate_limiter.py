@@ -35,10 +35,11 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import wraps
-from typing import Callable, Optional, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,10 @@ T = TypeVar("T")
 class MetricsCollector(Protocol):
     """Protocol for metrics collection (optional dependency)."""
 
-    def increment_counter(self, name: str, labels: Optional[dict] = None) -> None: ...
-    def observe_histogram(self, name: str, value: float, labels: Optional[dict] = None) -> None: ...
+    def increment_counter(self, name: str, labels: dict | None = None) -> None: ...
+    def observe_histogram(
+        self, name: str, value: float, labels: dict | None = None
+    ) -> None: ...
 
 
 @dataclass
@@ -61,7 +64,7 @@ class RateLimiterConfig:
 
     # Maximum burst capacity (tokens that can accumulate)
     # If None, defaults to calls_per_second (allows 1 second of burst)
-    burst_capacity: Optional[float] = None
+    burst_capacity: float | None = None
 
     # Enable/disable rate limiting (for testing or gradual rollout)
     enabled: bool = True
@@ -84,7 +87,8 @@ CLAIMX_API_RATE_CONFIG = RateLimiterConfig(
 EXTERNAL_DOWNLOAD_RATE_CONFIG = RateLimiterConfig(
     calls_per_second=float(os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_PER_SECOND", "5")),
     burst_capacity=None,
-    enabled=os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_ENABLED", "false").lower() == "true",
+    enabled=os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_ENABLED", "false").lower()
+    == "true",
     name="external_download",
 )
 
@@ -106,10 +110,10 @@ class RateLimiter:
 
     def __init__(
         self,
-        config: Optional[RateLimiterConfig] = None,
-        calls_per_second: Optional[float] = None,
-        enabled: Optional[bool] = None,
-        metrics: Optional[MetricsCollector] = None,
+        config: RateLimiterConfig | None = None,
+        calls_per_second: float | None = None,
+        enabled: bool | None = None,
+        metrics: MetricsCollector | None = None,
     ):
         """
         Initialize rate limiter.
@@ -183,7 +187,9 @@ class RateLimiter:
             elapsed = now - self._last_update
 
             # Add tokens for elapsed time (up to burst capacity)
-            self._tokens = min(self._burst_capacity, self._tokens + elapsed * self._rate)
+            self._tokens = min(
+                self._burst_capacity, self._tokens + elapsed * self._rate
+            )
             self._last_update = now
 
             # If not enough tokens, calculate wait time
@@ -290,8 +296,8 @@ _rate_limiters: dict[str, RateLimiter] = {}
 
 def get_rate_limiter(
     name: str,
-    config: Optional[RateLimiterConfig] = None,
-    metrics: Optional[MetricsCollector] = None,
+    config: RateLimiterConfig | None = None,
+    metrics: MetricsCollector | None = None,
 ) -> RateLimiter:
     """
     Get or create a named rate limiter (singleton pattern).

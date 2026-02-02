@@ -5,7 +5,6 @@ Provides typed exceptions with retry classification to enable
 itelligent error handling throughout the pipeline.
 """
 
-from typing import Optional
 
 # Import ErrorCategory from canonical source to avoid duplicate enum issues
 # (comparing enums from different classes always returns False)
@@ -28,8 +27,8 @@ class PipelineError(Exception):
     def __init__(
         self,
         message: str,
-        cause: Optional[Exception] = None,
-        context: Optional[dict] = None,
+        cause: Exception | None = None,
+        context: dict | None = None,
     ):
         self.message = message
         self.cause = cause
@@ -37,8 +36,7 @@ class PipelineError(Exception):
         super().__init__(message)
 
     @property
-    def is_retryable(self):
-        """Whether this error should trigger a retry."""
+    def is_retryable(self) -> bool:
         return self.category in (
             ErrorCategory.TRANSIENT,
             ErrorCategory.AUTH,
@@ -46,8 +44,7 @@ class PipelineError(Exception):
         )
 
     @property
-    def should_refresh_auth(self):
-        """Whether this error should trigger auth refresh."""
+    def should_refresh_auth(self) -> bool:
         return self.category == ErrorCategory.AUTH
 
     def __str__(self) -> str:
@@ -85,9 +82,9 @@ class ThrottlingError(TransientError):
     def __init__(
         self,
         message: str,
-        retry_after: Optional[float] = None,
-        cause: Optional[Exception] = None,
-        context: Optional[dict] = None,
+        retry_after: float | None = None,
+        cause: Exception | None = None,
+        context: dict | None = None,
     ):
         super().__init__(message, cause, context)
         self.retry_after = retry_after  # Seconds to wait if provided
@@ -118,7 +115,7 @@ class CircuitOpenError(PipelineError):
         self,
         circuit_name: str,
         retry_after: float,
-        cause: Optional[Exception] = None,
+        cause: Exception | None = None,
     ):
         message = f"Circuit '{circuit_name}' is open"
         super().__init__(message, cause, {"circuit_name": circuit_name})
@@ -293,6 +290,19 @@ def classify_http_status(status_code: int) -> ErrorCategory:
     return ErrorCategory.UNKNOWN
 
 
+def classify_os_error(error: OSError) -> ErrorCategory:
+    """
+    Classify OSError by errno into error category.
+
+    Conservative classification: only mark as PERMANENT if certain.
+    Disk full (ENOSPC), read-only filesystem (EROFS), permission denied (EACCES/EPERM).
+    """
+    import errno
+
+    permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
+    return ErrorCategory.PERMANENT if error.errno in permanent_errnos else ErrorCategory.TRANSIENT
+
+
 def classify_exception(exc: Exception) -> ErrorCategory:
     """Classify an exception into error category."""
     # Already classified
@@ -369,7 +379,7 @@ def classify_exception(exc: Exception) -> ErrorCategory:
 def wrap_exception(
     exc: Exception,
     default_class: type = PipelineError,
-    context: Optional[dict] = None,
+    context: dict | None = None,
 ) -> PipelineError:
     """Wrap a generic exception in appropriate PipelineError subclass."""
     if isinstance(exc, PipelineError):

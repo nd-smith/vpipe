@@ -8,7 +8,7 @@
 # Usage:
 #   python scripts/run_dual_domain_producer.py
 #   # or with config file:
-#   python -m kafka_pipeline --mode dummy --config config/dummy/dual_domain_test.yaml
+#   python -m pipeline --mode dummy --config config/dummy/dual_domain_test.yaml
 #
 # What this generates:
 #   1. XACT Events:
@@ -120,14 +120,14 @@ max_events:
 #
 # 2. Start the pipeline workers:
 #    # XACT workers
-#    python -m kafka_pipeline.xact.workers.event_ingester
+#    python -m pipeline.xact.workers.event_ingester
 #
 #    # ClaimX workers
-#    python -m kafka_pipeline.claimx.workers.event_ingester
-#    python -m kafka_pipeline.claimx.workers.enrichment_worker
+#    python -m pipeline.claimx.workers.event_ingester
+#    python -m pipeline.claimx.workers.enrichment_worker
 #
 #    # itel Cabinet worker (for processing itel triggers)
-#    python -m kafka_pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
+#    python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
 #
 # 3. Run the dual-domain producer:
 #    python scripts/run_dual_domain_producer.py

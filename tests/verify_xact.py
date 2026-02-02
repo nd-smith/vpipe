@@ -5,8 +5,8 @@ import os
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 try:
-    from kafka_pipeline.common.metrics import uploads_concurrent, update_uploads_concurrent
-    print("✅ Successfully imported uploads_concurrent from kafka_pipeline.common.metrics")
+    from pipeline.common.metrics import uploads_concurrent, update_uploads_concurrent
+    print("✅ Successfully imported uploads_concurrent from pipeline.common.metrics")
 except ImportError as e:
     print(f"❌ Failed to import uploads_concurrent: {e}")
     sys.exit(1)

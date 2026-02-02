@@ -8,7 +8,6 @@ requests>=2.32.5,<3.0.0
 pyarrow>=20.0.0
 psutil>=5.9.0,<6.0.0
 cryptography>=46.0.3,<47.0.0
-coolname>=2.2.0,<3.0.0  # Human-readable log filenames
 
 
 # Azure SDK
@@ -25,6 +24,7 @@ gssapi>=1.8.0,<2.0.0  # Kerberos (GSSAPI) SASL auth; wheel pre-built in vendor/
 
 # Azure Event Hub (AMQP alternative transport)
 azure-eventhub>=5.11.0,<6.0.0
+azure-eventhub-checkpointstoreblob-aio>=1.1.0,<2.0.0  # Durable checkpoint persistence
 
 prometheus-client>=0.19.0,<1.0.0  # Metrics
 

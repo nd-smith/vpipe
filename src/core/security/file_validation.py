@@ -5,11 +5,12 @@ Implements FR-2.2.1: Validate files against allowed file type list.
 Supports validation by file extension and Content-Type header.
 """
 
-from typing import Optional, Set, Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
+
+from core.security.exceptions import FileValidationError
 
 # Allowed file extensions (case-insensitive)
-ALLOWED_EXTENSIONS: Set[str] = {
+ALLOWED_EXTENSIONS: set[str] = {
     # Documents
     "pdf",
     "xml",
@@ -37,7 +38,7 @@ ALLOWED_EXTENSIONS: Set[str] = {
 }
 
 # Allowed MIME types (Content-Type header values)
-ALLOWED_CONTENT_TYPES: Set[str] = {
+ALLOWED_CONTENT_TYPES: set[str] = {
     # Documents
     "application/pdf",
     "application/xml",
@@ -55,24 +56,25 @@ ALLOWED_CONTENT_TYPES: Set[str] = {
 }
 
 # Extension to primary MIME type mapping (for validation)
-EXTENSION_TO_MIME = {
-    "pdf": "application/pdf",
+# All values are sets to allow multiple valid MIME types per extension
+EXTENSION_TO_MIME: dict[str, set[str]] = {
+    "pdf": {"application/pdf"},
     "xml": {"application/xml", "text/xml"},
-    "txt": "text/plain",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "png": "image/png",
-    "gif": "image/gif",
-    "bmp": "image/bmp",
-    "tiff": "image/tiff",
-    "tif": "image/tiff",
-    "webp": "image/webp",
-    "mov": "video/quicktime",
-    "mp4": "video/mp4",
+    "txt": {"text/plain"},
+    "jpg": {"image/jpeg"},
+    "jpeg": {"image/jpeg"},
+    "png": {"image/png"},
+    "gif": {"image/gif"},
+    "bmp": {"image/bmp"},
+    "tiff": {"image/tiff"},
+    "tif": {"image/tiff"},
+    "webp": {"image/webp"},
+    "mov": {"video/quicktime"},
+    "mp4": {"video/mp4"},
 }
 
 
-def extract_extension(filename_or_url: str) -> Optional[str]:
+def extract_extension(filename_or_url: str) -> str | None:
     """
     Extract file extension from filename or URL.
 
@@ -137,10 +139,10 @@ def normalize_content_type(content_type: str) -> str:
 
 def validate_file_type(
     filename_or_url: str,
-    content_type: Optional[str] = None,
-    allowed_extensions: Optional[Set[str]] = None,
-    allowed_content_types: Optional[Set[str]] = None,
-) -> Tuple[bool, str]:
+    content_type: str | None = None,
+    allowed_extensions: set[str] | None = None,
+    allowed_content_types: set[str] | None = None,
+) -> None:
     """
     Validate file type against allowed extensions and content types.
 
@@ -153,11 +155,11 @@ def validate_file_type(
         allowed_extensions: Custom allowed extensions (None = use defaults)
         allowed_content_types: Custom allowed MIME types (None = use defaults)
 
-    Returns:
-        Tuple of (is_valid, error_message)
+    Raises:
+        FileValidationError: If validation fails
     """
     if not filename_or_url:
-        return False, "Empty filename or URL"
+        raise FileValidationError("Empty filename or URL")
 
     # Use default allowed lists if not provided
     if allowed_extensions is None:
@@ -172,36 +174,27 @@ def validate_file_type(
     # Extract and validate extension
     extension = extract_extension(filename_or_url)
     if extension is None:
-        return False, "No file extension found"
+        raise FileValidationError("No file extension found")
 
     if extension not in allowed_extensions:
-        return False, f"File extension '{extension}' not allowed"
+        raise FileValidationError(f"File extension '{extension}' not allowed")
 
     # Validate Content-Type if provided
     if content_type:
         normalized_ct = normalize_content_type(content_type)
         if not normalized_ct:
-            return False, "Invalid Content-Type header"
+            raise FileValidationError("Invalid Content-Type header")
 
         if normalized_ct not in allowed_content_types:
-            return False, f"Content-Type '{normalized_ct}' not allowed"
+            raise FileValidationError(f"Content-Type '{normalized_ct}' not allowed")
 
         # Additional check: extension and Content-Type should be compatible
         # (defense against spoofing)
         expected_mimes = EXTENSION_TO_MIME.get(extension)
-        if expected_mimes:
-            # Handle both single MIME type and set of MIME types
-            if isinstance(expected_mimes, str):
-                expected_mimes = {expected_mimes}
-
-            if normalized_ct not in expected_mimes:
-                return (
-                    False,
-                    f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'",
-                )
-
-    # All checks passed
-    return True, ""
+        if expected_mimes and normalized_ct not in expected_mimes:
+            raise FileValidationError(
+                f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'"
+            )
 
 
 def is_allowed_extension(extension: str) -> bool:

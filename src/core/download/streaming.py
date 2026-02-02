@@ -7,22 +7,23 @@ reusable across pipeline components.
 """
 
 import asyncio
-import errno
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, Optional
 
 import aiohttp
 
 from core.errors.exceptions import (
     ErrorCategory,
-    TransientError,
     classify_http_status,
+    classify_os_error,
 )
 
 # Download configuration constants
-CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks for streaming
-STREAM_THRESHOLD = 50 * 1024 * 1024  # Stream files > 50MB
+# 8MB chunks: balance between memory usage and throughput for network I/O
+CHUNK_SIZE = 8 * 1024 * 1024
+# 50MB threshold: files larger than this use streaming to avoid memory issues
+STREAM_THRESHOLD = 50 * 1024 * 1024
 
 
 @dataclass
@@ -30,8 +31,8 @@ class StreamDownloadResponse:
     """Response from streaming HTTP download with chunk iterator."""
 
     status_code: int
-    content_length: Optional[int]
-    content_type: Optional[str]
+    content_length: int | None
+    content_type: str | None
     chunk_iterator: AsyncIterator[bytes]
 
 
@@ -39,7 +40,7 @@ class StreamDownloadResponse:
 class StreamDownloadError:
     """Error result from failed streaming download with retry classification."""
 
-    status_code: Optional[int]
+    status_code: int | None
     error_message: str
     error_category: ErrorCategory
 
@@ -51,7 +52,7 @@ async def stream_download_url(
     chunk_size: int = CHUNK_SIZE,
     allow_redirects: bool = True,
     sock_read_timeout: int = 30,
-) -> tuple[Optional[StreamDownloadResponse], Optional[StreamDownloadError]]:
+) -> tuple[StreamDownloadResponse | None, StreamDownloadError | None]:
     """
     Stream download for large files using chunked reading.
 
@@ -122,7 +123,7 @@ async def stream_download_url(
             None,
         )
 
-    except asyncio.TimeoutError as e:
+    except TimeoutError:
         # Timeout during download - could be connection, read, or total timeout
         return None, StreamDownloadError(
             status_code=None,
@@ -158,7 +159,7 @@ class DownloadToFileResult:
     """
 
     bytes_written: int
-    content_type: Optional[str]
+    content_type: str | None
 
 
 async def download_to_file(
@@ -168,7 +169,7 @@ async def download_to_file(
     timeout: int = 120,
     chunk_size: int = CHUNK_SIZE,
     sock_read_timeout: int = 30,
-) -> tuple[Optional[DownloadToFileResult], Optional[StreamDownloadError]]:
+) -> tuple[DownloadToFileResult | None, StreamDownloadError | None]:
     """
     Download URL content directly to file using streaming.
 
@@ -219,7 +220,9 @@ async def download_to_file(
         # Ensure parent directory exists right before opening file
         # This handles potential timing issues on Windows where mkdir may not
         # be immediately visible to subsequent file operations
-        await asyncio.to_thread(Path(output_path).parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(
+            Path(output_path).parent.mkdir, parents=True, exist_ok=True
+        )
         with open(output_path, "wb") as f:
             async for chunk in chunk_iterator:
                 # Use asyncio.to_thread for disk I/O to avoid blocking event loop
@@ -235,17 +238,10 @@ async def download_to_file(
         )
 
     except OSError as e:
-        # Classify OSError - be conservative: only mark as PERMANENT if we're
-        # certain it's not recoverable. Unknown errors should retry.
-        # Permanent errors: disk full, read-only filesystem, permission denied
-        permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
-        is_permanent = e.errno in permanent_errnos
-
-        error_category = ErrorCategory.PERMANENT if is_permanent else ErrorCategory.TRANSIENT
         return None, StreamDownloadError(
             status_code=None,
             error_message=f"File write error: {str(e)}",
-            error_category=error_category,
+            error_category=classify_os_error(e),
         )
     finally:
         # Ensure async generator is closed to release the HTTP connection
@@ -254,7 +250,7 @@ async def download_to_file(
         await chunk_iterator.aclose()
 
 
-def should_stream(content_length: Optional[int]) -> bool:
+def should_stream(content_length: int | None) -> bool:
     """
     Determine if content should be streamed based on size.
 

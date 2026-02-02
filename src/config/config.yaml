@@ -22,14 +22,15 @@ event_source: ${EVENT_SOURCE:-eventhouse}
 # =============================================================================
 kafka:
   # ---------------------------------------------------------------------------
-  # Corporate Kafka Cluster (Remote)
+  # Kafka Connection (defaults to local Docker Kafka)
   # ---------------------------------------------------------------------------
+  # For corporate cluster, set KAFKA_BOOTSTRAP_SERVERS env var
   connection:
-    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-lxv102325.allstate.com:9093,lxv102326.allstate.com:9093,lxv102327.allstate.com:9093,lxv102328.allstate.com:9093,lxv102329.allstate.com:9093,lxv102330.allstate.com:9093,lxv102331.allstate.com:9093,lxv102332.allstate.com:9093}
-    security_protocol: ${KAFKA_SECURITY_PROTOCOL:-SASL_SSL}
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}
+    security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
     sasl_mechanism: ${KAFKA_SASL_MECHANISM:-GSSAPI}
     sasl_kerberos_service_name: ${KAFKA_SASL_KERBEROS_SERVICE_NAME:-kafka}
-    schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:-https://rtvdevro-kafka.tptigslb.allstate.com:8081}
+    schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:-http://localhost:8081}
 
   consumer_defaults:
     auto_offset_reset: earliest
@@ -41,18 +42,18 @@ kafka:
     compression_type: "lz4"
 
   # ---------------------------------------------------------------------------
-  # XACT Domain
+  # Verisk Domain
   # ---------------------------------------------------------------------------
-  xact:
+  verisk:
     topics:
-      events: "com.allstate.pcesdopodappv1.xact.events.raw"
-      enrichment_pending: "com.allstate.pcesdopodappv1.xact.enrichment.pending"
-      downloads_pending: "com.allstate.pcesdopodappv1.xact.downloads.pending"
-      downloads_cached: "com.allstate.pcesdopodappv1.xact.downloads.cached"
-      downloads_results: "com.allstate.pcesdopodappv1.xact.downloads.results"
-      dlq: "com.allstate.pcesdopodappv1.xact.downloads.dlq"
+      events: "com.allstate.pcesdopodappv1.verisk.events.raw"
+      enrichment_pending: "com.allstate.pcesdopodappv1.verisk.enrichment.pending"
+      downloads_pending: "com.allstate.pcesdopodappv1.verisk.downloads.pending"
+      downloads_cached: "com.allstate.pcesdopodappv1.verisk.downloads.cached"
+      downloads_results: "com.allstate.pcesdopodappv1.verisk.downloads.results"
+      dlq: "com.allstate.pcesdopodappv1.verisk.downloads.dlq"
 
-    consumer_group_prefix: "xact"
+    consumer_group_prefix: "verisk"
     retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
     max_retries: 4
 
@@ -64,7 +65,7 @@ kafka:
       events: "com.allstate.pcesdopodappv1.claimx.events.raw"
       enrichment_pending: "com.allstate.pcesdopodappv1.claimx.enrichment.pending"
       enrichment.dlq: "com.allstate.pcesdopodappv1.claimx.enrichment.dlq"
-      entities_rows: "com.allstate.pcesdopodappv1.claimx.entities.rows"
+      enriched: "com.allstate.pcesdopodappv1.claimx.entities.rows"
       downloads_pending: "com.allstate.pcesdopodappv1.claimx.downloads.pending"
       downloads_cached: "com.allstate.pcesdopodappv1.claimx.downloads.cached"
       downloads_results: "com.allstate.pcesdopodappv1.claimx.downloads.results"
@@ -80,26 +81,26 @@ kafka:
   storage:
     onelake_base_path: ${ONELAKE_BASE_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline}
     onelake_domain_paths:
-      xact: ""
+      verisk: ""
       claimx: ""
-    cache_dir: ${CACHE_DIR:-/tmp/kafka_pipeline_cache}
+    cache_dir: ${CACHE_DIR:-/tmp/pipeline_cache}
 
 # =============================================================================
 # LOCAL / INTERNAL PIPELINE KAFKA
 # =============================================================================
-# In deployed environments, this points to the same corporate cluster.
-# For local development, override via LOCAL_KAFKA_* env vars or .env file.
+# Defaults to local Docker Kafka for development.
+# In deployed environments, override via LOCAL_KAFKA_* env vars.
 local_kafka:
-  bootstrap_servers: ${LOCAL_KAFKA_BOOTSTRAP_SERVERS:-lxv102325.allstate.com:9093,lxv102326.allstate.com:9093,lxv102327.allstate.com:9093,lxv102328.allstate.com:9093,lxv102329.allstate.com:9093,lxv102330.allstate.com:9093,lxv102331.allstate.com:9093,lxv102332.allstate.com:9093}
-  security_protocol: ${LOCAL_KAFKA_SECURITY_PROTOCOL:-SASL_SSL}
+  bootstrap_servers: ${LOCAL_KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}
+  security_protocol: ${LOCAL_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
   sasl_mechanism: ${LOCAL_KAFKA_SASL_MECHANISM:-GSSAPI}
   consumer_poll_timeout_ms: 1000
   producer_max_block_ms: 60000
 
 # =============================================================================
-# EVENTHOUSE - XACT DOMAIN
+# EVENTHOUSE - VERISK DOMAIN
 # =============================================================================
-eventhouse:
+verisk_eventhouse:
   cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
   database: ${XACT_EVENTHOUSE_DATABASE:-VERISK_XACTANALYSIS_DB}
   query_timeout_seconds: 120
@@ -108,7 +109,7 @@ eventhouse:
     poll_interval_seconds: 30
     batch_size: 1000
   dedup:
-    xact_events_window_hours: 24
+    verisk_events_window_hours: 24
     eventhouse_query_window_hours: 1
     overlap_minutes: 5
 
@@ -148,9 +149,9 @@ delta:
   enable_writes: true
 
   # XACT domain
-  xact:
-    events_table_path: ${XACT_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/xact_events}
-    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/xact_attachments}
+  verisk:
+    events_table_path: ${XACT_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/verisk_events}
+    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/verisk_attachments}
     failed_table_path: ""
 
   # ClaimX domain
@@ -230,24 +231,99 @@ eventhub:
   # Default consumer group (used when not specified per-topic)
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
+  # Checkpoint store configuration for durable offset persistence.
+  # Azure Blob Storage is used to store consumer checkpoints, enabling
+  # graceful restarts and partition rebalancing across multiple consumers.
+  checkpoint_store:
+    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+    container_name: ${EVENTHUB_CHECKPOINT_CONTAINER_NAME:-eventhub-checkpoints}
+
   # ---------------------------------------------------------------------------
-  # XACT Domain
+  # Verisk Domain (formerly XACT)
   # ---------------------------------------------------------------------------
-  # Currently Event Hub is only used as the external event source.
-  # Internal pipeline routing (downloads, enrichment, DLQ) uses local Kafka.
-  # Add more entries here if/when those stages migrate to Event Hub.
-  xact:
+  # Event Hub entities for Verisk/XACT event processing pipeline
+  verisk:
     events:
-      eventhub_name: ${EVENTHUB_XACT_EVENTS_NAME:-verisk_events}
-      consumer_group: ${EVENTHUB_XACT_EVENTS_CONSUMER_GROUP:-xact-pipeline}
+      eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-verisk_events}
+      consumer_group: ${EVENTHUB_VERISK_EVENTS_CONSUMER_GROUP:-verisk-pipeline}
+    enrichment_pending:
+      eventhub_name: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_NAME:-verisk-enrichment-pending}
+      consumer_group: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_CONSUMER_GROUP:-verisk-enrichment-pipeline}
+    downloads_pending:
+      eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_NAME:-verisk-downloads-pending}
+      consumer_group: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_CONSUMER_GROUP:-verisk-downloads-pipeline}
+    downloads_cached:
+      eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_NAME:-verisk-downloads-cached}
+      consumer_group: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_CONSUMER_GROUP:-verisk-downloads-cached-pipeline}
+    downloads_results:
+      eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_NAME:-verisk-downloads-results}
+      consumer_group: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_CONSUMER_GROUP:-verisk-downloads-results-pipeline}
+    retry:
+      eventhub_name: ${EVENTHUB_VERISK_RETRY_NAME:-verisk-retry}
+      consumer_group: ${EVENTHUB_VERISK_RETRY_CONSUMER_GROUP:-verisk-retry-pipeline}
+    dlq:
+      eventhub_name: ${EVENTHUB_VERISK_DLQ_NAME:-verisk-dlq}
+      consumer_group: ${EVENTHUB_VERISK_DLQ_CONSUMER_GROUP:-verisk-dlq-pipeline}
 
   # ---------------------------------------------------------------------------
   # ClaimX Domain
   # ---------------------------------------------------------------------------
+  # Event Hub entities for ClaimX event processing pipeline
   claimx:
     events:
       eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
       consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-claimx-pipeline}
+    enrichment_pending:
+      eventhub_name: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_NAME:-claimx-enrichment-pending}
+      consumer_group: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CONSUMER_GROUP:-claimx-enrichment-pipeline}
+    enriched:
+      eventhub_name: ${EVENTHUB_CLAIMX_ENRICHED_NAME:-claimx-enriched}
+      consumer_group: ${EVENTHUB_CLAIMX_ENRICHED_CONSUMER_GROUP:-claimx-enriched-pipeline}
+    downloads_pending:
+      eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_NAME:-claimx-downloads-pending}
+      consumer_group: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_CONSUMER_GROUP:-claimx-downloads-pipeline}
+    downloads_cached:
+      eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_NAME:-claimx-downloads-cached}
+      consumer_group: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_CONSUMER_GROUP:-claimx-downloads-cached-pipeline}
+    downloads_results:
+      eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_NAME:-claimx-downloads-results}
+      consumer_group: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_CONSUMER_GROUP:-claimx-downloads-results-pipeline}
+    retry:
+      eventhub_name: ${EVENTHUB_CLAIMX_RETRY_NAME:-claimx-retry}
+      consumer_group: ${EVENTHUB_CLAIMX_RETRY_CONSUMER_GROUP:-claimx-retry-pipeline}
+    dlq:
+      eventhub_name: ${EVENTHUB_CLAIMX_DLQ_NAME:-claimx-dlq}
+      consumer_group: ${EVENTHUB_CLAIMX_DLQ_CONSUMER_GROUP:-claimx-dlq-pipeline}
+
+  # ---------------------------------------------------------------------------
+  # Plugins Domain
+  # ---------------------------------------------------------------------------
+  # Event Hub entities for plugin integrations (iTEL Cabinet, GHRN, etc.)
+  plugins:
+    itel_cabinet_pending:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_PENDING_NAME:-pcesdopodappv1-itel-cabinet-pending}
+      consumer_group: ${EVENTHUB_ITEL_CABINET_PENDING_CONSUMER_GROUP:-itel-cabinet-pending-pipeline}
+    itel_cabinet_completed:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_COMPLETED_NAME:-pcesdopodappv1-itel-cabinet-completed}
+      consumer_group: ${EVENTHUB_ITEL_CABINET_COMPLETED_CONSUMER_GROUP:-itel-cabinet-completed-pipeline}
+    itel_cabinet_success:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_SUCCESS_NAME:-pcesdopodappv1-itel-cabinet-success}
+      consumer_group: ${EVENTHUB_ITEL_CABINET_SUCCESS_CONSUMER_GROUP:-itel-cabinet-success-pipeline}
+    itel_cabinet_errors:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_ERRORS_NAME:-pcesdopodappv1-itel-cabinet-errors}
+      consumer_group: ${EVENTHUB_ITEL_CABINET_ERRORS_CONSUMER_GROUP:-itel-cabinet-errors-pipeline}
+    itel_api_success:
+      eventhub_name: ${EVENTHUB_ITEL_API_SUCCESS_NAME:-pcesdopodappv1-itel-api-success}
+      consumer_group: ${EVENTHUB_ITEL_API_SUCCESS_CONSUMER_GROUP:-itel-api-success-pipeline}
+    itel_api_errors:
+      eventhub_name: ${EVENTHUB_ITEL_API_ERRORS_NAME:-pcesdopodappv1-itel-api-errors}
+      consumer_group: ${EVENTHUB_ITEL_API_ERRORS_CONSUMER_GROUP:-itel-api-errors-pipeline}
+    ghrn_mitigation_pending:
+      eventhub_name: ${EVENTHUB_GHRN_MITIGATION_PENDING_NAME:-pcesdopodappv1-ghrn-mitigation-pending}
+      consumer_group: ${EVENTHUB_GHRN_MITIGATION_PENDING_CONSUMER_GROUP:-ghrn-mitigation-pending-pipeline}
+    ghrn_mitigation_completed:
+      eventhub_name: ${EVENTHUB_GHRN_MITIGATION_COMPLETED_NAME:-pcesdopodappv1-ghrn-mitigation-completed}
+      consumer_group: ${EVENTHUB_GHRN_MITIGATION_COMPLETED_CONSUMER_GROUP:-ghrn-mitigation-completed-pipeline}
 
 # =============================================================================
 # LOGGING & MONITORING

@@ -87,7 +87,7 @@ echo ""
 
 # Start file server
 echo -e "${YELLOW}Starting dummy file server...${NC}"
-python -m kafka_pipeline.common.dummy.file_server > /tmp/pcesdopodappv1_file_server.log 2>&1 &
+python -m pipeline.common.dummy.file_server > /tmp/pcesdopodappv1_file_server.log 2>&1 &
 FILE_SERVER_PID=$!
 PIDS+=($FILE_SERVER_PID)
 echo -e "${GREEN}✓ File server started (PID: $FILE_SERVER_PID)${NC}"
@@ -109,50 +109,50 @@ if [[ "$DOMAIN" == "claimx" ]]; then
     # ClaimX pipeline
 
     echo "  Starting claimx-ingester..."
-    python -m kafka_pipeline --worker claimx-ingester > /tmp/pcesdopodappv1_claimx_ingester.log 2>&1 &
+    python -m pipeline --worker claimx-ingester > /tmp/pcesdopodappv1_claimx_ingester.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-enricher..."
-    python -m kafka_pipeline --worker claimx-enricher --simulation-mode > /tmp/pcesdopodappv1_claimx_enricher.log 2>&1 &
+    python -m pipeline --worker claimx-enricher --simulation-mode > /tmp/pcesdopodappv1_claimx_enricher.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-downloader..."
-    python -m kafka_pipeline --worker claimx-downloader > /tmp/pcesdopodappv1_claimx_downloader.log 2>&1 &
+    python -m pipeline --worker claimx-downloader > /tmp/pcesdopodappv1_claimx_downloader.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-uploader..."
-    python -m kafka_pipeline --worker claimx-uploader --simulation-mode > /tmp/pcesdopodappv1_claimx_uploader.log 2>&1 &
+    python -m pipeline --worker claimx-uploader --simulation-mode > /tmp/pcesdopodappv1_claimx_uploader.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting claimx-entity-writer..."
-    python -m kafka_pipeline --worker claimx-entity-writer > /tmp/pcesdopodappv1_claimx_entity_writer.log 2>&1 &
+    python -m pipeline --worker claimx-entity-writer > /tmp/pcesdopodappv1_claimx_entity_writer.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
 else
     # XACT pipeline
 
-    echo "  Starting xact-local-ingester..."
-    python -m kafka_pipeline --worker xact-local-ingester > /tmp/pcesdopodappv1_xact_ingester.log 2>&1 &
+    echo "  Starting xact-event-ingester..."
+    python -m pipeline --worker xact-event-ingester > /tmp/pcesdopodappv1_xact_ingester.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting xact-enricher..."
-    python -m kafka_pipeline --worker xact-enricher --simulation-mode > /tmp/pcesdopodappv1_xact_enricher.log 2>&1 &
+    python -m pipeline --worker xact-enricher --simulation-mode > /tmp/pcesdopodappv1_xact_enricher.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting xact-download..."
-    python -m kafka_pipeline --worker xact-download > /tmp/pcesdopodappv1_xact_download.log 2>&1 &
+    python -m pipeline --worker xact-download > /tmp/pcesdopodappv1_xact_download.log 2>&1 &
     PIDS+=($!)
     sleep 2
 
     echo "  Starting xact-upload..."
-    python -m kafka_pipeline --worker xact-upload --simulation-mode > /tmp/pcesdopodappv1_xact_upload.log 2>&1 &
+    python -m pipeline --worker xact-upload --simulation-mode > /tmp/pcesdopodappv1_xact_upload.log 2>&1 &
     PIDS+=($!)
     sleep 2
 fi
@@ -172,7 +172,7 @@ echo -e "  Events: $EVENT_COUNT"
 echo ""
 
 # Run dummy source using new simulation module and wait for completion
-if python -m kafka_pipeline.simulation.dummy_producer \
+if python -m pipeline.simulation.dummy_producer \
     --domains "$DOMAIN" \
     --events-per-minute 120 \
     --max-events "$EVENT_COUNT" > /tmp/pcesdopodappv1_dummy_source.log 2>&1; then

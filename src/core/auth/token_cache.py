@@ -25,9 +25,8 @@ Example:
     ...     # Token expired or not cached, fetch new one
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, Tuple
 import threading
+from datetime import UTC, datetime, timedelta
 
 # Token timing constants
 TOKEN_REFRESH_MINS = 50  # Refresh before expiry (Azure tokens: 60 min lifetime)
@@ -68,15 +67,17 @@ class TokenCache:
 
     def __init__(self):
         """Initialize empty token cache with thread lock."""
-        self._tokens: Dict[str, Tuple[str, datetime]] = {}
+        self._tokens: dict[str, tuple[str, datetime]] = {}
         self._lock = threading.Lock()
 
-    def _is_valid(self, acquired_at: datetime, buffer_mins: int = TOKEN_REFRESH_MINS) -> bool:
+    def _is_valid(
+        self, acquired_at: datetime, buffer_mins: int = TOKEN_REFRESH_MINS
+    ) -> bool:
         """Check if token is still valid based on age."""
-        age = datetime.now(timezone.utc) - acquired_at
+        age = datetime.now(UTC) - acquired_at
         return age < timedelta(minutes=buffer_mins)
 
-    def get(self, resource: str) -> Optional[str]:
+    def get(self, resource: str) -> str | None:
         """
         Get cached token if still valid.
 
@@ -114,9 +115,9 @@ class TokenCache:
             >>> cache.set("https://storage.azure.com/", "eyJ0eXAiOiJKV1...")
         """
         with self._lock:
-            self._tokens[resource] = (token, datetime.now(timezone.utc))
+            self._tokens[resource] = (token, datetime.now(UTC))
 
-    def clear(self, resource: Optional[str] = None) -> None:
+    def clear(self, resource: str | None = None) -> None:
         """
         Clear one or all cached tokens.
 
@@ -138,7 +139,7 @@ class TokenCache:
             else:
                 self._tokens.clear()
 
-    def get_age(self, resource: str) -> Optional[timedelta]:
+    def get_age(self, resource: str) -> timedelta | None:
         """
         Get age of cached token for diagnostics.
 
@@ -159,7 +160,7 @@ class TokenCache:
             cached = self._tokens.get(resource)
             if cached:
                 _, acquired_at = cached
-                return datetime.now(timezone.utc) - acquired_at
+                return datetime.now(UTC) - acquired_at
             return None
 
 

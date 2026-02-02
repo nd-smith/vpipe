@@ -354,7 +354,7 @@ kafka:
       events: "com.allstate.pcesdopodappv1.claimx.events.raw"                      # Raw events from Eventhouse
       enrichment_pending: "com.allstate.pcesdopodappv1.claimx.enrichment.pending"  # Events awaiting API enrichment
       enrichment.dlq: "com.allstate.pcesdopodappv1.claimx.enrichment.dlq"          # Enrichment dead letter queue
-      entities_rows: "com.allstate.pcesdopodappv1.claimx.entities.rows"            # Entity data rows
+      enriched: "com.allstate.pcesdopodappv1.claimx.entities.rows"                 # Enriched entity data rows
       downloads_pending: "com.allstate.pcesdopodappv1.claimx.downloads.pending"    # Download tasks awaiting processing
       downloads_cached: "com.allstate.pcesdopodappv1.claimx.downloads.cached"      # Downloads cached locally
       downloads_results: "com.allstate.pcesdopodappv1.claimx.downloads.results"    # Upload results
@@ -494,7 +494,7 @@ kafka:
     onelake_base_path: ""
 
     # Local directory for caching downloads awaiting upload
-    cache_dir: "/tmp/kafka_pipeline_cache"
+    cache_dir: "/tmp/pipeline_cache"
 
 
 # =============================================================================

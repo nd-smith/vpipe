@@ -9,15 +9,12 @@ This module is extracted from xact_download.py to be reusable across
 different pipeline components.
 """
 
-import asyncio
 from dataclasses import dataclass
-from typing import Optional
 
 import aiohttp
 
 from core.errors.exceptions import (
     ErrorCategory,
-    TransientError,
     classify_http_status,
 )
 
@@ -28,15 +25,15 @@ class DownloadResponse:
 
     content: bytes
     status_code: int
-    content_length: Optional[int] = None
-    content_type: Optional[str] = None
+    content_length: int | None = None
+    content_type: str | None = None
 
 
 @dataclass
 class DownloadError:
     """Error result from failed HTTP download with retry classification."""
 
-    status_code: Optional[int]
+    status_code: int | None
     error_message: str
     error_category: ErrorCategory
 
@@ -47,7 +44,7 @@ async def download_url(
     timeout: int = 60,
     allow_redirects: bool = True,
     sock_read_timeout: int = 30,
-) -> tuple[Optional[DownloadResponse], Optional[DownloadError]]:
+) -> tuple[DownloadResponse | None, DownloadError | None]:
     """
     Low-level HTTP download without URL validation, circuit breaking, or retry.
 
@@ -104,7 +101,7 @@ async def download_url(
                 None,
             )
 
-    except asyncio.TimeoutError as e:
+    except TimeoutError:
         # Timeout during download - could be connection, read, or total timeout
         return None, DownloadError(
             status_code=None,

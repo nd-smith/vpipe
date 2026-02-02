@@ -1,7 +1,7 @@
 """Logging utility functions."""
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 # Reserved LogRecord attribute names that cannot be used in extra dict
 _RESERVED_LOG_KEYS = frozenset(
@@ -152,9 +152,9 @@ def format_cycle_output(
 def log_worker_error(
     logger: logging.Logger,
     error_message: str,
-    event_id: Optional[str] = None,
-    error_category: Optional[str] = None,
-    exc: Optional[Exception] = None,
+    event_id: str | None = None,
+    error_category: str | None = None,
+    exc: Exception | None = None,
     **context: Any,
 ) -> None:
     """

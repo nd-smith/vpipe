@@ -18,10 +18,10 @@ WARNING: This must NEVER be enabled in production. The env var should only
 exist in .env (gitignored) or be set manually for local testing.
 """
 
+import _ssl
 import logging
 import os
 import ssl
-import _ssl
 import sys
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,10 @@ def apply_ssl_dev_bypass() -> None:
     # original class to avoid recursion.
     for mod in list(sys.modules.values()):
         try:
-            if mod is not ssl and getattr(mod, "SSLContext", None) is _OriginalSSLContext:
+            if (
+                mod is not ssl
+                and getattr(mod, "SSLContext", None) is _OriginalSSLContext
+            ):
                 mod.SSLContext = _UnverifiedSSLContext
         except Exception:
             pass
