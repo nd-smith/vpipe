@@ -616,11 +616,11 @@ eventhouse:
   # Deduplication Settings
   # ---------------------------------------------------------------------------
   dedup:
-    # Path to XACT events table for deduplication
-    xact_events_table_path: ""
+    # Path to verisk events table for deduplication
+    events_table_path: ""
 
-    # Look back this many hours in XACT events for dedup (hours)
-    xact_events_window_hours: 24
+    # Look back this many hours in verisk events for dedup (hours)
+    verisk_events_window_hours: 24
 
     # Look back this many hours in Eventhouse for new events (hours)
     eventhouse_query_window_hours: 1

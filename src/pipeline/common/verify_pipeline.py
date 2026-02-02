@@ -380,7 +380,7 @@ def main():
     args = parser.parse_args()
 
     if not args.table_path:
-        print("Error: --table-path required or set XACT_EVENTS_TABLE_PATH env var")
+        print("Error: --table-path required or set VERISK_EVENTS_TABLE_PATH env var")
         return 1
 
     # Parse time range
