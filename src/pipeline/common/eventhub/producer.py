@@ -12,6 +12,7 @@ Architecture notes:
 
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -126,9 +127,10 @@ class EventHubProducer:
         try:
             # Apply SSL dev bypass if configured
             # This must be done before creating the client
-            from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+            if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
+                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
 
-            apply_ssl_dev_bypass()
+                apply_ssl_dev_bypass()
 
             # Create producer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
