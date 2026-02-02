@@ -21,7 +21,7 @@ connection:
   # ===========================================================================
   # Main connection for sending task tracking data to iTel Cabinet systems.
   #
-  # TODO: Update with actual iTel API details:
+  # PLACEHOLDER - Update with actual iTel API details when available:
   #   - Base URL
   #   - Authentication type (bearer, api_key, basic)
   #   - Specific endpoint paths

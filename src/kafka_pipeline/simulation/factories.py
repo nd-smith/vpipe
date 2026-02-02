@@ -241,7 +241,8 @@ def create_simulation_itel_cabinet_worker(
 
     Args:
         config: Kafka configuration
-        simulation_config: Simulation mode configuration (optional, unused)
+        simulation_config: Simulation mode configuration (optional, unused - worker
+            auto-detects simulation mode via SIMULATION_MODE environment variable)
         **kwargs: Additional arguments passed to worker initialization
 
     Returns:

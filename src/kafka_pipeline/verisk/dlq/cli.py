@@ -25,6 +25,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _noop_message_handler(record) -> None:
+    """No-op message handler for CLI commands that don't process messages."""
+    pass
+
+
 class CLITaskManager:
 
     def __init__(self):
@@ -296,7 +301,7 @@ async def main_list(args):
     config = load_config()
     domain = "verisk"
     manager = DLQCLIManager(config)
-    manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+    manager.handler._handle_dlq_message = _noop_message_handler
 
     async with CLITaskManager() as task_manager:
         try:
@@ -312,7 +317,7 @@ async def main_list(args):
                 domain=domain,
                 worker_name="dlq_cli",
                 topics=[config.get_topic(domain, "dlq")],
-                message_handler=lambda r: asyncio.sleep(0),
+                message_handler=_noop_message_handler,
             )
             task_manager.create_task(
                 manager.handler._consumer.start(), name="dlq_consumer"
@@ -342,7 +347,7 @@ async def main_view(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+            manager.handler._handle_dlq_message = _noop_message_handler
             (
                 await manager.handler._producer.start()
                 if not manager.handler._producer
@@ -356,7 +361,7 @@ async def main_view(args):
                 domain=domain,
                 worker_name="dlq_cli",
                 topics=[config.get_topic(domain, "dlq")],
-                message_handler=lambda r: asyncio.sleep(0),
+                message_handler=_noop_message_handler,
             )
 
             task_manager.create_task(
@@ -388,7 +393,7 @@ async def main_replay(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+            manager.handler._handle_dlq_message = _noop_message_handler
             from kafka_pipeline.common.producer import BaseKafkaProducer
 
             manager.handler._producer = BaseKafkaProducer(
@@ -404,7 +409,7 @@ async def main_replay(args):
                 domain=domain,
                 worker_name="dlq_cli",
                 topics=[config.get_topic(domain, "dlq")],
-                message_handler=lambda r: asyncio.sleep(0),
+                message_handler=_noop_message_handler,
             )
 
             task_manager.create_task(
@@ -437,7 +442,7 @@ async def main_resolve(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            manager.handler._handle_dlq_message = lambda record: asyncio.sleep(0)
+            manager.handler._handle_dlq_message = _noop_message_handler
             from kafka_pipeline.common.producer import BaseKafkaProducer
 
             manager.handler._producer = BaseKafkaProducer(
@@ -453,7 +458,7 @@ async def main_resolve(args):
                 domain=domain,
                 worker_name="dlq_cli",
                 topics=[config.get_topic(domain, "dlq")],
-                message_handler=lambda r: asyncio.sleep(0),
+                message_handler=_noop_message_handler,
             )
 
             task_manager.create_task(
