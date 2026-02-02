@@ -94,6 +94,7 @@ class KafkaSink:
             domain=self.config.domain,
             worker_name=self.config.worker_name,
             topic=self._topic,
+            topic_key="events",
         )
         await self._producer.start()
         logger.info(

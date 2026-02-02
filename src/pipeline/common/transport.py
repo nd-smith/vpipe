@@ -292,7 +292,14 @@ def create_producer(
         namespace_connection_string = _get_namespace_connection_string()
 
         # Determine Event Hub name
-        eventhub_name = topic or _resolve_eventhub_name(domain, topic_key, worker_name)
+        # When topic_key is provided, always resolve from config.yaml
+        # (topic may be a Kafka topic name which differs from the Event Hub entity name)
+        if topic_key:
+            eventhub_name = _resolve_eventhub_name(domain, topic_key, worker_name)
+        else:
+            eventhub_name = topic or _resolve_eventhub_name(
+                domain, topic_key, worker_name
+            )
 
         logger.info(
             f"Creating Event Hub producer: domain={domain}, worker={worker_name}, "
