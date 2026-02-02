@@ -45,6 +45,7 @@ from kafka_pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,
     ConnectionManager,
+    is_http_error,
 )
 
 logger = get_logger(__name__)
@@ -283,7 +284,7 @@ class ItelCabinetApiWorker:
             json=api_payload,
         )
 
-        if status < 200 or status >= 300:
+        if is_http_error(status):
             raise Exception(f"iTel API returned error status {status}: {response}")
 
         logger.info(

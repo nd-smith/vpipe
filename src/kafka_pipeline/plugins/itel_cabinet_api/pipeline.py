@@ -6,12 +6,19 @@ from datetime import datetime
 
 import aiohttp
 
-from kafka_pipeline.plugins.shared.connections import AuthType, ConnectionManager
+from kafka_pipeline.plugins.shared.connections import (
+    AuthType,
+    ConnectionManager,
+    is_http_error,
+)
 
 from .models import CabinetAttachment, CabinetSubmission, ProcessedTask, TaskEvent
 from .parsers import get_readable_report, parse_cabinet_attachments, parse_cabinet_form
 
 logger = logging.getLogger(__name__)
+
+# iTel Cabinet Repair Form task ID (ClaimX custom task type)
+ITEL_CABINET_REPAIR_FORM_TASK_ID = 32513
 
 
 class ItelCabinetPipeline:
@@ -90,13 +97,13 @@ class ItelCabinetPipeline:
 
     def _validate_event(self, event: TaskEvent) -> None:
         """Validate business rules:
-        - task_id 32513 (iTel Cabinet Repair Form)
+        - task_id matches iTel Cabinet Repair Form
         - Valid task_status
         """
-        if event.task_id != 32513:
+        if event.task_id != ITEL_CABINET_REPAIR_FORM_TASK_ID:
             raise ValueError(
                 f"Invalid task_id: {event.task_id}. "
-                f"Expected 32513 (iTel Cabinet Repair Form)"
+                f"Expected {ITEL_CABINET_REPAIR_FORM_TASK_ID} (iTel Cabinet Repair Form)"
             )
 
         valid_statuses = ["ASSIGNED", "IN_PROGRESS", "COMPLETED"]
@@ -164,7 +171,7 @@ class ItelCabinetPipeline:
             params={"full": "true"},
         )
 
-        if status < 200 or status >= 300:
+        if is_http_error(status):
             raise Exception(f"ClaimX API returned error status {status}: {response}")
 
         return response
@@ -182,7 +189,7 @@ class ItelCabinetPipeline:
             params={},  # No mediaIds param = get all media
         )
 
-        if status < 200 or status >= 300:
+        if is_http_error(status):
             logger.warning(
                 f"Failed to fetch project media: HTTP {status}",
                 extra={"project_id": project_id, "status": status},

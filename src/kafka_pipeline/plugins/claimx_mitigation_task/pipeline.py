@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 
-from kafka_pipeline.plugins.shared.connections import ConnectionManager
+from kafka_pipeline.plugins.shared.connections import ConnectionManager, is_http_error
 
 from .models import (
     MitigationSubmission,
@@ -179,7 +179,7 @@ class MitigationTaskPipeline:
             params={"full": "true"},
         )
 
-        if status < 200 or status >= 300:
+        if is_http_error(status):
             raise Exception(f"ClaimX API returned error status {status}: {response}")
 
         return response
@@ -199,7 +199,7 @@ class MitigationTaskPipeline:
             params={},
         )
 
-        if status < 200 or status >= 300:
+        if is_http_error(status):
             logger.warning(
                 f"Failed to fetch project export: HTTP {status}",
                 extra={"project_id": project_id, "status": status},
@@ -236,7 +236,7 @@ class MitigationTaskPipeline:
             params={},
         )
 
-        if status < 200 or status >= 300:
+        if is_http_error(status):
             logger.warning(
                 f"Failed to fetch project media: HTTP {status}",
                 extra={"project_id": project_id, "status": status},

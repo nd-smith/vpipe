@@ -32,6 +32,18 @@ class AuthType(Enum):
     BASIC = "basic"
 
 
+def is_http_error(status_code: int) -> bool:
+    """Check if HTTP status code represents an error.
+
+    Args:
+        status_code: HTTP status code to check
+
+    Returns:
+        True if status code is outside the 2xx success range (< 200 or >= 300)
+    """
+    return status_code < 200 or status_code >= 300
+
+
 @dataclass
 class ConnectionConfig:
     """Configuration for a named HTTP connection.

@@ -7,12 +7,9 @@ Each worker entry specifies:
 """
 
 import asyncio
-import logging
 from typing import Any
 
 from kafka_pipeline.runners import claimx_runners, verisk_runners
-
-logger = logging.getLogger(__name__)
 
 
 async def _run_event_ingester_router(**kwargs):
@@ -142,7 +139,7 @@ async def run_worker_from_registry(
             raise ValueError(f"{worker_name} requires EVENT_SOURCE=eventhouse")
 
     # Build arguments - pass all common parameters directly
-    # (args_builder pattern removed - functions above are now unused dead code)
+    # Note: Previously used args_builder pattern was removed in favor of direct parameter passing
     kwargs = {
         "pipeline_config": pipeline_config,
         "shutdown_event": shutdown_event,

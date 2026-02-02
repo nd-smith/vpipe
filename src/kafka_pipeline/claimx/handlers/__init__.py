@@ -33,11 +33,9 @@ from kafka_pipeline.claimx.handlers.base import (
     HandlerRegistry,
     HandlerResult,
     NoOpHandler,
+    get_handler_registry as _get_handler_registry_base,
     register_handler,
     reset_registry,
-)
-from kafka_pipeline.claimx.handlers.base import (
-    get_handler_registry as _get_handler_registry_base,
 )
 from kafka_pipeline.claimx.handlers.project_cache import ProjectCache
 
