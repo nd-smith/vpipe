@@ -246,12 +246,15 @@ class EventHubConsumer:
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # Pass checkpoint_store if provided for durable offset persistence
+            from core.security.ssl_dev_bypass import get_eventhub_ssl_kwargs
+
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
                 checkpoint_store=self.checkpoint_store,
+                **get_eventhub_ssl_kwargs(),
             )
 
             self._running = True
