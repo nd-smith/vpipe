@@ -39,6 +39,7 @@ class ProjectHandler(EventHandler):
 
     event_types = ["PROJECT_CREATED", "PROJECT_MFN_ADDED"]
     supports_batching = False
+    HANDLER_NAME = "project"
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
         """Fetch project details and transform to entity rows."""
@@ -48,7 +49,7 @@ class ProjectHandler(EventHandler):
             logger,
             logging.DEBUG,
             "Processing project event",
-            handler_name="project",
+            handler_name=ProjectHandler.HANDLER_NAME,
             **extract_log_context(event),
         )
 
@@ -81,7 +82,7 @@ class ProjectHandler(EventHandler):
                     logger,
                     logging.DEBUG,
                     "Handler complete",
-                    handler_name="project",
+                    handler_name=ProjectHandler.HANDLER_NAME,
                     api_calls=1,
                     projects_count=len(rows.projects),
                     contacts_count=len(rows.contacts),
@@ -107,7 +108,7 @@ class ProjectHandler(EventHandler):
                 logger,
                 logging.DEBUG,
                 "Handler complete",
-                handler_name="project",
+                handler_name=ProjectHandler.HANDLER_NAME,
                 api_calls=1,
                 projects_count=len(rows.projects),
                 contacts_count=len(rows.contacts),
@@ -129,7 +130,7 @@ class ProjectHandler(EventHandler):
                 logger,
                 logging.WARNING,
                 "API error for project",
-                handler_name="project",
+                handler_name=ProjectHandler.HANDLER_NAME,
                 error_message=str(e)[:200],
                 error_category=e.category.value if e.category else None,
                 http_status=e.status_code,
@@ -153,7 +154,7 @@ class ProjectHandler(EventHandler):
                 logger,
                 e,
                 "Unexpected error for project",
-                handler_name="project",
+                handler_name=ProjectHandler.HANDLER_NAME,
                 duration_ms=duration_ms,
                 **extract_log_context(event),
             )

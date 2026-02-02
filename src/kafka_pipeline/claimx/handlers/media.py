@@ -43,6 +43,7 @@ class MediaHandler(EventHandler):
     event_types = ["PROJECT_FILE_ADDED"]
     supports_batching = True
     batch_key = "project_id"
+    HANDLER_NAME = "media"
 
     async def handle_batch(
         self, events: list[ClaimXEventMessage]
@@ -64,7 +65,7 @@ class MediaHandler(EventHandler):
                 logger,
                 logging.DEBUG,
                 "Media fetch strategy selected",
-                handler_name="media",
+                handler_name=MediaHandler.HANDLER_NAME,
                 project_id=project_id,
                 media_count=len(media_ids),
                 fetch_strategy=fetch_strategy,
@@ -135,7 +136,7 @@ class MediaHandler(EventHandler):
                 logger,
                 logging.DEBUG,
                 "Handler complete",
-                handler_name="media",
+                handler_name=MediaHandler.HANDLER_NAME,
                 project_id=project_id,
                 events_count=len(events),
                 media_count=total_media_rows,
@@ -152,7 +153,7 @@ class MediaHandler(EventHandler):
                 logger,
                 logging.WARNING,
                 "API error for project media",
-                handler_name="media",
+                handler_name=MediaHandler.HANDLER_NAME,
                 project_id=project_id,
                 error_message=str(e)[:200],
                 error_category=e.category.value if e.category else None,
@@ -178,7 +179,7 @@ class MediaHandler(EventHandler):
                 logger,
                 e,
                 "Unexpected error for project media",
-                handler_name="media",
+                handler_name=MediaHandler.HANDLER_NAME,
                 project_id=project_id,
             )
             return [

@@ -37,6 +37,7 @@ class VideoCollabHandler(EventHandler):
 
     event_types = ["VIDEO_COLLABORATION_INVITE_SENT", "VIDEO_COLLABORATION_COMPLETED"]
     supports_batching = False
+    HANDLER_NAME = "video"
 
     @with_api_error_handling(
         api_calls=2,  # Video + Project verification
@@ -66,7 +67,7 @@ class VideoCollabHandler(EventHandler):
                 logger,
                 logging.WARNING,
                 "No video collaboration data",
-                handler_name="video",
+                handler_name=VideoCollabHandler.HANDLER_NAME,
                 event_id=event.event_id,
                 project_id=event.project_id,
             )
@@ -89,7 +90,7 @@ class VideoCollabHandler(EventHandler):
             logger,
             logging.DEBUG,
             "Video collab extracted",
-            handler_name="video",
+            handler_name=VideoCollabHandler.HANDLER_NAME,
             video_collab_count=len(rows.video_collab),
             project_verification=bool(project_rows.projects),
             **extract_log_context(event),

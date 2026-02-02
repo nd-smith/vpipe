@@ -13,6 +13,11 @@ from core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# String truncation limits for logging
+LOG_VALUE_TRUNCATE = 100  # For truncating values in log messages
+LOG_ERROR_TRUNCATE_SHORT = 200  # For shorter error messages
+LOG_ERROR_TRUNCATE_LONG = 500  # For longer error messages
+
 
 def safe_int(value: Any) -> int | None:
     if value is None:
@@ -22,7 +27,7 @@ def safe_int(value: Any) -> int | None:
     except (ValueError, TypeError):
         logger.warning(
             "Type conversion failed",
-            extra={"value": str(value)[:100], "target_type": "int"},
+            extra={"value": str(value)[:LOG_VALUE_TRUNCATE], "target_type": "int"},
         )
         return None
 
@@ -61,7 +66,7 @@ def safe_float(value: Any) -> float | None:
     except (ValueError, TypeError):
         logger.warning(
             "Type conversion failed",
-            extra={"value": str(value)[:100], "target_type": "float"},
+            extra={"value": str(value)[:LOG_VALUE_TRUNCATE], "target_type": "float"},
         )
         return None
 
@@ -74,7 +79,7 @@ def safe_decimal_str(value: Any) -> str | None:
     except (InvalidOperation, ValueError, TypeError):
         logger.warning(
             "Type conversion failed",
-            extra={"value": str(value)[:100], "target_type": "decimal"},
+            extra={"value": str(value)[:LOG_VALUE_TRUNCATE], "target_type": "decimal"},
         )
         return None
 

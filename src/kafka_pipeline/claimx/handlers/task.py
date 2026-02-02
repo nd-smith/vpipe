@@ -41,6 +41,7 @@ class TaskHandler(EventHandler):
 
     event_types = ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"]
     supports_batching = False
+    HANDLER_NAME = "task"
 
     @with_api_error_handling(
         api_calls=2,  # Task + Project verification
@@ -133,7 +134,7 @@ class TaskHandler(EventHandler):
             logger,
             logging.DEBUG,
             "Handler complete",
-            handler_name="task",
+            handler_name=TaskHandler.HANDLER_NAME,
             task_assignment_id=event.task_assignment_id,
             tasks_count=len(rows.tasks),
             templates_count=len(rows.task_templates),
