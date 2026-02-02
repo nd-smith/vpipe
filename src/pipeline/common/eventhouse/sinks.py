@@ -97,6 +97,12 @@ class KafkaSink:
             topic_key="events",
         )
         await self._producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self._producer, "eventhub_name"):
+            self._topic = self._producer.eventhub_name
+
         logger.info(
             "KafkaSink started",
             extra={"domain": self.config.domain, "topic": self._topic},
