@@ -424,9 +424,26 @@ class KQLEventPoller:
         )
         result = await self._kql_client.execute_query(query)
         if not result.rows:
+            logger.debug(
+                "Poll cycle returned 0 rows",
+                extra={
+                    "checkpoint_time": poll_from.isoformat() if poll_from else None,
+                    "checkpoint_tid": self._last_trace_id or "",
+                    "pagination_col": self._pagination_col,
+                },
+            )
             return
 
         rows = self._filter_checkpoint_rows(result.rows)
+        logger.info(
+            "Poll cycle fetched rows",
+            extra={
+                "query_rows": len(result.rows),
+                "after_filter": len(rows),
+                "checkpoint_time": poll_from.isoformat(),
+                "checkpoint_tid": self._last_trace_id or "",
+            },
+        )
         await self._process_filtered_results(rows)
 
         last = result.rows[-1]
@@ -440,6 +457,16 @@ class KQLEventPoller:
             l_time = l_time.replace(tzinfo=UTC)
 
         l_tid = str(last.get(self._pagination_col, ""))
+        logger.info(
+            "Saving checkpoint",
+            extra={
+                "new_time": l_time.isoformat(),
+                "new_tid": l_tid[:16] + "..." if len(l_tid) > 16 else l_tid,
+                "prev_time": poll_from.isoformat(),
+                "prev_tid": (self._last_trace_id or "")[:16] + "..." if len(self._last_trace_id or "") > 16 else self._last_trace_id or "",
+                "advanced": l_time > poll_from or l_tid != (self._last_trace_id or ""),
+            },
+        )
         self._save_checkpoint(l_time, l_tid)
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
