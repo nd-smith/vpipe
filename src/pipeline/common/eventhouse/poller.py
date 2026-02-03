@@ -402,6 +402,7 @@ class KQLEventPoller:
                 l_time = l_time.replace(tzinfo=UTC)
 
             l_tid = str(last.get(trace_id_col)) if trace_id_col else ""
+            l_time = self._ensure_checkpoint_advances(l_time, l_tid)
             self._save_checkpoint(l_time, l_tid)
             start = l_time
 
@@ -438,6 +439,7 @@ class KQLEventPoller:
             l_time = l_time.replace(tzinfo=UTC)
 
         l_tid = str(last.get(self._trace_id_col)) if self._trace_id_col else ""
+        l_time = self._ensure_checkpoint_advances(l_time, l_tid)
         self._save_checkpoint(l_time, l_tid)
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
@@ -468,6 +470,49 @@ class KQLEventPoller:
 
             filtered.append(r)
         return filtered
+
+    def _ensure_checkpoint_advances(
+        self, l_time: datetime, l_tid: str
+    ) -> datetime:
+        """Ensure checkpoint ingestion_time advances between cycles.
+
+        KQL ingestion_time() has 100-nanosecond (tick) precision, but Python
+        datetime only has microsecond precision.  When many Eventhouse rows
+        share the same microsecond (common during bulk ingestion), the
+        truncated timestamp saved to the checkpoint never advances past
+        that microsecond, causing the poller to re-fetch and re-publish
+        the same rows every cycle.
+
+        When no trace_id column is configured for secondary pagination,
+        this method detects the stuck condition and bumps the timestamp
+        by 1 microsecond so the next query's ``>`` filter skips past
+        the cluster.  At most 9 rows (sub-microsecond ticks within a
+        single microsecond) may be skipped — acceptable given the
+        alternative is infinite re-publishing.
+
+        When a trace_id column IS configured, composite-key pagination
+        (timestamp + trace_id) handles the boundary correctly, so no
+        bump is needed.
+        """
+        if (
+            not self._trace_id_col
+            and self._last_ingestion_time
+            and l_time <= self._last_ingestion_time
+        ):
+            bumped = self._last_ingestion_time + timedelta(microseconds=1)
+            logger.warning(
+                "Checkpoint ingestion_time did not advance "
+                "(sub-microsecond precision mismatch between KQL and Python), "
+                "bumping by 1us to ensure progress",
+                extra={
+                    "previous": self._last_ingestion_time.isoformat(),
+                    "bumped_to": bumped.isoformat(),
+                    "trace_id_col": self._trace_id_col,
+                    "last_trace_id": l_tid,
+                },
+            )
+            return bumped
+        return l_time
 
     def _build_query(self, table, p_from, p_to, limit, cp_tid) -> str:
         """Constructs paginated KQL query."""
