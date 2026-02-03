@@ -259,12 +259,37 @@ class JsonCheckpointStore:
             return {"partitions": {}}
 
     def _write_json(self, file_path: Path, data: dict[str, Any]) -> None:
-        """Atomic write: write to temp file then os.replace()."""
+        """Atomic write: write to temp file then os.replace().
+
+        On Windows, os.replace() can fail with PermissionError when another
+        process (antivirus, search indexer, etc.) briefly locks the target
+        file. Retries with short delays handle this transient condition.
+        """
         file_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = file_path.with_suffix(".json.tmp")
         with open(tmp_path, "w") as f:
             json.dump(data, f, indent=2, default=str)
-        os.replace(str(tmp_path), str(file_path))
+
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                os.replace(str(tmp_path), str(file_path))
+                return
+            except PermissionError:
+                if attempt < max_retries - 1:
+                    delay = 0.05 * (2 ** attempt)  # 50ms, 100ms, 200ms, 400ms
+                    logger.debug(
+                        f"os.replace failed for {file_path.name} "
+                        f"(attempt {attempt + 1}/{max_retries}), "
+                        f"retrying in {delay:.0f}ms"
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        f"os.replace failed for {file_path.name} "
+                        f"after {max_retries} attempts, raising"
+                    )
+                    raise
 
 
 __all__ = [
