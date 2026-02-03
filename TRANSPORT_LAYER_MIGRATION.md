@@ -65,20 +65,63 @@ The abstraction is justified, but the implementation is incomplete (partial migr
 **Files modified:**
 - `src/pipeline/claimx/workers/enrichment_worker.py`
 
-## Permanent Resolution Plan
+## CRITICAL DISCOVERY: Transport Layer Limitation
 
-### Phase 1: High Priority - Core Workers (Next Sprint)
+### The Transport Layer Only Supports Single-Message Processing
 
-Migrate the remaining core pipeline workers to use the transport layer.
+After analysis, discovered that both EventHub and Kafka transport wrappers **process messages one-at-a-time**:
 
-**ClaimX:**
-1. `download_worker.py` - Downloads media files from URLs
-2. `upload_worker.py` - Uploads files to OneLake
+**EventHub Consumer** (`eventhub/consumer.py:346`):
+```python
+async def on_event(partition_context, event):
+    # Processes ONE message
+    message = convert_to_pipeline_message(event)
+    await self._process_message(message)
+    await partition_context.update_checkpoint(event)  # Commits after EACH
+```
 
-**Verisk:**
-1. `enrichment_worker.py` - Enriches xact events (mirrors claimx enricher)
-2. `download_worker.py` - Downloads xact attachments
-3. `upload_worker.py` - Uploads xact files to OneLake
+**Kafka Consumer Wrapper** (`consumer.py:315-368`):
+```python
+data = await self._consumer.getmany(timeout_ms=1000)  # Fetches batch
+for message in messages:  # BUT processes one-by-one
+    await self._process_message(message)
+    await self._consumer.commit()  # Commits after EACH message
+```
+
+### Download/Upload Workers Need Batch-Concurrent Processing
+
+**Download Workers** fetch batches of 20 messages and process **10 concurrently**:
+```python
+# Fetch batch
+msg_dict = await self._consumer.getmany(timeout_ms=1000, max_records=20)
+
+# Process concurrently (10 at once via semaphore)
+tasks = [self._process_download(msg) for msg in messages]
+results = await asyncio.gather(*tasks)  # 10x faster than sequential
+
+# Commit ONCE after batch completes
+await self._consumer.commit()
+```
+
+**Why This Matters**:
+- Sequential file downloads: ~5 MB/s per file
+- Concurrent downloads (10x): ~50 MB/s aggregate throughput
+- **Migrating to transport layer would reduce performance by 10x**
+
+## Revised Migration Plan
+
+### Phase 1: Migrate ONLY Single-Message Workers
+
+**Can Be Migrated:**
+- ✅ Verisk `enrichment_worker.py` - Single enrichment task processing
+
+**CANNOT Be Migrated (batch-concurrent processing required):**
+- ❌ ClaimX `download_worker.py` - Concurrent file downloads
+- ❌ ClaimX `upload_worker.py` - Concurrent OneLake uploads
+- ❌ Verisk `download_worker.py` - Concurrent file downloads
+- ❌ Verisk `upload_worker.py` - Concurrent OneLake uploads
+
+**Decision**: Keep download/upload workers using direct `AIOKafkaConsumer`. Document clearly.
 
 **Migration Pattern:**
 ```python
@@ -118,17 +161,76 @@ async def start(self):
 - [ ] Add transport layer contract to class docstring
 - [ ] Test with both `PIPELINE_TRANSPORT=eventhub` and `=kafka`
 
-### Phase 2: Medium Priority - Plugin Workers (Future)
+### Phase 2: Document Why Download/Upload Workers Can't Migrate
 
-Migrate plugin workers when they become active/needed:
+Add clear documentation to download/upload workers explaining why they use direct `AIOKafkaConsumer`:
+
+```python
+class ClaimXDownloadWorker:
+    """
+    TRANSPORT LAYER COMPATIBILITY:
+    This worker uses AIOKafkaConsumer directly instead of the transport layer
+    because it requires batch-concurrent processing for performance:
+
+    - Fetches 20 messages per batch via getmany()
+    - Downloads up to 10 files concurrently using asyncio.gather()
+    - Commits offsets once after the entire batch completes
+
+    The transport layer only supports single-message sequential processing,
+    which would reduce download throughput by 10x (from 50 MB/s to 5 MB/s).
+
+    EventHub Limitation: This worker only works with PIPELINE_TRANSPORT=kafka
+    in local development. For production EventHub deployment, either:
+    1. Extend transport layer to support batch-concurrent processing
+    2. Deploy a Kafka bridge for batch workers
+    3. Accept 10x slower sequential processing (not recommended)
+    """
+```
+
+**Workers to document:**
+- `claimx/workers/download_worker.py`
+- `claimx/workers/upload_worker.py`
+- `verisk/workers/download_worker.py`
+- `verisk/workers/upload_worker.py`
+
+### Phase 3: Plugin Workers (Future)
+
+Check plugin workers when they become active. Migrate only if they use single-message processing:
 - `plugins/claimx_mitigation_task/mitigation_tracking_worker.py`
 - `plugins/itel_cabinet_api/itel_cabinet_api_worker.py`
 - `plugins/itel_cabinet_api/itel_cabinet_tracking_worker.py`
 - `plugins/shared/workers/plugin_action_worker.py`
 
-**Note:** Defer these until plugins are actually deployed to avoid premature work.
+### Phase 4: Consider Extending Transport Layer (Long Term)
 
-### Phase 3: Documentation & Standardization
+If EventHub deployment is required for download/upload workers, extend the transport layer to support batch processing:
+
+```python
+# New factory function
+async def create_batch_consumer(
+    config: KafkaConfig,
+    batch_handler: Callable[[List[PipelineMessage]], Awaitable[None]],
+    max_batch_size: int = 20,
+    max_concurrency: int = 10,
+    ...
+) -> BatchConsumer:
+    """
+    Create consumer that processes messages in batches with concurrency.
+
+    batch_handler receives a list of messages and can process them
+    concurrently. Offsets are committed after the entire batch completes.
+    """
+```
+
+**Challenges:**
+- EventHub SDK uses streaming model (not batch-based like Kafka)
+- Would need to buffer messages into batches client-side
+- Checkpoint management becomes more complex
+- May not map cleanly to EventHub's partition context model
+
+**Recommendation**: Only pursue this if EventHub deployment for download/upload workers becomes a hard requirement.
+
+### Phase 5: Documentation & Standardization
 
 1. **Document Transport Layer Contract** (`src/pipeline/common/transport.py`):
    ```python
@@ -181,15 +283,25 @@ For each migrated worker:
    - Offsets are committed (check consumer lag)
    - Graceful shutdown works (no data loss)
 
-## Success Criteria
+## Success Criteria (Revised)
 
-- [ ] All core workers (enrichment, download, upload) use transport layer
-- [ ] No `KafkaConnectionError: Unable to bootstrap from localhost:9092` errors
-- [ ] Workers boot successfully with `PIPELINE_TRANSPORT=eventhub`
-- [ ] Local development still works with `PIPELINE_TRANSPORT=kafka`
-- [ ] Dead code removed (no unused background task tracking)
-- [ ] Transport layer contract documented
-- [ ] Migration guide created for future workers
+**Phase 1: Single-Message Workers Migrated**
+- [x] ClaimX enrichment worker uses transport layer
+- [ ] Verisk enrichment worker uses transport layer
+- [x] Dead code removed from migrated workers
+- [x] Transport layer contract documented in worker docstrings
+
+**Phase 2: Batch Workers Documented**
+- [ ] Download/upload workers have clear docstrings explaining why they can't migrate
+- [ ] Architecture decision recorded (transport layer limitation)
+
+**Phase 3: No localhost:9092 Errors**
+- [x] ClaimX enrichment boots with `PIPELINE_TRANSPORT=eventhub`
+- [ ] Verisk enrichment boots with `PIPELINE_TRANSPORT=eventhub`
+- [ ] All migrated workers tested with both transports
+
+**Phase 4: Future Consideration**
+- [ ] Decision made: Extend transport layer OR accept Kafka-only for batch workers
 
 ## Lessons Learned
 
@@ -198,12 +310,19 @@ For each migrated worker:
 2. **No enforcement** - No linter rule to catch direct AIOKafkaConsumer usage
 3. **Unclear contract** - Transport layer behavior not documented
 4. **Dead code accumulation** - Old patterns left behind during migration
+5. **Abstraction mismatch** - Transport layer built for single-message processing, but some workers need batch-concurrent processing
+
+### What Went Right
+1. **Discovered the limitation early** - Before migrating all workers and losing performance
+2. **Transport layer works well for its use case** - Single-message workers (enrichment, event ingestion) work fine
+3. **Clear boundary identified** - Now we know which workers can/can't migrate
 
 ### What to Do Better
-1. **Complete migrations atomically** - Migrate all workers in one PR, or none
-2. **Document contracts clearly** - Make the abstraction's behavior explicit
+1. **Understand abstraction capabilities before migrating** - Check if the abstraction supports all worker patterns
+2. **Document contracts clearly** - Make the abstraction's behavior and limitations explicit
 3. **Clean up dead code immediately** - Don't leave confusing remnants
-4. **Add enforcement** - Linter rules, code review checklists, migration guides
+4. **Don't force-fit abstractions** - It's okay to have two patterns: single-message (transport layer) vs batch-concurrent (direct AIOKafkaConsumer)
+5. **Document architectural decisions** - Explain WHY certain workers can't use the abstraction
 
 ## References
 
