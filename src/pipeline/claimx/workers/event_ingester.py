@@ -22,12 +22,11 @@ from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
-from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
@@ -58,8 +57,8 @@ class ClaimXEventIngesterWorker:
         self.enrichment_topic = enrichment_topic or config.get_topic(
             domain, "enrichment_pending"
         )
-        self.producer: BaseKafkaProducer | None = None
-        self.consumer: BaseKafkaConsumer | None = None
+        self.producer = None
+        self.consumer = None
 
         # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
@@ -116,24 +115,38 @@ class ClaimXEventIngesterWorker:
     async def start(self) -> None:
         logger.info("Starting ClaimXEventIngesterWorker")
 
+        # Clean up resources from a previous failed start attempt (retry safety)
+        if self._cycle_task and not self._cycle_task.done():
+            self._cycle_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cycle_task
+        if self.consumer:
+            await self.consumer.stop()
+            self.consumer = None
+        if self.producer:
+            await self.producer.stop()
+            self.producer = None
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "event-ingester")
 
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
         await self.health_server.start()
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
             worker_name="event_ingester",
+            topic_key="enrichment_pending",
         )
         await self.producer.start()
-        self.consumer = BaseKafkaConsumer(
+        self.consumer = await create_consumer(
             config=self.consumer_config,
             domain=self.domain,
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
+            topic_key="events",
         )
 
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)

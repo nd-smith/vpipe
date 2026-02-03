@@ -114,28 +114,18 @@ class TestClaimXEventIngesterWorker:
             mock_health.return_value = AsyncMock()
             worker = ClaimXEventIngesterWorker(kafka_config)
 
-            # Mock producer and consumer
+            # Set up worker with mocks
             mock_producer = AsyncMock()
             mock_consumer = AsyncMock()
+            worker.producer = mock_producer
+            worker.consumer = mock_consumer
 
-            with patch(
-                "pipeline.claimx.workers.event_ingester.BaseKafkaProducer"
-            ) as mock_producer_class, patch(
-                "pipeline.claimx.workers.event_ingester.BaseKafkaConsumer"
-            ) as mock_consumer_class:
-                mock_producer_class.return_value = mock_producer
-                mock_consumer_class.return_value = mock_consumer
+            # Test stop
+            await worker.stop()
 
-                # Set up worker with mocks
-                worker.producer = mock_producer
-                worker.consumer = mock_consumer
-
-                # Test stop
-                await worker.stop()
-
-                # Verify stop was called on both
-                mock_consumer.stop.assert_called_once()
-                mock_producer.stop.assert_called_once()
+            # Verify stop was called on both
+            mock_consumer.stop.assert_called_once()
+            mock_producer.stop.assert_called_once()
 
     async def test_handle_event_message_creates_enrichment_task(
         self, kafka_config, sample_consumer_record
