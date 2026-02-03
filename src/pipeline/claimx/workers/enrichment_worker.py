@@ -61,7 +61,14 @@ class ClaimXEnrichmentWorker:
     - Single-task processing (no batching - delta writer handles batching)
     - Entity data writes to 7 Delta tables
     - Download task generation for media files
-    - Background task tracking for graceful shutdown
+
+    Transport Layer:
+    - Message consumption is handled by the transport layer (pipeline.common.transport)
+    - The transport layer calls _handle_enrichment_task() for EACH message individually
+    - Offsets are committed AFTER the handler completes successfully
+    - All work must be awaited synchronously to prevent data loss (Issue #38)
+    - No background task tracking - the handler must complete all work before returning
+    - Transport type (EventHub/Kafka) is selected via PIPELINE_TRANSPORT env var
     """
 
     WORKER_NAME = "enrichment_worker"
@@ -102,7 +109,6 @@ class ClaimXEnrichmentWorker:
         self.processing_config = config.get_worker_config(
             domain, "enrichment_worker", "processing"
         )
-        self.max_poll_records = self.processing_config.get("max_poll_records", 100)
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
@@ -131,9 +137,6 @@ class ClaimXEnrichmentWorker:
             enabled=health_enabled,
         )
 
-        self._pending_tasks: set[asyncio.Task] = set()
-        self._task_counter = 0
-        self._consume_task: asyncio.Task | None = None
         self._running = False
 
         self._records_processed = 0
@@ -163,7 +166,6 @@ class ClaimXEnrichmentWorker:
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
                 "delta_writes_enabled": self.enable_delta_writes,
-                "max_poll_records": self.max_poll_records,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
                 "project_cache_ttl": cache_ttl,
@@ -327,8 +329,6 @@ class ClaimXEnrichmentWorker:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
 
-        await self._wait_for_pending_tasks(timeout_seconds=30)
-
         if self.consumer:
             await self.consumer.stop()
 
@@ -351,122 +351,6 @@ class ClaimXEnrichmentWorker:
     async def request_shutdown(self) -> None:
         logger.info("Graceful shutdown requested")
         self._running = False
-
-    def _create_tracked_task(
-        self,
-        coro,
-        task_name: str,
-        context: dict[str, Any] | None = None,
-    ) -> asyncio.Task:
-        self._task_counter += 1
-        full_name = f"{task_name}-{self._task_counter}"
-        context = context or {}
-
-        task = asyncio.create_task(coro, name=full_name)
-        self._pending_tasks.add(task)
-
-        logger.debug(
-            "Background task created",
-            extra={
-                "task_name": full_name,
-                "pending_tasks": len(self._pending_tasks),
-                **context,
-            },
-        )
-
-        def _on_task_done(t: asyncio.Task) -> None:
-            self._pending_tasks.discard(t)
-
-            if t.cancelled():
-                logger.debug(
-                    "Background task cancelled",
-                    extra={
-                        "task_name": t.get_name(),
-                        "pending_tasks": len(self._pending_tasks),
-                    },
-                )
-            elif t.exception() is not None:
-                exc = t.exception()
-                logger.error(
-                    "Background task failed",
-                    extra={
-                        "task_name": t.get_name(),
-                        "error": str(exc)[:200],
-                        "pending_tasks": len(self._pending_tasks),
-                        **context,
-                    },
-                )
-            else:
-                logger.debug(
-                    "Background task completed",
-                    extra={
-                        "task_name": t.get_name(),
-                        "pending_tasks": len(self._pending_tasks),
-                    },
-                )
-
-        task.add_done_callback(_on_task_done)
-        return task
-
-    async def _wait_for_pending_tasks(self, timeout_seconds: float = 30) -> None:
-        if not self._pending_tasks:
-            return
-
-        pending_count = len(self._pending_tasks)
-        task_names = [t.get_name() for t in self._pending_tasks]
-
-        logger.info(
-            "Waiting for pending background tasks to complete",
-            extra={
-                "pending_count": pending_count,
-                "task_names": task_names,
-                "timeout_seconds": timeout_seconds,
-            },
-        )
-
-        tasks_to_wait = list(self._pending_tasks)
-
-        try:
-            done, pending = await asyncio.wait(
-                tasks_to_wait,
-                timeout=timeout_seconds,
-                return_when=asyncio.ALL_COMPLETED,
-            )
-
-            if pending:
-                pending_names = [t.get_name() for t in pending]
-                logger.warning(
-                    "Cancelling background tasks that did not complete in time",
-                    extra={
-                        "pending_count": len(pending),
-                        "pending_task_names": pending_names,
-                        "timeout_seconds": timeout_seconds,
-                    },
-                )
-
-                for task in pending:
-                    task.cancel()
-
-                await asyncio.gather(*pending, return_exceptions=True)
-
-            completed_count = len(done)
-            failed_count = sum(1 for t in done if t.exception() is not None)
-
-            logger.info(
-                "Background task cleanup complete",
-                extra={
-                    "completed": completed_count,
-                    "failed": failed_count,
-                    "cancelled": len(pending),
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Error waiting for pending tasks",
-                extra={"error": str(e)[:200]},
-                exc_info=True,
-            )
 
     async def _handle_enrichment_task(self, record: PipelineMessage) -> None:
         """Process enrichment task. No batching at enricher level - delta writer handles batching."""
