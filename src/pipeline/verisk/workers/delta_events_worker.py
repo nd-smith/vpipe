@@ -158,7 +158,6 @@ class DeltaEventsWorker:
         # Initialize retry handler
         self.retry_handler = DeltaRetryHandler(
             config=config,
-            producer=producer,
             table_path=events_table_path,
             retry_delays=self._retry_delays,
             retry_topic_prefix=self._retry_topic_prefix,
@@ -218,6 +217,9 @@ class DeltaEventsWorker:
 
         # Start health check server first
         await self.health_server.start()
+
+        # Start retry handler producers
+        await self.retry_handler.start()
 
         # Start periodic stats logger
         self._stats_logger = PeriodicStatsLogger(
@@ -284,6 +286,10 @@ class DeltaEventsWorker:
         # Stop consumer
         if self.consumer:
             await self.consumer.stop()
+
+        # Stop retry handler producers
+        if self.retry_handler:
+            await self.retry_handler.stop()
 
         # Stop health check server
         await self.health_server.stop()

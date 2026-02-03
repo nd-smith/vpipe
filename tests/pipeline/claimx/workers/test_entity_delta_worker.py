@@ -405,7 +405,8 @@ class TestClaimXEntityDeltaWorker:
             ClaimXEntityDeltaWorker, "_reset_batch_timer"
         ):
             mock_writer_class.return_value = MagicMock()
-            mock_retry_class.return_value = MagicMock()
+            mock_retry_instance = AsyncMock()
+            mock_retry_class.return_value = mock_retry_instance
 
             worker = ClaimXEntityDeltaWorker(kafka_config)
 
@@ -414,8 +415,9 @@ class TestClaimXEntityDeltaWorker:
             # Verify producer was started
             mock_producer.start.assert_called_once()
 
-            # Verify retry handler was initialized
+            # Verify retry handler was initialized and started
             mock_retry_class.assert_called_once()
+            mock_retry_instance.start.assert_called_once()
 
     async def test_stop_flushes_remaining_batch(self, kafka_config, sample_entity_rows):
         """Test stop flushes remaining batch."""

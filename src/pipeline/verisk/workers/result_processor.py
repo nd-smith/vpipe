@@ -140,7 +140,6 @@ class ResultProcessor:
         # Retry handler for failed Delta writes
         self._retry_handler = DeltaRetryHandler(
             config=config,
-            producer=producer,
             table_path=inventory_table_path,
             retry_topic_prefix="result-processor.retry",
             dlq_topic="result-processor.dlq",
@@ -224,6 +223,9 @@ class ResultProcessor:
         # Start health check server first
         await self.health_server.start()
 
+        # Start retry handler producers
+        await self._retry_handler.start()
+
         # Create consumer via transport factory (Event Hub support)
         self._consumer = await create_consumer(
             config=self.config,
@@ -297,6 +299,10 @@ class ResultProcessor:
             # Stop consumer
             if self._consumer:
                 await self._consumer.stop()
+
+            # Stop retry handler producers
+            if self._retry_handler:
+                await self._retry_handler.stop()
 
             # Stop health check server
             await self.health_server.stop()

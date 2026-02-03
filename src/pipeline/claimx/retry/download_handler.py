@@ -22,7 +22,7 @@ from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
 from pipeline.common.metrics import (
     record_dlq_message,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_producer
 
 logger = get_logger(__name__)
 
@@ -48,10 +48,9 @@ class DownloadRetryHandler:
 
     Usage:
         >>> config = KafkaConfig.from_env()
-        >>> producer = BaseKafkaProducer(config)
         >>> api_client = ClaimXApiClient(config)
-        >>> await producer.start()
-        >>> retry_handler = DownloadRetryHandler(config, producer, api_client)
+        >>> retry_handler = DownloadRetryHandler(config, api_client)
+        >>> await retry_handler.start()
         >>>
         >>> # Handle a failed download task
         >>> await retry_handler.handle_failure(
@@ -59,25 +58,34 @@ class DownloadRetryHandler:
         ...     error=Exception("403 Forbidden"),
         ...     error_category=ErrorCategory.TRANSIENT
         ... )
+        >>> await retry_handler.stop()
     """
 
     def __init__(
         self,
         config: KafkaConfig,
-        producer: BaseKafkaProducer,
         api_client: ClaimXApiClient,
+        domain: str = "claimx",
     ):
         """
         Initialize download retry handler.
 
+        Args:
+            config: Kafka configuration with retry settings
+            api_client: ClaimX API client for URL refresh
+            domain: Domain identifier (default: "claimx")
         """
         self.config = config
-        self.producer = producer
         self.api_client = api_client
-        self.pending_topic = config.get_topic("claimx", "downloads_pending")
-        self.dlq_topic = config.get_topic("claimx", "dlq")
-        self._retry_delays = config.get_retry_delays("claimx")
-        self._max_retries = config.get_max_retries("claimx")
+        self.domain = domain
+        self.pending_topic = config.get_topic(domain, "downloads_pending")
+        self.dlq_topic = config.get_topic(domain, "dlq")
+        self._retry_delays = config.get_retry_delays(domain)
+        self._max_retries = config.get_max_retries(domain)
+
+        # Dedicated producers (created in start())
+        self._retry_producer = None
+        self._dlq_producer = None
 
         logger.info(
             "Initialized DownloadRetryHandler with URL refresh capability",
@@ -88,6 +96,49 @@ class DownloadRetryHandler:
                 "dlq_topic": self.dlq_topic,
             },
         )
+
+    async def start(self) -> None:
+        """Create and start dedicated producers for retry and DLQ topics."""
+        self._retry_producer = create_producer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="download_retry",
+            topic_key="retry",
+        )
+        await self._retry_producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self._retry_producer, "eventhub_name"):
+            self._retry_topic_resolved = self._retry_producer.eventhub_name
+
+        self._dlq_producer = create_producer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="download_retry",
+            topic_key="dlq",
+        )
+        await self._dlq_producer.start()
+
+        if hasattr(self._dlq_producer, "eventhub_name"):
+            self.dlq_topic = self._dlq_producer.eventhub_name
+
+        logger.info(
+            "DownloadRetryHandler producers started",
+            extra={
+                "dlq_topic": self.dlq_topic,
+            },
+        )
+
+    async def stop(self) -> None:
+        """Stop dedicated producers."""
+        if self._retry_producer:
+            await self._retry_producer.stop()
+            self._retry_producer = None
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
+            self._dlq_producer = None
+        logger.info("DownloadRetryHandler producers stopped")
 
     async def handle_failure(
         self,
@@ -327,7 +378,7 @@ class DownloadRetryHandler:
         retry_count = task.retry_count
 
         # NEW: Single unified retry topic per domain
-        retry_topic = self.config.get_retry_topic("claimx")
+        retry_topic = self.config.get_retry_topic(self.domain)
         delay_seconds = self._retry_delays[retry_count]
 
         # Create updated task with incremented retry count
@@ -367,7 +418,7 @@ class DownloadRetryHandler:
         #         )
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
-        await self.producer.send(
+        await self._retry_producer.send(
             topic=retry_topic,
             key=task.source_event_id,
             value=updated_task,
@@ -379,7 +430,7 @@ class DownloadRetryHandler:
                 "worker_type": "download_worker",
                 "original_key": task.source_event_id,
                 "error_category": error_category.value,
-                "domain": "claimx",
+                "domain": self.domain,
             },
         )
 
@@ -437,7 +488,7 @@ class DownloadRetryHandler:
         record_dlq_message(domain="claimx", reason=reason)
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
-        await self.producer.send(
+        await self._dlq_producer.send(
             topic=self.dlq_topic,
             key=task.source_event_id,
             value=dlq_message,

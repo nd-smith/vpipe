@@ -176,13 +176,13 @@ class ClaimXEntityDeltaWorker:
         # Initialize retry handler
         self.retry_handler = DeltaRetryHandler(
             config=self.producer_config,
-            producer=self.producer,
             table_path="claimx_entities",  # logical name for retry context
             retry_delays=self._retry_delays,
             retry_topic_prefix=self._retry_topic_prefix,
             dlq_topic=self._dlq_topic,
             domain=self.domain,
         )
+        await self.retry_handler.start()
 
         # Start batch timer for periodic flushing
         self._reset_batch_timer()
@@ -218,6 +218,10 @@ class ClaimXEntityDeltaWorker:
 
         if self.producer:
             await self.producer.stop()
+
+        # Stop retry handler producers
+        if self.retry_handler:
+            await self.retry_handler.stop()
 
         # Stop health check server
         await self.health_server.stop()

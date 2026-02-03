@@ -31,15 +31,13 @@ Error Classification:
 
 Usage:
     >>> config = KafkaConfig.from_env()
-    >>> producer = BaseKafkaProducer(config)
-    >>> await producer.start()
     >>>
     >>> handler = DeltaRetryHandler(
     ...     config=config,
-    ...     producer=producer,
     ...     table_path="abfss://workspace@onelake/lakehouse/Tables/xact_events",
     ...     domain="verisk"
     ... )
+    >>> await handler.start()
     >>>
     >>> # Handle a failed batch
     >>> await handler.handle_batch_failure(
@@ -60,7 +58,7 @@ from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_producer
 from pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
 
 logger = logging.getLogger(__name__)
@@ -81,7 +79,6 @@ class DeltaRetryHandler:
 
     Attributes:
         config: Kafka configuration
-        producer: Kafka producer for retry/DLQ messages
         table_path: Delta table path for writes
         domain: Domain identifier (e.g., "verisk")
         retry_delays: List of retry delays in seconds
@@ -91,19 +88,18 @@ class DeltaRetryHandler:
     Example:
         >>> handler = DeltaRetryHandler(
         ...     config=config,
-        ...     producer=producer,
         ...     table_path="abfss://.../xact_events",
         ...     retry_delays=[300, 600, 1200, 2400],
         ...     retry_topic_prefix="com.allstate.pcesdopodappv1.delta-events.retry",
         ...     dlq_topic="com.allstate.pcesdopodappv1.delta-events.dlq",
         ...     domain="verisk"
         ... )
+        >>> await handler.start()
     """
 
     def __init__(
         self,
         config: KafkaConfig,
-        producer: BaseKafkaProducer,
         table_path: str,
         retry_delays: list[int] | None = None,
         retry_topic_prefix: str | None = None,
@@ -115,7 +111,6 @@ class DeltaRetryHandler:
 
         Args:
             config: Kafka configuration
-            producer: Kafka producer for sending retry/DLQ messages
             table_path: Delta table path for writes
             retry_delays: List of retry delays in seconds (default: [300, 600, 1200, 2400])
             retry_topic_prefix: Prefix for retry topics (default: "com.allstate.pcesdopodappv1.delta-events.retry")
@@ -123,7 +118,6 @@ class DeltaRetryHandler:
             domain: Domain identifier (default: "verisk")
         """
         self.config = config
-        self.producer = producer
         self.table_path = table_path
         self.domain = domain
 
@@ -134,6 +128,10 @@ class DeltaRetryHandler:
             retry_topic_prefix or "com.allstate.pcesdopodappv1.delta-events.retry"
         )
         self._dlq_topic = dlq_topic or "com.allstate.pcesdopodappv1.delta-events.dlq"
+
+        # Dedicated producers (created in start())
+        self._retry_producer = None
+        self._dlq_producer = None
 
         logger.info(
             "Initialized DeltaRetryHandler",
@@ -146,6 +144,49 @@ class DeltaRetryHandler:
                 "dlq_topic": self._dlq_topic,
             },
         )
+
+    async def start(self) -> None:
+        """Create and start dedicated producers for retry and DLQ topics."""
+        self._retry_producer = create_producer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="delta_retry",
+            topic_key="retry",
+        )
+        await self._retry_producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self._retry_producer, "eventhub_name"):
+            self._retry_topic_resolved = self._retry_producer.eventhub_name
+
+        self._dlq_producer = create_producer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="delta_retry",
+            topic_key="dlq",
+        )
+        await self._dlq_producer.start()
+
+        if hasattr(self._dlq_producer, "eventhub_name"):
+            self._dlq_topic = self._dlq_producer.eventhub_name
+
+        logger.info(
+            "DeltaRetryHandler producers started",
+            extra={
+                "dlq_topic": self._dlq_topic,
+            },
+        )
+
+    async def stop(self) -> None:
+        """Stop dedicated producers."""
+        if self._retry_producer:
+            await self._retry_producer.stop()
+            self._retry_producer = None
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
+            self._dlq_producer = None
+        logger.info("DeltaRetryHandler producers stopped")
 
     def classify_delta_error(self, error: Exception) -> ErrorCategory:
         """
@@ -476,7 +517,7 @@ class DeltaRetryHandler:
             },
         )
 
-        await self.producer.send(
+        await self._retry_producer.send(
             topic=retry_topic,
             key=batch_id or "batch",
             value=failed_batch,
@@ -565,7 +606,7 @@ class DeltaRetryHandler:
             },
         )
 
-        await self.producer.send(
+        await self._dlq_producer.send(
             topic=self._dlq_topic,
             key=batch_id or "batch",
             value=dlq_message,

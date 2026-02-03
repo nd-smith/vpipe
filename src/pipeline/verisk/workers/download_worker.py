@@ -261,7 +261,8 @@ class DownloadWorker:
 
         await self.producer.start()
 
-        self.retry_handler = RetryHandler(self.config, self.producer)
+        self.retry_handler = RetryHandler(self.config)
+        await self.retry_handler.start()
 
         await self._create_consumer()
         self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
@@ -370,7 +371,9 @@ class DownloadWorker:
 
         await self.producer.stop()
 
-        self.retry_handler = None
+        if self.retry_handler:
+            await self.retry_handler.stop()
+            self.retry_handler = None
 
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)

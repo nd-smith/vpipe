@@ -288,8 +288,8 @@ class ClaimXEnrichmentWorker:
 
         self.retry_handler = EnrichmentRetryHandler(
             config=self.consumer_config,
-            producer=self.producer,
         )
+        await self.retry_handler.start()
         logger.info(
             "Retry handler initialized",
             extra={
@@ -346,6 +346,9 @@ class ClaimXEnrichmentWorker:
                     self.domain, "enrichment_worker"
                 ),
             )
+
+        if self.retry_handler:
+            await self.retry_handler.stop()
 
         if self.producer:
             await self.producer.stop()

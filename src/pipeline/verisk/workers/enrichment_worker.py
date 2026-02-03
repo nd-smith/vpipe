@@ -280,8 +280,8 @@ class XACTEnrichmentWorker:
 
         self.retry_handler = DownloadRetryHandler(
             config=self.consumer_config,
-            producer=self.producer,
         )
+        await self.retry_handler.start()
         logger.info(
             "Retry handler initialized",
             extra={
@@ -343,6 +343,9 @@ class XACTEnrichmentWorker:
                     self.domain, "enrichment_worker"
                 ),
             )
+
+        if self.retry_handler:
+            await self.retry_handler.stop()
 
         if self.producer:
             await self.producer.stop()
