@@ -494,29 +494,31 @@ class KQLEventPoller:
         ing_col = self.config.ingestion_time_column
         ing_expr = ing_col if ing_col else "ingestion_time()"
 
-        # Composite-key pagination: (ingestion_time, pagination_col)
-        if cp_tid:
-            esc = cp_tid.replace("'", "\\'")
-            where = f"| where {ing_expr} > datetime({f_str}) or ({ing_expr} == datetime({f_str}) and strcmp(tostring({pg_col}), '{esc}') > 0)"
-        else:
-            # First query or no checkpoint — no secondary key to compare
-            where = f"| where {ing_expr} > datetime({f_str})"
-
-        order_clause = f"order by ingestion_time asc, {pg_col} asc"
-
-        # Extend to normalize column name for downstream processing
-        extend_clause = (
+        # Extend clauses MUST come before WHERE so that _row_hash and
+        # the normalised ingestion_time column exist when referenced.
+        extend_parts = []
+        if not self._trace_id_col:
+            extend_parts.append("| extend _row_hash = hash_sha256(tostring(pack_all()))")
+        extend_parts.append(
             f"| extend ingestion_time = {ing_expr}"
             if ing_col
             else "| extend ingestion_time = ingestion_time()"
         )
+        extend_clause = " ".join(extend_parts)
 
-        # When no trace_id column exists, generate a deterministic hash
-        # from all row columns so we have a secondary pagination key
-        if not self._trace_id_col:
-            extend_clause += " | extend _row_hash = hash_sha256(tostring(pack_all()))"
+        # Composite-key pagination: (ingestion_time, pagination_col)
+        # After the extends, ingestion_time is a column so we reference
+        # it by name rather than via the function.
+        if cp_tid:
+            esc = cp_tid.replace("'", "\\'")
+            where = f"| where ingestion_time > datetime({f_str}) or (ingestion_time == datetime({f_str}) and strcmp(tostring({pg_col}), '{esc}') > 0)"
+        else:
+            # First query or no checkpoint — no secondary key to compare
+            where = f"| where ingestion_time > datetime({f_str})"
 
-        return f"{table} {where} | where {ing_expr} < datetime({t_str}) {extend_clause} | {order_clause} | take {limit}"
+        order_clause = f"order by ingestion_time asc, {pg_col} asc"
+
+        return f"{table} {extend_clause} {where} | where ingestion_time < datetime({t_str}) | {order_clause} | take {limit}"
 
     async def _process_filtered_results(self, rows: list[dict]) -> int:
         """Processes rows and writes to configured sink."""
