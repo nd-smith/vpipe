@@ -14,7 +14,7 @@ from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_producer
 from pipeline.verisk.schemas.results import FailedDownloadMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
 
@@ -35,9 +35,8 @@ class RetryHandler:
 
     Usage:
         >>> config = KafkaConfig.from_env()
-        >>> producer = BaseKafkaProducer(config)
-        >>> await producer.start()
-        >>> retry_handler = RetryHandler(config, producer)
+        >>> retry_handler = RetryHandler(config)
+        >>> await retry_handler.start()
         >>>
         >>> # Handle a failed task
         >>> await retry_handler.handle_failure(
@@ -45,12 +44,12 @@ class RetryHandler:
         ...     error=ConnectionError("Network timeout"),
         ...     error_category=ErrorCategory.TRANSIENT
         ... )
+        >>> await retry_handler.stop()
     """
 
     def __init__(
         self,
         config: KafkaConfig,
-        producer: BaseKafkaProducer,
         domain: str = "verisk",
     ):
         """
@@ -58,17 +57,19 @@ class RetryHandler:
 
         Args:
             config: Kafka configuration with retry settings
-            producer: Kafka producer for sending retry/DLQ messages
-            domain: Domain identifier (default: "xact")
+            domain: Domain identifier (default: "verisk")
         """
         self.config = config
-        self.producer = producer
         self.domain = domain
 
         # Retry configuration
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
         self._dlq_topic = config.get_topic(domain, "dlq")
+
+        # Dedicated producers (created in start())
+        self._retry_producer = None
+        self._dlq_producer = None
 
         logger.info(
             "Initialized RetryHandler",
@@ -79,6 +80,49 @@ class RetryHandler:
                 "dlq_topic": self._dlq_topic,
             },
         )
+
+    async def start(self) -> None:
+        """Create and start dedicated producers for retry and DLQ topics."""
+        self._retry_producer = create_producer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="download_retry",
+            topic_key="retry",
+        )
+        await self._retry_producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self._retry_producer, "eventhub_name"):
+            self._retry_topic_resolved = self._retry_producer.eventhub_name
+
+        self._dlq_producer = create_producer(
+            config=self.config,
+            domain=self.domain,
+            worker_name="download_retry",
+            topic_key="dlq",
+        )
+        await self._dlq_producer.start()
+
+        if hasattr(self._dlq_producer, "eventhub_name"):
+            self._dlq_topic = self._dlq_producer.eventhub_name
+
+        logger.info(
+            "RetryHandler producers started",
+            extra={
+                "dlq_topic": self._dlq_topic,
+            },
+        )
+
+    async def stop(self) -> None:
+        """Stop dedicated producers."""
+        if self._retry_producer:
+            await self._retry_producer.stop()
+            self._retry_producer = None
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
+            self._dlq_producer = None
+        logger.info("RetryHandler producers stopped")
 
     @property
     def dlq_topic(self) -> str:
@@ -216,7 +260,7 @@ class RetryHandler:
             },
         )
 
-        await self.producer.send(
+        await self._retry_producer.send(
             topic=retry_topic,
             key=task.trace_id,
             value=updated_task,
@@ -287,7 +331,7 @@ class RetryHandler:
             },
         )
 
-        await self.producer.send(
+        await self._dlq_producer.send(
             topic=self._dlq_topic,
             key=task.trace_id,
             value=dlq_message,

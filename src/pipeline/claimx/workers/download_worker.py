@@ -265,9 +265,9 @@ class ClaimXDownloadWorker:
 
         self.retry_handler = DownloadRetryHandler(
             config=self.config,
-            producer=self.producer,
             api_client=self.api_client,
         )
+        await self.retry_handler.start()
 
         await self._create_consumer()
 
@@ -415,7 +415,9 @@ class ClaimXDownloadWorker:
             await self.api_client.close()
             self.api_client = None
 
-        self.retry_handler = None
+        if self.retry_handler:
+            await self.retry_handler.stop()
+            self.retry_handler = None
 
         await self.health_server.stop()
 

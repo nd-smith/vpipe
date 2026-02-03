@@ -207,6 +207,9 @@ class ClaimXDeltaEventsWorker:
         # Start health check server first
         await self.health_server.start()
 
+        # Start retry handler producers
+        await self.retry_handler.start()
+
         # Start cycle output background task
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 
@@ -258,6 +261,10 @@ class ClaimXDeltaEventsWorker:
         # Stop consumer
         if self.consumer:
             await self.consumer.stop()
+
+        # Stop retry handler producers
+        if self.retry_handler:
+            await self.retry_handler.stop()
 
         # Stop health check server
         await self.health_server.stop()
