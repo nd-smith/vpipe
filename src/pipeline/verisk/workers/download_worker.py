@@ -48,7 +48,7 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.types import PipelineMessage, from_consumer_record
 from pipeline.simulation.config import SimulationConfig
@@ -162,7 +162,7 @@ class DownloadWorker:
 
         self._http_session: aiohttp.ClientSession | None = None
 
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=config,
             domain=domain,
             worker_name=self.WORKER_NAME,
