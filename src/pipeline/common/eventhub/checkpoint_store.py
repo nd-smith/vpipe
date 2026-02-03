@@ -36,7 +36,7 @@ Usage:
 import asyncio
 import logging
 import os
-from typing import Any, Iterable, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol
 
 from core.logging import get_logger, log_exception, log_with_context
 
@@ -48,7 +48,6 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
-@runtime_checkable
 class CheckpointStoreProtocol(Protocol):
     """Protocol matching the Azure Event Hub CheckpointStore duck type.
 
@@ -225,14 +224,6 @@ def _create_json_store(config: dict) -> CheckpointStoreProtocol:
     from pipeline.common.eventhub.json_checkpoint_store import JsonCheckpointStore
 
     storage_path = config.get("storage_path", "./data/eventhub-checkpoints")
-
-    log_with_context(
-        logger,
-        logging.INFO,
-        "Initializing JsonCheckpointStore",
-        storage_path=storage_path,
-    )
-
     return JsonCheckpointStore(storage_path=storage_path)
 
 

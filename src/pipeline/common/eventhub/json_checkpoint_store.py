@@ -104,53 +104,49 @@ class JsonCheckpointStore:
         Returns:
             List of ownership dicts that were successfully claimed.
         """
+        ownership_items = list(ownership_list)
+        if not ownership_items:
+            return []
+
+        # All items in a single call share the same namespace/eventhub/group
+        first = ownership_items[0]
+        ns = first["fully_qualified_namespace"]
+        eh = first["eventhub_name"]
+        cg = first["consumer_group"]
+
+        file_path = self._ownership_path(ns, eh, cg)
+        lock = self._get_lock(str(file_path))
         claimed: list[dict[str, Any]] = []
 
-        # Group by (namespace, eventhub, group) to minimize file I/O
-        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
-        for ownership in ownership_list:
-            key = (
-                ownership["fully_qualified_namespace"],
-                ownership["eventhub_name"],
-                ownership["consumer_group"],
-            )
-            grouped.setdefault(key, []).append(ownership)
+        async with lock:
+            data = self._read_json(file_path)
 
-        for (ns, eh, cg), ownerships in grouped.items():
-            file_path = self._ownership_path(ns, eh, cg)
-            lock = self._get_lock(str(file_path))
+            for ownership in ownership_items:
+                partition_id = ownership["partition_id"]
+                existing = data["partitions"].get(partition_id)
 
-            async with lock:
-                data = self._read_json(file_path)
+                # Claim succeeds if no existing owner or etag matches
+                incoming_etag = ownership.get("etag")
+                if existing is None or existing.get("etag") == incoming_etag:
+                    claimed_record = {
+                        "fully_qualified_namespace": ns,
+                        "eventhub_name": eh,
+                        "consumer_group": cg,
+                        "partition_id": partition_id,
+                        "owner_id": ownership["owner_id"],
+                        "last_modified_time": time.time(),
+                        "etag": str(uuid.uuid4()),
+                    }
+                    data["partitions"][partition_id] = claimed_record
+                    claimed.append(claimed_record)
+                else:
+                    logger.debug(
+                        f"Ownership claim rejected for partition {partition_id}: "
+                        f"etag mismatch (stored={existing.get('etag')}, "
+                        f"provided={incoming_etag})"
+                    )
 
-                for ownership in ownerships:
-                    partition_id = ownership["partition_id"]
-                    existing = data["partitions"].get(partition_id)
-
-                    # Claim succeeds if no existing owner or etag matches
-                    incoming_etag = ownership.get("etag")
-                    if existing is None or existing.get("etag") == incoming_etag:
-                        new_etag = str(uuid.uuid4())
-                        now = time.time()
-                        claimed_record = {
-                            "fully_qualified_namespace": ns,
-                            "eventhub_name": eh,
-                            "consumer_group": cg,
-                            "partition_id": partition_id,
-                            "owner_id": ownership["owner_id"],
-                            "last_modified_time": now,
-                            "etag": new_etag,
-                        }
-                        data["partitions"][partition_id] = claimed_record
-                        claimed.append(claimed_record)
-                    else:
-                        logger.debug(
-                            f"Ownership claim rejected for partition {partition_id}: "
-                            f"etag mismatch (stored={existing.get('etag')}, "
-                            f"provided={incoming_etag})"
-                        )
-
-                self._write_json(file_path, data)
+            self._write_json(file_path, data)
 
         return claimed
 
@@ -268,8 +264,6 @@ class JsonCheckpointStore:
         tmp_path = file_path.with_suffix(".json.tmp")
         with open(tmp_path, "w") as f:
             json.dump(data, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
         os.replace(str(tmp_path), str(file_path))
 
 
