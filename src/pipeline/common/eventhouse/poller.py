@@ -7,11 +7,9 @@ and writes events to a configurable sink (Kafka, JSON file, etc.).
 
 import asyncio
 import json
-import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from config.config import KafkaConfig
 from core.logging.setup import get_logger
@@ -19,16 +17,18 @@ from pipeline.common.eventhouse.kql_client import (
     EventhouseConfig,
     KQLClient,
 )
+from pipeline.common.eventhouse.poller_checkpoint_store import (
+    PollerCheckpointData,
+    PollerCheckpointStoreProtocol,
+    close_poller_checkpoint_store,
+    get_poller_checkpoint_store,
+)
 from pipeline.common.eventhouse.sinks import (
     EventSink,
     create_kafka_sink,
 )
 
 logger = get_logger(__name__)
-
-
-# Default checkpoint directory
-DEFAULT_CHECKPOINT_DIR = Path(".checkpoints")
 
 
 @dataclass
@@ -43,56 +43,6 @@ class PollerCheckpoint:
     last_ingestion_time: str  # ISO format UTC timestamp
     last_trace_id: str  # trace_id of the last processed record
     updated_at: str  # When checkpoint was written (for debugging)
-
-    @classmethod
-    def from_file(cls, path: Path) -> Optional["PollerCheckpoint"]:
-        """
-        Load checkpoint from JSON file.
-        """
-        if not path.exists():
-            logger.info("No checkpoint file found", extra={"path": str(path)})
-            return None
-
-        try:
-            with open(path) as f:
-                data = json.load(f)
-
-            checkpoint = cls(
-                last_ingestion_time=data["last_ingestion_time"],
-                last_trace_id=data["last_trace_id"],
-                updated_at=data.get("updated_at", ""),
-            )
-            return checkpoint
-
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.warning(
-                "Failed to load checkpoint, starting fresh",
-                extra={"path": str(path), "error": str(e)},
-            )
-            return None
-
-    def save(self, path: Path) -> bool:
-        """
-        Save checkpoint to JSON file.
-
-        Uses atomic write pattern: write to temp file, then os.replace().
-        """
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self.updated_at = datetime.now(UTC).isoformat()
-
-            temp_path = path.with_suffix(".tmp")
-
-            with open(temp_path, "w") as f:
-                json.dump(asdict(self), f, indent=2)
-
-            # Atomic replace (works on POSIX and modern Windows)
-            os.replace(temp_path, path)
-            return True
-
-        except OSError as e:
-            logger.error("Failed to save checkpoint", extra={"error": str(e)})
-            return False
 
     def to_datetime(self) -> datetime:
         """Parse last_ingestion_time to offset-aware UTC datetime."""
@@ -154,6 +104,7 @@ class KQLEventPoller:
         self._kql_client: KQLClient | None = None
         self._sink: EventSink | None = config.sink
         self._owns_sink = config.sink is None  # Track if we created the sink
+        self._checkpoint_store: PollerCheckpointStoreProtocol | None = None
         self._last_poll_time: datetime | None = None
         self._consecutive_empty_polls = 0
         self._total_events_fetched = 0
@@ -173,10 +124,6 @@ class KQLEventPoller:
 
         self._last_ingestion_time: datetime | None = None
         self._last_trace_id: str | None = None
-        self._checkpoint_path = config.checkpoint_path or (
-            DEFAULT_CHECKPOINT_DIR / f"poller_{config.domain}.json"
-        )
-        self._load_checkpoint()
         self._pending_tasks: set[asyncio.Task] = set()
 
     @property
@@ -206,32 +153,42 @@ class KQLEventPoller:
             dt = dt.replace(tzinfo=UTC)
         return dt
 
-    def _load_checkpoint(self) -> None:
-        """Load checkpoint and initialize state."""
-        self._checkpoint = PollerCheckpoint.from_file(self._checkpoint_path)
-        if self._checkpoint:
-            self._last_ingestion_time = self._checkpoint.to_datetime()
-            self._last_trace_id = self._checkpoint.last_trace_id
+    async def _load_checkpoint(self) -> None:
+        """Load checkpoint from the configured store and initialize state."""
+        self._checkpoint_store = await get_poller_checkpoint_store()
+        data = await self._checkpoint_store.load(self.config.domain)
+        if data:
+            checkpoint = PollerCheckpoint(
+                last_ingestion_time=data.last_ingestion_time,
+                last_trace_id=data.last_trace_id,
+                updated_at=data.updated_at,
+            )
+            self._last_ingestion_time = checkpoint.to_datetime()
+            self._last_trace_id = checkpoint.last_trace_id
             if self._backfill_start_time is None:
                 self._backfill_start_time = self._last_ingestion_time
 
-    def _save_checkpoint(self, ingestion_time: datetime, trace_id: str) -> None:
-        """Saves current progress to disk."""
+    async def _save_checkpoint(self, ingestion_time: datetime, trace_id: str) -> None:
+        """Persist current progress via the configured checkpoint store."""
         if ingestion_time.tzinfo is None:
             ingestion_time = ingestion_time.replace(tzinfo=UTC)
 
-        checkpoint = PollerCheckpoint(
+        data = PollerCheckpointData(
             last_ingestion_time=ingestion_time.isoformat(),
             last_trace_id=trace_id,
-            updated_at="",
+            updated_at=datetime.now(UTC).isoformat(),
         )
-        checkpoint.save(self._checkpoint_path)
+        await self._checkpoint_store.save(self.config.domain, data)
         self._last_ingestion_time = ingestion_time
         self._last_trace_id = trace_id
 
     async def start(self) -> None:
         """Initialize all components."""
         logger.info("Starting KQLEventPoller components")
+
+        # Load checkpoint from configured store (blob or json)
+        await self._load_checkpoint()
+
         self._kql_client = KQLClient(self.config.eventhouse)
         await self._kql_client.connect()
 
@@ -353,6 +310,7 @@ class KQLEventPoller:
             await self._sink.stop()
         if self._kql_client:
             await self._kql_client.close()
+        await close_poller_checkpoint_store()
 
     async def run(self) -> None:
         """Main polling loop."""
@@ -404,7 +362,7 @@ class KQLEventPoller:
                 l_time = l_time.replace(tzinfo=UTC)
 
             l_tid = str(last.get(self._pagination_col, ""))
-            self._save_checkpoint(l_time, l_tid)
+            await self._save_checkpoint(l_time, l_tid)
             start = l_time
 
             if len(result.rows) < self.config.batch_size:
@@ -440,7 +398,7 @@ class KQLEventPoller:
             l_time = l_time.replace(tzinfo=UTC)
 
         l_tid = str(last.get(self._pagination_col, ""))
-        self._save_checkpoint(l_time, l_tid)
+        await self._save_checkpoint(l_time, l_tid)
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
         """Filter out rows already covered by the current checkpoint.

@@ -188,6 +188,24 @@ itel_cabinet:
   attachments_path: ${ITEL_ATTACHMENTS_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/itel_cabinet_form/attachments}
 
 # =============================================================================
+# POLLER CHECKPOINT STORE
+# =============================================================================
+# Persistence backend for KQL Event Poller checkpoints.
+# Controls where the poller stores its progress (last_ingestion_time, last_trace_id)
+# so it can resume after pod restarts without reprocessing data.
+#
+# Supported types:
+#   "blob" - Azure Blob Storage (production / K8s)
+#   "json" - Local filesystem JSON files (development / local)
+#
+# When type=blob and connection string is empty, falls back to JSON automatically.
+poller_checkpoint_store:
+  type: ${POLLER_CHECKPOINT_STORE_TYPE:-blob}
+  blob_storage_connection_string: ${POLLER_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+  container_name: ${POLLER_CHECKPOINT_CONTAINER_NAME:-poller-checkpoints}
+  storage_path: ${POLLER_CHECKPOINT_JSON_PATH:-.checkpoints}
+
+# =============================================================================
 # TRANSPORT LAYER CONFIGURATION
 # =============================================================================
 # Select transport protocol: "eventhub" (default) or "kafka"
