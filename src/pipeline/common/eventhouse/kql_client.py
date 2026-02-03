@@ -188,18 +188,31 @@ class KQLClient:
         )
 
         try:
-            # Check for token file authentication first
+            # Check for token file and SPN credentials
             token_file = os.getenv("AZURE_TOKEN_FILE")
-            auth_mode = "default"
-            kcsb = None
-
-            # Check for SPN credentials
             client_id = os.getenv("AZURE_CLIENT_ID")
             client_secret = os.getenv("AZURE_CLIENT_SECRET")
             tenant_id = os.getenv("AZURE_TENANT_ID")
             has_spn = client_id and client_secret and tenant_id
 
-            if token_file:
+            auth_mode = "default"
+            kcsb = None
+
+            # Prioritize SPN with direct AAD app key auth (avoids token refresh warnings)
+            if has_spn:
+                kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
+                    self.config.cluster_url,
+                    client_id,
+                    client_secret,
+                    tenant_id,
+                )
+                auth_mode = "spn"
+                logger.info(
+                    "Using SPN credentials for Eventhouse authentication",
+                    extra={"client_id": client_id[:8] + "..."},
+                )
+            # Use token file only if SPN is not available
+            elif token_file:
                 token_path = Path(token_file)
                 if token_path.exists():
                     try:
@@ -217,23 +230,9 @@ class KQLClient:
                         )
                     except Exception as e:
                         logger.warning(
-                            "Token file auth failed, trying SPN/default",
+                            "Token file auth failed, falling back to default",
                             extra={"error": str(e)[:200]},
                         )
-
-            # Use SPN with direct AAD app key auth (more reliable than token credential)
-            if kcsb is None and has_spn:
-                kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
-                    self.config.cluster_url,
-                    client_id,
-                    client_secret,
-                    tenant_id,
-                )
-                auth_mode = "spn"
-                logger.info(
-                    "Using SPN credentials for Eventhouse authentication",
-                    extra={"client_id": client_id[:8] + "..."},
-                )
 
             # Fall back to DefaultAzureCredential
             if kcsb is None:
