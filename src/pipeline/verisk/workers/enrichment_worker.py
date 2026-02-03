@@ -22,11 +22,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from aiokafka import AIOKafkaConsumer
 from pydantic import ValidationError
 
 from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.paths.resolver import generate_blob_path
@@ -34,13 +32,9 @@ from core.security.exceptions import URLValidationError
 from core.security.url_validation import sanitize_url, validate_download_url
 from core.types import ErrorCategory
 from pipeline.common.health import HealthCheckServer
-from pipeline.common.metrics import (
-    update_assigned_partitions,
-    update_connection_status,
-)
-from pipeline.common.transport import create_producer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
-from pipeline.common.types import PipelineMessage, from_consumer_record
+from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.base import (
     Domain,
     PipelineStage,
@@ -58,7 +52,6 @@ from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
 )
-from pipeline.verisk.workers.consumer_factory import create_consumer
 from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
@@ -73,7 +66,14 @@ class XACTEnrichmentWorker:
     - Single-task processing (no batching needed - simple flow)
     - Plugin execution at ENRICHMENT_COMPLETE stage
     - Download task generation for each attachment
-    - Background task tracking for graceful shutdown
+
+    Transport Layer:
+    - Message consumption is handled by the transport layer (pipeline.common.transport)
+    - The transport layer calls _handle_enrichment_task() for EACH message individually
+    - Offsets are committed AFTER the handler completes successfully
+    - All work must be awaited synchronously to prevent data loss (Issue #38)
+    - No background task tracking - the handler must complete all work before returning
+    - Transport type (EventHub/Kafka) is selected via PIPELINE_TRANSPORT env var
     """
 
     WORKER_NAME = "enrichment_worker"
@@ -112,17 +112,12 @@ class XACTEnrichmentWorker:
         self.processing_config = config.get_worker_config(
             domain, "enrichment_worker", "processing"
         )
-        self.max_poll_records = self.processing_config.get("max_poll_records", WorkerDefaults.MAX_POLL_RECORDS)
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
 
-        # Only consume from pending topic
-        # Unified retry scheduler handles routing retry messages back to pending
-        self.topics = [self.enrichment_topic]
-
         self.producer = None
-        self.consumer: AIOKafkaConsumer | None = None
+        self.consumer = None
         self.retry_handler: DownloadRetryHandler | None = None
 
         self.plugin_registry = PluginRegistry()
@@ -138,9 +133,6 @@ class XACTEnrichmentWorker:
             enabled=health_enabled,
         )
 
-        self._pending_tasks: set[asyncio.Task] = set()
-        self._task_counter = 0
-        self._consume_task: asyncio.Task | None = None
         self._running = False
 
         self._records_processed = 0
@@ -178,10 +170,8 @@ class XACTEnrichmentWorker:
                 "consumer_group": config.get_consumer_group(
                     domain, "enrichment_worker"
                 ),
-                "topics": self.topics,
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
-                "max_poll_records": self.max_poll_records,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
                 "simulation_mode": simulation_config is not None
@@ -290,25 +280,24 @@ class XACTEnrichmentWorker:
         logger.info(
             "Retry handler initialized",
             extra={
-                "retry_topics": [t for t in self.topics if "retry" in t],
                 "dlq_topic": self.retry_handler.dlq_topic,
             },
         )
 
         try:
-            self.consumer = self._create_consumer()
-            await self.consumer.start()
-            update_connection_status(
-                True,
-                self.consumer_config.get_consumer_group(
-                    self.domain, "enrichment_worker"
-                ),
+            self.consumer = await create_consumer(
+                config=self.consumer_config,
+                domain=self.domain,
+                worker_name="enrichment_worker",
+                topics=[self.enrichment_topic],
+                message_handler=self._handle_enrichment_task,
+                topic_key="enrichment_pending",
+                instance_id=self.instance_id,
             )
 
             self.health_server.set_ready(kafka_connected=True)
 
-            self._consume_task = asyncio.create_task(self._consume_loop())
-            await self._consume_task
+            await self.consumer.start()
 
         except asyncio.CancelledError:
             logger.info("Worker cancelled during startup/run")
@@ -323,8 +312,6 @@ class XACTEnrichmentWorker:
 
         if self._stats_logger:
             await self._stats_logger.stop()
-
-        await self._wait_for_pending_tasks(timeout_seconds=30)
 
         for plugin in self.plugin_registry.list_plugins():
             try:
@@ -342,12 +329,6 @@ class XACTEnrichmentWorker:
 
         if self.consumer:
             await self.consumer.stop()
-            update_connection_status(
-                False,
-                self.consumer_config.get_consumer_group(
-                    self.domain, "enrichment_worker"
-                ),
-            )
 
         if self.retry_handler:
             await self.retry_handler.stop()
@@ -362,172 +343,6 @@ class XACTEnrichmentWorker:
     async def request_shutdown(self) -> None:
         logger.info("Graceful shutdown requested")
         self._running = False
-
-    def _create_consumer(self) -> AIOKafkaConsumer:
-        return create_consumer(
-            config=self.consumer_config,
-            domain=self.domain,
-            worker_name="enrichment_worker",
-            topics=self.topics,
-            instance_id=self.instance_id,
-        )
-
-    async def _consume_loop(self) -> None:
-        """
-        Main consumption loop - consumes enrichment tasks and processes them.
-        """
-        logger.info("Started consumption loop")
-
-        try:
-            while self._running:
-                msg_dict = await self.consumer.getmany(
-                    timeout_ms=1000, max_records=self.max_poll_records
-                )
-
-                if not msg_dict:
-                    continue
-
-                for _partition, messages in msg_dict.items():
-                    for msg in messages:
-                        # Convert ConsumerRecord to PipelineMessage
-                        pipeline_msg = from_consumer_record(msg)
-                        await self._handle_enrichment_task(pipeline_msg)
-
-                # Wait for all background tasks to complete before committing offsets
-                if self._pending_tasks:
-                    await self._wait_for_pending_tasks(timeout_seconds=30)
-
-                await self.consumer.commit()
-                update_assigned_partitions(
-                    self.consumer_group, len(self.consumer.assignment())
-                )
-
-        except asyncio.CancelledError:
-            logger.debug("Consumption loop cancelled")
-            raise
-        except Exception as e:
-            logger.error(
-                "Error in consumption loop", extra={"error": str(e)}, exc_info=True
-            )
-            raise
-        finally:
-            logger.info("Consumption loop ended")
-
-    def _create_tracked_task(
-        self,
-        coro,
-        task_name: str,
-        context: dict[str, Any] | None = None,
-    ) -> asyncio.Task:
-        self._task_counter += 1
-        full_name = f"{task_name}-{self._task_counter}"
-        context = context or {}
-
-        task = asyncio.create_task(coro, name=full_name)
-        self._pending_tasks.add(task)
-
-        logger.debug(
-            "Background task created",
-            extra={
-                "task_name": full_name,
-                "pending_tasks": len(self._pending_tasks),
-                **context,
-            },
-        )
-
-        def _on_task_done(t: asyncio.Task) -> None:
-            self._pending_tasks.discard(t)
-
-            if t.cancelled():
-                logger.debug(
-                    "Background task cancelled",
-                    extra={
-                        "task_name": t.get_name(),
-                        "pending_tasks": len(self._pending_tasks),
-                    },
-                )
-            elif t.exception() is not None:
-                exc = t.exception()
-                logger.error(
-                    "Background task failed",
-                    extra={
-                        "task_name": t.get_name(),
-                        "error": str(exc)[:200],
-                        "pending_tasks": len(self._pending_tasks),
-                        **context,
-                    },
-                )
-            else:
-                logger.debug(
-                    "Background task completed",
-                    extra={
-                        "task_name": t.get_name(),
-                        "pending_tasks": len(self._pending_tasks),
-                    },
-                )
-
-        task.add_done_callback(_on_task_done)
-        return task
-
-    async def _wait_for_pending_tasks(self, timeout_seconds: float = 30) -> None:
-        if not self._pending_tasks:
-            return
-
-        pending_count = len(self._pending_tasks)
-        task_names = [t.get_name() for t in self._pending_tasks]
-
-        logger.info(
-            "Waiting for pending background tasks to complete",
-            extra={
-                "pending_count": pending_count,
-                "task_names": task_names,
-                "timeout_seconds": timeout_seconds,
-            },
-        )
-
-        tasks_to_wait = list(self._pending_tasks)
-
-        try:
-            done, pending = await asyncio.wait(
-                tasks_to_wait,
-                timeout=timeout_seconds,
-                return_when=asyncio.ALL_COMPLETED,
-            )
-
-            if pending:
-                pending_names = [t.get_name() for t in pending]
-                logger.warning(
-                    "Cancelling background tasks that did not complete in time",
-                    extra={
-                        "pending_count": len(pending),
-                        "pending_task_names": pending_names,
-                        "timeout_seconds": timeout_seconds,
-                    },
-                )
-
-                for task in pending:
-                    task.cancel()
-
-                await asyncio.gather(*pending, return_exceptions=True)
-
-            completed_count = len(done)
-            failed_count = sum(1 for t in done if t.exception() is not None)
-
-            logger.info(
-                "Background task cleanup complete",
-                extra={
-                    "completed": completed_count,
-                    "failed": failed_count,
-                    "cancelled": len(pending),
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Error waiting for pending tasks",
-                extra={"error": str(e)[:200]},
-                exc_info=True,
-            )
 
     async def _handle_enrichment_task(self, message: PipelineMessage) -> None:
         """Process enrichment task - execute plugins and create download tasks."""
