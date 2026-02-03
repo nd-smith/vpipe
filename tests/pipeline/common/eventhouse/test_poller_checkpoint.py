@@ -110,11 +110,17 @@ class TestBuildQuery:
         q = poller._build_query("T", self.t_from, self.t_to, 100, "")
         assert "order by ingestion_time asc, traceId asc" in q
 
-    def test_uses_ingestion_time_function_by_default(self):
-        """Default should use ingestion_time() function, not a column."""
+    def test_uses_bin_microsecond_by_default(self):
+        """Default should bin ingestion_time() to microsecond precision.
+
+        KQL ingestion_time() has 100ns tick resolution but Python datetime
+        only has microsecond precision.  Without bin(), rows at ticks T+1
+        through T+9 satisfy '> T' in KQL but truncate back to T in Python,
+        causing the checkpoint to never advance.
+        """
         poller = _make_poller()
         q = poller._build_query("T", self.t_from, self.t_to, 100, "")
-        assert "ingestion_time()" in q
+        assert "bin(ingestion_time(), 1microsecond)" in q
 
     def test_uses_configured_ingestion_time_column(self):
         """When ingestion_time_column is set, use column name."""
