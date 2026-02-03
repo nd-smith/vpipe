@@ -163,10 +163,13 @@ class ClaimXDownloadWorker:
 
         self._http_session: aiohttp.ClientSession | None = None
 
+        self.cached_topic = config.get_topic(domain, "downloads_cached")
+
         self.producer = create_producer(
             config=config,
             domain=domain,
             worker_name=self.WORKER_NAME,
+            topic_key="downloads_cached",
         )
 
         self.downloader = AttachmentDownloader()
@@ -237,6 +240,11 @@ class ClaimXDownloadWorker:
         self.downloader = AttachmentDownloader(session=self._http_session)
 
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.cached_topic = self.producer.eventhub_name
 
         if self._simulation_config is not None:
             # In simulation mode, use mock API client (doesn't need real credentials)
@@ -864,9 +872,8 @@ class ClaimXDownloadWorker:
             downloaded_at=datetime.now(UTC),
         )
 
-        cached_topic = self.config.get_topic(self.domain, "downloads_cached")
         await self.producer.send(
-            topic=cached_topic,
+            topic=self.cached_topic,
             key=task_message.source_event_id,
             value=cached_message,
         )
@@ -875,7 +882,7 @@ class ClaimXDownloadWorker:
             "Produced ClaimX cached download message",
             extra={
                 "media_id": task_message.media_id,
-                "topic": cached_topic,
+                "topic": self.cached_topic,
                 "cache_path": str(cache_path),
             },
         )

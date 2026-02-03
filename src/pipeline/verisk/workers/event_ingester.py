@@ -79,6 +79,9 @@ class EventIngesterWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
+        self.enrichment_topic = self.producer_config.get_topic(
+            domain, "enrichment_pending"
+        )
         self.producer = None
         self.consumer = None
 
@@ -153,6 +156,11 @@ class EventIngesterWorker:
             topic_key="enrichment_pending",
         )
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.enrichment_topic = self.producer.eventhub_name
 
         # Start periodic stats logger
         self._stats_logger = PeriodicStatsLogger(
@@ -320,9 +328,7 @@ class EventIngesterWorker:
         # CRITICAL: Must await send confirmation before allowing offset commit
         try:
             metadata = await self.producer.send(
-                topic=self.producer_config.get_topic(
-                    self.domain, "enrichment_pending"
-                ),
+                topic=self.enrichment_topic,
                 key=event.trace_id,
                 value=enrichment_task,
                 headers={"trace_id": event.trace_id, "event_id": event_id},

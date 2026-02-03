@@ -273,8 +273,14 @@ class ClaimXEnrichmentWorker:
             config=self.producer_config,
             domain=self.domain,
             worker_name="enrichment_worker",
+            topic_key="downloads_pending",
         )
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.download_topic = self.producer.eventhub_name
 
         self.retry_handler = EnrichmentRetryHandler(
             config=self.consumer_config,
