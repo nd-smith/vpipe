@@ -35,7 +35,6 @@ from pipeline.claimx.handlers.base import (
     NoOpHandler,
     get_handler_registry as _get_handler_registry_base,
     register_handler,
-    reset_registry,
 )
 from pipeline.claimx.handlers.project_cache import ProjectCache
 
@@ -87,6 +86,5 @@ __all__ = [
     "HandlerRegistry",
     "ProjectCache",
     "get_handler_registry",
-    "reset_registry",
     "register_handler",
 ]
