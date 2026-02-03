@@ -43,8 +43,9 @@ class MockEventData:
     def enqueued_time(self):
         return self._enqueued_time
 
-    def body_as_bytes(self):
-        return self._body
+    @property
+    def body(self):
+        return [self._body]
 
 
 @pytest.fixture
