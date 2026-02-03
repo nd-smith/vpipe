@@ -130,6 +130,22 @@ class TestBuildQuery:
         q = poller._build_query("T", self.t_from, self.t_to, 100, "it's")
         assert "it\\'s" in q
 
+    def test_extend_row_hash_before_where(self):
+        """extend _row_hash MUST appear before the WHERE that references it.
+
+        KQL evaluates operators in pipeline order, so referencing _row_hash
+        in a WHERE clause before the EXTEND that creates it causes a
+        semantic error.
+        """
+        poller = _make_poller()
+        q = poller._build_query("T", self.t_from, self.t_to, 100, "abc123")
+        extend_pos = q.index("extend _row_hash")
+        where_pos = q.index("strcmp")
+        assert extend_pos < where_pos, (
+            f"extend _row_hash (pos {extend_pos}) must come before "
+            f"WHERE strcmp (pos {where_pos}) in the KQL pipeline"
+        )
+
     def test_take_limit(self):
         """Query must end with correct take limit."""
         poller = _make_poller()
