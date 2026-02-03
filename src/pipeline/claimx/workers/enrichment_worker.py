@@ -23,11 +23,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from aiokafka import AIOKafkaConsumer
 from pydantic import ValidationError
 
 from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
@@ -46,11 +44,9 @@ from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_delta_write,
     record_processing_error,
-    update_assigned_partitions,
-    update_connection_status,
 )
 from pipeline.common.storage.delta import DeltaTableReader
-from pipeline.common.transport import create_producer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
@@ -111,13 +107,9 @@ class ClaimXEnrichmentWorker:
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
 
-        # Only consume from pending topic
-        # Unified retry scheduler handles routing retry messages back to pending
-        self.topics = [self.enrichment_topic]
-
         self.producer = None
         self.download_producer = None
-        self.consumer: AIOKafkaConsumer | None = None
+        self.consumer = None
         self.api_client: Any | None = None
         self._injected_api_client = api_client
         self.retry_handler: EnrichmentRetryHandler | None = None
@@ -168,7 +160,6 @@ class ClaimXEnrichmentWorker:
                 "consumer_group": config.get_consumer_group(
                     domain, "enrichment_worker"
                 ),
-                "topics": self.topics,
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
                 "delta_writes_enabled": self.enable_delta_writes,
@@ -302,13 +293,14 @@ class ClaimXEnrichmentWorker:
             await self._preload_project_cache()
 
         try:
-            self.consumer = self._create_consumer()
-            await self.consumer.start()
-            update_connection_status(
-                True,
-                self.consumer_config.get_consumer_group(
-                    self.domain, "enrichment_worker"
-                ),
+            self.consumer = await create_consumer(
+                config=self.consumer_config,
+                domain=self.domain,
+                worker_name="enrichment_worker",
+                topics=[self.enrichment_topic],
+                message_handler=self._handle_enrichment_task,
+                topic_key="enrichment_pending",
+                instance_id=self.instance_id,
             )
 
             self.health_server.set_ready(
@@ -317,8 +309,7 @@ class ClaimXEnrichmentWorker:
                 circuit_open=self.api_client.is_circuit_open,
             )
 
-            self._consume_task = asyncio.create_task(self._consume_loop())
-            await self._consume_task
+            await self.consumer.start()
 
         except asyncio.CancelledError:
             logger.info("Worker cancelled during startup/run")
@@ -340,12 +331,6 @@ class ClaimXEnrichmentWorker:
 
         if self.consumer:
             await self.consumer.stop()
-            update_connection_status(
-                False,
-                self.consumer_config.get_consumer_group(
-                    self.domain, "enrichment_worker"
-                ),
-            )
 
         if self.retry_handler:
             await self.retry_handler.stop()
@@ -366,94 +351,6 @@ class ClaimXEnrichmentWorker:
     async def request_shutdown(self) -> None:
         logger.info("Graceful shutdown requested")
         self._running = False
-
-    def _create_consumer(self) -> AIOKafkaConsumer:
-        group_id = self.consumer_config.get_consumer_group(
-            self.domain, "enrichment_worker"
-        )
-
-        consumer_config_dict = self.consumer_config.get_worker_config(
-            self.domain, "enrichment_worker", "consumer"
-        )
-
-        common_args = {
-            "bootstrap_servers": self.consumer_config.bootstrap_servers,
-            "group_id": group_id,
-            "client_id": (
-                f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
-            ),
-            "enable_auto_commit": False,
-            "auto_offset_reset": consumer_config_dict.get(
-                "auto_offset_reset", "earliest"
-            ),
-            "metadata_max_age_ms": 30000,
-            "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 45000),
-            "max_poll_interval_ms": consumer_config_dict.get(
-                "max_poll_interval_ms", 600000
-            ),
-            "request_timeout_ms": self.consumer_config.request_timeout_ms,
-            "connections_max_idle_ms": self.consumer_config.connections_max_idle_ms,
-        }
-
-        if "heartbeat_interval_ms" in consumer_config_dict:
-            common_args["heartbeat_interval_ms"] = consumer_config_dict[
-                "heartbeat_interval_ms"
-            ]
-
-        if self.consumer_config.security_protocol != "PLAINTEXT":
-            common_args["security_protocol"] = self.consumer_config.security_protocol
-            common_args["sasl_mechanism"] = self.consumer_config.sasl_mechanism
-
-            if self.consumer_config.sasl_mechanism == "OAUTHBEARER":
-                common_args["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
-
-        return AIOKafkaConsumer(*self.topics, **common_args)
-
-    async def _consume_loop(self) -> None:
-        """
-        Main consumption loop.
-
-        CRITICAL (Issue #38): Commits offsets only after verifying all background tasks
-        (entity row production) complete successfully. This prevents data loss from
-        race conditions where offsets are committed before writes finish.
-        """
-        logger.info("Started consumption loop")
-
-        try:
-            while self._running:
-                msg_dict = await self.consumer.getmany(
-                    timeout_ms=1000, max_records=self.max_poll_records
-                )
-
-                if not msg_dict:
-                    continue
-
-                for _partition, messages in msg_dict.items():
-                    for msg in messages:
-                        await self._handle_enrichment_task(msg)
-
-                # CRITICAL (Issue #38): Wait for all background tasks to complete before committing offsets.
-                # This ensures entity rows are produced to Kafka before we advance the consumer offset.
-                if self._pending_tasks:
-                    await self._wait_for_pending_tasks(timeout_seconds=30)
-
-                await self.consumer.commit()
-                update_assigned_partitions(
-                    self.consumer_group, len(self.consumer.assignment())
-                )
-
-        except asyncio.CancelledError:
-            logger.debug("Consumption loop cancelled")
-            raise
-        except Exception as e:
-            logger.error(
-                "Error in consumption loop", extra={"error": str(e)}, exc_info=True
-            )
-            raise
-        finally:
-            logger.info("Consumption loop ended")
 
     def _create_tracked_task(
         self,
@@ -623,7 +520,7 @@ class ClaimXEnrichmentWorker:
         handler_result = await handler.process([event])
         return handler_result
 
-    def _dispatch_entity_rows(
+    async def _dispatch_entity_rows(
         self,
         task: ClaimXEnrichmentTask,
         entity_rows: EntityRowsMessage,
@@ -631,7 +528,8 @@ class ClaimXEnrichmentWorker:
         """
         Dispatch entity rows to Kafka for Delta Lake writing.
 
-        Creates background task to produce rows without blocking.
+        Awaits entity row production to ensure writes complete before offset commit.
+        Critical for preventing data loss (Issue #38).
 
         Args:
             task: Original enrichment task
@@ -640,14 +538,7 @@ class ClaimXEnrichmentWorker:
         if not self.enable_delta_writes or entity_rows.is_empty():
             return
 
-        self._create_tracked_task(
-            self._produce_entity_rows(entity_rows, [task]),
-            task_name="produce_entity_rows",
-            context={
-                "event_id": task.event_id,
-                "row_count": entity_rows.row_count(),
-            },
-        )
+        await self._produce_entity_rows(entity_rows, [task])
 
     async def _dispatch_download_tasks(
         self,
@@ -752,7 +643,7 @@ class ClaimXEnrichmentWorker:
             self._records_succeeded += 1
 
             # Step 5: Dispatch entity rows to Kafka
-            self._dispatch_entity_rows(task, entity_rows)
+            await self._dispatch_entity_rows(task, entity_rows)
 
             # Step 6: Dispatch download tasks for media files
             await self._dispatch_download_tasks(entity_rows)
