@@ -157,6 +157,7 @@ class UploadWorker:
         self._shutdown_event: asyncio.Event | None = None
 
         # Create producer for result messages
+        self.results_topic = config.get_topic(domain, "downloads_results")
         self.producer = create_producer(
             config=config,
             domain=domain,
@@ -224,6 +225,11 @@ class UploadWorker:
 
         # Start producer
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.results_topic = self.producer.eventhub_name
 
         # Initialize storage clients (use injected client or create OneLake clients)
         if self._injected_storage_client is not None:
@@ -637,7 +643,7 @@ class UploadWorker:
             )
 
             await self.producer.send(
-                topic=self.config.get_topic(self.domain, "downloads_results"),
+                topic=self.results_topic,
                 key=trace_id,
                 value=result_message,
             )
@@ -702,7 +708,7 @@ class UploadWorker:
                 )
 
                 await self.producer.send(
-                    topic=self.config.get_topic(self.domain, "downloads_results"),
+                    topic=self.results_topic,
                     key=cached_message.trace_id,
                     value=result_message,
                 )

@@ -162,10 +162,14 @@ class DownloadWorker:
 
         self._http_session: aiohttp.ClientSession | None = None
 
+        self.cached_topic = config.get_topic(domain, "downloads_cached")
+        self.results_topic = config.get_topic(domain, "downloads_results")
+
         self.producer = create_producer(
             config=config,
             domain=domain,
             worker_name=self.WORKER_NAME,
+            topic_key="downloads_cached",
         )
 
         self.downloader = AttachmentDownloader()
@@ -260,6 +264,11 @@ class DownloadWorker:
         self.downloader = AttachmentDownloader(session=self._http_session)
 
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.cached_topic = self.producer.eventhub_name
 
         self.retry_handler = RetryHandler(self.config)
         await self.retry_handler.start()
@@ -740,7 +749,7 @@ class DownloadWorker:
         )
 
         await self.producer.send(
-            topic=self.config.get_topic(self.domain, "downloads_cached"),
+            topic=self.cached_topic,
             key=task_message.trace_id,
             value=cached_message,
         )
@@ -749,7 +758,7 @@ class DownloadWorker:
             "Produced cached download message",
             extra={
                 "trace_id": task_message.trace_id,
-                "topic": self.config.get_topic(self.domain, "downloads_cached"),
+                "topic": self.cached_topic,
                 "cache_path": str(cache_path),
             },
         )
@@ -847,7 +856,7 @@ class DownloadWorker:
         )
 
         await self.producer.send(
-            topic=self.config.get_topic(self.domain, "downloads_results"),
+            topic=self.results_topic,
             key=task_message.trace_id,
             value=result_message,
         )
@@ -857,7 +866,7 @@ class DownloadWorker:
             extra={
                 "trace_id": task_message.trace_id,
                 "status": status,
-                "topic": self.config.get_topic(self.domain, "downloads_results"),
+                "topic": self.results_topic,
             },
         )
 
