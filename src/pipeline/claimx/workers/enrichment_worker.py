@@ -116,6 +116,7 @@ class ClaimXEnrichmentWorker:
         self.topics = [self.enrichment_topic]
 
         self.producer = None
+        self.download_producer = None
         self.consumer: AIOKafkaConsumer | None = None
         self.api_client: Any | None = None
         self._injected_api_client = api_client
@@ -273,8 +274,17 @@ class ClaimXEnrichmentWorker:
             config=self.producer_config,
             domain=self.domain,
             worker_name="enrichment_worker",
+            topic_key="enriched",
         )
         await self.producer.start()
+
+        self.download_producer = create_producer(
+            config=self.producer_config,
+            domain=self.domain,
+            worker_name="enrichment_worker",
+            topic_key="downloads_pending",
+        )
+        await self.download_producer.start()
 
         self.retry_handler = EnrichmentRetryHandler(
             config=self.consumer_config,
@@ -339,6 +349,9 @@ class ClaimXEnrichmentWorker:
 
         if self.producer:
             await self.producer.stop()
+
+        if self.download_producer:
+            await self.download_producer.stop()
 
         if self.api_client:
             await self.api_client.close()
@@ -952,7 +965,7 @@ class ClaimXEnrichmentWorker:
 
         for task in download_tasks:
             try:
-                metadata = await self.producer.send(
+                metadata = await self.download_producer.send(
                     topic=self.download_topic,
                     key=task.source_event_id,
                     value=task,
