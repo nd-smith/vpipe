@@ -15,6 +15,8 @@ __all__ = [
     "EventHubRecordMetadata",
     "EventHubConsumer",
     "EventHubConsumerRecord",
+    "JsonCheckpointStore",
+    "CheckpointStoreProtocol",
     "get_checkpoint_store",
     "close_checkpoint_store",
     "reset_checkpoint_store",
@@ -40,18 +42,25 @@ def __getattr__(name):
         return (
             EventHubConsumer if name == "EventHubConsumer" else EventHubConsumerRecord
         )
+    if name == "JsonCheckpointStore":
+        from pipeline.common.eventhub.json_checkpoint_store import JsonCheckpointStore
+
+        return JsonCheckpointStore
     if name in (
+        "CheckpointStoreProtocol",
         "get_checkpoint_store",
         "close_checkpoint_store",
         "reset_checkpoint_store",
     ):
         from pipeline.common.eventhub.checkpoint_store import (
+            CheckpointStoreProtocol,
             close_checkpoint_store,
             get_checkpoint_store,
             reset_checkpoint_store,
         )
 
         return {
+            "CheckpointStoreProtocol": CheckpointStoreProtocol,
             "get_checkpoint_store": get_checkpoint_store,
             "close_checkpoint_store": close_checkpoint_store,
             "reset_checkpoint_store": reset_checkpoint_store,
