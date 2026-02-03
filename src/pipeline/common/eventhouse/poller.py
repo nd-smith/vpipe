@@ -187,24 +187,24 @@ class KQLEventPoller:
             return None
         return col
 
-    @property
-    def _pagination_col(self) -> str:
-        """Column used for secondary sort in composite-key pagination.
-
-        Returns the configured trace_id column if available, otherwise
-        ``_row_hash`` — a synthetic column generated in the KQL query
-        from ``hash_sha256(tostring(pack_all()))``.  This ensures every
-        table can be paginated correctly even without a natural unique
-        identifier.
-        """
-        return self._trace_id_col or "_row_hash"
-
     def _parse_timestamp(self, ts_str: str) -> datetime:
         """Helper to ensure all parsed timestamps are offset-aware UTC."""
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
         return dt
+
+    def _parse_row_time(self, row: dict) -> datetime:
+        """Extract and normalize ingestion_time from a result row."""
+        t_raw = row.get("ingestion_time", row.get("$IngestionTime"))
+        t = (
+            t_raw
+            if isinstance(t_raw, datetime)
+            else datetime.fromisoformat(str(t_raw).replace("Z", "+00:00"))
+        )
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=UTC)
+        return t
 
     def _load_checkpoint(self) -> None:
         """Load checkpoint and initialize state."""
@@ -391,21 +391,24 @@ class KQLEventPoller:
             if not result.rows:
                 break
 
-            await self._process_filtered_results(result.rows)
-
-            last = result.rows[-1]
-            l_time_raw = last.get("ingestion_time", last.get("$IngestionTime"))
-            l_time = (
-                l_time_raw
-                if isinstance(l_time_raw, datetime)
-                else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
-            )
-            if l_time.tzinfo is None:
-                l_time = l_time.replace(tzinfo=UTC)
-
-            l_tid = str(last.get(self._pagination_col, ""))
-            self._save_checkpoint(l_time, l_tid)
-            start = l_time
+            if self._trace_id_col:
+                # Composite-key path
+                await self._process_filtered_results(result.rows)
+                last = result.rows[-1]
+                l_time = self._parse_row_time(last)
+                l_tid = str(last.get(self._trace_id_col, ""))
+                self._save_checkpoint(l_time, l_tid)
+                start = l_time
+            else:
+                # Timestamp-only path with boundary handling
+                rows, cp_time = self._resolve_batch_boundary(result.rows)
+                if cp_time is None:
+                    stuck = self._parse_row_time(result.rows[0])
+                    rows = await self._drain_timestamp(stuck, stop)
+                    cp_time = stuck
+                await self._process_filtered_results(rows)
+                self._save_checkpoint(cp_time, "")
+                start = cp_time
 
             if len(result.rows) < self.config.batch_size:
                 break
@@ -426,137 +429,168 @@ class KQLEventPoller:
         if not result.rows:
             logger.debug(
                 "Poll cycle returned 0 rows",
-                extra={
-                    "checkpoint_time": poll_from.isoformat() if poll_from else None,
-                    "checkpoint_tid": self._last_trace_id or "",
-                    "pagination_col": self._pagination_col,
-                },
+                extra={"checkpoint_time": poll_from.isoformat()},
             )
             return
 
-        rows = self._filter_checkpoint_rows(result.rows)
-        logger.info(
-            "Poll cycle fetched rows",
-            extra={
-                "query_rows": len(result.rows),
-                "after_filter": len(rows),
-                "checkpoint_time": poll_from.isoformat(),
-                "checkpoint_tid": self._last_trace_id or "",
-            },
-        )
-        await self._process_filtered_results(rows)
-
-        last = result.rows[-1]
-        l_time_raw = last.get("ingestion_time", last.get("$IngestionTime"))
-        l_time = (
-            l_time_raw
-            if isinstance(l_time_raw, datetime)
-            else datetime.fromisoformat(str(l_time_raw).replace("Z", "+00:00"))
-        )
-        if l_time.tzinfo is None:
-            l_time = l_time.replace(tzinfo=UTC)
-
-        l_tid = str(last.get(self._pagination_col, ""))
-        logger.info(
-            "Saving checkpoint",
-            extra={
-                "new_time": l_time.isoformat(),
-                "new_tid": l_tid[:16] + "..." if len(l_tid) > 16 else l_tid,
-                "prev_time": poll_from.isoformat(),
-                "prev_tid": (self._last_trace_id or "")[:16] + "..." if len(self._last_trace_id or "") > 16 else self._last_trace_id or "",
-                "advanced": l_time > poll_from or l_tid != (self._last_trace_id or ""),
-            },
-        )
-        self._save_checkpoint(l_time, l_tid)
+        if self._trace_id_col:
+            # Composite-key path: filter duplicates, save with trace_id
+            rows = self._filter_checkpoint_rows(result.rows)
+            if not rows:
+                return
+            await self._process_filtered_results(rows)
+            last = result.rows[-1]
+            l_time = self._parse_row_time(last)
+            l_tid = str(last.get(self._trace_id_col, ""))
+            self._save_checkpoint(l_time, l_tid)
+        else:
+            # Timestamp-only path: handle batch boundary
+            rows, cp_time = self._resolve_batch_boundary(result.rows)
+            if cp_time is None:
+                # Stuck — all rows share one timestamp and batch is full
+                stuck = self._parse_row_time(result.rows[0])
+                rows = await self._drain_timestamp(stuck, now)
+                cp_time = stuck
+            logger.info(
+                "Poll cycle",
+                extra={
+                    "query_rows": len(result.rows),
+                    "processing": len(rows),
+                    "checkpoint_time": cp_time.isoformat(),
+                    "prev_checkpoint": poll_from.isoformat(),
+                },
+            )
+            await self._process_filtered_results(rows)
+            self._save_checkpoint(cp_time, "")
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
         """Filter out rows already covered by the current checkpoint.
 
-        Uses the composite key (ingestion_time, pagination_col) to decide
-        which rows are new.  The pagination_col is either the configured
-        trace_id column or the synthetic ``_row_hash``.
+        Used only for composite-key pagination (tables with trace_id).
         """
         if not self._last_ingestion_time:
             return rows
 
         cp_time = self._last_ingestion_time
         cp_tid = self._last_trace_id
-        pg_col = self._pagination_col
+        tid_col = self._trace_id_col
         filtered = []
 
         for r in rows:
-            t_raw = r.get("ingestion_time", r.get("$IngestionTime"))
-            r_time = (
-                t_raw
-                if isinstance(t_raw, datetime)
-                else datetime.fromisoformat(str(t_raw).replace("Z", "+00:00"))
-            )
-            if r_time.tzinfo is None:
-                r_time = r_time.replace(tzinfo=UTC)
-
+            r_time = self._parse_row_time(r)
             if r_time < cp_time:
                 continue
-            if r_time == cp_time and cp_tid:
-                r_tid = str(r.get(pg_col, ""))
+            if r_time == cp_time and cp_tid and tid_col:
+                r_tid = str(r.get(tid_col, ""))
                 if r_tid <= cp_tid:
                     continue
-
             filtered.append(r)
         return filtered
+
+    def _resolve_batch_boundary(
+        self, rows: list[dict]
+    ) -> tuple[list[dict], datetime | None]:
+        """Decide which rows to process and where to checkpoint.
+
+        Handles three cases for timestamp-only pagination:
+
+        1. Batch not full (< batch_size rows): process all, checkpoint
+           at the last row's timestamp.
+        2. Batch full with mixed timestamps: trim rows at the last
+           (boundary) timestamp — they may be incomplete.  Checkpoint at
+           the latest timestamp *before* the boundary.  Trimmed rows are
+           re-fetched next cycle.
+        3. Batch full with a single timestamp: return (rows, None) to
+           signal that the caller must drain all rows at that timestamp.
+
+        Returns (rows_to_process, checkpoint_time).
+        checkpoint_time is None in case 3.
+        """
+        if len(rows) < self.config.batch_size:
+            return rows, self._parse_row_time(rows[-1])
+
+        # Batch is full — check whether it was cut mid-timestamp
+        last_time = self._parse_row_time(rows[-1])
+        first_time = self._parse_row_time(rows[0])
+
+        if first_time == last_time:
+            # All rows share one timestamp — caller must drain
+            return rows, None
+
+        # Trim rows at the boundary timestamp (may be incomplete)
+        safe = [r for r in rows if self._parse_row_time(r) < last_time]
+        return safe, self._parse_row_time(safe[-1])
+
+    async def _drain_timestamp(
+        self, timestamp: datetime, upper_bound: datetime
+    ) -> list[dict]:
+        """Fetch ALL rows at a specific timestamp.
+
+        Used when a full batch contains only one timestamp, meaning the
+        normal ``take batch_size`` query cannot advance past it.
+        """
+        t_str = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        ing_col = self.config.ingestion_time_column
+        ing_bin = ing_col if ing_col else "bin(ingestion_time(), 1microsecond)"
+
+        query = (
+            f"{self.config.source_table} "
+            f"| extend ingestion_time = {ing_bin} "
+            f"| where ingestion_time == datetime({t_str})"
+        )
+
+        logger.warning(
+            "Draining all rows at stuck timestamp",
+            extra={"timestamp": timestamp.isoformat()},
+        )
+        result = await self._kql_client.execute_query(query)
+        logger.info(
+            "Drained stuck timestamp",
+            extra={
+                "timestamp": timestamp.isoformat(),
+                "row_count": len(result.rows),
+            },
+        )
+        return result.rows
 
     def _build_query(self, table, p_from, p_to, limit, cp_tid) -> str:
         """Constructs paginated KQL query.
 
-        Always uses composite-key pagination (ingestion_time, pagination_col)
-        to handle tables where many rows share the same ingestion timestamp.
-        When no trace_id column is configured, a synthetic ``_row_hash``
-        column is generated from ``hash_sha256(tostring(pack_all()))`` to
-        provide a deterministic secondary sort key.
+        For tables with a trace_id column, uses composite-key pagination
+        (ingestion_time, trace_id) with KQL strcmp for deterministic
+        ordering.  For tables without trace_id, uses simple timestamp-only
+        pagination — boundary handling is done in _resolve_batch_boundary.
+
+        bin(ingestion_time(), 1microsecond) truncates KQL's 100-nanosecond
+        ticks to microsecond precision so comparisons match the checkpoint
+        saved by Python datetime.
         """
         f_str = p_from.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         t_str = p_to.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        pg_col = self._pagination_col
 
-        # Use configured column name or ingestion_time() function
         ing_col = self.config.ingestion_time_column
-        ing_expr = ing_col if ing_col else "ingestion_time()"
+        ing_bin = ing_col if ing_col else "bin(ingestion_time(), 1microsecond)"
+        extend = f"| extend ingestion_time = {ing_bin}"
 
-        # Both extends MUST come before WHERE so that _row_hash and
-        # the normalised ingestion_time column exist when referenced.
-        # ingestion_time MUST be extended first so that pack_all()
-        # includes it in the _row_hash computation — this keeps hashes
-        # stable across query invocations.
-        #
-        # bin(…, 1microsecond) truncates KQL's 100-nanosecond ticks to
-        # microsecond precision so the WHERE comparison matches the
-        # microsecond-precision checkpoint saved by Python datetime.
-        # Without this, rows at ticks T+1…T+9 satisfy "> T" at tick
-        # resolution but truncate back to T in Python, causing the
-        # checkpoint to never advance.
-        if ing_col:
-            ing_bin = ing_col
-        else:
-            ing_bin = "bin(ingestion_time(), 1microsecond)"
-        extend_parts = [
-            f"| extend ingestion_time = {ing_bin}"
-        ]
-        if not self._trace_id_col:
-            extend_parts.append("| extend _row_hash = hash_sha256(tostring(pack_all()))")
-        extend_clause = " ".join(extend_parts)
-
-        # Composite-key pagination: (ingestion_time, pagination_col)
-        # After the extends, ingestion_time is a column so we reference
-        # it by name rather than via the function.
-        if cp_tid:
+        if self._trace_id_col and cp_tid:
             esc = cp_tid.replace("'", "\\'")
-            where = f"| where ingestion_time > datetime({f_str}) or (ingestion_time == datetime({f_str}) and strcmp(tostring({pg_col}), '{esc}') > 0)"
+            where = (
+                f"| where ingestion_time > datetime({f_str}) "
+                f"or (ingestion_time == datetime({f_str}) "
+                f"and strcmp(tostring({self._trace_id_col}), '{esc}') > 0)"
+            )
         else:
-            # First query or no checkpoint — no secondary key to compare
             where = f"| where ingestion_time > datetime({f_str})"
 
-        order_clause = f"order by ingestion_time asc, {pg_col} asc"
+        upper = f"| where ingestion_time < datetime({t_str})"
 
-        return f"{table} {extend_clause} {where} | where ingestion_time < datetime({t_str}) | {order_clause} | take {limit}"
+        if self._trace_id_col:
+            order = f"order by ingestion_time asc, {self._trace_id_col} asc"
+        else:
+            order = "order by ingestion_time asc"
+
+        return f"{table} {extend} {where} {upper} | {order} | take {limit}"
 
     async def _process_filtered_results(self, rows: list[dict]) -> int:
         """Processes rows and writes to configured sink."""
