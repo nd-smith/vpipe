@@ -164,6 +164,7 @@ class ClaimXUploadWorker:
             config=config,
             domain=domain,
             worker_name=self.WORKER_NAME,
+            topic_key="downloads_results",
         )
 
         # OneLake client (lazy initialized in start())
@@ -218,6 +219,11 @@ class ClaimXUploadWorker:
 
         # Start producer
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.results_topic = self.producer.eventhub_name
 
         # Initialize storage client (use injected client or create OneLake client)
         if self._injected_storage_client is not None:

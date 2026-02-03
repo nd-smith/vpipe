@@ -217,6 +217,11 @@ class XACTEnrichmentWorker:
         )
         await self.producer.start()
 
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.download_topic = self.producer.eventhub_name
+
         plugins_dir = self.processing_config.get("plugins_dir", "config/plugins")
         try:
             import os

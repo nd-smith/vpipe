@@ -140,6 +140,12 @@ class ClaimXEventIngesterWorker:
             topic_key="enrichment_pending",
         )
         await self.producer.start()
+
+        # Sync topic with producer's actual entity name (Event Hub entity may
+        # differ from the Kafka topic name resolved by get_topic()).
+        if hasattr(self.producer, "eventhub_name"):
+            self.enrichment_topic = self.producer.eventhub_name
+
         self.consumer = await create_consumer(
             config=self.consumer_config,
             domain=self.domain,
