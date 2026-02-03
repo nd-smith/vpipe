@@ -49,8 +49,8 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.producer import BaseKafkaProducer
 from pipeline.common.storage.delta import DeltaTableReader
+from pipeline.common.transport import create_producer
 from pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
@@ -115,7 +115,7 @@ class ClaimXEnrichmentWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [self.enrichment_topic]
 
-        self.producer: BaseKafkaProducer | None = None
+        self.producer = None
         self.consumer: AIOKafkaConsumer | None = None
         self.api_client: Any | None = None
         self._injected_api_client = api_client
@@ -269,7 +269,7 @@ class ClaimXEnrichmentWorker:
             api_reachable=api_reachable,
         )
 
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
             worker_name="enrichment_worker",

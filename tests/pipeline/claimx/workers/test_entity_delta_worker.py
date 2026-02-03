@@ -387,20 +387,24 @@ class TestClaimXEntityDeltaWorker:
 
     async def test_start_initializes_producer_and_retry_handler(self, kafka_config):
         """Test start initializes producer and retry handler."""
+        mock_producer = AsyncMock()
+        mock_consumer = AsyncMock()
+
         with patch(
             "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityWriter"
         ) as mock_writer_class, patch(
-            "pipeline.claimx.workers.entity_delta_worker.BaseKafkaProducer"
-        ) as mock_producer_class, patch(
+            "pipeline.claimx.workers.entity_delta_worker.create_producer",
+            return_value=mock_producer,
+        ), patch(
+            "pipeline.claimx.workers.entity_delta_worker.create_consumer",
+            new_callable=AsyncMock,
+            return_value=mock_consumer,
+        ), patch(
             "pipeline.claimx.workers.entity_delta_worker.DeltaRetryHandler"
         ) as mock_retry_class, patch.object(
             ClaimXEntityDeltaWorker, "_reset_batch_timer"
-        ), patch(
-            "pipeline.common.consumer.BaseKafkaConsumer.start", new_callable=AsyncMock
         ):
             mock_writer_class.return_value = MagicMock()
-            mock_producer = AsyncMock()
-            mock_producer_class.return_value = mock_producer
             mock_retry_class.return_value = MagicMock()
 
             worker = ClaimXEntityDeltaWorker(kafka_config)
@@ -417,9 +421,7 @@ class TestClaimXEntityDeltaWorker:
         """Test stop flushes remaining batch."""
         with patch(
             "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityWriter"
-        ) as mock_writer_class, patch(
-            "pipeline.common.consumer.BaseKafkaConsumer.stop", new_callable=AsyncMock
-        ):
+        ) as mock_writer_class:
             mock_writer = MagicMock()
             mock_writer.write_all = AsyncMock(return_value={"projects": 1})
             mock_writer_class.return_value = mock_writer

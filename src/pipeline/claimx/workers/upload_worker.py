@@ -39,8 +39,8 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.producer import BaseKafkaProducer
 from pipeline.common.storage import OneLakeClient
+from pipeline.common.transport import create_producer
 from pipeline.common.types import PipelineMessage, from_consumer_record
 
 logger = get_logger(__name__)
@@ -160,7 +160,7 @@ class ClaimXUploadWorker:
         self._last_cycle_failed = 0
 
         # Create producer for result messages
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=config,
             domain=domain,
             worker_name=self.WORKER_NAME,

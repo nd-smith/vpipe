@@ -32,10 +32,9 @@ from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.writers import ClaimXEventsDeltaWriter
-from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_consumer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.types import PipelineMessage
 
@@ -78,7 +77,7 @@ class ClaimXDeltaEventsWorker:
     def __init__(
         self,
         config: KafkaConfig,
-        producer: BaseKafkaProducer,
+        producer: Any,
         events_table_path: str,
         domain: str = "claimx",
         instance_id: str | None = None,
@@ -96,7 +95,7 @@ class ClaimXDeltaEventsWorker:
         self.domain = domain
         self.instance_id = instance_id
         self.events_table_path = events_table_path
-        self.consumer: BaseKafkaConsumer | None = None
+        self.consumer = None
         self.producer = producer
 
         # Create worker_id with instance suffix (ordinal) if provided
@@ -216,7 +215,7 @@ class ClaimXDeltaEventsWorker:
 
         # Create and start consumer
         # Disable per-message commits - we commit after batch writes
-        self.consumer = BaseKafkaConsumer(
+        self.consumer = await create_consumer(
             config=self.config,
             domain=self.domain,
             worker_name="delta_events_writer",
@@ -224,6 +223,7 @@ class ClaimXDeltaEventsWorker:
             message_handler=self._handle_event_message,
             enable_message_commit=False,
             instance_id=self.instance_id,
+            topic_key="events",
         )
 
         # Update health check readiness

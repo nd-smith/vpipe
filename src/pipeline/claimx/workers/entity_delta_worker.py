@@ -15,10 +15,9 @@ from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
-from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.types import PipelineMessage
 
@@ -58,16 +57,13 @@ class ClaimXEntityDeltaWorker:
         """
         Initialize ClaimX entity delta worker.
         """
-        entity_rows_topic = entity_rows_topic or config.get_topic(domain, "enriched")
-
-        # Composition: create consumer instance instead of inheriting
-        self._consumer = BaseKafkaConsumer(
-            config=config,
-            domain=domain,
-            worker_name="entity_delta_writer",
-            topics=[entity_rows_topic],
-            message_handler=self._handle_message,
+        self._entity_rows_topic = entity_rows_topic or config.get_topic(
+            domain, "enriched"
         )
+        self._consumer_config = config
+
+        # Consumer created in start() (create_consumer is async)
+        self._consumer = None
 
         # Store domain for use in worker-specific logic
         self.domain = domain
@@ -78,7 +74,7 @@ class ClaimXEntityDeltaWorker:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:
             self.worker_id = self.WORKER_NAME
-        self.producer: BaseKafkaProducer | None = None
+        self.producer = None
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
 
@@ -161,12 +157,21 @@ class ClaimXEntityDeltaWorker:
         await self.health_server.start()
 
         # Start producer for retries
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
             worker_name="entity_delta_writer",
         )
         await self.producer.start()
+
+        # Create consumer via transport factory
+        self._consumer = await create_consumer(
+            config=self._consumer_config,
+            domain=self.domain,
+            worker_name="entity_delta_writer",
+            topics=[self._entity_rows_topic],
+            message_handler=self._handle_message,
+        )
 
         # Initialize retry handler
         self.retry_handler = DeltaRetryHandler(
@@ -208,7 +213,8 @@ class ClaimXEntityDeltaWorker:
         await self._flush_batch()
 
         # Stop the consumer
-        await self._consumer.stop()
+        if self._consumer:
+            await self._consumer.stop()
 
         if self.producer:
             await self.producer.stop()
@@ -218,7 +224,8 @@ class ClaimXEntityDeltaWorker:
 
     async def commit(self) -> None:
         """Commit consumer offsets after successful batch processing."""
-        await self._consumer.commit()
+        if self._consumer:
+            await self._consumer.commit()
 
     async def _handle_message(self, record: PipelineMessage) -> None:
         """
