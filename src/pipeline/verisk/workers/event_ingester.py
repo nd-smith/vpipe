@@ -29,13 +29,12 @@ from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_processing_error,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
@@ -80,8 +79,8 @@ class EventIngesterWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        self.producer: BaseKafkaProducer | None = None
-        self.consumer: BaseKafkaConsumer | None = None
+        self.producer = None
+        self.consumer = None
 
         # Cycle output tracking
         self._records_processed = 0
@@ -128,6 +127,17 @@ class EventIngesterWorker:
         logger.info("Starting EventIngesterWorker")
         self._running = True
 
+        # Clean up resources from a previous failed start attempt (retry safety)
+        if self._stats_logger:
+            await self._stats_logger.stop()
+            self._stats_logger = None
+        if self.consumer:
+            await self.consumer.stop()
+            self.consumer = None
+        if self.producer:
+            await self.producer.stop()
+            self.producer = None
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "event-ingester")
@@ -135,11 +145,12 @@ class EventIngesterWorker:
         # Start health check server first
         await self.health_server.start()
 
-        # Start producer first (uses producer_config for local Kafka)
-        self.producer = BaseKafkaProducer(
+        # Start producer first (uses transport factory for Event Hub support)
+        self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
             worker_name="event_ingester",
+            topic_key="enrichment_pending",
         )
         await self.producer.start()
 
@@ -152,13 +163,14 @@ class EventIngesterWorker:
         )
         self._stats_logger.start()
 
-        # Create and start consumer with message handler (uses consumer_config)
-        self.consumer = BaseKafkaConsumer(
+        # Create and start consumer with message handler (uses transport factory)
+        self.consumer = await create_consumer(
             config=self.consumer_config,
             domain=self.domain,
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
+            topic_key="events",
         )
 
         # Update health check readiness

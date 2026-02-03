@@ -26,10 +26,9 @@ from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
-from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_consumer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.types import PipelineMessage
@@ -92,7 +91,7 @@ class ResultProcessor:
     def __init__(
         self,
         config: KafkaConfig,
-        producer: BaseKafkaProducer,
+        producer,
         inventory_table_path: str,
         failed_table_path: str | None = None,
         batch_size: int | None = None,
@@ -170,16 +169,8 @@ class ResultProcessor:
         # Store topics for logging
         self._results_topic = config.get_topic(self.domain, "downloads_results")
 
-        # Kafka consumer - disable auto-commit for manual control after Delta writes
-        self._consumer = BaseKafkaConsumer(
-            config=config,
-            domain=self.domain,
-            worker_name=self.worker_name,
-            topics=[self._results_topic],
-            message_handler=self._handle_result,
-            enable_message_commit=False,
-            instance_id=self.instance_id,
-        )
+        # Consumer created in start() since create_consumer is async
+        self._consumer = None
 
         # Background flush task
         self._flush_task: asyncio.Task | None = None
@@ -232,6 +223,18 @@ class ResultProcessor:
 
         # Start health check server first
         await self.health_server.start()
+
+        # Create consumer via transport factory (Event Hub support)
+        self._consumer = await create_consumer(
+            config=self.config,
+            domain=self.domain,
+            worker_name=self.worker_name,
+            topics=[self._results_topic],
+            message_handler=self._handle_result,
+            enable_message_commit=False,
+            instance_id=self.instance_id,
+            topic_key="downloads_results",
+        )
 
         # Start background flush task for timeout-based flushing
         self._flush_task = asyncio.create_task(self._periodic_flush())
@@ -292,7 +295,8 @@ class ResultProcessor:
                     await self._flush_failed_batch()
 
             # Stop consumer
-            await self._consumer.stop()
+            if self._consumer:
+                await self._consumer.stop()
 
             # Stop health check server
             await self.health_server.stop()
@@ -542,7 +546,8 @@ class ResultProcessor:
             self._total_records_written += batch_size
 
             # Commit offsets after successful Delta write
-            await self._consumer.commit()
+            if self._consumer:
+                await self._consumer.commit()
 
             # Build progress message for success batches
             if table_name == "xact_attachments":
@@ -630,7 +635,7 @@ class ResultProcessor:
     @property
     def is_running(self) -> bool:
         """Check if result processor is running."""
-        return self._running and self._consumer.is_running
+        return self._running and self._consumer is not None and self._consumer.is_running
 
 
 __all__ = [

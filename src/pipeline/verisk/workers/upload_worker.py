@@ -39,7 +39,7 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_producer
 from pipeline.common.storage import OneLakeClient
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.types import PipelineMessage, from_consumer_record
@@ -157,10 +157,11 @@ class UploadWorker:
         self._shutdown_event: asyncio.Event | None = None
 
         # Create producer for result messages
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=config,
             domain=domain,
             worker_name=self.WORKER_NAME,
+            topic_key="downloads_results",
         )
 
         # OneLake clients by domain (lazy initialized in start())

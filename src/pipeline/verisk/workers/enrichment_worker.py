@@ -38,7 +38,7 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.transport import create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.types import PipelineMessage, from_consumer_record
 from pipeline.plugins.shared.base import (
@@ -121,7 +121,7 @@ class XACTEnrichmentWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [self.enrichment_topic]
 
-        self.producer: BaseKafkaProducer | None = None
+        self.producer = None
         self.consumer: AIOKafkaConsumer | None = None
         self.retry_handler: DownloadRetryHandler | None = None
 
@@ -209,10 +209,11 @@ class XACTEnrichmentWorker:
 
         await self.health_server.start()
 
-        self.producer = BaseKafkaProducer(
+        self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
             worker_name="enrichment_worker",
+            topic_key="downloads_pending",
         )
         await self.producer.start()
 
