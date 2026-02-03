@@ -187,6 +187,18 @@ class KQLEventPoller:
             return None
         return col
 
+    @property
+    def _pagination_col(self) -> str:
+        """Column used for secondary sort in composite-key pagination.
+
+        Returns the configured trace_id column if available, otherwise
+        ``_row_hash`` — a synthetic column generated in the KQL query
+        from ``hash_sha256(tostring(pack_all()))``.  This ensures every
+        table can be paginated correctly even without a natural unique
+        identifier.
+        """
+        return self._trace_id_col or "_row_hash"
+
     def _parse_timestamp(self, ts_str: str) -> datetime:
         """Helper to ensure all parsed timestamps are offset-aware UTC."""
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
@@ -365,25 +377,15 @@ class KQLEventPoller:
         now = datetime.now(UTC)
         start = self._backfill_start_time or (now - timedelta(hours=1))
         stop = self._backfill_stop_time or now
-        trace_id_col = self._trace_id_col
 
         while True:
-            start_str = start.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-            stop_str = stop.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-            # Use strcmp() to handle string/GUID inequality
-            if self._last_trace_id and trace_id_col:
-                esc = self._last_trace_id.replace("'", "\\'")
-                where = f"| where ingestion_time() > datetime({start_str}) or (ingestion_time() == datetime({start_str}) and strcmp(tostring({trace_id_col}), '{esc}') > 0)"
-            else:
-                # WITHOUT trace_id: use strict > to prevent re-fetching checkpoint row
-                where = f"| where ingestion_time() > datetime({start_str})"
-
-            order_clause = "order by ingestion_time asc"
-            if trace_id_col:
-                order_clause += f", {trace_id_col} asc"
-
-            query = f"{self.config.source_table} {where} | where ingestion_time() < datetime({stop_str}) | extend ingestion_time = ingestion_time() | {order_clause} | take {self.config.batch_size}"
+            query = self._build_query(
+                self.config.source_table,
+                start,
+                stop,
+                self.config.batch_size,
+                self._last_trace_id,
+            )
 
             result = await self._kql_client.execute_query(query)
             if not result.rows:
@@ -401,8 +403,7 @@ class KQLEventPoller:
             if l_time.tzinfo is None:
                 l_time = l_time.replace(tzinfo=UTC)
 
-            l_tid = str(last.get(trace_id_col)) if trace_id_col else ""
-            l_time = self._ensure_checkpoint_advances(l_time, l_tid)
+            l_tid = str(last.get(self._pagination_col, ""))
             self._save_checkpoint(l_time, l_tid)
             start = l_time
 
@@ -438,17 +439,22 @@ class KQLEventPoller:
         if l_time.tzinfo is None:
             l_time = l_time.replace(tzinfo=UTC)
 
-        l_tid = str(last.get(self._trace_id_col)) if self._trace_id_col else ""
-        l_time = self._ensure_checkpoint_advances(l_time, l_tid)
+        l_tid = str(last.get(self._pagination_col, ""))
         self._save_checkpoint(l_time, l_tid)
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
-        """Ensures UTC-aware comparisons to avoid TypeError."""
+        """Filter out rows already covered by the current checkpoint.
+
+        Uses the composite key (ingestion_time, pagination_col) to decide
+        which rows are new.  The pagination_col is either the configured
+        trace_id column or the synthetic ``_row_hash``.
+        """
         if not self._last_ingestion_time:
             return rows
 
         cp_time = self._last_ingestion_time
         cp_tid = self._last_trace_id
+        pg_col = self._pagination_col
         filtered = []
 
         for r in rows:
@@ -461,79 +467,42 @@ class KQLEventPoller:
             if r_time.tzinfo is None:
                 r_time = r_time.replace(tzinfo=UTC)
 
-            r_tid = str(r.get(self._trace_id_col, "")) if self._trace_id_col else ""
-
             if r_time < cp_time:
                 continue
-            if self._trace_id_col and r_time == cp_time and cp_tid and r_tid <= cp_tid:
-                continue
+            if r_time == cp_time and cp_tid:
+                r_tid = str(r.get(pg_col, ""))
+                if r_tid <= cp_tid:
+                    continue
 
             filtered.append(r)
         return filtered
 
-    def _ensure_checkpoint_advances(
-        self, l_time: datetime, l_tid: str
-    ) -> datetime:
-        """Ensure checkpoint ingestion_time advances between cycles.
-
-        KQL ingestion_time() has 100-nanosecond (tick) precision, but Python
-        datetime only has microsecond precision.  When many Eventhouse rows
-        share the same microsecond (common during bulk ingestion), the
-        truncated timestamp saved to the checkpoint never advances past
-        that microsecond, causing the poller to re-fetch and re-publish
-        the same rows every cycle.
-
-        When no trace_id column is configured for secondary pagination,
-        this method detects the stuck condition and bumps the timestamp
-        by 1 microsecond so the next query's ``>`` filter skips past
-        the cluster.  At most 9 rows (sub-microsecond ticks within a
-        single microsecond) may be skipped — acceptable given the
-        alternative is infinite re-publishing.
-
-        When a trace_id column IS configured, composite-key pagination
-        (timestamp + trace_id) handles the boundary correctly, so no
-        bump is needed.
-        """
-        if (
-            not self._trace_id_col
-            and self._last_ingestion_time
-            and l_time <= self._last_ingestion_time
-        ):
-            bumped = self._last_ingestion_time + timedelta(microseconds=1)
-            logger.warning(
-                "Checkpoint ingestion_time did not advance "
-                "(sub-microsecond precision mismatch between KQL and Python), "
-                "bumping by 1us to ensure progress",
-                extra={
-                    "previous": self._last_ingestion_time.isoformat(),
-                    "bumped_to": bumped.isoformat(),
-                    "trace_id_col": self._trace_id_col,
-                    "last_trace_id": l_tid,
-                },
-            )
-            return bumped
-        return l_time
-
     def _build_query(self, table, p_from, p_to, limit, cp_tid) -> str:
-        """Constructs paginated KQL query."""
+        """Constructs paginated KQL query.
+
+        Always uses composite-key pagination (ingestion_time, pagination_col)
+        to handle tables where many rows share the same ingestion timestamp.
+        When no trace_id column is configured, a synthetic ``_row_hash``
+        column is generated from ``hash_sha256(tostring(pack_all()))`` to
+        provide a deterministic secondary sort key.
+        """
         f_str = p_from.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         t_str = p_to.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        trace_id_col = self._trace_id_col
+        pg_col = self._pagination_col
 
         # Use configured column name or ingestion_time() function
         ing_col = self.config.ingestion_time_column
         ing_expr = ing_col if ing_col else "ingestion_time()"
 
-        if cp_tid and trace_id_col:
+        # Composite-key pagination: (ingestion_time, pagination_col)
+        if cp_tid:
             esc = cp_tid.replace("'", "\\'")
-            where = f"| where {ing_expr} > datetime({f_str}) or ({ing_expr} == datetime({f_str}) and strcmp(tostring({trace_id_col}), '{esc}') > 0)"
+            where = f"| where {ing_expr} > datetime({f_str}) or ({ing_expr} == datetime({f_str}) and strcmp(tostring({pg_col}), '{esc}') > 0)"
         else:
-            # WITHOUT trace_id: use strict > to prevent re-fetching checkpoint row
+            # First query or no checkpoint — no secondary key to compare
             where = f"| where {ing_expr} > datetime({f_str})"
 
-        order_clause = "order by ingestion_time asc"
-        if trace_id_col:
-            order_clause += f", {trace_id_col} asc"
+        order_clause = f"order by ingestion_time asc, {pg_col} asc"
 
         # Extend to normalize column name for downstream processing
         extend_clause = (
@@ -541,6 +510,11 @@ class KQLEventPoller:
             if ing_col
             else "| extend ingestion_time = ingestion_time()"
         )
+
+        # When no trace_id column exists, generate a deterministic hash
+        # from all row columns so we have a secondary pagination key
+        if not self._trace_id_col:
+            extend_clause += " | extend _row_hash = hash_sha256(tostring(pack_all()))"
 
         return f"{table} {where} | where {ing_expr} < datetime({t_str}) {extend_clause} | {order_clause} | take {limit}"
 
