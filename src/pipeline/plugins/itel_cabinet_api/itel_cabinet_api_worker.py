@@ -31,12 +31,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from aiokafka import AIOKafkaConsumer
-from aiokafka.errors import KafkaError
 from dotenv import load_dotenv
 
+from config.config import KafkaConfig
 from core.logging import get_logger, setup_logging
-from pipeline.common.types import from_consumer_record
+from pipeline.common.transport import create_consumer
+from pipeline.common.types import PipelineMessage
 
 # Project root directory (where .env file is located)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -64,12 +64,17 @@ class ItelCabinetApiWorker:
     """
     Worker that sends completed task data to iTel Cabinet API.
 
+    Uses transport layer abstraction for Kafka/EventHub compatibility.
+
     Responsibilities:
-    1. Consume from itel.cabinet.completed topic
+    1. Consume from itel.cabinet.completed topic via transport layer
     2. Transform submission/attachments into iTel API format
     3. Send to iTel API (or write to file in test mode)
 
-    Simple, explicit flow - easy to trace and debug.
+    Transport Layer Contract:
+    - Consumes via create_consumer() with message handler
+    - Single-message processing pattern
+    - Commit handled automatically by transport layer
     """
 
     def __init__(
@@ -93,7 +98,7 @@ class ItelCabinetApiWorker:
         self.connections = connection_manager
         self.simulation_config = simulation_config
 
-        self.consumer: AIOKafkaConsumer = None
+        self.consumer = None
         self.running = False
         self._shutdown_event = asyncio.Event()
 
@@ -123,8 +128,46 @@ class ItelCabinetApiWorker:
             },
         )
 
+    async def _handle_message(self, record: PipelineMessage) -> None:
+        """
+        Process a single message from the transport layer.
+
+        Args:
+            record: PipelineMessage from consumer
+        """
+        try:
+            payload = record.value
+
+            # Transform to iTel API format
+            api_payload = self._transform_to_api_format(payload)
+
+            # Send to API or write to file
+            if self.simulation_config:
+                await self._write_simulation_payload(api_payload, payload)
+            elif self.api_config.get("test_mode", False):
+                await self._write_test_payload(api_payload, payload)
+            else:
+                await self._send_to_api(api_payload)
+
+            logger.info(
+                "Message processed successfully",
+                extra={
+                    "assignment_id": payload.get("assignment_id"),
+                    "simulation_mode": bool(self.simulation_config),
+                    "test_mode": self.api_config.get("test_mode", False),
+                },
+            )
+
+        except Exception as e:
+            logger.exception(
+                f"Failed to process message: {e}",
+                extra={"offset": getattr(record, "offset", "unknown")},
+            )
+            # Re-raise to let transport layer handle error
+            raise
+
     async def start(self):
-        """Start the worker (connect to Kafka)."""
+        """Start the worker using transport layer."""
         logger.info("Starting iTel Cabinet API Worker")
 
         # Initialize telemetry
@@ -137,24 +180,29 @@ class ItelCabinetApiWorker:
             environment=os.getenv("ENVIRONMENT", "development"),
         )
 
-        self.consumer = AIOKafkaConsumer(
-            self.kafka_config["input_topic"],
-            bootstrap_servers=self.kafka_config["bootstrap_servers"],
-            group_id=self.kafka_config["consumer_group"],
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-            enable_auto_commit=False,
-            # Consumer group membership timeout settings
-            session_timeout_ms=self.kafka_config.get("session_timeout_ms", 45000),
-            max_poll_interval_ms=self.kafka_config.get("max_poll_interval_ms", 600000),
-            heartbeat_interval_ms=self.kafka_config.get("heartbeat_interval_ms", 15000),
+        # Create minimal KafkaConfig for transport layer
+        config = KafkaConfig(
+            bootstrap_servers=self.kafka_config["bootstrap_servers"]
+        )
+
+        # Create consumer via transport layer
+        self.consumer = await create_consumer(
+            config=config,
+            domain="plugins",
+            worker_name="itel_cabinet_api_worker",
+            topics=[self.kafka_config["input_topic"]],
+            message_handler=self._handle_message,
+            enable_message_commit=True,
         )
 
         await self.consumer.start()
+
         logger.info(
-            "Consumer started",
+            "Consumer started via transport layer",
             extra={
                 "topic": self.kafka_config["input_topic"],
                 "group": self.kafka_config["consumer_group"],
+                "transport_layer": "enabled",
             },
         )
 
@@ -162,59 +210,20 @@ class ItelCabinetApiWorker:
 
     async def run(self):
         """
-        Main processing loop.
+        Main run loop - transport layer handles message consumption.
 
-        Clear flow:
-        1. Consume message
-        2. Transform to iTel API format
-        3. Send to API (or write to file)
-        4. Commit offset
+        The transport layer's consumer processes messages via _handle_message callback.
+        This method just waits for shutdown signal.
         """
-        logger.info("Worker running - waiting for messages")
+        logger.info("Worker running - transport layer consuming messages")
 
         try:
-            async for record in self.consumer:
-                if self._shutdown_event.is_set():
-                    logger.info("Shutdown signal received")
-                    break
+            # Wait for shutdown signal
+            await self._shutdown_event.wait()
+            logger.info("Shutdown signal received")
 
-                try:
-                    # Convert ConsumerRecord to PipelineMessage
-                    message = from_consumer_record(record)
-                    payload = message.value
-
-                    # Transform to iTel API format
-                    api_payload = self._transform_to_api_format(payload)
-
-                    # Send to API or write to file
-                    if self.simulation_config:
-                        await self._write_simulation_payload(api_payload, payload)
-                    elif self.api_config.get("test_mode", False):
-                        await self._write_test_payload(api_payload, payload)
-                    else:
-                        await self._send_to_api(api_payload)
-
-                    # Commit offset
-                    await self.consumer.commit()
-
-                    logger.info(
-                        "Message processed successfully",
-                        extra={
-                            "assignment_id": payload.get("assignment_id"),
-                            "simulation_mode": bool(self.simulation_config),
-                            "test_mode": self.api_config.get("test_mode", False),
-                        },
-                    )
-
-                except Exception as e:
-                    logger.exception(
-                        f"Failed to process message: {e}",
-                        extra={"offset": record.offset},
-                    )
-                    # Don't commit - will retry
-
-        except KafkaError as e:
-            logger.exception("Kafka error: %s", e)
+        except Exception as e:
+            logger.exception("Worker run loop error: %s", e)
             raise
 
     def _transform_to_api_format(self, payload: dict) -> dict:

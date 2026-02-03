@@ -15,11 +15,10 @@ import signal
 from dataclasses import dataclass
 from typing import Any
 
-from aiokafka import AIOKafkaConsumer
-from aiokafka.errors import KafkaError
-
+from config.config import KafkaConfig
 from pipeline.common.producer import BaseKafkaProducer
-from pipeline.common.types import PipelineMessage, from_consumer_record
+from pipeline.common.transport import create_consumer
+from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.connections import (
     ConnectionConfig,
     ConnectionManager,
@@ -69,12 +68,19 @@ class WorkerConfig:
 class PluginActionWorker:
     """Generic worker for processing plugin-triggered messages.
 
+    Uses transport layer abstraction for Kafka/EventHub compatibility.
+
     This worker provides a complete pipeline for:
-    1. Consuming messages from a Kafka topic
+    1. Consuming messages via transport layer
     2. Enriching data through a configurable pipeline (transform, lookup, validate, batch)
     3. Sending enriched data to external APIs
     4. Publishing results to success/error topics
     5. Handling graceful shutdown with batch flushing
+
+    Transport Layer Contract:
+    - Consumes via create_consumer() with message handler
+    - Single-message processing pattern
+    - Commit handled automatically by transport layer
 
     Example usage:
         config = WorkerConfig(
@@ -120,7 +126,7 @@ class PluginActionWorker:
         self.producer = producer
 
         # State
-        self.consumer: AIOKafkaConsumer | None = None
+        self.consumer = None
         self.enrichment_pipeline: EnrichmentPipeline | None = None
         self.running = False
         self.shutdown_event = asyncio.Event()
@@ -174,99 +180,12 @@ class PluginActionWorker:
 
         logger.info("Built enrichment pipeline with %s handlers", len(handlers))
 
-    async def _create_consumer(self) -> None:
-        """Create and configure Kafka consumer."""
-        self.consumer = AIOKafkaConsumer(
-            self.config.input_topic,
-            bootstrap_servers=self.kafka_config["bootstrap_servers"],
-            group_id=self.config.consumer_group,
-            enable_auto_commit=self.config.enable_auto_commit,
-            auto_offset_reset="earliest",
-            max_poll_records=self.config.batch_size,
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-            # Consumer group membership timeout settings
-            session_timeout_ms=self.kafka_config.get("session_timeout_ms", 45000),
-            max_poll_interval_ms=self.kafka_config.get("max_poll_interval_ms", 600000),
-            heartbeat_interval_ms=self.kafka_config.get("heartbeat_interval_ms", 15000),
-        )
-
-        try:
-            await self.consumer.start()
-        except Exception as e:
-            # Clean up consumer on startup failure to prevent resource leak
-            if self.consumer:
-                try:
-                    await self.consumer.stop()
-                except Exception:
-                    pass  # Ignore errors during cleanup
-                self.consumer = None
-            raise RuntimeError(
-                f"Failed to start Kafka consumer for topic '{self.config.input_topic}': {e}. "
-                f"Ensure Kafka is running and the topic exists."
-            ) from e
-
-        logger.info(
-            f"Consumer started for topic '{self.config.input_topic}' "
-            f"(group: {self.config.consumer_group})"
-        )
-
-    def _setup_signal_handlers(self) -> None:
-        """Setup signal handlers for graceful shutdown."""
-
-        def signal_handler(sig, frame):
-            logger.info("Received signal %s, initiating shutdown", sig)
-            self.shutdown_event.set()
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-
-    async def run(self) -> None:
-        """Main processing loop."""
-        self.running = True
-
-        try:
-            while self.running and not self.shutdown_event.is_set():
-                await self._process_batch()
-
-        except Exception as e:
-            logger.exception("Worker crashed: %s", e)
-            raise
-        finally:
-            await self.stop()
-
-    async def _process_batch(self) -> None:
-        """Fetch and process a batch of messages."""
-        try:
-            # Fetch batch of messages
-            data = await self.consumer.getmany(
-                timeout_ms=1000, max_records=self.config.batch_size
-            )
-
-            if not data:
-                # No messages, check for batch timeout flush
-                await self._flush_batching_handlers()
-                return
-
-            # Process messages
-            for _topic_partition, messages in data.items():
-                for message in messages:
-                    # Convert ConsumerRecord to PipelineMessage
-                    pipeline_message = from_consumer_record(message)
-                    await self._process_message(pipeline_message)
-
-            # Commit offsets if not auto-committing
-            if not self.config.enable_auto_commit:
-                await self.consumer.commit()
-
-        except KafkaError as e:
-            logger.error("Kafka error in process batch: %s", e)
-            await asyncio.sleep(1)  # Backoff on error
-
-    async def _process_message(self, message: PipelineMessage) -> None:
-        """Process a single message.
+    async def _handle_message(self, message: PipelineMessage) -> None:
+        """
+        Process a single message from the transport layer.
 
         Args:
-            message: PipelineMessage from Kafka
+            message: PipelineMessage from consumer
         """
         self.messages_processed += 1
 
@@ -290,7 +209,7 @@ class PluginActionWorker:
             # Handle enrichment result
             if not result.success:
                 logger.error(
-                    f"Enrichment failed for message offset {message.offset}: {result.error}"
+                    f"Enrichment failed for message: {result.error}"
                 )
                 await self._handle_error(message_data, result.error)
                 self.messages_failed += 1
@@ -306,10 +225,83 @@ class PluginActionWorker:
 
         except Exception as e:
             logger.exception(
-                f"Unexpected error processing message offset {message.offset}: {e}"
+                f"Unexpected error processing message: {e}"
             )
             await self._handle_error(message.value, str(e))
             self.messages_failed += 1
+            # Re-raise to let transport layer handle error
+            raise
+
+    async def _create_consumer(self) -> None:
+        """Create and configure consumer via transport layer."""
+        # Create minimal KafkaConfig for transport layer
+        config = KafkaConfig(
+            bootstrap_servers=self.kafka_config["bootstrap_servers"]
+        )
+
+        try:
+            # Create consumer via transport layer
+            self.consumer = await create_consumer(
+                config=config,
+                domain="plugins",
+                worker_name=self.config.name,
+                topics=[self.config.input_topic],
+                message_handler=self._handle_message,
+                enable_message_commit=not self.config.enable_auto_commit,
+            )
+
+            await self.consumer.start()
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to start consumer for topic '{self.config.input_topic}': {e}. "
+                f"Ensure Kafka/EventHub is configured and the topic exists."
+            ) from e
+
+        logger.info(
+            f"Consumer started via transport layer for topic '{self.config.input_topic}' "
+            f"(group: {self.config.consumer_group})"
+        )
+
+    def _setup_signal_handlers(self) -> None:
+        """Setup signal handlers for graceful shutdown."""
+
+        def signal_handler(sig, frame):
+            logger.info("Received signal %s, initiating shutdown", sig)
+            self.shutdown_event.set()
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+    async def run(self) -> None:
+        """
+        Main run loop - transport layer handles message consumption.
+
+        The transport layer's consumer processes messages via _handle_message callback.
+        This method just waits for shutdown signal and periodically flushes batching handlers.
+        """
+        self.running = True
+        logger.info("Worker running - transport layer consuming messages")
+
+        try:
+            while self.running and not self.shutdown_event.is_set():
+                # Periodically check for batch timeout flushes
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=1.0
+                    )
+                    break  # Shutdown signaled
+                except asyncio.TimeoutError:
+                    # Check if batching handlers need flushing
+                    await self._flush_batching_handlers()
+
+            logger.info("Shutdown signal received")
+
+        except Exception as e:
+            logger.exception("Worker run loop error: %s", e)
+            raise
+        finally:
+            await self.stop()
 
     async def _send_to_api(
         self, enriched_data: dict[str, Any], original_message: dict[str, Any]
