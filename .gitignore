@@ -84,6 +84,9 @@ secrets/
 # Azure
 .azure/
 
+# Checkpoint store data (local JSON checkpoint files)
+data/eventhub-checkpoints/
+
 # Testing
 .pytest_cache/
 .coverage

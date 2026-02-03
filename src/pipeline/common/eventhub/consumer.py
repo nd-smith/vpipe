@@ -27,7 +27,8 @@ from collections.abc import Awaitable, Callable
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
-from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
+
+from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
@@ -158,7 +159,7 @@ class EventHubConsumer:
         message_handler: Callable[[PipelineMessage], Awaitable[None]],
         enable_message_commit: bool = True,
         instance_id: str | None = None,
-        checkpoint_store: BlobCheckpointStore | None = None,
+        checkpoint_store: CheckpointStoreProtocol | None = None,
     ):
         """Initialize Event Hub consumer.
 
@@ -171,7 +172,7 @@ class EventHubConsumer:
             message_handler: Async function to process each PipelineMessage
             enable_message_commit: Whether to commit offsets after processing
             instance_id: Optional instance identifier for parallel consumers
-            checkpoint_store: Optional BlobCheckpointStore for durable offset persistence.
+            checkpoint_store: Optional checkpoint store for durable offset persistence.
                 If None, offsets are stored in-memory only and lost on restart.
         """
         self.connection_string = connection_string

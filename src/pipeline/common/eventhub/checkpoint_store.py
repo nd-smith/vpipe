@@ -1,19 +1,23 @@
 """Azure Event Hub checkpoint store factory.
 
-Provides a singleton BlobCheckpointStore instance for durable offset persistence.
-Checkpoint stores enable Event Hub consumers to persist their progress in Azure
-Blob Storage, allowing for graceful restarts and partition rebalancing across
+Provides a singleton checkpoint store instance for durable offset persistence.
+Checkpoint stores enable Event Hub consumers to persist their progress,
+allowing for graceful restarts and partition rebalancing across
 multiple consumer instances.
 
 Architecture:
 - Singleton pattern ensures ONE checkpoint store instance per process
 - Lazy initialization - store is created only when first requested
-- Graceful degradation - returns None if blob storage is not configured
+- Graceful degradation - returns None if storage is not configured
 - Thread-safe initialization with double-checked locking pattern
+
+Supported backends:
+- "blob": Azure Blob Storage via BlobCheckpointStore (production)
+- "json": Local filesystem JSON files via JsonCheckpointStore (development)
 
 Configuration:
 - Reads from config.yaml: eventhub.checkpoint_store section
-- Requires: blob_storage_connection_string and container_name
+- Backend selected by 'type' field (default: "blob")
 - Falls back to environment variables if config.yaml values are empty
 
 Usage:
@@ -32,8 +36,7 @@ Usage:
 import asyncio
 import logging
 import os
-
-from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
+from typing import Any, Iterable, Protocol
 
 from core.logging import get_logger, log_exception, log_with_context
 
@@ -41,10 +44,51 @@ logger = get_logger(__name__)
 
 
 # =============================================================================
+# Protocol definition
+# =============================================================================
+
+
+class CheckpointStoreProtocol(Protocol):
+    """Protocol matching the Azure Event Hub CheckpointStore duck type.
+
+    Both BlobCheckpointStore and JsonCheckpointStore implement this.
+    The EventHubConsumerClient accepts any object with these four methods.
+    """
+
+    async def list_ownership(
+        self,
+        fully_qualified_namespace: str,
+        eventhub_name: str,
+        consumer_group: str,
+        **kwargs: Any,
+    ) -> Iterable[dict[str, Any]]: ...
+
+    async def claim_ownership(
+        self,
+        ownership_list: Iterable[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Iterable[dict[str, Any]]: ...
+
+    async def update_checkpoint(
+        self,
+        checkpoint: dict[str, Any],
+        **kwargs: Any,
+    ) -> None: ...
+
+    async def list_checkpoints(
+        self,
+        fully_qualified_namespace: str,
+        eventhub_name: str,
+        consumer_group: str,
+        **kwargs: Any,
+    ) -> Iterable[dict[str, Any]]: ...
+
+
+# =============================================================================
 # Singleton state
 # =============================================================================
 
-_checkpoint_store: BlobCheckpointStore | None = None
+_checkpoint_store: CheckpointStoreProtocol | None = None
 _checkpoint_store_lock = asyncio.Lock()
 _initialization_attempted = False
 
@@ -58,13 +102,15 @@ def _load_checkpoint_config() -> dict:
     """Load checkpoint store configuration from config.yaml.
 
     Returns a dict with:
+    - type: Store backend type ("blob" or "json")
     - blob_storage_connection_string: Azure Blob Storage connection string
     - container_name: Container name for storing checkpoints
+    - storage_path: Local filesystem path for JSON store
 
     Priority for each value:
-    1. Environment variables (EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING, etc.)
+    1. Environment variables (EVENTHUB_CHECKPOINT_STORE_TYPE, etc.)
     2. config.yaml: eventhub.checkpoint_store section
-    3. Empty string (graceful degradation)
+    3. Defaults (type="blob", graceful degradation)
     """
     from config.config import DEFAULT_CONFIG_FILE, _expand_env_vars, load_yaml
 
@@ -77,23 +123,32 @@ def _load_checkpoint_config() -> dict:
         eventhub_config = data.get("eventhub", {})
         checkpoint_config = eventhub_config.get("checkpoint_store", {})
 
+        config["type"] = checkpoint_config.get("type", "blob")
         config["blob_storage_connection_string"] = checkpoint_config.get(
             "blob_storage_connection_string", ""
         )
         config["container_name"] = checkpoint_config.get(
             "container_name", "eventhub-checkpoints"
         )
+        config["storage_path"] = checkpoint_config.get(
+            "storage_path", "./data/eventhub-checkpoints"
+        )
     else:
         # Fallback defaults if config file doesn't exist
+        config["type"] = os.getenv("EVENTHUB_CHECKPOINT_STORE_TYPE", "blob")
         config["blob_storage_connection_string"] = os.getenv(
             "EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING", ""
         )
         config["container_name"] = os.getenv(
             "EVENTHUB_CHECKPOINT_CONTAINER_NAME", "eventhub-checkpoints"
         )
+        config["storage_path"] = os.getenv(
+            "EVENTHUB_CHECKPOINT_JSON_PATH", "./data/eventhub-checkpoints"
+        )
 
     logger.debug(
         f"Loaded checkpoint store config: "
+        f"type={config['type']}, "
         f"container_name={config['container_name']}, "
         f"connection_string_configured={bool(config['blob_storage_connection_string'])}"
     )
@@ -106,21 +161,25 @@ def _load_checkpoint_config() -> dict:
 # =============================================================================
 
 
-async def get_checkpoint_store() -> BlobCheckpointStore | None:
-    """Get or create the singleton BlobCheckpointStore instance.
+async def get_checkpoint_store() -> CheckpointStoreProtocol | None:
+    """Get or create the singleton checkpoint store instance.
 
-    Returns None if blob_storage_connection_string is not configured,
-    allowing graceful degradation to manual checkpointing.
+    The backend is selected by the 'type' field in config:
+    - "json": Local filesystem JSON files (no external deps)
+    - "blob": Azure Blob Storage via BlobCheckpointStore
+
+    Returns None if type is "blob" and connection string is not configured,
+    allowing graceful degradation to in-memory checkpointing.
 
     This function is thread-safe and uses lazy initialization with
     double-checked locking to ensure only one store is created.
 
     Returns:
-        BlobCheckpointStore instance, or None if not configured
+        CheckpointStoreProtocol instance, or None if not configured
 
     Raises:
-        Exception: If checkpoint store creation fails with a configured
-                   connection string (indicates misconfiguration or Azure issues)
+        ValueError: If checkpoint store type is unknown
+        Exception: If checkpoint store creation fails
     """
     global _checkpoint_store, _initialization_attempted
 
@@ -145,62 +204,88 @@ async def get_checkpoint_store() -> BlobCheckpointStore | None:
 
         # Load configuration
         config = _load_checkpoint_config()
-        connection_string = config["blob_storage_connection_string"]
-        container_name = config["container_name"]
+        store_type = config.get("type", "blob")
 
-        # Graceful degradation if not configured
-        if not connection_string:
-            log_with_context(
-                logger,
-                logging.INFO,
-                "Checkpoint store not configured - blob_storage_connection_string is empty. "
-                "Event Hub consumers will use default checkpointing behavior. "
-                "To enable persistent checkpoints, set EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING "
-                "or configure eventhub.checkpoint_store.blob_storage_connection_string in config.yaml.",
-            )
-            return None
-
-        if not container_name:
-            log_with_context(
-                logger,
-                logging.WARNING,
-                "Checkpoint store container_name is empty. "
-                "Using default container name: 'eventhub-checkpoints'",
-            )
-            container_name = "eventhub-checkpoints"
-
-        # Create the checkpoint store
-        try:
-            log_with_context(
-                logger,
-                logging.INFO,
-                "Initializing BlobCheckpointStore",
-                container_name=container_name,
-            )
-
-            _checkpoint_store = BlobCheckpointStore.from_connection_string(
-                conn_str=connection_string,
-                container_name=container_name,
-            )
-
-            log_with_context(
-                logger,
-                logging.INFO,
-                "BlobCheckpointStore initialized successfully",
-                container_name=container_name,
-            )
-
+        if store_type == "json":
+            _checkpoint_store = _create_json_store(config)
             return _checkpoint_store
-
-        except Exception as e:
-            log_exception(
-                logger,
-                e,
-                "Failed to initialize BlobCheckpointStore",
-                container_name=container_name,
-                connection_string_configured=bool(connection_string),
+        elif store_type == "blob":
+            _checkpoint_store = _create_blob_store(config)
+            return _checkpoint_store
+        else:
+            raise ValueError(
+                f"Unknown checkpoint store type: '{store_type}'. "
+                f"Must be 'blob' or 'json'."
             )
-            raise
+
+
+def _create_json_store(config: dict) -> CheckpointStoreProtocol:
+    """Create a JsonCheckpointStore from config."""
+    from pipeline.common.eventhub.json_checkpoint_store import JsonCheckpointStore
+
+    storage_path = config.get("storage_path", "./data/eventhub-checkpoints")
+    return JsonCheckpointStore(storage_path=storage_path)
+
+
+def _create_blob_store(config: dict) -> CheckpointStoreProtocol | None:
+    """Create a BlobCheckpointStore from config, or None if not configured."""
+    from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
+
+    connection_string = config["blob_storage_connection_string"]
+    container_name = config["container_name"]
+
+    # Graceful degradation if not configured
+    if not connection_string:
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Checkpoint store not configured - blob_storage_connection_string is empty. "
+            "Event Hub consumers will use default checkpointing behavior. "
+            "To enable persistent checkpoints, set EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING "
+            "or configure eventhub.checkpoint_store.blob_storage_connection_string in config.yaml.",
+        )
+        return None
+
+    if not container_name:
+        log_with_context(
+            logger,
+            logging.WARNING,
+            "Checkpoint store container_name is empty. "
+            "Using default container name: 'eventhub-checkpoints'",
+        )
+        container_name = "eventhub-checkpoints"
+
+    try:
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Initializing BlobCheckpointStore",
+            container_name=container_name,
+        )
+
+        store = BlobCheckpointStore.from_connection_string(
+            conn_str=connection_string,
+            container_name=container_name,
+        )
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "BlobCheckpointStore initialized successfully",
+            container_name=container_name,
+        )
+
+        return store
+
+    except Exception as e:
+        log_exception(
+            logger,
+            e,
+            "Failed to initialize BlobCheckpointStore",
+            container_name=container_name,
+            connection_string_configured=bool(connection_string),
+        )
+        raise
 
 
 async def close_checkpoint_store() -> None:
@@ -226,25 +311,24 @@ async def close_checkpoint_store() -> None:
             log_with_context(
                 logger,
                 logging.INFO,
-                "Closing BlobCheckpointStore",
+                "Closing checkpoint store",
+                store_type=type(_checkpoint_store).__name__,
             )
 
-            # BlobCheckpointStore uses async context manager protocol
-            # Call close() if available (SDK may not expose explicit close)
             if hasattr(_checkpoint_store, "close"):
                 await _checkpoint_store.close()
 
             log_with_context(
                 logger,
                 logging.INFO,
-                "BlobCheckpointStore closed successfully",
+                "Checkpoint store closed successfully",
             )
 
         except Exception as e:
             log_exception(
                 logger,
                 e,
-                "Error closing BlobCheckpointStore",
+                "Error closing checkpoint store",
             )
 
         finally:
@@ -270,6 +354,7 @@ def reset_checkpoint_store() -> None:
 
 
 __all__ = [
+    "CheckpointStoreProtocol",
     "get_checkpoint_store",
     "close_checkpoint_store",
     "reset_checkpoint_store",

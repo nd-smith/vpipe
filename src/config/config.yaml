@@ -232,11 +232,18 @@ eventhub:
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
   # Checkpoint store configuration for durable offset persistence.
-  # Azure Blob Storage is used to store consumer checkpoints, enabling
-  # graceful restarts and partition rebalancing across multiple consumers.
+  # Checkpoints enable graceful restarts and partition rebalancing across consumers.
+  # Supported types:
+  #   "blob" - Azure Blob Storage (production)
+  #   "json" - Local filesystem JSON files (development)
   checkpoint_store:
+    # Store type: "blob" or "json"
+    type: ${EVENTHUB_CHECKPOINT_STORE_TYPE:-blob}
+    # Blob storage settings (used when type=blob)
     blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
     container_name: ${EVENTHUB_CHECKPOINT_CONTAINER_NAME:-eventhub-checkpoints}
+    # JSON file storage path (used when type=json)
+    storage_path: ${EVENTHUB_CHECKPOINT_JSON_PATH:-./data/eventhub-checkpoints}
 
   # ---------------------------------------------------------------------------
   # Verisk Domain (formerly XACT)
