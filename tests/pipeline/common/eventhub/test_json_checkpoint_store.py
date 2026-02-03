@@ -6,6 +6,8 @@ Uses tmp_path fixture for filesystem isolation - no external dependencies.
 
 import asyncio
 import json
+import os
+from unittest.mock import patch
 
 import pytest
 
@@ -371,6 +373,58 @@ class TestJsonCheckpointStoreResilience:
         # Verify all are listed
         listed = list(await store.list_ownership(NS, EH, CG))
         assert len(listed) == 8
+
+    @pytest.mark.asyncio
+    async def test_write_retries_on_permission_error(self, store):
+        """os.replace PermissionError should be retried (Windows file locking)."""
+        original_replace = os.replace
+        call_count = 0
+
+        def flaky_replace(src, dst):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise PermissionError("[WinError 5] Access is denied")
+            return original_replace(src, dst)
+
+        checkpoint = {
+            "fully_qualified_namespace": NS,
+            "eventhub_name": EH,
+            "consumer_group": CG,
+            "partition_id": "0",
+            "offset": 100,
+            "sequence_number": 10,
+        }
+
+        with patch("pipeline.common.eventhub.json_checkpoint_store.os.replace", side_effect=flaky_replace):
+            with patch("pipeline.common.eventhub.json_checkpoint_store.time.sleep"):
+                await store.update_checkpoint(checkpoint)
+
+        # Verify checkpoint was written successfully after retries
+        listed = list(await store.list_checkpoints(NS, EH, CG))
+        assert len(listed) == 1
+        assert listed[0]["offset"] == 100
+        assert call_count == 3  # 2 failures + 1 success
+
+    @pytest.mark.asyncio
+    async def test_write_raises_after_max_retries(self, store):
+        """PermissionError should propagate after exhausting retries."""
+        checkpoint = {
+            "fully_qualified_namespace": NS,
+            "eventhub_name": EH,
+            "consumer_group": CG,
+            "partition_id": "0",
+            "offset": 100,
+            "sequence_number": 10,
+        }
+
+        with patch(
+            "pipeline.common.eventhub.json_checkpoint_store.os.replace",
+            side_effect=PermissionError("[WinError 5] Access is denied"),
+        ):
+            with patch("pipeline.common.eventhub.json_checkpoint_store.time.sleep"):
+                with pytest.raises(PermissionError):
+                    await store.update_checkpoint(checkpoint)
 
     @pytest.mark.asyncio
     async def test_close_is_noop(self, store):
