@@ -526,10 +526,19 @@ class KQLEventPoller:
         # ingestion_time MUST be extended first so that pack_all()
         # includes it in the _row_hash computation — this keeps hashes
         # stable across query invocations.
+        #
+        # bin(…, 1microsecond) truncates KQL's 100-nanosecond ticks to
+        # microsecond precision so the WHERE comparison matches the
+        # microsecond-precision checkpoint saved by Python datetime.
+        # Without this, rows at ticks T+1…T+9 satisfy "> T" at tick
+        # resolution but truncate back to T in Python, causing the
+        # checkpoint to never advance.
+        if ing_col:
+            ing_bin = ing_col
+        else:
+            ing_bin = "bin(ingestion_time(), 1microsecond)"
         extend_parts = [
-            f"| extend ingestion_time = {ing_expr}"
-            if ing_col
-            else "| extend ingestion_time = ingestion_time()"
+            f"| extend ingestion_time = {ing_bin}"
         ]
         if not self._trace_id_col:
             extend_parts.append("| extend _row_hash = hash_sha256(tostring(pack_all()))")
