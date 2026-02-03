@@ -44,6 +44,9 @@ def _get_next_instance_id() -> str:
 NOISY_LOGGERS = [
     "azure.core.pipeline.policies.http_logging_policy",
     "azure.identity",
+    "azure.kusto",
+    "azure.kusto.data",
+    "azure.kusto.data.security",
     "urllib3",
     "aiohttp",
     "aiokafka",
