@@ -168,8 +168,8 @@ class BaseKafkaProducer:
         # Errors during stop are logged but not re-raised to avoid masking original exceptions
         import asyncio
 
-        if not self._started or self._producer is None:
-            logger.debug("Producer not started or already stopped")
+        if self._producer is None:
+            logger.debug("Producer already stopped")
             return
 
         logger.info("Stopping Kafka producer")
@@ -189,7 +189,9 @@ class BaseKafkaProducer:
                 )
                 return
 
-            await self._producer.flush()
+            # Only flush if the producer was fully started (connected successfully)
+            if self._started:
+                await self._producer.flush()
             await self._producer.stop()
             logger.info("Kafka producer stopped successfully")
         except Exception as e:

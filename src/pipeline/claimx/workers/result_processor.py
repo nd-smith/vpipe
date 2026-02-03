@@ -27,12 +27,12 @@ from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
-from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
 )
+from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.common.writers.base import BaseDeltaWriter
 
@@ -107,7 +107,7 @@ class ClaimXResultProcessor:
         self.results_topic = results_topic or config.get_topic(
             self.domain, "downloads_results"
         )
-        self.consumer: BaseKafkaConsumer | None = None
+        self.consumer = None
 
         # Consumer group from hierarchical config
         self.consumer_group = config.get_consumer_group(self.domain, self.worker_name)
@@ -194,7 +194,7 @@ class ClaimXResultProcessor:
 
         # Create and start consumer with message handler
         # Disable auto-commit to allow manual commit after batch write
-        self.consumer = BaseKafkaConsumer(
+        self.consumer = await create_consumer(
             config=self.config,
             domain=self.domain,
             worker_name=self.worker_name,
