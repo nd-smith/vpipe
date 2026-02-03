@@ -146,6 +146,22 @@ class TestBuildQuery:
             f"WHERE strcmp (pos {where_pos}) in the KQL pipeline"
         )
 
+    def test_extend_ingestion_time_before_row_hash(self):
+        """extend ingestion_time MUST appear before extend _row_hash.
+
+        pack_all() includes all columns that exist at that point in the
+        pipeline.  ingestion_time must be extended first so it is included
+        in the hash, keeping _row_hash stable across query invocations.
+        """
+        poller = _make_poller()
+        q = poller._build_query("T", self.t_from, self.t_to, 100, "")
+        it_pos = q.index("extend ingestion_time")
+        rh_pos = q.index("extend _row_hash")
+        assert it_pos < rh_pos, (
+            f"extend ingestion_time (pos {it_pos}) must come before "
+            f"extend _row_hash (pos {rh_pos}) so pack_all() includes it"
+        )
+
     def test_take_limit(self):
         """Query must end with correct take limit."""
         poller = _make_poller()

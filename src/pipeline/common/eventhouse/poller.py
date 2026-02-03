@@ -494,16 +494,18 @@ class KQLEventPoller:
         ing_col = self.config.ingestion_time_column
         ing_expr = ing_col if ing_col else "ingestion_time()"
 
-        # Extend clauses MUST come before WHERE so that _row_hash and
+        # Both extends MUST come before WHERE so that _row_hash and
         # the normalised ingestion_time column exist when referenced.
-        extend_parts = []
-        if not self._trace_id_col:
-            extend_parts.append("| extend _row_hash = hash_sha256(tostring(pack_all()))")
-        extend_parts.append(
+        # ingestion_time MUST be extended first so that pack_all()
+        # includes it in the _row_hash computation — this keeps hashes
+        # stable across query invocations.
+        extend_parts = [
             f"| extend ingestion_time = {ing_expr}"
             if ing_col
             else "| extend ingestion_time = ingestion_time()"
-        )
+        ]
+        if not self._trace_id_col:
+            extend_parts.append("| extend _row_hash = hash_sha256(tostring(pack_all()))")
         extend_clause = " ".join(extend_parts)
 
         # Composite-key pagination: (ingestion_time, pagination_col)
