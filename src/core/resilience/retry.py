@@ -15,8 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
 
-# Import ErrorCategory from core.errors.exceptions
-from core.errors.exceptions import ErrorCategory
+# Import ErrorCategory from core.types to avoid circular dependency
+from core.types import ErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +48,17 @@ class RetryConfig:
         self.base_delay = float(self.base_delay)
         self.max_delay = float(self.max_delay)
         self.exponential_base = float(self.exponential_base)
+        # Keep boolean if already bool, otherwise convert
+        # (bool('false') would be True, so we need this check)
         self.respect_permanent = (
-            bool(self.respect_permanent)
-            if not isinstance(self.respect_permanent, bool)
-            else self.respect_permanent
+            self.respect_permanent
+            if isinstance(self.respect_permanent, bool)
+            else bool(self.respect_permanent)
         )
         self.respect_retry_after = (
-            bool(self.respect_retry_after)
-            if not isinstance(self.respect_retry_after, bool)
-            else self.respect_retry_after
+            self.respect_retry_after
+            if isinstance(self.respect_retry_after, bool)
+            else bool(self.respect_retry_after)
         )
 
     def get_delay(self, attempt: int, error: Exception | None = None) -> float:
@@ -70,7 +72,7 @@ class RetryConfig:
         Returns:
             Delay in seconds
         """
-        # Import here to avoid circular dependency
+        # Local import to avoid exposing internal dependencies
         from core.errors.exceptions import ThrottlingError
 
         # Check for explicit retry_after (e.g., from 429 response)
@@ -100,11 +102,8 @@ class RetryConfig:
         Returns:
             True if should retry
         """
-        # Import here to avoid circular dependency
-        from core.errors.exceptions import (
-            PipelineError,
-            classify_exception,
-        )
+        # Local import to avoid exposing internal dependencies
+        from core.errors.exceptions import PipelineError, classify_exception
 
         # Check attempt count first
         if attempt >= self.max_attempts - 1:
@@ -180,7 +179,7 @@ def with_retry(
         def download_file():
             ...
     """
-    # Import here to avoid circular dependency
+    # Local import to avoid exposing internal dependencies
     from core.errors.exceptions import (
         PipelineError,
         ThrottlingError,

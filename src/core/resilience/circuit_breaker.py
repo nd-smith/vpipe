@@ -471,6 +471,50 @@ class CircuitBreaker:
                 self._record_failure(e)
             raise
 
+    def execute_protected(self, func: Callable[..., T], *args, **kwargs) -> T:
+        """
+        Execute a function with circuit breaker protection.
+
+        This method encapsulates the circuit breaker logic for synchronous functions:
+        - Checks if the circuit allows execution
+        - Records success/failure
+        - Tracks statistics
+
+        Args:
+            func: Function to execute
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            Result from func
+
+        Raises:
+            CircuitOpenError: If circuit is open
+            Any exception raised by func
+
+        Example:
+            def risky_operation():
+                return external_api.call()
+
+            result = breaker.execute_protected(risky_operation)
+        """
+        with self._lock:
+            self._stats.total_calls += 1
+            if not self._can_execute():
+                self._stats.rejected_calls += 1
+                retry_after = self._get_retry_after()
+                raise CircuitOpenError(self.name, retry_after)
+
+        try:
+            result = func(*args, **kwargs)
+            with self._lock:
+                self._record_success()
+            return result
+        except Exception as e:
+            with self._lock:
+                self._record_failure(e)
+            raise
+
     def record_success(self) -> None:
         with self._lock:
             self._stats.total_calls += 1
@@ -543,6 +587,21 @@ def get_circuit_breaker(
         return _breakers[name]
 
 
+def reset_circuit_breakers() -> None:
+    """
+    Reset all circuit breakers by clearing the global registry.
+
+    **For testing only.** This function clears all registered circuit breakers,
+    allowing tests to start with a clean state. Should not be used in production code.
+
+    Example:
+        def setup():
+            reset_circuit_breakers()  # Clean slate for each test
+    """
+    with _registry_lock:
+        _breakers.clear()
+
+
 def circuit_protected(
     name: str,
     config: CircuitBreakerConfig | None = None,
@@ -571,22 +630,7 @@ def circuit_protected(
         breaker = get_circuit_breaker(name, config, metrics_collector, error_classifier)
 
         def wrapper(*args, **kwargs) -> T:
-            with breaker._lock:
-                breaker._stats.total_calls += 1
-                if not breaker._can_execute():
-                    breaker._stats.rejected_calls += 1
-                    retry_after = breaker._get_retry_after()
-                    raise CircuitOpenError(breaker.name, retry_after)
-
-            try:
-                result = func(*args, **kwargs)
-                with breaker._lock:
-                    breaker._record_success()
-                return result
-            except Exception as e:
-                with breaker._lock:
-                    breaker._record_failure(e)
-                raise
+            return breaker.execute_protected(func, *args, **kwargs)
 
         return wrapper
 
@@ -603,6 +647,7 @@ __all__ = [
     "MetricsCollector",
     "circuit_protected",
     "get_circuit_breaker",
+    "reset_circuit_breakers",  # For testing only
     # Standard configs
     "CLAIMX_API_CIRCUIT_CONFIG",
     "EXTERNAL_DOWNLOAD_CIRCUIT_CONFIG",

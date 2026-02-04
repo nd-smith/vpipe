@@ -320,11 +320,26 @@ def get_rate_limiter(
     return _rate_limiters[name]
 
 
+def reset_rate_limiters() -> None:
+    """
+    Reset all rate limiters by clearing the global registry.
+
+    **For testing only.** This function clears all registered rate limiters,
+    allowing tests to start with a clean state. Should not be used in production code.
+
+    Example:
+        def setup():
+            reset_rate_limiters()  # Clean slate for each test
+    """
+    _rate_limiters.clear()
+
+
 __all__ = [
     "RateLimiter",
     "RateLimiterConfig",
     "rate_limited",
     "get_rate_limiter",
+    "reset_rate_limiters",  # For testing only
     "CLAIMX_API_RATE_CONFIG",
     "EXTERNAL_DOWNLOAD_RATE_CONFIG",
 ]
