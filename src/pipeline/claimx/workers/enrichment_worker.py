@@ -99,6 +99,10 @@ class ClaimXEnrichmentWorker:
         self.entity_rows_topic = config.get_topic(domain, "enriched")
         self.enable_delta_writes = enable_delta_writes
 
+        # Only consume from pending topic
+        # Unified retry scheduler handles routing retry messages back to pending
+        self.topics = [self.enrichment_topic]
+
         # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
