@@ -38,7 +38,7 @@ from pipeline.common.transport import create_consumer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.writers import DeltaEventsWriter
-from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,9 @@ class DeltaEventsWorker:
         processing_config = config.get_worker_config(
             domain, "delta_events_writer", "processing"
         )
-        self.batch_size = processing_config.get("batch_size", WorkerDefaults.MAX_POLL_RECORDS)
+        self.batch_size = processing_config.get(
+            "batch_size", WorkerDefaults.MAX_POLL_RECORDS
+        )
         self.max_batches = processing_config.get("max_batches")  # None = unlimited
         self.batch_timeout_seconds = processing_config.get(
             "batch_timeout_seconds", 10.0

@@ -41,7 +41,7 @@ from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
@@ -135,7 +135,9 @@ class UploadWorker:
         processing_config = config.get_worker_config(
             domain, self.WORKER_NAME, "processing"
         )
-        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
+        self.concurrency = processing_config.get(
+            "concurrency", WorkerDefaults.CONCURRENCY
+        )
         self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
 
         # Topic to consume from
@@ -439,15 +441,18 @@ class UploadWorker:
         # For upload worker, we don't typically have circuit breaker errors,
         # but we maintain consistency with the download worker pattern
         circuit_errors = [
-            r for r in results
-            if isinstance(r, UploadResult) and r.error and hasattr(r.error, '__class__')
-            and r.error.__class__.__name__ == 'CircuitOpenError'
+            r
+            for r in results
+            if isinstance(r, UploadResult)
+            and r.error
+            and hasattr(r.error, "__class__")
+            and r.error.__class__.__name__ == "CircuitOpenError"
         ]
 
         if circuit_errors:
             logger.warning(
                 "Circuit breaker errors - not committing",
-                extra={"count": len(circuit_errors)}
+                extra={"count": len(circuit_errors)},
             )
             return False
 

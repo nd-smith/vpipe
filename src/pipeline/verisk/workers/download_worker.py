@@ -53,7 +53,7 @@ from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
-from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,9 @@ class DownloadWorker:
         processing_config = config.get_worker_config(
             domain, self.WORKER_NAME, "processing"
         )
-        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
+        self.concurrency = processing_config.get(
+            "concurrency", WorkerDefaults.CONCURRENCY
+        )
         self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
         self.timeout_seconds = processing_config.get("timeout_seconds", 60)
 
@@ -270,7 +272,9 @@ class DownloadWorker:
             instance_id=self.instance_id,
             topic_key="downloads_pending",
         )
-        self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+        self._consumer_group = self.config.get_consumer_group(
+            self.domain, self.WORKER_NAME
+        )
 
         self._running = True
         self._initialized = True
@@ -403,6 +407,7 @@ class DownloadWorker:
         Process batch of download messages concurrently.
         Returns True to commit batch, False to skip commit (circuit breaker errors).
         """
+
         async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
@@ -434,7 +439,8 @@ class DownloadWorker:
 
         # Check for circuit breaker errors
         circuit_errors = [
-            r for r in processed_results
+            r
+            for r in processed_results
             if r and r.error and isinstance(r.error, CircuitOpenError)
         ]
 
@@ -524,7 +530,10 @@ class DownloadWorker:
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
                 record_message_consumed(
-                    message.topic, self._consumer_group, len(message.value), success=True
+                    message.topic,
+                    self._consumer_group,
+                    len(message.value),
+                    success=True,
                 )
 
                 self._bytes_downloaded += outcome.bytes_downloaded or 0
@@ -539,7 +548,10 @@ class DownloadWorker:
             else:
                 await self._handle_failure(task_message, outcome, processing_time_ms)
                 record_message_consumed(
-                    message.topic, self._consumer_group, len(message.value), success=False
+                    message.topic,
+                    self._consumer_group,
+                    len(message.value),
+                    success=False,
                 )
 
                 await self._cleanup_empty_temp_dir(download_task.destination.parent)
@@ -731,7 +743,11 @@ class DownloadWorker:
                 exc_info=True,
             )
 
-        status = "failed_permanent" if error_category == ErrorCategory.PERMANENT else "failed"
+        status = (
+            "failed_permanent"
+            if error_category == ErrorCategory.PERMANENT
+            else "failed"
+        )
 
         result_message = DownloadResultMessage(
             media_id=task_message.media_id,

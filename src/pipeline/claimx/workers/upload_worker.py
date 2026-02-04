@@ -15,9 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from config.config import KafkaConfig
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
+from pipeline.claimx.workers.worker_defaults import WorkerDefaults
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_message_consumed,
@@ -130,13 +132,8 @@ class ClaimXUploadWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
 
-        # Cycle-specific metrics (reset each cycle)
-        self._last_cycle_processed = 0
-        self._last_cycle_failed = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         # Create producer for result messages
         self.producer = create_producer(
@@ -291,8 +288,13 @@ class ClaimXUploadWorker:
 
         self._running = True
 
-        # Start cycle output background task
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="upload",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
 
         # Update health check readiness (upload worker doesn't use API)
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)
@@ -347,11 +349,8 @@ class ClaimXUploadWorker:
         logger.info("Stopping ClaimX upload worker...")
         self._running = False
 
-        # Cancel cycle output task
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         # Signal shutdown
         if self._shutdown_event:
@@ -450,7 +449,9 @@ class ClaimXUploadWorker:
                     extra={"error": str(upload_result)},
                     exc_info=True,
                 )
-                record_processing_error(self.topics[0], consumer_group, "unexpected_error")
+                record_processing_error(
+                    self.topics[0], consumer_group, "unexpected_error"
+                )
                 exception_count += 1
             elif isinstance(upload_result, UploadResult):
                 if upload_result.success:
@@ -662,67 +663,22 @@ class ClaimXUploadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(media_id)
 
-    async def _periodic_cycle_output(self) -> None:
-        # Initial cycle output
-        logger.info(
-            format_cycle_output(
-                cycle_count=0,
-                succeeded=0,
-                failed=0,
-                skipped=0,
-                deduplicated=0,
-            ),
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "upload",
-                "cycle": 0,
-                "cycle_id": "cycle-0",
-            },
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        msg = format_cycle_output(
+            cycle_count=cycle_count,
+            succeeded=self._records_succeeded,
+            failed=self._records_failed,
+            skipped=self._records_skipped,
+            deduplicated=0,
         )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while True:  # Runs until cancelled
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:  # 30 matches standard interval
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    async with self._in_flight_lock:
-                        in_flight = len(self._in_flight_tasks)
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                            skipped=self._records_skipped,
-                            deduplicated=0,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "upload",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "records_skipped": self._records_skipped,
-                            "in_flight": in_flight,
-                            "cycle_interval_seconds": 30,
-                        },
-                    )
-
-                    # Update last cycle counters
-                    self._last_cycle_processed = self._records_processed
-                    self._last_cycle_failed = self._records_failed
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
+            "in_flight": len(self._in_flight_tasks),
+        }
+        return msg, extra
 
     async def _cleanup_cache_file(self, cache_path: Path) -> None:
         try:

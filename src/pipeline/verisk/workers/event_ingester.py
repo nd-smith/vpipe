@@ -38,7 +38,7 @@ from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
-from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
@@ -356,9 +356,7 @@ class EventIngesterWorker:
         except Exception as e:
             # Record send failure metric
             record_processing_error(
-                topic=self.producer_config.get_topic(
-                    self.domain, "enrichment_pending"
-                ),
+                topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
                 consumer_group=f"{self.domain}-event-ingester",
                 error_type="SEND_FAILED",
             )

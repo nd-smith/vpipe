@@ -51,7 +51,7 @@ from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
 )
-from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
@@ -203,7 +203,9 @@ class XACTEnrichmentWorker:
             import os
 
             if os.path.exists(plugins_dir):
-                loaded_plugins = load_plugins_from_directory(plugins_dir, self.plugin_registry)
+                loaded_plugins = load_plugins_from_directory(
+                    plugins_dir, self.plugin_registry
+                )
                 logger.info(
                     "Loaded plugins from directory",
                     extra={
@@ -427,17 +429,13 @@ class XACTEnrichmentWorker:
                     # Continue processing - don't fail the task due to plugin error
 
             # Create download tasks for each attachment
-            download_tasks = await self._create_download_tasks_from_attachments(
-                task
-            )
+            download_tasks = await self._create_download_tasks_from_attachments(task)
             if download_tasks:
                 await self._produce_download_tasks(download_tasks)
 
             self._records_succeeded += 1
 
-            elapsed_ms = (
-                datetime.now(UTC) - start_time
-            ).total_seconds() * 1000
+            elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
             logger.debug(
                 "Enrichment task complete",
                 extra={

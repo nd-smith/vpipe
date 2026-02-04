@@ -21,12 +21,14 @@ from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.retry import DownloadRetryHandler
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
+from pipeline.claimx.workers.worker_defaults import WorkerDefaults
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_message_consumed,
@@ -115,8 +117,10 @@ class ClaimXDownloadWorker:
         processing_config = config.get_worker_config(
             domain, self.WORKER_NAME, "processing"
         )
-        self.concurrency = processing_config.get("concurrency", 10)
-        self.batch_size = processing_config.get("batch_size", 20)
+        self.concurrency = processing_config.get(
+            "concurrency", WorkerDefaults.CONCURRENCY
+        )
+        self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
 
         # Only consume from pending topic
         # Unified retry scheduler handles routing retry messages back to pending
@@ -134,13 +138,8 @@ class ClaimXDownloadWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
 
-        # Cycle-specific metrics (reset each cycle)
-        self._last_cycle_processed = 0
-        self._last_cycle_failed = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         self._http_session: aiohttp.ClientSession | None = None
 
@@ -245,7 +244,13 @@ class ClaimXDownloadWorker:
 
         self._running = True
 
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="download",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
 
         api_reachable = not self.api_client.is_circuit_open
         self.health_server.set_ready(
@@ -279,7 +284,6 @@ class ClaimXDownloadWorker:
         finally:
             self._running = False
 
-
     async def request_shutdown(self) -> None:
         """Request graceful shutdown after current batch completes."""
         if not self._running:
@@ -300,10 +304,8 @@ class ClaimXDownloadWorker:
         logger.info("Stopping ClaimX download worker, waiting for in-flight downloads")
         self._running = False
 
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -372,13 +374,13 @@ class ClaimXDownloadWorker:
             )
             await asyncio.sleep(0.5)
 
-
     async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
         """Process batch of download messages concurrently.
 
         Returns:
             True to commit batch, False to skip commit (circuit breaker errors)
         """
+
         async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
@@ -410,7 +412,8 @@ class ClaimXDownloadWorker:
 
         # Check for circuit breaker errors (transient errors that need immediate retry)
         circuit_errors = [
-            r for r in processed_results
+            r
+            for r in processed_results
             if r and r.error and isinstance(r.error, CircuitOpenError)
         ]
 
@@ -537,7 +540,6 @@ class ClaimXDownloadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-
     def _convert_to_download_task(
         self, task_message: ClaimXDownloadTask
     ) -> DownloadTask:
@@ -557,62 +559,21 @@ class ClaimXDownloadWorker:
             max_size=None,
         )
 
-    async def _periodic_cycle_output(self) -> None:
-        logger.info(
-            format_cycle_output(
-                cycle_count=0,
-                succeeded=0,
-                failed=0,
-                skipped=0,
-                deduplicated=0,
-            ),
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "download",
-                "cycle": 0,
-                "cycle_id": "cycle-0",
-            },
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        msg = format_cycle_output(
+            cycle_count=cycle_count,
+            succeeded=self._records_succeeded,
+            failed=self._records_failed,
+            skipped=self._records_skipped,
+            deduplicated=0,
         )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while True:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                            skipped=self._records_skipped,
-                            deduplicated=0,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "download",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "records_skipped": self._records_skipped,
-                            "cycle_interval_seconds": 30,
-                        },
-                    )
-
-                    # Update last cycle counters
-                    self._last_cycle_processed = self._records_processed
-                    self._last_cycle_failed = self._records_failed
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
+        }
+        return msg, extra
 
     async def _handle_success(
         self,
