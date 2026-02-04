@@ -49,7 +49,6 @@ from pipeline.common.metrics import (
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.types import PipelineMessage
-from pipeline.simulation.config import SimulationConfig
 from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
@@ -116,7 +115,6 @@ class DownloadWorker:
         domain: str = "verisk",
         temp_dir: Path | None = None,
         instance_id: str | None = None,
-        simulation_config: SimulationConfig | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -172,16 +170,6 @@ class DownloadWorker:
         self.downloader = AttachmentDownloader()
 
         self.retry_handler: RetryHandler | None = None
-
-        # Store simulation config if provided (validated at startup)
-        self._simulation_config = simulation_config
-        if simulation_config is not None and simulation_config.enabled:
-            logger.info(
-                "Simulation mode enabled - localhost URLs will be allowed",
-                extra={
-                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
-                },
-            )
 
         # Health check server
         health_port = processing_config.get("health_port", 8090)
@@ -580,13 +568,6 @@ class DownloadWorker:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.trace_id / destination_filename
 
-        # Determine if localhost URLs should be allowed based on simulation config
-        allow_localhost = (
-            self._simulation_config is not None
-            and self._simulation_config.enabled
-            and self._simulation_config.allow_localhost_urls
-        )
-
         return DownloadTask(
             url=task_message.attachment_url,
             destination=temp_file,
@@ -594,7 +575,7 @@ class DownloadWorker:
             validate_url=True,
             validate_file_type=True,
             check_expiration=True,  # Xact S3 URLs cannot be refreshed
-            allow_localhost=allow_localhost,
+            allow_localhost=False,
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,
