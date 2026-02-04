@@ -1,15 +1,7 @@
-"""
-ClaimX Result Processor - Processes download/upload results and tracks outcomes.
+"""ClaimX result processor worker.
 
-This worker is the final stage of the ClaimX download pipeline:
-1. Consumes ClaimXUploadResultMessage from results topic
-2. Logs outcomes for monitoring and alerting
-3. Emits metrics on success/failure rates
-4. Optionally writes to Delta Lake for audit trail
-
-Consumer group: {prefix}-claimx-result-processor
-Input topic: claimx.downloads.results
-Delta table (optional): claimx_download_results
+Processes upload results, emits metrics, and writes to Delta Lake.
+Final stage of the download pipeline.
 """
 
 import asyncio
@@ -287,7 +279,6 @@ class ClaimXResultProcessor:
             message_data = json.loads(record.value.decode("utf-8"))
             result = ClaimXUploadResultMessage.model_validate(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Failed to parse ClaimXUploadResultMessage",
@@ -298,7 +289,6 @@ class ClaimXResultProcessor:
                 offset=record.offset,
             )
             record_processing_error(record.topic, self.consumer_group, "parse_error")
-            # We raise here to let BaseKafkaConsumer handle DLQ routing if configured
             raise
 
         # Update statistics and logs
@@ -328,7 +318,6 @@ class ClaimXResultProcessor:
 
         elif result.status == "failed_permanent":
             self._records_failed += 1
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Upload failed permanently",
@@ -339,7 +328,6 @@ class ClaimXResultProcessor:
 
         elif result.status == "failed":
             self._records_failed += 1
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Upload failed (transient)",
@@ -434,7 +422,6 @@ class ClaimXResultProcessor:
             )
 
         except Exception as e:
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Failed to flush batch to Delta",
@@ -443,9 +430,6 @@ class ClaimXResultProcessor:
                 batch_id=batch_id,
                 batch_size=batch_size,
             )
-            # In a real scenario, we might want to route to a retry topic or DLQ here
-            # For now, we unfortunately lose the batch from a Delta perspective,
-            # but offsets are NOT committed so they will be reprocessed on restart.
 
     async def _periodic_cycle_output(self) -> None:
         """
@@ -482,13 +466,6 @@ class ClaimXResultProcessor:
                     async with self._batch_lock:
                         pending = len(self._batch)
 
-                    # Calculate cycle-specific deltas
-                    (
-                        self._records_processed - self._last_cycle_processed
-                    )
-                    self._records_failed - self._last_cycle_failed
-
-                    # Use standardized cycle output format
                     logger.info(
                         format_cycle_output(
                             cycle_count=self._cycle_count,

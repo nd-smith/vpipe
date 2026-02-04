@@ -108,8 +108,6 @@ async def run_claimx_enrichment_worker(
     pipeline_config,
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
-    simulation_config=None,
 ):
     """ClaimX enrichment worker with entity extraction.
 
@@ -118,36 +116,18 @@ async def run_claimx_enrichment_worker(
         pipeline_config: Pipeline configuration
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
-        simulation_mode: Enable simulation mode with mock API client
-        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
-    if simulation_mode:
-        from pipeline.simulation import create_simulation_enrichment_worker
+    from pipeline.claimx.workers.enrichment_worker import (
+        ClaimXEnrichmentWorker,
+    )
 
-        if simulation_config is None:
-            raise ValueError("simulation_config is required when simulation_mode=True")
-
-        logger.info("Starting ClaimX enrichment worker in SIMULATION MODE")
-        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
-
-        # Use factory to create worker with mock dependencies
-        worker = create_simulation_enrichment_worker(
-            config=kafka_config,
-            simulation_config=simulation_config,
-            domain="claimx",
-        )
-    else:
-        from pipeline.claimx.workers.enrichment_worker import (
-            ClaimXEnrichmentWorker,
-        )
-
-        worker = ClaimXEnrichmentWorker(
-            config=kafka_config,
-            domain="claimx",
-            enable_delta_writes=pipeline_config.enable_delta_writes,
-            projects_table_path=pipeline_config.claimx_projects_table_path,
-            instance_id=instance_id,
-        )
+    worker = ClaimXEnrichmentWorker(
+        config=kafka_config,
+        domain="claimx",
+        enable_delta_writes=pipeline_config.enable_delta_writes,
+        projects_table_path=pipeline_config.claimx_projects_table_path,
+        instance_id=instance_id,
+    )
 
     await execute_worker_with_shutdown(
         worker,
@@ -161,8 +141,6 @@ async def run_claimx_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
-    simulation_config=None,
 ):
     """ClaimX download worker.
 
@@ -170,23 +148,13 @@ async def run_claimx_download_worker(
         kafka_config: Kafka configuration
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
-        simulation_mode: Enable simulation mode with mock dependencies
-        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
     from pipeline.claimx.workers.download_worker import ClaimXDownloadWorker
-
-    if simulation_mode and simulation_config is None:
-        raise ValueError("simulation_config is required when simulation_mode=True")
-
-    if simulation_mode:
-        logger.info("Starting ClaimX download worker in SIMULATION MODE")
-        logger.info("Simulation config: %s", simulation_config)
 
     worker = ClaimXDownloadWorker(
         config=kafka_config,
         domain="claimx",
         instance_id=instance_id,
-        simulation_config=simulation_config if simulation_mode else None,
     )
     await execute_worker_with_shutdown(
         worker,
@@ -200,8 +168,6 @@ async def run_claimx_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
-    simulation_config=None,
 ):
     """ClaimX upload worker.
 
@@ -209,30 +175,12 @@ async def run_claimx_upload_worker(
         kafka_config: Kafka configuration
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
-        simulation_mode: Enable simulation mode with local storage
-        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
-    if simulation_mode:
-        from pipeline.simulation import create_simulation_upload_worker
+    from pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
 
-        if simulation_config is None:
-            raise ValueError("simulation_config is required when simulation_mode=True")
-
-        logger.info("Starting ClaimX upload worker in SIMULATION MODE")
-        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
-
-        # Use factory to create worker with local storage
-        worker = create_simulation_upload_worker(
-            config=kafka_config,
-            simulation_config=simulation_config,
-            domain="claimx",
-        )
-    else:
-        from pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
-
-        worker = ClaimXUploadWorker(
-            config=kafka_config, domain="claimx", instance_id=instance_id
-        )
+    worker = ClaimXUploadWorker(
+        config=kafka_config, domain="claimx", instance_id=instance_id
+    )
 
     await execute_worker_with_shutdown(
         worker,

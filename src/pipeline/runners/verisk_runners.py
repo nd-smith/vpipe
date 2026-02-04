@@ -199,8 +199,6 @@ async def run_xact_enrichment_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
-    simulation_config=None,
 ):
     """Run XACT enrichment worker with plugin-based enrichment.
 
@@ -208,32 +206,14 @@ async def run_xact_enrichment_worker(
         kafka_config: Kafka configuration
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
-        simulation_mode: Enable simulation mode with mock dependencies
-        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
-    if simulation_mode:
-        from pipeline.simulation import create_simulation_enrichment_worker
+    from pipeline.verisk.workers.enrichment_worker import XACTEnrichmentWorker
 
-        if simulation_config is None:
-            raise ValueError("simulation_config is required when simulation_mode=True")
-
-        logger.info("Starting XACT enrichment worker in SIMULATION MODE")
-        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
-
-        # Use factory to create worker with mock dependencies
-        worker = create_simulation_enrichment_worker(
-            config=kafka_config,
-            simulation_config=simulation_config,
-            domain="verisk",
-        )
-    else:
-        from pipeline.verisk.workers.enrichment_worker import XACTEnrichmentWorker
-
-        worker = XACTEnrichmentWorker(
-            config=kafka_config,
-            domain="verisk",
-            instance_id=instance_id,
-        )
+    worker = XACTEnrichmentWorker(
+        config=kafka_config,
+        domain="verisk",
+        instance_id=instance_id,
+    )
 
     await execute_worker_with_shutdown(
         worker,
@@ -247,17 +227,13 @@ async def run_download_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
 ):
     """Download files from external sources.
-
-    Note: Worker auto-detects simulation mode via environment variable.
 
     Args:
         kafka_config: Kafka configuration
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
-        simulation_mode: Ignored - worker auto-detects simulation mode
     """
     from pipeline.verisk.workers.download_worker import DownloadWorker
 
@@ -276,8 +252,6 @@ async def run_upload_worker(
     kafka_config,
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
-    simulation_config=None,
 ):
     """Upload cached files to storage.
 
@@ -285,30 +259,12 @@ async def run_upload_worker(
         kafka_config: Kafka configuration
         shutdown_event: Shutdown event for graceful shutdown
         instance_id: Optional instance ID for parallel workers
-        simulation_mode: Enable simulation mode with local storage
-        simulation_config: Simulation configuration (required if simulation_mode is True)
     """
-    if simulation_mode:
-        from pipeline.simulation import create_simulation_upload_worker
+    from pipeline.verisk.workers.upload_worker import UploadWorker
 
-        if simulation_config is None:
-            raise ValueError("simulation_config is required when simulation_mode=True")
-
-        logger.info("Starting XACT upload worker in SIMULATION MODE")
-        logger.info("Simulation storage path: %s", simulation_config.local_storage_path)
-
-        # Use factory to create worker with local storage
-        worker = create_simulation_upload_worker(
-            config=kafka_config,
-            simulation_config=simulation_config,
-            domain="verisk",
-        )
-    else:
-        from pipeline.verisk.workers.upload_worker import UploadWorker
-
-        worker = UploadWorker(
-            config=kafka_config, domain="verisk", instance_id=instance_id
-        )
+    worker = UploadWorker(
+        config=kafka_config, domain="verisk", instance_id=instance_id
+    )
 
     await execute_worker_with_shutdown(
         worker,

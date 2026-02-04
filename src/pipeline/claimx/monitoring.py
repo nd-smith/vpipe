@@ -1,24 +1,6 @@
-"""
-Health check endpoints for ClaimX workers.
+"""Health check endpoints for ClaimX workers.
 
-Provides Kubernetes-compatible health check endpoints:
-- /health/live - Liveness probe (is the worker running?)
-- /health/ready - Readiness probe (is the worker ready to process work?)
-
-Usage:
-    from pipeline.claimx.monitoring import HealthCheckServer
-
-    # In worker __init__
-    self.health_server = HealthCheckServer(port=8080)
-
-    # In worker start()
-    await self.health_server.start()
-
-    # Update readiness status
-    self.health_server.set_ready(kafka_connected=True, api_reachable=True)
-
-    # In worker stop()
-    await self.health_server.stop()
+Provides /health/live and /health/ready endpoints for Kubernetes probes.
 """
 
 import logging
@@ -30,33 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class HealthCheckServer:
-    """
-    HTTP server for Kubernetes health check endpoints.
+    """HTTP server for Kubernetes health check endpoints.
 
-    Provides two endpoints compatible with Kubernetes probes:
-    - /health/live: Returns 200 if worker is running
-    - /health/ready: Returns 200 if worker is ready to process work
-
-    Liveness Check:
-        Always returns 200 OK if the server is running.
-        Kubernetes uses this to detect if the pod needs to be restarted.
-
-    Readiness Check:
-        Returns 200 OK only if:
-        - Kafka connection is established
-        - External dependencies are reachable (API, etc.)
-        - No critical errors prevent processing
-
-        Returns 503 Service Unavailable otherwise.
-        Kubernetes uses this to control traffic routing.
-
-    Example:
-        >>> health_server = HealthCheckServer(port=8080)
-        >>> await health_server.start()
-        >>> health_server.set_ready(kafka_connected=True, api_reachable=True)
-        >>> # Later...
-        >>> health_server.set_ready(kafka_connected=False)
-        >>> await health_server.stop()
+    Provides /health/live and /health/ready endpoints for container orchestration.
     """
 
     def __init__(

@@ -238,9 +238,6 @@ class ClaimXApiClient(LoggedClass):
                     timeout=aiohttp.ClientTimeout(total=self.timeout_seconds),
                 ) as response:
                     duration = asyncio.get_event_loop().time() - start_time
-                    # Metrics removed in refactor - domain-specific API metrics simplified
-
-                    # Metrics removed in refactor
 
                     if response.status != 200:
                         try:

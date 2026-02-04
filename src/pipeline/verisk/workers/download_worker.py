@@ -29,10 +29,8 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
-from aiokafka import AIOKafkaConsumer
 
 from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
@@ -48,15 +46,13 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.transport import create_producer
+from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
-from pipeline.common.types import PipelineMessage, from_consumer_record
-from pipeline.simulation.config import SimulationConfig
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
-from pipeline.verisk.workers.consumer_factory import create_consumer
 from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
@@ -119,7 +115,6 @@ class DownloadWorker:
         domain: str = "verisk",
         temp_dir: Path | None = None,
         instance_id: str | None = None,
-        simulation_config: SimulationConfig | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -141,7 +136,7 @@ class DownloadWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [config.get_topic(domain, "downloads_pending")]
 
-        self._consumer: AIOKafkaConsumer | None = None
+        self._consumer = None
         self._consumer_group: str | None = None
         self._running = False
         self._initialized = False
@@ -175,16 +170,6 @@ class DownloadWorker:
         self.downloader = AttachmentDownloader()
 
         self.retry_handler: RetryHandler | None = None
-
-        # Store simulation config if provided (validated at startup)
-        self._simulation_config = simulation_config
-        if simulation_config is not None and simulation_config.enabled:
-            logger.info(
-                "Simulation mode enabled - localhost URLs will be allowed",
-                extra={
-                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
-                },
-            )
 
         # Health check server
         health_port = processing_config.get("health_port", 8090)
@@ -273,7 +258,18 @@ class DownloadWorker:
         self.retry_handler = RetryHandler(self.config)
         await self.retry_handler.start()
 
-        await self._create_consumer()
+        # Create batch consumer from transport layer
+        self._consumer = await create_batch_consumer(
+            config=self.config,
+            domain=self.domain,
+            worker_name=self.WORKER_NAME,
+            topics=self.topics,
+            batch_handler=self._process_batch,
+            batch_size=self.batch_size,
+            batch_timeout_ms=1000,
+            instance_id=self.instance_id,
+            topic_key="downloads_pending",
+        )
         self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
         self._running = True
@@ -291,19 +287,16 @@ class DownloadWorker:
 
         # Update metrics
         update_connection_status("consumer", connected=True)
-        partition_count = len(self._consumer.assignment()) if self._consumer else 0
-        update_assigned_partitions(self._consumer_group, partition_count)
 
         logger.info(
             "Download worker started successfully",
             extra={
                 "topics": self.topics,
-                "partitions": partition_count,
             },
         )
 
         try:
-            await self._consume_batch_loop()
+            await self._consumer.start()
         except asyncio.CancelledError:
             logger.info("Worker cancelled, shutting down")
             raise
@@ -316,17 +309,6 @@ class DownloadWorker:
             raise
         finally:
             self._running = False
-
-    async def _create_consumer(self) -> None:
-        self._consumer = create_consumer(
-            config=self.config,
-            domain=self.domain,
-            worker_name=self.WORKER_NAME,
-            topics=self.topics,
-            instance_id=self.instance_id,
-            max_poll_records=self.batch_size,
-        )
-        await self._consumer.start()
 
     async def request_shutdown(self) -> None:
         """
@@ -363,7 +345,6 @@ class DownloadWorker:
         await self._wait_for_in_flight(timeout=30.0)
         if self._consumer:
             try:
-                await self._consumer.commit()
                 await self._consumer.stop()
             except Exception as e:
                 logger.error(
@@ -417,92 +398,11 @@ class DownloadWorker:
             )
             await asyncio.sleep(0.5)
 
-    async def _consume_batch_loop(self) -> None:
-        logger.info("Starting batch consumption loop")
-
-        _logged_waiting_for_assignment = False
-        _logged_assignment_received = False
-
-        while self._running and self._consumer:
-            try:
-                # During rebalances, getmany() can block indefinitely
-                # This check prevents hangs during startup with multiple consumers
-                assignment = self._consumer.assignment()
-                if not assignment:
-                    if not _logged_waiting_for_assignment:
-                        logger.info(
-                            "Waiting for partition assignment (consumer group rebalance in progress)",
-                            extra={
-                                "consumer_group": self._consumer_group,
-                                "topics": self.topics,
-                            },
-                        )
-                        _logged_waiting_for_assignment = True
-                    await asyncio.sleep(0.5)
-                    continue
-
-                if not _logged_assignment_received:
-                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    logger.info(
-                        "Partition assignment received, starting message consumption",
-                        extra={
-                            "consumer_group": self._consumer_group,
-                            "partition_count": len(assignment),
-                            "partitions": partition_info,
-                        },
-                    )
-                    _logged_assignment_received = True
-                    update_assigned_partitions(self._consumer_group, len(assignment))
-
-                data = await self._consumer.getmany(
-                    timeout_ms=1000,
-                    max_records=self.batch_size,
-                )
-
-                if not data:
-                    continue
-
-                messages: list[PipelineMessage] = []
-                for _topic_partition, records in data.items():
-                    # Convert ConsumerRecord to PipelineMessage
-                    messages.extend(
-                        [from_consumer_record(record) for record in records]
-                    )
-
-                if not messages:
-                    continue
-
-                logger.info(
-                    "Processing message batch",
-                    extra={
-                        "batch_size": len(messages),
-                        "download_concurrency": self.concurrency,
-                    },
-                )
-
-                results = await self._process_batch(messages)
-
-                should_commit = await self._handle_batch_results(results)
-
-                if should_commit:
-                    await self._consumer.commit()
-                    logger.debug(
-                        "Committed offsets for batch",
-                        extra={"batch_size": len(messages)},
-                    )
-
-            except asyncio.CancelledError:
-                logger.info("Batch consumption loop cancelled")
-                raise
-            except Exception as e:
-                logger.error(
-                    "Error in batch consumption loop",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-                await asyncio.sleep(1)
-
-    async def _process_batch(self, messages: list[PipelineMessage]) -> list[TaskResult]:
+    async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
+        """
+        Process batch of download messages concurrently.
+        Returns True to commit batch, False to skip commit (circuit breaker errors).
+        """
         async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
@@ -532,17 +432,37 @@ class DownloadWorker:
         failed = sum(1 for r in processed_results if r and not r.success)
         errors = sum(1 for r in processed_results if r is None)
 
-        logger.info(
+        # Check for circuit breaker errors
+        circuit_errors = [
+            r for r in processed_results
+            if r and r.error and isinstance(r.error, CircuitOpenError)
+        ]
+
+        # Log stats
+        logger.debug(
             "Batch processing complete",
             extra={
                 "batch_size": len(messages),
                 "records_succeeded": succeeded,
                 "records_failed": failed,
                 "records_errored": errors,
+                "circuit_errors": len(circuit_errors),
             },
         )
 
-        return [r for r in processed_results if r is not None]
+        self._records_succeeded += succeeded
+        self._records_failed += failed
+        self._records_failed += errors
+
+        # Return commit decision
+        if circuit_errors:
+            logger.warning(
+                "Circuit breaker errors in batch - not committing offsets",
+                extra={"circuit_error_count": len(circuit_errors)},
+            )
+            return False
+
+        return True
 
     @set_log_context_from_message
     async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
@@ -607,7 +527,6 @@ class DownloadWorker:
                     message.topic, self._consumer_group, len(message.value), success=True
                 )
 
-                self._records_succeeded += 1
                 self._bytes_downloaded += outcome.bytes_downloaded or 0
 
                 return TaskResult(
@@ -625,7 +544,6 @@ class DownloadWorker:
 
                 await self._cleanup_empty_temp_dir(download_task.destination.parent)
 
-                self._records_failed += 1
                 is_circuit_error = outcome.error_category == ErrorCategory.CIRCUIT_OPEN
                 return TaskResult(
                     message=message,
@@ -644,35 +562,11 @@ class DownloadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-    async def _handle_batch_results(self, results: list[TaskResult]) -> bool:
-        """
-        Returns False if any circuit breaker errors exist (messages will be reprocessed).
-        """
-        circuit_errors = [
-            r for r in results if r.error and isinstance(r.error, CircuitOpenError)
-        ]
-
-        if circuit_errors:
-            logger.warning(
-                "Circuit breaker errors in batch - not committing offsets",
-                extra={"circuit_error_count": len(circuit_errors)},
-            )
-            return False
-
-        return True
-
     def _convert_to_download_task(
         self, task_message: DownloadTaskMessage
     ) -> DownloadTask:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.trace_id / destination_filename
-
-        # Determine if localhost URLs should be allowed based on simulation config
-        allow_localhost = (
-            self._simulation_config is not None
-            and self._simulation_config.enabled
-            and self._simulation_config.allow_localhost_urls
-        )
 
         return DownloadTask(
             url=task_message.attachment_url,
@@ -681,7 +575,7 @@ class DownloadWorker:
             validate_url=True,
             validate_file_type=True,
             check_expiration=True,  # Xact S3 URLs cannot be refreshed
-            allow_localhost=allow_localhost,
+            allow_localhost=False,
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,

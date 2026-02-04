@@ -1,8 +1,6 @@
-"""
-ClaimX Entity Delta Worker - Writes entity rows to Delta Lake tables.
+"""ClaimX entity delta worker.
 
-Consumers EntityRowsMessage from Kafka and uses ClaimXEntityWriter to write
-to appropriate Delta tables (projects, contacts, media, etc.).
+Writes entity rows to Delta Lake tables with batch processing.
 """
 
 import asyncio
@@ -253,7 +251,6 @@ class ClaimXEntityDeltaWorker:
                 self._reset_batch_timer()
 
         except Exception as e:
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Failed to parse EntityRowsMessage",
@@ -263,7 +260,6 @@ class ClaimXEntityDeltaWorker:
                 partition=record.partition,
                 offset=record.offset,
             )
-            # Cannot retry parse errors, strict schema
             self._records_failed += 1
 
     async def _flush_batch(self) -> None:
@@ -466,13 +462,11 @@ class ClaimXEntityDeltaWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time_module.monotonic()
 
-                    # Calculate cycle-specific deltas
                     processed_cycle = (
                         self._records_processed - self._last_cycle_processed
                     )
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
-                    # Use standardized cycle output format
                     cycle_msg = format_cycle_output(
                         cycle_count=self._cycle_count,
                         processed_cycle=processed_cycle,

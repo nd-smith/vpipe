@@ -1,30 +1,6 @@
-"""
-ClaimX DLQ Management CLI.
+"""ClaimX DLQ Management CLI.
 
-Command-line interface for managing ClaimX Dead Letter Queues (DLQs).
-Supports both enrichment and download DLQs.
-
-Usage:
-    # List DLQ message counts
-    python -m pipeline.claimx.dlq.cli list
-
-    # Inspect sample messages from enrichment DLQ
-    python -m pipeline.claimx.dlq.cli inspect enrichment --limit 5
-
-    # Inspect sample messages from download DLQ
-    python -m pipeline.claimx.dlq.cli inspect download --limit 10
-
-    # Replay messages from enrichment DLQ back to pending topic
-    python -m pipeline.claimx.dlq.cli replay enrichment --event-ids evt_123,evt_456
-
-    # Replay all messages from download DLQ
-    python -m pipeline.claimx.dlq.cli replay download --all
-
-    # Purge enrichment DLQ (with confirmation)
-    python -m pipeline.claimx.dlq.cli purge enrichment
-
-    # Purge download DLQ (skip confirmation)
-    python -m pipeline.claimx.dlq.cli purge download --yes
+Manage ClaimX Dead Letter Queues (DLQs) for enrichment and download workers.
 """
 
 import argparse
@@ -389,7 +365,7 @@ class DLQManager:
 
         if not confirm:
             response = input(
-                f"\n⚠️  WARNING: This will permanently delete all messages from {topic}.\n"
+                f"\nWARNING: This will permanently delete all messages from {topic}.\n"
                 f"Are you sure you want to continue? (yes/no): "
             )
             if response.lower() not in ("yes", "y"):

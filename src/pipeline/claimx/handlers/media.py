@@ -27,6 +27,8 @@ from pipeline.common.logging import extract_log_context
 
 logger = get_logger(__name__)
 
+# Batch threshold for triggering pre-flight project verification
+# Reduces API calls while ensuring projects exist before processing attachments
 BATCH_THRESHOLD = 5
 
 

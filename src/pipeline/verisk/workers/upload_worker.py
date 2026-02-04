@@ -23,11 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord
-
 from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.context import set_log_context
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
@@ -39,13 +35,12 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.transport import create_producer
+from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.storage import OneLakeClient
 from pipeline.common.telemetry import initialize_worker_telemetry
-from pipeline.common.types import PipelineMessage, from_consumer_record
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.consumer_factory import create_consumer
 from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
@@ -114,12 +109,12 @@ class UploadWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Store injected storage client (for simulation mode)
+        # Store injected storage client
         self._injected_storage_client = storage_client
 
         if storage_client is not None:
             logger.info(
-                "Using injected storage client (simulation mode)",
+                "Using injected storage client",
                 extra={"storage_type": type(storage_client).__name__},
             )
 
@@ -144,10 +139,10 @@ class UploadWorker:
         self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
 
         # Topic to consume from
-        self.topic = config.get_topic(domain, "downloads_cached")
+        self.topics = [config.get_topic(domain, "downloads_cached")]
 
         # Consumer will be created in start()
-        self._consumer: AIOKafkaConsumer | None = None
+        self._consumer = None
         self._running = False
 
         # Concurrency control
@@ -192,7 +187,7 @@ class UploadWorker:
                 "worker_name": self.WORKER_NAME,
                 "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, self.WORKER_NAME),
-                "topic": self.topic,
+                "topics": self.topics,
                 "configured_domains": configured_domains,
                 "fallback_path": config.onelake_base_path or "(none)",
                 "upload_concurrency": self.concurrency,
@@ -233,7 +228,7 @@ class UploadWorker:
 
         # Initialize storage clients (use injected client or create OneLake clients)
         if self._injected_storage_client is not None:
-            # Use injected storage client for this domain (simulation mode)
+            # Use injected storage client for this domain
             # The XACT worker supports multi-domain routing, so we need to set it as the domain client
             self.onelake_clients[self.domain] = self._injected_storage_client
 
@@ -272,8 +267,18 @@ class UploadWorker:
                     extra={"onelake_base_path": self.config.onelake_base_path},
                 )
 
-        # Create Kafka consumer
-        await self._create_consumer()
+        # Create batch consumer from transport layer
+        self._consumer = await create_batch_consumer(
+            config=self.config,
+            domain=self.domain,
+            worker_name=self.WORKER_NAME,
+            topics=self.topics,
+            batch_handler=self._process_batch,
+            batch_size=self.batch_size,
+            batch_timeout_ms=1000,
+            instance_id=self.instance_id,
+            topic_key="downloads_cached",
+        )
 
         self._running = True
 
@@ -295,7 +300,7 @@ class UploadWorker:
         logger.info("Upload worker started successfully")
 
         try:
-            await self._consume_batch_loop()
+            await self._consumer.start()
         except asyncio.CancelledError:
             logger.info("Upload worker cancelled")
         except Exception as e:
@@ -394,106 +399,19 @@ class UploadWorker:
 
         logger.info("Upload worker stopped")
 
-    async def _create_consumer(self) -> None:
-        self._consumer = create_consumer(
-            config=self.config,
-            domain=self.domain,
-            worker_name=self.WORKER_NAME,
-            topics=self.topic,
-            instance_id=self.instance_id,
-            max_poll_records=self.batch_size,
-        )
-        await self._consumer.start()
+    async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
+        """Process batch of upload messages concurrently.
 
-        logger.info(
-            "Consumer started",
-            extra={
-                "topic": self.topic,
-                "consumer_group": self.config.get_consumer_group(
-                    self.domain, self.WORKER_NAME
-                ),
-            },
-        )
-
-    async def _consume_batch_loop(self) -> None:
-        if self._consumer is None:
-            raise RuntimeError("Consumer not initialized - call start() first")
-
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-
-        # Track partition assignment status for logging
-        _logged_waiting_for_assignment = False
-        _logged_assignment_received = False
-
-        while self._running:
-            try:
-                # Check partition assignment before fetching
-                # During consumer group rebalances, getmany() can block indefinitely
-                # waiting for partition assignment (ignoring timeout_ms).
-                # This check ensures we don't hang during startup with multiple consumers.
-                assignment = self._consumer.assignment()
-                if not assignment:
-                    if not _logged_waiting_for_assignment:
-                        logger.info(
-                            "Waiting for partition assignment (consumer group rebalance in progress)",
-                            extra={
-                                "consumer_group": consumer_group,
-                                "topic": self.topic,
-                            },
-                        )
-                        _logged_waiting_for_assignment = True
-                    # Sleep briefly and retry - don't call getmany() during rebalance
-                    await asyncio.sleep(0.5)
-                    continue
-
-                # Log when we first receive partition assignment
-                if not _logged_assignment_received:
-                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    logger.info(
-                        "Partition assignment received, starting message consumption",
-                        extra={
-                            "consumer_group": consumer_group,
-                            "partition_count": len(assignment),
-                            "partitions": partition_info,
-                        },
-                    )
-                    _logged_assignment_received = True
-                    # Update partition assignment metric
-                    update_assigned_partitions(consumer_group, len(assignment))
-
-                # Fetch batch of messages
-                batch: dict[str, list[ConsumerRecord]] = await self._consumer.getmany(
-                    timeout_ms=1000,
-                    max_records=self.batch_size,
-                )
-
-                if not batch:
-                    continue
-
-                # Flatten messages from all partitions and convert to PipelineMessage
-                messages = []
-                for _topic_partition, records in batch.items():
-                    messages.extend([from_consumer_record(r) for r in records])
-
-                if messages:
-                    await self._process_batch(messages)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(
-                    "Error in consume loop", extra={"error": str(e)}, exc_info=True
-                )
-                record_processing_error(self.topic, consumer_group, "consume_error")
-                await asyncio.sleep(1)
-
-    async def _process_batch(self, messages: list[PipelineMessage]) -> None:
+        Returns:
+            True to commit batch, False to skip commit (circuit breaker errors)
+        """
         if self._consumer is None:
             raise RuntimeError("Consumer not initialized - call start() first")
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+        topic = self.topics[0]
 
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
@@ -515,15 +433,25 @@ class UploadWorker:
                     extra={"error": str(upload_result)},
                     exc_info=True,
                 )
-                record_processing_error(self.topic, consumer_group, "unexpected_error")
+                record_processing_error(topic, consumer_group, "unexpected_error")
 
-        # Commit offsets after batch
-        try:
-            await self._consumer.commit()
-        except Exception as e:
-            logger.error(
-                "Failed to commit offsets", extra={"error": str(e)}, exc_info=True
+        # Check for circuit breaker errors (transient errors that need immediate retry)
+        # For upload worker, we don't typically have circuit breaker errors,
+        # but we maintain consistency with the download worker pattern
+        circuit_errors = [
+            r for r in results
+            if isinstance(r, UploadResult) and r.error and hasattr(r.error, '__class__')
+            and r.error.__class__.__name__ == 'CircuitOpenError'
+        ]
+
+        if circuit_errors:
+            logger.warning(
+                "Circuit breaker errors - not committing",
+                extra={"count": len(circuit_errors)}
             )
+            return False
+
+        return True
 
     async def _process_single_with_semaphore(
         self, message: PipelineMessage
@@ -556,7 +484,7 @@ class UploadWorker:
                 self._in_flight_tasks.add(trace_id)
 
             record_message_consumed(
-                self.topic, consumer_group, len(message.value), success=True
+                self.topics[0], consumer_group, len(message.value), success=True
             )
 
             # Verify cached file exists
@@ -657,7 +585,7 @@ class UploadWorker:
             # Record processing duration metric
             duration = time.time() - start_time
             message_processing_duration_seconds.labels(
-                topic=self.topic, consumer_group=consumer_group
+                topic=self.topics[0], consumer_group=consumer_group
             ).observe(duration)
 
             return UploadResult(
@@ -681,7 +609,7 @@ class UploadWorker:
                 trace_id=trace_id,
                 media_id=cached_message.media_id if cached_message else None,
             )
-            record_processing_error(self.topic, consumer_group, "upload_error")
+            record_processing_error(self.topics[0], consumer_group, "upload_error")
 
             # For upload failures, we produce a failure result
             # The file stays in cache for manual review/retry

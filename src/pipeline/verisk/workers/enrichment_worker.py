@@ -46,7 +46,6 @@ from pipeline.plugins.shared.registry import (
     PluginOrchestrator,
     PluginRegistry,
 )
-from pipeline.simulation.config import SimulationConfig
 from pipeline.verisk.retry import DownloadRetryHandler
 from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
@@ -89,7 +88,6 @@ class XACTEnrichmentWorker:
         download_topic: str = "",
         producer_config: KafkaConfig | None = None,
         instance_id: str | None = None,
-        simulation_config: SimulationConfig | None = None,
     ):
         self.consumer_config = config
         self.producer_config = producer_config if producer_config else config
@@ -150,16 +148,6 @@ class XACTEnrichmentWorker:
             uuid.NAMESPACE_URL, "http://xactPipeline/media_id"
         )
 
-        # Store simulation config if provided (validated at startup)
-        self._simulation_config = simulation_config
-        if simulation_config is not None and simulation_config.enabled:
-            logger.info(
-                "Simulation mode enabled - localhost URLs will be allowed",
-                extra={
-                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
-                },
-            )
-
         logger.info(
             "Initialized XACTEnrichmentWorker",
             extra={
@@ -174,8 +162,6 @@ class XACTEnrichmentWorker:
                 "download_topic": self.download_topic,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
-                "simulation_mode": simulation_config is not None
-                and simulation_config.enabled,
             },
         )
 
@@ -485,18 +471,11 @@ class XACTEnrichmentWorker:
 
         for attachment_url in task.attachments:
             try:
-                # Determine if localhost URLs should be allowed based on simulation config
-                allow_localhost = (
-                    self._simulation_config is not None
-                    and self._simulation_config.enabled
-                    and self._simulation_config.allow_localhost_urls
-                )
-
                 # Validate attachment URL
                 try:
                     validate_download_url(
                         attachment_url,
-                        allow_localhost=allow_localhost,
+                        allow_localhost=False,
                     )
                 except URLValidationError as e:
                     logger.warning(
@@ -506,7 +485,6 @@ class XACTEnrichmentWorker:
                             "trace_id": task.trace_id,
                             "url": sanitize_url(attachment_url),
                             "validation_error": str(e),
-                            "allow_localhost": allow_localhost,
                         },
                     )
                     continue

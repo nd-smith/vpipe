@@ -1,1 +1,0 @@
-"""ClaimX integration tests."""

@@ -1,8 +1,6 @@
-"""
-Download task factory for ClaimX enrichment pipeline.
+"""Download task factory for ClaimX enrichment pipeline.
 
-Converts media metadata rows into ClaimXDownloadTask objects for the download worker.
-Handles URL extraction, blob path generation, and task creation.
+Converts media metadata rows into ClaimXDownloadTask objects for download worker.
 """
 
 from typing import Any
@@ -14,13 +12,9 @@ logger = get_logger(__name__)
 
 
 class DownloadTaskFactory:
-    """
-    Factory for creating download tasks from media metadata rows.
+    """Factory for creating download tasks from media metadata rows.
 
-    Responsibilities:
-    - Extract download URLs from media rows
-    - Generate OneLake blob storage paths
-    - Create ClaimXDownloadTask objects
+    Extracts URLs, generates blob paths, and creates ClaimXDownloadTask objects.
     """
 
     @staticmethod

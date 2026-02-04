@@ -1,20 +1,6 @@
-"""
-Delta Lake writer for ClaimX entity tables.
+"""Delta Lake writer for ClaimX entity tables.
 
-Writes ClaimX entity data to 7 separate Delta tables:
-- claimx_projects: Project metadata
-- claimx_contacts: Contact/policyholder information
-- claimx_attachment_metadata: Attachment metadata
-- claimx_tasks: Task information
-- claimx_task_templates: Task template definitions
-- claimx_external_links: External resource links
-- claimx_video_collab: Video collaboration sessions
-
-Uses merge (upsert) operations with appropriate primary keys for idempotency.
-
-Simulation Mode:
-When simulation mode is enabled, writes to local filesystem Delta tables
-in /tmp/pcesdopodappv1_simulation/delta/ instead of cloud OneLake storage.
+Writes entity data to 7 Delta tables using merge operations for idempotency.
 """
 
 import shutil
@@ -27,11 +13,7 @@ from core.logging.setup import get_logger
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.common.writers.base import BaseDeltaWriter
 
-# Schema definitions matching actual Delta table schemas exactly
-# These schemas are derived from the Fabric Delta tables to ensure type compatibility
-# Spark/Delta type mapping:
-#   StringType -> pl.Utf8
-#   BooleanType -> pl.Boolean
+# Schema definitions matching actual Delta table schemas
 #   IntegerType -> pl.Int32
 #   LongType -> pl.Int64
 #   DoubleType -> pl.Float64
@@ -225,29 +207,9 @@ MERGE_KEYS: dict[str, list[str]] = {
 
 
 class ClaimXEntityWriter:
-    """
-    Manages writes to all ClaimX entity Delta tables.
+    """Manages writes to all ClaimX entity Delta tables.
 
-    Uses merge operations with merge keys for idempotency.
-    Each entity type is written to its own Delta table with appropriate merge keys.
-
-    Entity Tables:
-        - projects → claimx_projects (merge key: project_id)
-        - contacts → claimx_contacts (merge keys: project_id, contact_email, contact_type)
-        - media → claimx_attachment_metadata (merge key: media_id)
-        - tasks → claimx_tasks (merge key: assignment_id)
-        - task_templates → claimx_task_templates (merge key: task_id)
-        - external_links → claimx_external_links (merge key: link_id)
-        - video_collab → claimx_video_collab (merge key: video_collaboration_id)
-
-    Usage:
-        >>> writer = ClaimXEntityWriter(
-        ...     projects_table_path="abfss://.../claimx_projects",
-        ...     contacts_table_path="abfss://.../claimx_contacts",
-        ...     # ... other table paths
-        ... )
-        >>> entity_rows = EntityRowsMessage(projects=[...], contacts=[...])
-        >>> await writer.write_all(entity_rows)
+    Uses merge operations with appropriate keys for idempotency.
     """
 
     def __init__(
@@ -263,11 +225,8 @@ class ClaimXEntityWriter:
         """
         Initialize ClaimX entity writer with table paths.
 
-        In simulation mode, table paths are overridden to use local filesystem.
-
         Args:
-            projects_table_path: Full abfss:// path to claimx_projects table (cloud)
-                                or local path in simulation mode
+            projects_table_path: Full abfss:// path to claimx_projects table
             contacts_table_path: Full abfss:// path to claimx_contacts table
             media_table_path: Full abfss:// path to claimx_attachment_metadata table
             tasks_table_path: Full abfss:// path to claimx_tasks table
@@ -277,110 +236,34 @@ class ClaimXEntityWriter:
         """
         self.logger = get_logger(self.__class__.__name__)
 
-        # Check if simulation mode is enabled and override paths
-        try:
-            from pipeline.simulation import (
-                get_simulation_config,
-                is_simulation_mode,
-            )
-
-            if is_simulation_mode():
-                simulation_config = get_simulation_config()
-                self.use_local_delta = True
-                self.delta_base_path = simulation_config.local_delta_path
-
-                # Ensure base directory exists
-                simulation_config.ensure_directories()
-
-                # Override table paths to use local filesystem
-                table_names = {
-                    "projects": "claimx_projects",
-                    "contacts": "claimx_contacts",
-                    "media": "claimx_attachment_metadata",
-                    "tasks": "claimx_tasks",
-                    "task_templates": "claimx_task_templates",
-                    "external_links": "claimx_external_links",
-                    "video_collab": "claimx_video_collab",
-                }
-
-                # Truncate tables if configured
-                if simulation_config.truncate_tables_on_start:
-                    for table_name in table_names.values():
-                        table_path = self.delta_base_path / table_name
-                        if table_path.exists():
-                            shutil.rmtree(table_path)
-                            self.logger.info(
-                                f"Truncated Delta table: {table_name}",
-                                extra={"table_path": str(table_path)},
-                            )
-
-                # Use local paths
-                projects_table_path = str(
-                    self.delta_base_path / table_names["projects"]
-                )
-                contacts_table_path = str(
-                    self.delta_base_path / table_names["contacts"]
-                )
-                media_table_path = str(self.delta_base_path / table_names["media"])
-                tasks_table_path = str(self.delta_base_path / table_names["tasks"])
-                task_templates_table_path = str(
-                    self.delta_base_path / table_names["task_templates"]
-                )
-                external_links_table_path = str(
-                    self.delta_base_path / table_names["external_links"]
-                )
-                video_collab_table_path = str(
-                    self.delta_base_path / table_names["video_collab"]
-                )
-
-                self.logger.info(
-                    "Simulation mode enabled - writing Delta Lake to local filesystem",
-                    extra={
-                        "delta_path": str(self.delta_base_path),
-                        "truncate_on_start": simulation_config.truncate_tables_on_start,
-                        "tables": list(table_names.values()),
-                    },
-                )
-            else:
-                self.use_local_delta = False
-                self.delta_base_path = None
-        except Exception:
-            # Simulation mode not available or not enabled
-            self.use_local_delta = False
-            self.delta_base_path = None
-
-        # Validate that all required table paths are set (not in simulation mode)
-        # This catches configuration errors early with a clear message
-        if not self.use_local_delta:
-            # Update table_paths dict with potentially overridden values (for simulation)
-            table_paths = {
-                "projects": projects_table_path,
-                "contacts": contacts_table_path,
-                "media": media_table_path,
-                "tasks": tasks_table_path,
-                "task_templates": task_templates_table_path,
-                "external_links": external_links_table_path,
-                "video_collab": video_collab_table_path,
+        table_paths = {
+            "projects": projects_table_path,
+            "contacts": contacts_table_path,
+            "media": media_table_path,
+            "tasks": tasks_table_path,
+            "task_templates": task_templates_table_path,
+            "external_links": external_links_table_path,
+            "video_collab": video_collab_table_path,
+        }
+        empty_paths = [name for name, path in table_paths.items() if not path]
+        if empty_paths:
+            env_var_hints = {
+                "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
+                "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
+                "media": "CLAIMX_DELTA_MEDIA_TABLE",
+                "tasks": "CLAIMX_DELTA_TASKS_TABLE",
+                "task_templates": "CLAIMX_DELTA_TASK_TEMPLATES_TABLE",
+                "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
+                "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
             }
-            empty_paths = [name for name, path in table_paths.items() if not path]
-            if empty_paths:
-                env_var_hints = {
-                    "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
-                    "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
-                    "media": "CLAIMX_DELTA_MEDIA_TABLE",
-                    "tasks": "CLAIMX_DELTA_TASKS_TABLE",
-                    "task_templates": "CLAIMX_DELTA_TASK_TEMPLATES_TABLE",
-                    "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
-                    "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
-                }
-                missing_info = [
-                    f"{name} ({env_var_hints[name]})" for name in empty_paths
-                ]
-                raise ValueError(
-                    f"ClaimXEntityWriter requires table paths for all entity types. "
-                    f"Missing paths for: {', '.join(missing_info)}. "
-                    f"Set the corresponding environment variables."
-                )
+            missing_info = [
+                f"{name} ({env_var_hints[name]})" for name in empty_paths
+            ]
+            raise ValueError(
+                f"ClaimXEntityWriter requires table paths for all entity types. "
+                f"Missing paths for: {', '.join(missing_info)}. "
+                f"Set the corresponding environment variables."
+            )
 
         # Create individual writers for each entity table
         # Projects and Media are partitioned by project_id
@@ -411,12 +294,10 @@ class ClaimXEntityWriter:
             ),
         }
 
-        mode_str = "local" if self.use_local_delta else "cloud"
         self.logger.info(
-            f"Initialized ClaimXEntityWriter ({mode_str} mode)",
+            "Initialized ClaimXEntityWriter",
             extra={
                 "tables": list(self._writers.keys()),
-                "simulation_mode": self.use_local_delta,
             },
         )
 

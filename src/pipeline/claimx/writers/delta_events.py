@@ -1,14 +1,6 @@
-"""
-Delta Lake writer for ClaimX events table.
+"""Delta Lake writer for ClaimX events table.
 
-Writes ClaimX events to the claimx_events Delta table with:
-- Async/non-blocking writes
-- Schema compatibility with verisk_pipeline claimx_events table
-
-Unlike verisk events, ClaimX events are not flattened - they maintain
-the simple event structure from Eventhouse/webhooks.
-
-Note: Deduplication handled by daily Fabric maintenance job.
+Writes events to claimx_events with async support. Deduplication handled by daily Fabric job.
 """
 
 from datetime import UTC, datetime
@@ -35,43 +27,9 @@ EVENTS_SCHEMA = {
 
 
 class ClaimXEventsDeltaWriter(BaseDeltaWriter):
-    """
-    Writer for claimx_events Delta table with async support.
+    """Writer for claimx_events Delta table with async support.
 
-    ClaimX events have a simpler structure than verisk events - no flattening needed.
-    Events are written directly from Eventhouse rows to the Delta table.
-
-    Features:
-    - Non-blocking writes using asyncio.to_thread
-    - Schema compatibility with verisk_pipeline claimx_events table
-    - Deduplication handled by daily Fabric maintenance job
-
-    Input format (raw Eventhouse rows from ClaimXEventMessage):
-        - event_id: Unique event identifier
-        - event_type: Event type string (e.g., "PROJECT_CREATED", "PROJECT_FILE_ADDED")
-        - project_id: ClaimX project identifier
-        - ingested_at: Event ingestion timestamp
-        - media_id: Optional media file identifier
-        - task_assignment_id: Optional task assignment identifier
-        - video_collaboration_id: Optional video collaboration identifier
-        - master_file_name: Optional master file name
-        - raw_data: Raw event payload (JSON object) - not written to Delta
-
-    Output schema (columns written to Delta table):
-        - event_id: Unique event identifier
-        - event_type: Event type string
-        - project_id: ClaimX project identifier
-        - media_id: Optional media file identifier
-        - task_assignment_id: Optional task assignment identifier
-        - video_collaboration_id: Optional video collaboration identifier
-        - master_file_name: Optional master file name
-        - ingested_at: Event ingestion timestamp
-        - created_at: Pipeline processing timestamp
-        - event_date: Date partition column (derived from ingested_at)
-
-    Usage:
-        >>> writer = ClaimXEventsDeltaWriter(table_path="abfss://.../claimx_events")
-        >>> await writer.write_events([{"event_id": "...", "event_type": "...", ...}])
+    Writes events directly from Eventhouse rows without flattening.
     """
 
     def __init__(

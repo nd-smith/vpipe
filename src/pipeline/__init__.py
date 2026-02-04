@@ -11,7 +11,6 @@ Subpackages:
     common   - Shared infrastructure (consumers, producers, retry, DLQ, storage)
     plugins  - Plugin system for extensible processing
     runners  - Worker orchestration and lifecycle management
-    simulation - Testing and simulation tools
 
 Architecture:
     events.raw → EventIngester → downloads.pending → DownloadWorker → downloads.results → ResultProcessor → Delta

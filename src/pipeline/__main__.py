@@ -249,14 +249,6 @@ Examples:
         "Can also be set via LOG_TO_STDOUT environment variable.",
     )
 
-    parser.add_argument(
-        "--simulation-mode",
-        action="store_true",
-        help="Enable simulation mode with mock dependencies for local testing. "
-        "Uses mock API clients and local filesystem storage instead of production services. "
-        "CANNOT run in production environments.",
-    )
-
     return parser.parse_args()
 
 
@@ -558,45 +550,6 @@ def main():
 
     enable_delta_writes = not args.no_delta
 
-    # Check for simulation mode
-    simulation_mode = args.simulation_mode or os.getenv(
-        "SIMULATION_MODE", "false"
-    ).lower() in (
-        "true",
-        "1",
-        "yes",
-    )
-
-    # Initialize simulation config at startup if enabled
-    # Validation happens here - fail fast if config is invalid
-    if simulation_mode:
-        from pipeline.simulation.config import (
-            SimulationConfig,
-            set_simulation_config,
-        )
-
-        logger.warning("=" * 80)
-        logger.warning("SIMULATION MODE ENABLED")
-        logger.warning("Using mock dependencies and local storage for testing")
-        logger.warning("Production APIs and cloud storage will NOT be accessed")
-        logger.warning("=" * 80)
-
-        # Initialize and validate simulation config
-        # ValidationErrors will propagate - fail fast if config is invalid
-        sim_config = SimulationConfig.from_env(enabled=True)
-        set_simulation_config(sim_config)
-        sim_config.ensure_directories()
-
-        logger.info(
-            "Simulation config initialized",
-            extra={
-                "local_storage_path": str(sim_config.local_storage_path),
-                "local_delta_path": str(sim_config.local_delta_path),
-                "fixtures_dir": str(sim_config.fixtures_dir),
-                "delta_write_mode": sim_config.delta_write_mode,
-            },
-        )
-
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -606,10 +559,6 @@ def main():
 
     try:
         if args.worker == "all":
-            if simulation_mode:
-                logger.error("Simulation mode does not support running all workers")
-                logger.error("Please specify a specific worker with --worker flag")
-                sys.exit(1)
             loop.run_until_complete(
                 run_all_workers(pipeline_config, enable_delta_writes)
             )
@@ -627,7 +576,6 @@ def main():
                         enable_delta_writes,
                         eventhub_config,
                         local_kafka_config,
-                        simulation_mode=simulation_mode,
                     )
                 )
             else:
@@ -639,7 +587,6 @@ def main():
                         enable_delta_writes,
                         eventhub_config,
                         local_kafka_config,
-                        simulation_mode=simulation_mode,
                     )
                 )
     except KeyboardInterrupt:

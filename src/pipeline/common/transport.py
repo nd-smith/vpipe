@@ -441,9 +441,155 @@ async def create_consumer(
         )
 
 
+async def create_batch_consumer(
+    config: KafkaConfig,
+    domain: str,
+    worker_name: str,
+    topics: list[str],
+    batch_handler: Callable[[list[ConsumerRecord]], Awaitable[bool]],
+    batch_size: int = 20,
+    batch_timeout_ms: int = 1000,
+    enable_message_commit: bool = True,
+    instance_id: str | None = None,
+    transport_type: TransportType | None = None,
+    topic_key: str | None = None,
+):
+    """Create a batch consumer for concurrent message processing.
+
+    Args:
+        config: KafkaConfig with connection details
+        domain: Pipeline domain (e.g., "verisk", "claimx")
+        worker_name: Worker name for logging and metrics
+        topics: List of topics to consume (EventHub requires single topic)
+        batch_handler: Async function that processes message batches
+        batch_size: Target batch size (default: 20)
+        batch_timeout_ms: Max wait time to accumulate batch (default: 1000ms)
+        enable_message_commit: Whether to commit after successful batch processing
+        instance_id: Optional instance identifier for parallel consumers
+        transport_type: Optional transport override (defaults to PIPELINE_TRANSPORT env)
+        topic_key: Optional topic key for EventHub resolution from config.yaml
+
+    Returns:
+        EventHubBatchConsumer or KafkaBatchConsumer based on transport
+
+    Batch Handler Contract:
+        The batch_handler receives a list of PipelineMessage objects and must:
+        - Return True to commit/checkpoint the batch
+        - Return False to skip commit (messages will be redelivered)
+        - Raise an exception to skip commit (messages will be redelivered)
+
+        The handler is responsible for concurrent processing (e.g., using
+        asyncio.gather with a semaphore to control concurrency).
+
+    Example:
+        async def process_batch(messages: list[PipelineMessage]) -> bool:
+            # Process concurrently with semaphore
+            async def bounded_process(msg):
+                async with semaphore:
+                    return await process_message(msg)
+
+            results = await asyncio.gather(*[bounded_process(m) for m in messages])
+
+            # Check for transient errors (circuit breaker)
+            if any(isinstance(r, CircuitOpenError) for r in results):
+                return False  # Don't commit - retry batch
+
+            return True  # Commit batch
+    """
+    transport = transport_type or get_transport_type()
+
+    if len(topics) != 1 and transport == TransportType.EVENTHUB:
+        raise ValueError(
+            f"Event Hub transport only supports consuming from a single topic. "
+            f"Got {len(topics)} topics: {topics}"
+        )
+
+    if transport == TransportType.EVENTHUB:
+        from pipeline.common.eventhub.batch_consumer import EventHubBatchConsumer
+
+        # Get namespace connection string
+        namespace_connection_string = _get_namespace_connection_string()
+
+        # Resolve Event Hub name
+        if topic_key:
+            eventhub_name = _resolve_eventhub_name(domain, topic_key, worker_name)
+        else:
+            eventhub_name = topics[0]
+
+        # Resolve consumer group from config
+        consumer_group = _resolve_eventhub_consumer_group(
+            domain, topic_key, worker_name, config
+        )
+
+        # Get checkpoint store for durable offset persistence
+        checkpoint_store = None
+        try:
+            checkpoint_store = await get_checkpoint_store()
+            if checkpoint_store is None:
+                logger.info(
+                    f"Event Hub batch consumer will use in-memory checkpointing: "
+                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
+                    f"Configure checkpoint store in config.yaml for durable offset persistence."
+                )
+            else:
+                logger.info(
+                    f"Event Hub batch consumer initialized with blob checkpoint store: "
+                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize checkpoint store for Event Hub batch consumer: "
+                f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
+                f"Falling back to in-memory checkpointing. Error: {e}"
+            )
+            # Continue with None checkpoint_store (in-memory mode)
+
+        logger.info(
+            f"Creating Event Hub batch consumer: domain={domain}, worker={worker_name}, "
+            f"eventhub={eventhub_name}, group={consumer_group}, "
+            f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}"
+        )
+
+        return EventHubBatchConsumer(
+            connection_string=namespace_connection_string,
+            domain=domain,
+            worker_name=worker_name,
+            eventhub_name=eventhub_name,
+            consumer_group=consumer_group,
+            batch_handler=batch_handler,
+            batch_size=batch_size,
+            batch_timeout_ms=batch_timeout_ms,
+            enable_message_commit=enable_message_commit,
+            instance_id=instance_id,
+            checkpoint_store=checkpoint_store,
+        )
+
+    else:  # TransportType.KAFKA
+        from pipeline.common.batch_consumer import KafkaBatchConsumer
+
+        logger.info(
+            f"Creating Kafka batch consumer: domain={domain}, worker={worker_name}, "
+            f"topics={topics}, servers={config.bootstrap_servers}, "
+            f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}"
+        )
+
+        return KafkaBatchConsumer(
+            config=config,
+            domain=domain,
+            worker_name=worker_name,
+            topics=topics,
+            batch_handler=batch_handler,
+            batch_size=batch_size,
+            batch_timeout_ms=batch_timeout_ms,
+            enable_message_commit=enable_message_commit,
+            instance_id=instance_id,
+        )
+
+
 __all__ = [
     "TransportType",
     "get_transport_type",
     "create_producer",
     "create_consumer",
+    "create_batch_consumer",
 ]
