@@ -18,6 +18,14 @@ from functools import wraps
 # Import ErrorCategory from core.types to avoid circular dependency
 from core.types import ErrorCategory
 
+# Import exception handling utilities for retry logic
+from core.errors.exceptions import (
+    PipelineError,
+    ThrottlingError,
+    classify_exception,
+    wrap_exception,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,9 +80,6 @@ class RetryConfig:
         Returns:
             Delay in seconds
         """
-        # Local import to avoid exposing internal dependencies
-        from core.errors.exceptions import ThrottlingError
-
         # Check for explicit retry_after (e.g., from 429 response)
         if self.respect_retry_after and isinstance(error, ThrottlingError):
             if error.retry_after:
@@ -102,9 +107,6 @@ class RetryConfig:
         Returns:
             True if should retry
         """
-        # Local import to avoid exposing internal dependencies
-        from core.errors.exceptions import PipelineError, classify_exception
-
         # Check attempt count first
         if attempt >= self.max_attempts - 1:
             return False
@@ -179,14 +181,6 @@ def with_retry(
         def download_file():
             ...
     """
-    # Local import to avoid exposing internal dependencies
-    from core.errors.exceptions import (
-        PipelineError,
-        ThrottlingError,
-        classify_exception,
-        wrap_exception,
-    )
-
     if config is None:
         config = DEFAULT_RETRY
 

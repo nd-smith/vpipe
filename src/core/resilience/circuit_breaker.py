@@ -124,16 +124,6 @@ CLAIMX_API_CIRCUIT_CONFIG = CircuitBreakerConfig(
     half_open_max_calls=3,
 )
 
-# Kafka circuit breaker config
-# - 5 failures: Connection issues are usually systematic
-# - 30s timeout: Give broker time to recover
-KAFKA_CIRCUIT_CONFIG = CircuitBreakerConfig(
-    failure_threshold=5,
-    success_threshold=2,
-    timeout_seconds=30.0,
-    ignore_auth_errors=False,  # OAuth handled separately
-)
-
 
 @dataclass
 class CircuitStats:
@@ -651,7 +641,6 @@ __all__ = [
     # Standard configs
     "CLAIMX_API_CIRCUIT_CONFIG",
     "EXTERNAL_DOWNLOAD_CIRCUIT_CONFIG",
-    "KAFKA_CIRCUIT_CONFIG",
     "KUSTO_CIRCUIT_CONFIG",
     "ONELAKE_CIRCUIT_CONFIG",
 ]

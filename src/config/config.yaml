@@ -27,35 +27,13 @@ pipeline:
   # Verisk Domain (formerly XACT)
   # ---------------------------------------------------------------------------
   verisk:
-    topics:
-      events: "com.allstate.pcesdopodappv1.verisk.events.raw"
-      enrichment_pending: "com.allstate.pcesdopodappv1.verisk.enrichment.pending"
-      downloads_pending: "com.allstate.pcesdopodappv1.verisk.downloads.pending"
-      downloads_cached: "com.allstate.pcesdopodappv1.verisk.downloads.cached"
-      downloads_results: "com.allstate.pcesdopodappv1.verisk.downloads.results"
-      dlq: "com.allstate.pcesdopodappv1.verisk.downloads.dlq"
-
-    consumer_group_prefix: "verisk"
     retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
-    max_retries: 4
 
   # ---------------------------------------------------------------------------
   # ClaimX Domain
   # ---------------------------------------------------------------------------
   claimx:
-    topics:
-      events: "com.allstate.pcesdopodappv1.claimx.events.raw"
-      enrichment_pending: "com.allstate.pcesdopodappv1.claimx.enrichment.pending"
-      enrichment.dlq: "com.allstate.pcesdopodappv1.claimx.enrichment.dlq"
-      enriched: "com.allstate.pcesdopodappv1.claimx.entities.rows"
-      downloads_pending: "com.allstate.pcesdopodappv1.claimx.downloads.pending"
-      downloads_cached: "com.allstate.pcesdopodappv1.claimx.downloads.cached"
-      downloads_results: "com.allstate.pcesdopodappv1.claimx.downloads.results"
-      dlq: "com.allstate.pcesdopodappv1.claimx.downloads.dlq"
-
-    consumer_group_prefix: "claimx"
     retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
-    max_retries: 4
 
   # ---------------------------------------------------------------------------
   # Shared Storage
@@ -66,18 +44,6 @@ pipeline:
       verisk: ""
       claimx: ""
     cache_dir: ${CACHE_DIR:-/tmp/pipeline_cache}
-
-# =============================================================================
-# LOCAL / INTERNAL PIPELINE KAFKA
-# =============================================================================
-# Defaults to local Docker Kafka for development.
-# In deployed environments, override via LOCAL_KAFKA_* env vars.
-local_kafka:
-  bootstrap_servers: ${LOCAL_KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}
-  security_protocol: ${LOCAL_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
-  sasl_mechanism: ${LOCAL_KAFKA_SASL_MECHANISM:-GSSAPI}
-  consumer_poll_timeout_ms: 1000
-  producer_max_block_ms: 60000
 
 # =============================================================================
 # EVENTHOUSE - VERISK DOMAIN

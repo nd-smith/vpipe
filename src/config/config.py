@@ -32,24 +32,18 @@ class WorkerConfig(TypedDict, total=False):
 
 
 class VeriskDomainConfig(TypedDict, total=False):
-    topics: dict[str, str]
     event_ingester: WorkerConfig
     download_worker: WorkerConfig
     upload_worker: WorkerConfig
     enrichment_worker: WorkerConfig
-    consumer_group_prefix: str
     retry_delays: list[int]
-    max_retries: int
 
 
 class ClaimXDomainConfig(TypedDict, total=False):
-    topics: dict[str, str]
     event_ingester: WorkerConfig
     enrichment_worker: WorkerConfig
     download_worker: WorkerConfig
-    consumer_group_prefix: str
     retry_delays: list[int]
-    max_retries: int
 
 
 class StorageConfig(TypedDict, total=False):
@@ -104,17 +98,18 @@ class KafkaConfig:
     """Pipeline configuration.
 
     Loads from YAML file with hierarchical structure organized by domain and worker.
-    Name retained for backward compatibility, but Kafka has been replaced with EventHub.
+
+    Note: Class name is historical. The pipeline uses EventHub transport, not Kafka.
 
     Configuration structure:
         pipeline:
           verisk:                     # Verisk domain
-            topics: {...}             # EventHub entity names
             event_ingester: {...}
             download_worker: {...}
             upload_worker: {...}
           claimx:                     # ClaimX domain
-            topics: {...}             # EventHub entity names
+            event_ingester: {...}
+            enrichment_worker: {...}
           storage: {...}              # OneLake paths
     """
 
@@ -190,14 +185,12 @@ class KafkaConfig:
         return worker_config.get(component, {})
 
     def get_topic(self, domain: str, topic_key: str) -> str:
-        domain_config = self._get_domain_config(domain)
-        topics = domain_config.get("topics", {})
-        if topic_key not in topics:
-            raise ValueError(
-                f"Topic '{topic_key}' not found in {domain} domain. "
-                f"Available topics: {list(topics.keys())}"
-            )
-        return topics[topic_key]
+        """Get topic name for domain/topic_key.
+
+        Returns a formatted topic name string in the format "domain.topic_key".
+        Used by the dummy data source for testing.
+        """
+        return f"{domain}.{topic_key}"
 
     def get_consumer_group(self, domain: str, worker_name: str) -> str:
         """Get consumer group name for a worker.
@@ -211,20 +204,6 @@ class KafkaConfig:
         domain_config = self._get_domain_config(domain)
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
-
-    def get_retry_topic(self, domain: str) -> str:
-        """Get unified retry topic for domain (e.g., 'xact.retry').
-
-        This is the single retry topic used for all retry types in the domain.
-        Routing is handled via message headers (target_topic, scheduled_retry_time).
-        """
-        domain_config = self._get_domain_config(domain)
-        topics = domain_config.get("topics", {})
-
-        if "retry" in topics:
-            return topics["retry"]
-
-        return f"{domain}.retry"
 
     def get_retry_delays(self, domain: str) -> list[int]:
         domain_config = self._get_domain_config(domain)
@@ -248,10 +227,7 @@ class KafkaConfig:
 
             for worker_name, worker_config in domain_config.items():
                 if worker_name in [
-                    "topics",
-                    "consumer_group_prefix",
                     "retry_delays",
-                    "max_retries",
                 ]:
                     continue
 

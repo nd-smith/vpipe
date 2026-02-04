@@ -9,13 +9,12 @@ Components:
     - @with_retry decorator: Retry with jitter
     - RateLimiter: Token bucket rate limiting
     - @rate_limited: Decorator for rate limiting
-    - Standard configs: KAFKA_CIRCUIT_CONFIG, KUSTO_CIRCUIT_CONFIG, etc.
+    - Standard configs: KUSTO_CIRCUIT_CONFIG, CLAIMX_API_CIRCUIT_CONFIG, etc.
 """
 
 from .circuit_breaker import (
     CLAIMX_API_CIRCUIT_CONFIG,
     EXTERNAL_DOWNLOAD_CIRCUIT_CONFIG,
-    KAFKA_CIRCUIT_CONFIG,
     KUSTO_CIRCUIT_CONFIG,
     ONELAKE_CIRCUIT_CONFIG,
     CircuitBreaker,
@@ -63,7 +62,6 @@ __all__ = [
     # Circuit Breaker Configs
     "CLAIMX_API_CIRCUIT_CONFIG",
     "EXTERNAL_DOWNLOAD_CIRCUIT_CONFIG",
-    "KAFKA_CIRCUIT_CONFIG",
     "KUSTO_CIRCUIT_CONFIG",
     "ONELAKE_CIRCUIT_CONFIG",
     # Rate Limiter Configs
