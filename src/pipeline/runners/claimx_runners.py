@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 async def run_claimx_eventhouse_poller(
     pipeline_config,
     shutdown_event: asyncio.Event,
+    local_kafka_config,
 ):
     """Polls Eventhouse for claimx events and produces to claimx.events.raw topic.
     Deduplication handled by daily Fabric maintenance job."""
@@ -43,8 +44,6 @@ async def run_claimx_eventhouse_poller(
         database=claimx_eventhouse.database,
         query_timeout_seconds=claimx_eventhouse.query_timeout_seconds,
     )
-
-    local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
     claimx_kafka_config = local_kafka_config
     if "claimx" not in claimx_kafka_config.claimx or not claimx_kafka_config.claimx:
         claimx_kafka_config.claimx = {"topics": {}}

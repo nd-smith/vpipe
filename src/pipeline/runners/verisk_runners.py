@@ -46,7 +46,9 @@ async def run_event_ingester(
     )
 
 
-async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event):
+async def run_eventhouse_poller(
+    pipeline_config, shutdown_event: asyncio.Event, local_kafka_config
+):
     """Polls Microsoft Fabric Eventhouse for events and produces to events.raw topic.
     Deduplication handled by daily Fabric maintenance job."""
     from pipeline.common.eventhouse.kql_client import EventhouseConfig
@@ -66,7 +68,7 @@ async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event):
 
     poller_config = PollerConfig(
         eventhouse=eventhouse_config,
-        kafka=pipeline_config.local_kafka.to_kafka_config(),
+        kafka=local_kafka_config,
         poll_interval_seconds=eventhouse_source.poll_interval_seconds,
         batch_size=eventhouse_source.batch_size,
         source_table=eventhouse_source.source_table,
