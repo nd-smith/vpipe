@@ -117,9 +117,8 @@ class ClaimXEnrichmentWorker:
 
         # Project cache prevents redundant API calls for in-flight verification
         cache_config = self.processing_config.get("project_cache", {})
-        cache_ttl = cache_config.get("ttl_seconds", 1800)
         self._preload_cache_from_delta = cache_config.get("preload_from_delta", False)
-        self.project_cache = ProjectCache(ttl_seconds=cache_ttl)
+        self.project_cache = ProjectCache()
 
         # port=0 for dynamic port assignment (avoids conflicts with multiple workers)
         health_port = self.processing_config.get("health_port", 0)
@@ -161,7 +160,6 @@ class ClaimXEnrichmentWorker:
                 "delta_writes_enabled": self.enable_delta_writes,
                 "retry_delays": self._retry_delays,
                 "max_retries": self._max_retries,
-                "project_cache_ttl": cache_ttl,
                 "project_cache_preload": self._preload_cache_from_delta,
                 "api_client_injected": api_client is not None,
             },
