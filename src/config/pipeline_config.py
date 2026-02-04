@@ -892,17 +892,6 @@ class PipelineConfig:
         else:
             enable_delta_writes = delta_config.get("enable_writes", True)
 
-        # Load simulation configuration if present
-        simulation_config = None
-        if "simulation" in yaml_data or os.getenv("SIMULATION_MODE"):
-            try:
-                from pipeline.simulation import SimulationConfig
-
-                simulation_config = SimulationConfig.from_config_file(resolved_path)
-            except ImportError:
-                # Simulation module not available, skip
-                pass
-
         return cls(
             event_source=event_source,
             eventhub=eventhub_config,
@@ -971,8 +960,6 @@ class PipelineConfig:
                 or os.getenv("CLAIMX_DELTA_VIDEO_COLLAB_TABLE")
                 or delta_config.get("claimx", {}).get("video_collab_table_path", "")
             ),
-            # Simulation configuration
-            simulation=simulation_config,
         )
 
     @property
