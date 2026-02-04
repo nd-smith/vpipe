@@ -30,10 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
-from aiokafka import AIOKafkaConsumer
-
 from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
@@ -52,8 +49,8 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.transport import create_producer
-from pipeline.common.types import PipelineMessage, from_consumer_record
+from pipeline.common.transport import create_batch_consumer, create_producer
+from pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -269,7 +266,19 @@ class ClaimXDownloadWorker:
         )
         await self.retry_handler.start()
 
-        await self._create_consumer()
+        # Create batch consumer from transport layer
+        # The consumer will call _process_batch() for each batch of messages
+        self._consumer = await create_batch_consumer(
+            config=self.config,
+            domain=self.domain,
+            worker_name=self.WORKER_NAME,
+            topics=self.topics,
+            batch_handler=self._process_batch,
+            batch_size=self.batch_size,
+            batch_timeout_ms=1000,
+            instance_id=self.instance_id,
+            topic_key="downloads_pending",
+        )
 
         self._running = True
 
@@ -282,21 +291,18 @@ class ClaimXDownloadWorker:
             circuit_open=self.api_client.is_circuit_open,
         )
 
-        update_connection_status("consumer", connected=True)
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-        partition_count = len(self._consumer.assignment()) if self._consumer else 0
-        update_assigned_partitions(consumer_group, partition_count)
-
         logger.info(
             "ClaimX download worker started successfully",
             extra={
                 "topics": self.topics,
-                "partitions": partition_count,
+                "batch_size": self.batch_size,
+                "concurrency": self.concurrency,
             },
         )
 
         try:
-            await self._consume_batch_loop()
+            # Transport layer handles the consume loop
+            await self._consumer.start()
         except asyncio.CancelledError:
             logger.info("Worker cancelled, shutting down")
             raise
@@ -310,57 +316,6 @@ class ClaimXDownloadWorker:
         finally:
             self._running = False
 
-    async def _create_consumer(self) -> None:
-        consumer_config_dict = self.config.get_worker_config(
-            self.domain, self.WORKER_NAME, "consumer"
-        )
-
-        consumer_config = {
-            "bootstrap_servers": self.config.bootstrap_servers,
-            "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": (
-                f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
-            ),
-            "enable_auto_commit": False,
-            "auto_offset_reset": consumer_config_dict.get(
-                "auto_offset_reset", "earliest"
-            ),
-            "max_poll_records": self.batch_size,
-            "max_poll_interval_ms": consumer_config_dict.get(
-                "max_poll_interval_ms", 300000
-            ),
-            "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
-            "request_timeout_ms": self.config.request_timeout_ms,
-            "metadata_max_age_ms": self.config.metadata_max_age_ms,
-            "connections_max_idle_ms": self.config.connections_max_idle_ms,
-        }
-
-        if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
-                "heartbeat_interval_ms"
-            ]
-        if "fetch_min_bytes" in consumer_config_dict:
-            consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
-        if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
-                "fetch_max_wait_ms"
-            ]
-
-        if self.config.security_protocol != "PLAINTEXT":
-            consumer_config["security_protocol"] = self.config.security_protocol
-            consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
-                consumer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
-
-        self._consumer = AIOKafkaConsumer(*self.topics, **consumer_config)
-        await self._consumer.start()
 
     async def request_shutdown(self) -> None:
         """Request graceful shutdown after current batch completes."""
@@ -394,7 +349,7 @@ class ClaimXDownloadWorker:
 
         if self._consumer:
             try:
-                await self._consumer.commit()
+                # Batch consumer's stop() method flushes remaining batches
                 await self._consumer.stop()
             except Exception as e:
                 logger.error(
@@ -455,97 +410,13 @@ class ClaimXDownloadWorker:
             )
             await asyncio.sleep(0.5)
 
-    async def _consume_batch_loop(self) -> None:
-        logger.info("Starting batch consumption loop")
 
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+    async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
+        """Process batch of download messages concurrently.
 
-        _logged_waiting_for_assignment = False
-        _logged_assignment_received = False
-
-        while self._running and self._consumer:
-            try:
-                # During consumer group rebalances, getmany() can block indefinitely
-                # waiting for partition assignment (ignoring timeout_ms).
-                # This check ensures we don't hang during startup with multiple consumers.
-                assignment = self._consumer.assignment()
-                if not assignment:
-                    if not _logged_waiting_for_assignment:
-                        logger.info(
-                            "Waiting for partition assignment (consumer group rebalance in progress)",
-                            extra={
-                                "consumer_group": consumer_group,
-                                "topics": self.topics,
-                            },
-                        )
-                        _logged_waiting_for_assignment = True
-                    await asyncio.sleep(0.5)
-                    continue
-
-                if not _logged_assignment_received:
-                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    logger.info(
-                        "Partition assignment received, starting message consumption",
-                        extra={
-                            "consumer_group": consumer_group,
-                            "partition_count": len(assignment),
-                            "partitions": partition_info,
-                        },
-                    )
-                    _logged_assignment_received = True
-                    update_assigned_partitions(consumer_group, len(assignment))
-
-                data = await self._consumer.getmany(
-                    timeout_ms=1000,
-                    max_records=self.batch_size,
-                )
-
-                if not data:
-                    continue
-
-                messages: list[PipelineMessage] = []
-                for _topic_partition, records in data.items():
-                    # Convert ConsumerRecord to PipelineMessage
-                    messages.extend([from_consumer_record(r) for r in records])
-
-                if not messages:
-                    continue
-
-                # Note: update_downloads_batch_size metric not implemented
-
-                logger.debug(
-                    "Processing message batch",
-                    extra={
-                        "batch_size": len(messages),
-                        "download_concurrency": self.concurrency,
-                    },
-                )
-
-                results = await self._process_batch(messages)
-
-                should_commit = await self._handle_batch_results(results)
-
-                if should_commit:
-                    await self._consumer.commit()
-                    logger.debug(
-                        "Committed offsets for batch",
-                        extra={"batch_size": len(messages)},
-                    )
-
-                # Note: update_downloads_batch_size metric not implemented
-
-            except asyncio.CancelledError:
-                logger.info("Batch consumption loop cancelled")
-                raise
-            except Exception as e:
-                logger.error(
-                    "Error in batch consumption loop",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-                await asyncio.sleep(1)
-
-    async def _process_batch(self, messages: list[PipelineMessage]) -> list[TaskResult]:
+        Returns:
+            True to commit batch, False to skip commit (circuit breaker errors)
+        """
         async def bounded_process(message: PipelineMessage) -> TaskResult:
             async with self._semaphore:
                 return await self._process_single_task(message)
@@ -575,6 +446,12 @@ class ClaimXDownloadWorker:
         failed = sum(1 for r in processed_results if r and not r.success)
         errors = sum(1 for r in processed_results if r is None)
 
+        # Check for circuit breaker errors (transient errors that need immediate retry)
+        circuit_errors = [
+            r for r in processed_results
+            if r and r.error and isinstance(r.error, CircuitOpenError)
+        ]
+
         logger.debug(
             "Batch processing complete",
             extra={
@@ -582,6 +459,7 @@ class ClaimXDownloadWorker:
                 "records_succeeded": succeeded,
                 "records_failed": failed,
                 "records_errored": errors,
+                "circuit_errors": len(circuit_errors),
             },
         )
 
@@ -589,7 +467,15 @@ class ClaimXDownloadWorker:
         self._records_failed += failed
         self._records_failed += errors  # Count errors as failed too
 
-        return [r for r in processed_results if r is not None]
+        # Return commit decision
+        if circuit_errors:
+            logger.warning(
+                "Circuit breaker errors in batch - not committing offsets",
+                extra={"circuit_error_count": len(circuit_errors)},
+            )
+            return False  # Don't commit - batch will be reprocessed
+
+        return True  # Commit batch
 
     async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
         start_time = time.perf_counter()
@@ -692,20 +578,6 @@ class ClaimXDownloadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-    async def _handle_batch_results(self, results: list[TaskResult]) -> bool:
-        """Returns False if circuit breaker errors present (don't commit, will reprocess)."""
-        circuit_errors = [
-            r for r in results if r.error and isinstance(r.error, CircuitOpenError)
-        ]
-
-        if circuit_errors:
-            logger.warning(
-                "Circuit breaker errors in batch - not committing offsets",
-                extra={"circuit_error_count": len(circuit_errors)},
-            )
-            return False
-
-        return True
 
     def _convert_to_download_task(
         self, task_message: ClaimXDownloadTask
