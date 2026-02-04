@@ -220,13 +220,6 @@ class FailedDownloadMessage(BaseModel):
         if not v or not v.strip():
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
-        """Truncate error message to prevent huge messages."""
-        if not v or not v.strip():
-            raise ValueError("final_error cannot be empty or whitespace")
-        v = v.strip()
-        if len(v) > 500:
-            return v[:497] + "..."
-        return v
 
     @field_serializer("failed_at")
     def serialize_timestamp(self, timestamp: datetime) -> str:

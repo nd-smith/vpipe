@@ -95,6 +95,9 @@ class EventIngesterWorker:
 
         # In-memory dedup cache: trace_id -> event_id
         # Prevents duplicate event processing when Eventhouse sends duplicates
+        # WARNING: Cache is cleared on worker restart - duplicates may be reprocessed
+        # after restart if events arrive within the 24h TTL window.
+        # For persistent deduplication across restarts, consider Redis or similar.
         self._dedup_cache: dict[str, str] = {}
         self._dedup_cache_ttl_seconds = 86400  # 24 hours
         self._dedup_cache_max_size = 100_000  # ~2MB memory for 100k entries
