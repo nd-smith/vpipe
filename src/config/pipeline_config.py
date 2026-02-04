@@ -23,9 +23,6 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from config.config import ClaimXDomainConfig, KafkaConfig, VeriskDomainConfig
 
-if TYPE_CHECKING:
-    from pipeline.simulation.config import SimulationConfig
-
 # Default config file: config/config.yaml in src/ directory
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
 
@@ -820,9 +817,6 @@ class PipelineConfig:
     claimx_task_templates_table_path: str = ""
     claimx_external_links_table_path: str = ""
     claimx_video_collab_table_path: str = ""
-
-    # Simulation mode configuration (optional, None if not configured)
-    simulation: Optional["SimulationConfig"] = None
 
     @classmethod
     def load_config(cls, config_path: Path | None = None) -> "PipelineConfig":
