@@ -28,37 +28,10 @@ logger = get_logger(__name__)
 
 
 class DownloadRetryHandler:
-    """
-    Handles retry logic for ClaimX download failures with URL refresh.
+    """Handles retry logic for ClaimX download failures with URL refresh.
 
-    Routes failed download tasks to appropriate retry topics based on
-    retry count, or to DLQ when retries are exhausted. Detects expired
+    Routes tasks to retry topics or DLQ based on retry count. Detects expired
     presigned URLs and refreshes them from ClaimX API before retry.
-
-    The retry delays are configurable via KafkaConfig:
-    - Default: [300s, 600s, 1200s, 2400s] (5m, 10m, 20m, 40m)
-    - Retry topics: claimx.downloads.pending.retry.{delay}s
-    - DLQ topic: claimx.downloads.dlq
-
-    URL Refresh Strategy:
-    - Detects expired URL errors (403 Forbidden, connection errors)
-    - Calls ClaimX API to get fresh presigned URL
-    - Updates task with new URL before routing to retry
-    - Falls back to DLQ if URL refresh fails
-
-    Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> api_client = ClaimXApiClient(config)
-        >>> retry_handler = DownloadRetryHandler(config, api_client)
-        >>> await retry_handler.start()
-        >>>
-        >>> # Handle a failed download task
-        >>> await retry_handler.handle_failure(
-        ...     task=download_task,
-        ...     error=Exception("403 Forbidden"),
-        ...     error_category=ErrorCategory.TRANSIENT
-        ... )
-        >>> await retry_handler.stop()
     """
 
     def __init__(
@@ -106,11 +79,6 @@ class DownloadRetryHandler:
             topic_key="retry",
         )
         await self._retry_producer.start()
-
-        # Sync topic with producer's actual entity name (Event Hub entity may
-        # differ from the Kafka topic name resolved by get_topic()).
-        if hasattr(self._retry_producer, "eventhub_name"):
-            self._retry_topic_resolved = self._retry_producer.eventhub_name
 
         self._dlq_producer = create_producer(
             config=self.config,
@@ -198,11 +166,6 @@ class DownloadRetryHandler:
                     "max_retries": self._max_retries,
                 },
             )
-            # Record retry exhausted metric
-            #             record_retry_exhausted(
-            #                 domain="claimx",
-            #                 error_category=error_category.value,
-            #             )
             await self._send_to_dlq(
                 task, error, error_category, url_refresh_attempted=False
             )
@@ -340,7 +303,7 @@ class DownloadRetryHandler:
             updated_task.download_url = new_url
 
             # Add metadata about URL refresh
-            if not hasattr(updated_task, "metadata"):
+            if updated_task.metadata is None:
                 updated_task.metadata = {}
             updated_task.metadata["url_refreshed_at"] = datetime.now(
                 UTC
@@ -387,7 +350,7 @@ class DownloadRetryHandler:
 
         # Add error context to metadata (truncate to prevent huge messages)
         error_message = str(error)[:LOG_ERROR_TRUNCATE_LONG]
-        if not hasattr(updated_task, "metadata"):
+        if updated_task.metadata is None:
             updated_task.metadata = {}
         updated_task.metadata["last_error"] = error_message
         updated_task.metadata["error_category"] = error_category.value
@@ -408,14 +371,6 @@ class DownloadRetryHandler:
                 "target_topic": target_topic,
             },
         )
-
-        # Record retry attempt metric
-        #         record_retry_attempt(
-        #             domain="claimx",
-        #             worker_type="download_worker",
-        #             error_category=error_category.value,
-        #             delay_seconds=delay_seconds,
-        #         )
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self._retry_producer.send(

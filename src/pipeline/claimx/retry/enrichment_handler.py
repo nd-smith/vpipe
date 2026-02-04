@@ -22,30 +22,9 @@ logger = get_logger(__name__)
 
 
 class EnrichmentRetryHandler:
-    """
-    Handles retry logic for ClaimX enrichment failures via Kafka topics.
+    """Handles retry logic for ClaimX enrichment failures via Kafka topics.
 
-    Routes failed enrichment tasks to appropriate retry topics based on
-    retry count, or to DLQ when retries are exhausted. Preserves error
-    context through retry chain for observability.
-
-    The retry delays are configurable via KafkaConfig:
-    - Default: [300s, 600s, 1200s, 2400s] (5m, 10m, 20m, 40m)
-    - Retry topics: claimx.enrichment.pending.retry.{delay}m
-    - DLQ topic: claimx.enrichment.dlq
-
-    Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> retry_handler = EnrichmentRetryHandler(config)
-        >>> await retry_handler.start()
-        >>>
-        >>> # Handle a failed enrichment task
-        >>> await retry_handler.handle_failure(
-        ...     task=enrichment_task,
-        ...     error=ClaimXApiError("API returned 404"),
-        ...     error_category=ErrorCategory.PERMANENT
-        ... )
-        >>> await retry_handler.stop()
+    Routes tasks to retry topics or DLQ based on retry count and error category.
     """
 
     def __init__(
@@ -92,11 +71,6 @@ class EnrichmentRetryHandler:
             topic_key="retry",
         )
         await self._retry_producer.start()
-
-        # Sync topic with producer's actual entity name (Event Hub entity may
-        # differ from the Kafka topic name resolved by get_topic()).
-        if hasattr(self._retry_producer, "eventhub_name"):
-            self._retry_topic_resolved = self._retry_producer.eventhub_name
 
         self._dlq_producer = create_producer(
             config=self.config,

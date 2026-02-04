@@ -22,8 +22,8 @@ class ProjectCache:
     in a single worker session).
     """
 
-    def __init__(self, ttl_seconds: int | None = None):
-        """Initialize cache. ttl_seconds parameter ignored (kept for compatibility)."""
+    def __init__(self):
+        """Initialize cache."""
         self._projects: set[str] = set()
         logger.debug("ProjectCache initialized")
 

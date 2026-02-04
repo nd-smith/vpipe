@@ -133,34 +133,16 @@ def elapsed_ms(start: datetime) -> int:
     return int((datetime.now(UTC) - start).total_seconds() * 1000)
 
 
-class BaseTransformer:
-    """
-    Base transformer class providing common metadata injection.
-
-    Eliminates boilerplate timestamp injection across all transformers.
-    """
-
-    @staticmethod
-    def inject_metadata(
-        row: dict[str, Any],
-        event_id: str,
-        include_last_enriched: bool = True,
-    ) -> dict[str, Any]:
-        """
-        Inject common metadata fields into a row dictionary.
-
-        Args:
-            row: The row dictionary to inject metadata into
-            event_id: Event ID for traceability
-            include_last_enriched: Whether to include last_enriched_at field
-
-        Returns:
-            The row dictionary with metadata fields injected
-        """
-        now = now_datetime()
-        row["event_id"] = event_id
-        row["created_at"] = now
-        row["updated_at"] = now
-        if include_last_enriched:
-            row["last_enriched_at"] = now
-        return row
+def inject_metadata(
+    row: dict[str, Any],
+    event_id: str,
+    include_last_enriched: bool = True,
+) -> dict[str, Any]:
+    """Inject common metadata fields into a row dictionary."""
+    now = now_datetime()
+    row["event_id"] = event_id
+    row["created_at"] = now
+    row["updated_at"] = now
+    if include_last_enriched:
+        row["last_enriched_at"] = now
+    return row

@@ -1,24 +1,7 @@
-"""
-Delta Events Worker - Writes ClaimX events to Delta Lake claimx_events table.
+"""Delta events worker for ClaimX.
 
-This worker consumes events from the claimx events topic and writes them to
-the claimx_events Delta table for analytics.
-
-Separated from ClaimXEventIngesterWorker to follow single-responsibility principle:
-- ClaimXEventIngesterWorker: Parse events → produce enrichment tasks
-- ClaimXDeltaEventsWorker: Parse events → write to Delta Lake
-
-Features:
-- Batch accumulation for efficient Delta writes
-- Configurable batch size via processing config
-- Graceful shutdown with pending batch flush
-- Retry via Kafka topics with exponential backoff
-
-Consumer group: {prefix}-claimx-delta-events (different from ingester)
-Input topic: com.allstate.pcesdopodappv1.claimx.events.raw (or configured events topic)
-Output: Delta table claimx_events (no Kafka output)
-Retry topics: com.allstate.pcesdopodappv1.claimx-delta-events.retry.{delay}m
-DLQ topic: com.allstate.pcesdopodappv1.claimx-delta-events.dlq
+Writes event messages to Delta Lake with batch processing.
+Separate from event ingester for independent scaling.
 """
 
 import asyncio

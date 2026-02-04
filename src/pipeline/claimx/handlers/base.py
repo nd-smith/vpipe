@@ -1,9 +1,4 @@
-"""
-Base handler classes and registry for ClaimX event processing.
-
-Provides the EventHandler abstract base class, handler registry for routing events,
-and decorator utilities for error handling and handler registration.
-"""
+"""Base handler classes and registry for ClaimX event processing."""
 
 import logging
 from abc import ABC, abstractmethod
@@ -36,19 +31,7 @@ logger = get_logger(__name__)
 
 
 class EnrichmentResult:
-    """
-    Result from processing a single ClaimX event.
-
-    Attributes:
-        event: Original event that was processed
-        success: Whether processing succeeded
-        rows: Entity rows extracted from API (if successful)
-        error: Error message (if failed)
-        error_category: Error classification for retry logic
-        is_retryable: Whether this error can be retried
-        api_calls: Number of API calls made
-        duration_ms: Processing time in milliseconds
-    """
+    """Result from processing a single ClaimX event."""
 
     def __init__(
         self,
@@ -72,21 +55,7 @@ class EnrichmentResult:
 
 
 class HandlerResult:
-    """
-    Aggregated result from processing a batch of events.
-
-    Attributes:
-        handler_name: Name of the handler class
-        total: Total events processed
-        succeeded: Number of successful events
-        failed: Number of failed events
-        failed_permanent: Number of permanently failed events
-        skipped: Number of skipped events
-        rows: All extracted entity rows
-        errors: List of error messages
-        duration_seconds: Total processing time in seconds
-        api_calls: Total API calls made
-    """
+    """Aggregated result from processing a batch of events."""
 
     def __init__(
         self,
@@ -219,17 +188,9 @@ def with_api_error_handling(
 
 
 class EventHandler(ABC):
-    """
-    Base class for ClaimX event handlers.
+    """Base class for ClaimX event handlers.
 
-    Each handler processes specific event types and returns entity rows
-    to be written to Delta tables.
-
-    Attributes:
-        event_types: List of event type strings this handler processes
-        supports_batching: Whether this handler supports batch processing
-        batch_key: Field to batch by (e.g., "project_id")
-        client: ClaimX API client for fetching data
+    Processes events by type and returns entity rows for Delta tables.
     """
 
     event_types: list[str] = []

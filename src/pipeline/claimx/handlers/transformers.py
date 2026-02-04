@@ -9,7 +9,7 @@ from typing import Any
 
 from core.logging import get_logger, log_with_context
 from pipeline.claimx.handlers.utils import (
-    BaseTransformer,
+    inject_metadata,
     now_iso,
     parse_timestamp,
     safe_bool,
@@ -103,7 +103,7 @@ def project_to_row(
         "custom_external_unique_id": safe_str(project.get("customExternalUniqueId")),
         "company_name": safe_str(inner.get("companyName")),
     }
-    return BaseTransformer.inject_metadata(row, event_id, include_last_enriched=False)
+    return inject_metadata(row, event_id, include_last_enriched=False)
 
 
 def project_to_contacts(
@@ -152,7 +152,7 @@ def project_to_contacts(
             "task_assignment_id": None,
             "video_collaboration_id": None,
         }
-        contacts.append(BaseTransformer.inject_metadata(row, event_id))
+        contacts.append(inject_metadata(row, event_id))
 
     for member in team_members:
         username = safe_str(member.get("userName"))
@@ -172,7 +172,7 @@ def project_to_contacts(
                 "task_assignment_id": None,
                 "video_collaboration_id": None,
             }
-            contacts.append(BaseTransformer.inject_metadata(row, event_id))
+            contacts.append(inject_metadata(row, event_id))
 
     policyholder_count = sum(
         1 for c in contacts if c["contact_type"] == "POLICYHOLDER"
@@ -224,7 +224,7 @@ def task_to_row(
         "resubmit_task_assignment_id": safe_int(data.get("resubmitTaskAssignmentId")),
         "task_url": safe_str(data.get("url")),
     }
-    return BaseTransformer.inject_metadata(row, event_id)
+    return inject_metadata(row, event_id)
 
 
 def template_to_row(
@@ -259,7 +259,7 @@ def template_to_row(
         "modified_by_id": safe_int(template.get("modifiedById")),
         "modified_date": parse_timestamp(template.get("modifiedDate")),
     }
-    return BaseTransformer.inject_metadata(row, event_id)
+    return inject_metadata(row, event_id)
 
 
 def link_to_row(
@@ -282,7 +282,7 @@ def link_to_row(
         "accessed_count": 0,
         "last_accessed": None,
     }
-    return BaseTransformer.inject_metadata(row, event_id, include_last_enriched=False)
+    return inject_metadata(row, event_id, include_last_enriched=False)
 
 
 def link_to_contact(
@@ -312,7 +312,7 @@ def link_to_contact(
         "updated_at": now_iso(),
         "created_date": today,
     }
-    return BaseTransformer.inject_metadata(row, event_id)
+    return inject_metadata(row, event_id)
 
 
 def media_to_row(
@@ -338,7 +338,7 @@ def media_to_row(
         "full_download_link": download_link,
         "expires_at": safe_str(media.get("expiresAt")),
     }
-    return BaseTransformer.inject_metadata(row, event_id)
+    return inject_metadata(row, event_id)
 
 
 def video_collab_to_row(
@@ -379,4 +379,4 @@ def video_collab_to_row(
         "company_name": safe_str(data.get("companyName")),
         "guid": safe_str(data.get("guid")),
     }
-    return BaseTransformer.inject_metadata(row, event_id)
+    return inject_metadata(row, event_id)

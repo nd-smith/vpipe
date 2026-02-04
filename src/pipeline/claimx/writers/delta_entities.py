@@ -1,16 +1,6 @@
-"""
-Delta Lake writer for ClaimX entity tables.
+"""Delta Lake writer for ClaimX entity tables.
 
-Writes ClaimX entity data to 7 separate Delta tables:
-- claimx_projects: Project metadata
-- claimx_contacts: Contact/policyholder information
-- claimx_attachment_metadata: Attachment metadata
-- claimx_tasks: Task information
-- claimx_task_templates: Task template definitions
-- claimx_external_links: External resource links
-- claimx_video_collab: Video collaboration sessions
-
-Uses merge (upsert) operations with appropriate primary keys for idempotency.
+Writes entity data to 7 Delta tables using merge operations for idempotency.
 """
 
 import shutil
@@ -23,11 +13,7 @@ from core.logging.setup import get_logger
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.common.writers.base import BaseDeltaWriter
 
-# Schema definitions matching actual Delta table schemas exactly
-# These schemas are derived from the Fabric Delta tables to ensure type compatibility
-# Spark/Delta type mapping:
-#   StringType -> pl.Utf8
-#   BooleanType -> pl.Boolean
+# Schema definitions matching actual Delta table schemas
 #   IntegerType -> pl.Int32
 #   LongType -> pl.Int64
 #   DoubleType -> pl.Float64
@@ -221,29 +207,9 @@ MERGE_KEYS: dict[str, list[str]] = {
 
 
 class ClaimXEntityWriter:
-    """
-    Manages writes to all ClaimX entity Delta tables.
+    """Manages writes to all ClaimX entity Delta tables.
 
-    Uses merge operations with merge keys for idempotency.
-    Each entity type is written to its own Delta table with appropriate merge keys.
-
-    Entity Tables:
-        - projects → claimx_projects (merge key: project_id)
-        - contacts → claimx_contacts (merge keys: project_id, contact_email, contact_type)
-        - media → claimx_attachment_metadata (merge key: media_id)
-        - tasks → claimx_tasks (merge key: assignment_id)
-        - task_templates → claimx_task_templates (merge key: task_id)
-        - external_links → claimx_external_links (merge key: link_id)
-        - video_collab → claimx_video_collab (merge key: video_collaboration_id)
-
-    Usage:
-        >>> writer = ClaimXEntityWriter(
-        ...     projects_table_path="abfss://.../claimx_projects",
-        ...     contacts_table_path="abfss://.../claimx_contacts",
-        ...     # ... other table paths
-        ... )
-        >>> entity_rows = EntityRowsMessage(projects=[...], contacts=[...])
-        >>> await writer.write_all(entity_rows)
+    Uses merge operations with appropriate keys for idempotency.
     """
 
     def __init__(
@@ -270,36 +236,34 @@ class ClaimXEntityWriter:
         """
         self.logger = get_logger(self.__class__.__name__)
 
-        # Validate that all required table paths are set
-        # This catches configuration errors early with a clear message
         table_paths = {
-                "projects": projects_table_path,
-                "contacts": contacts_table_path,
-                "media": media_table_path,
-                "tasks": tasks_table_path,
-                "task_templates": task_templates_table_path,
+            "projects": projects_table_path,
+            "contacts": contacts_table_path,
+            "media": media_table_path,
+            "tasks": tasks_table_path,
+            "task_templates": task_templates_table_path,
             "external_links": external_links_table_path,
             "video_collab": video_collab_table_path,
         }
         empty_paths = [name for name, path in table_paths.items() if not path]
         if empty_paths:
-                env_var_hints = {
-                    "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
-                    "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
-                    "media": "CLAIMX_DELTA_MEDIA_TABLE",
-                    "tasks": "CLAIMX_DELTA_TASKS_TABLE",
-                    "task_templates": "CLAIMX_DELTA_TASK_TEMPLATES_TABLE",
-                    "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
-                    "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
-                }
-                missing_info = [
-                    f"{name} ({env_var_hints[name]})" for name in empty_paths
-                ]
-                raise ValueError(
-                    f"ClaimXEntityWriter requires table paths for all entity types. "
-                    f"Missing paths for: {', '.join(missing_info)}. "
-                    f"Set the corresponding environment variables."
-                )
+            env_var_hints = {
+                "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
+                "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
+                "media": "CLAIMX_DELTA_MEDIA_TABLE",
+                "tasks": "CLAIMX_DELTA_TASKS_TABLE",
+                "task_templates": "CLAIMX_DELTA_TASK_TEMPLATES_TABLE",
+                "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
+                "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
+            }
+            missing_info = [
+                f"{name} ({env_var_hints[name]})" for name in empty_paths
+            ]
+            raise ValueError(
+                f"ClaimXEntityWriter requires table paths for all entity types. "
+                f"Missing paths for: {', '.join(missing_info)}. "
+                f"Set the corresponding environment variables."
+            )
 
         # Create individual writers for each entity table
         # Projects and Media are partitioned by project_id

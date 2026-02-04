@@ -1,22 +1,7 @@
-"""
-ClaimX download worker for processing download tasks with concurrent processing.
+"""ClaimX download worker with concurrent processing.
 
-Consumes ClaimXDownloadTask from pending and retry topics,
-downloads media files using AttachmentDownloader, caches to local
-filesystem, and produces ClaimXCachedDownloadMessage for upload worker.
-
-This implementation follows the xact download worker pattern but adapted for ClaimX:
-- Uses ClaimXDownloadTask (media_id, project_id, download_url)
-- Downloads from S3 presigned URLs (from API enrichment)
-- Caches files locally before upload (decoupled from upload worker)
-- Upload worker consumes from claimx.downloads.cached topic
-
-Concurrent Processing:
-- Fetches batches of messages from Kafka
-- Processes downloads concurrently using asyncio.Semaphore
-- Uses HTTP connection pooling via shared aiohttp.ClientSession
-- Configurable concurrency via DOWNLOAD_CONCURRENCY (default: 10, max: 50)
-- Graceful shutdown waits for in-flight downloads to complete
+Downloads media files using presigned S3 URLs and caches locally for upload worker.
+Decoupled architecture allows independent scaling of download vs upload.
 """
 
 import asyncio
@@ -227,8 +212,6 @@ class ClaimXDownloadWorker:
 
         await self.producer.start()
 
-        # Sync topic with producer's actual entity name (Event Hub entity may
-        # differ from the Kafka topic name resolved by get_topic()).
         if hasattr(self.producer, "eventhub_name"):
             self.cached_topic = self.producer.eventhub_name
 
@@ -359,7 +342,6 @@ class ClaimXDownloadWorker:
         consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(consumer_group, 0)
-        # Note: update_downloads_batch_size metric not implemented
 
         logger.info("ClaimX download worker stopped successfully")
 
@@ -516,9 +498,6 @@ class ClaimXDownloadWorker:
             consumer_group = self.config.get_consumer_group(
                 self.domain, self.WORKER_NAME
             )
-            time.perf_counter() - start_time
-            # Note: message_processing_duration_seconds metric not implemented
-            # Note: claim_processing_seconds metric not implemented
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
@@ -606,12 +585,6 @@ class ClaimXDownloadWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
-                    # Calculate cycle-specific deltas
-                    (
-                        self._records_processed - self._last_cycle_processed
-                    )
-                    self._records_failed - self._last_cycle_failed
-
                     logger.info(
                         format_cycle_output(
                             cycle_count=self._cycle_count,
@@ -680,26 +653,6 @@ class ClaimXDownloadWorker:
                 "cache_path": str(cache_path),
             },
         )
-
-        if outcome.bytes_downloaded:
-            if task_message.file_type:
-                file_type_lower = task_message.file_type.lower()
-                if (
-                    "image" in file_type_lower
-                    or "jpg" in file_type_lower
-                    or "png" in file_type_lower
-                ) or (
-                    "video" in file_type_lower
-                    or "mp4" in file_type_lower
-                    or "mov" in file_type_lower
-                ) or "pdf" in file_type_lower or "doc" in file_type_lower:
-                    pass
-            elif outcome.content_type:
-                content_type_lower = outcome.content_type.lower()
-                if "image" in content_type_lower or "video" in content_type_lower or "pdf" in content_type_lower or "document" in content_type_lower:
-                    pass
-
-            # Note: claim_media_bytes_total metric not implemented
 
         try:
             if outcome.file_path.parent.exists():

@@ -1,10 +1,7 @@
-"""
-ClaimX Event Ingester Worker - Consumes events and produces enrichment tasks.
+"""ClaimX event ingester worker.
 
-Different from xact pipeline:
-- Produces enrichment tasks (not download tasks)
-- No URL validation at this stage (URLs come from API enrichment)
-- All events trigger enrichment (not just ones with attachments)
+Consumes raw events and produces enrichment tasks.
+All events trigger API enrichment for entity data.
 """
 
 import asyncio
@@ -141,8 +138,6 @@ class ClaimXEventIngesterWorker:
         )
         await self.producer.start()
 
-        # Sync topic with producer's actual entity name (Event Hub entity may
-        # differ from the Kafka topic name resolved by get_topic()).
         if hasattr(self.producer, "eventhub_name"):
             self.enrichment_topic = self.producer.eventhub_name
 
@@ -422,14 +417,6 @@ class ClaimXEventIngesterWorker:
                 if cycle_elapsed >= 30:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
-
-                    # Calculate cycle-specific deltas
-                    (
-                        self._records_processed - self._last_cycle_processed
-                    )
-                    (
-                        self._records_deduplicated - self._last_cycle_deduped
-                    )
 
                     logger.info(
                         format_cycle_output(
