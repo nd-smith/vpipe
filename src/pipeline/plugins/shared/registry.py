@@ -346,9 +346,8 @@ class ActionExecutor:
 
         if self.producer:
             await self.producer.send(
-                topic=topic,
-                key=key,
                 value=payload,
+                key=key,
                 headers=headers,
             )
             log_with_context(

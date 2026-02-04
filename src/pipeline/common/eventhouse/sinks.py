@@ -122,9 +122,8 @@ class KafkaSink:
             raise RuntimeError("KafkaSink not started. Call start() first.")
 
         await self._producer.send(
-            topic=self._topic,
-            key=key,
             value=event,
+            key=key,
             headers=headers,
         )
 

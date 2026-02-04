@@ -361,9 +361,8 @@ class ClaimXEventIngesterWorker:
         )
         try:
             metadata = await self.producer.send(
-                topic=self.enrichment_topic,
-                key=event.event_id,
                 value=enrichment_task,
+                key=event.event_id,
                 headers={"event_id": event.event_id},
             )
 

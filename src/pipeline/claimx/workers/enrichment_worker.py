@@ -698,7 +698,6 @@ class ClaimXEnrichmentWorker:
         try:
             event_id = tasks[0].event_id if tasks else batch_id
             await self.producer.send(
-                topic=self.entity_rows_topic,
                 value=entity_rows,
                 key=event_id,
             )
@@ -748,9 +747,8 @@ class ClaimXEnrichmentWorker:
         for task in download_tasks:
             try:
                 metadata = await self.download_producer.send(
-                    topic=self.download_topic,
-                    key=task.source_event_id,
                     value=task,
+                    key=task.source_event_id,
                     headers={"event_id": task.source_event_id},
                 )
 

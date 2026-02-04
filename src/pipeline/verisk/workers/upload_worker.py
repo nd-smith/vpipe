@@ -643,9 +643,8 @@ class UploadWorker:
             )
 
             await self.producer.send(
-                topic=self.results_topic,
-                key=trace_id,
                 value=result_message,
+                key=trace_id,
             )
 
             # Clean up cached file

@@ -518,9 +518,8 @@ class DeltaRetryHandler:
         )
 
         await self._retry_producer.send(
-            topic=retry_topic,
-            key=batch_id or "batch",
             value=failed_batch,
+            key=batch_id or "batch",
             headers={
                 "retry_count": str(retry_count + 1),
                 "scheduled_retry_time": retry_at.isoformat(),
@@ -607,9 +606,8 @@ class DeltaRetryHandler:
         )
 
         await self._dlq_producer.send(
-            topic=self._dlq_topic,
-            key=batch_id or "batch",
             value=dlq_message,
+            key=batch_id or "batch",
             headers={
                 "retry_count": str(retry_count),
                 "error_category": error_category.value,

@@ -250,9 +250,8 @@ class EnrichmentRetryHandler:
         )
 
         await self._retry_producer.send(
-            topic=retry_topic,
-            key=task.event_id,
             value=updated_task,
+            key=task.event_id,
             headers={
                 "retry_count": str(updated_task.retry_count),
                 "scheduled_retry_time": retry_at.isoformat(),
@@ -325,9 +324,8 @@ class EnrichmentRetryHandler:
         )
 
         await self._dlq_producer.send(
-            topic=self.dlq_topic,
-            key=task.event_id,
             value=dlq_message,
+            key=task.event_id,
             headers={
                 "retry_count": str(task.retry_count),
                 "error_category": error_category.value,
