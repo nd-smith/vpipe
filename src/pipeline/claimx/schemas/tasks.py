@@ -181,6 +181,10 @@ class ClaimXDownloadTask(BaseModel):
         description="Number of times URL was refreshed (for expired URLs)",
         ge=0,
     )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Metadata for download tracking (error context, retry info, URL refresh, etc.)",
+    )
 
     @field_validator("media_id", "project_id", "download_url", "blob_path")
     @classmethod
