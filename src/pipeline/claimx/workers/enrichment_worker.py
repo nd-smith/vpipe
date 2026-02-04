@@ -8,7 +8,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
