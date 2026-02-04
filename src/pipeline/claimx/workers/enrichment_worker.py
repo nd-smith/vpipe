@@ -1,18 +1,7 @@
-"""
-ClaimX Enrichment Worker - Enriches events with API data and produces download tasks.
+"""ClaimX enrichment worker.
 
-This worker is the core of the ClaimX enrichment pipeline:
-1. Consumes ClaimXEnrichmentTask from enrichment pending topic
-2. Routes events to appropriate handlers based on event_type
-3. Handlers call ClaimX API to fetch entity data
-4. Writes entity rows to Delta Lake tables
-5. Produces ClaimXDownloadTask for media files with download URLs
-
-Consumer group: {prefix}-claimx-enrichment-worker
-Input topic: claimx.enrichment.pending
-Output topic: claimx.entities.rows (entity data), claimx.downloads.pending (downloads)
-Delta tables: claimx_projects, claimx_contacts, claimx_attachment_metadata, claimx_tasks,
-              claimx_task_templates, claimx_external_links, claimx_video_collab
+Enriches events with ClaimX API data and produces download tasks.
+Routes events by type to specialized handlers.
 """
 
 import asyncio
@@ -241,11 +230,11 @@ class ClaimXEnrichmentWorker:
 
         await self.health_server.start()
 
-        # Use injected API client if provided (simulation mode), otherwise create production client
+        # Use injected API client if provided, otherwise create production client
         if self._injected_api_client is not None:
             self.api_client = self._injected_api_client
             logger.info(
-                "Using injected API client (simulation mode)",
+                "Using injected API client",
                 extra={
                     "api_client_type": type(self.api_client).__name__,
                     "worker_id": self.worker_id,
@@ -614,12 +603,6 @@ class ClaimXEnrichmentWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time.monotonic()
 
-                    # Calculate cycle-specific deltas
-                    (
-                        self._records_processed - self._last_cycle_processed
-                    )
-                    self._records_failed - self._last_cycle_failed
-
                     logger.info(
                         format_cycle_output(
                             cycle_count=self._cycle_count,
@@ -654,37 +637,8 @@ class ClaimXEnrichmentWorker:
         self,
         project_ids: list[str],
     ) -> None:
-        """
-        Pre-flight check: Ensure projects exist to prevent referential integrity issues
-        when writing child entities. Failures are non-fatal.
-        """
-        if not project_ids or not self.enable_delta_writes:
-            return
-
-        unique_project_ids = list(set(project_ids))
-
-        logger.debug(
-            "Pre-flight: Checking project existence",
-            extra={
-                "project_count": len(unique_project_ids),
-                "project_ids": unique_project_ids[:10],
-            },
-        )
-
-        try:
-
-            # Pre-flight check disabled in decoupled writer mode - project existence handled by downstream delta writer
-            return
-
-        except Exception as e:
-            logger.error(
-                "Pre-flight check failed",
-                extra={
-                    "error": str(e)[:200],
-                    "project_count": len(project_ids),
-                },
-                exc_info=True,
-            )
+        """Pre-flight check disabled - project existence handled by downstream delta writer."""
+        return
 
     async def _produce_entity_rows(
         self,

@@ -109,12 +109,12 @@ class UploadWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Store injected storage client (for simulation mode)
+        # Store injected storage client
         self._injected_storage_client = storage_client
 
         if storage_client is not None:
             logger.info(
-                "Using injected storage client (simulation mode)",
+                "Using injected storage client",
                 extra={"storage_type": type(storage_client).__name__},
             )
 
@@ -228,7 +228,7 @@ class UploadWorker:
 
         # Initialize storage clients (use injected client or create OneLake clients)
         if self._injected_storage_client is not None:
-            # Use injected storage client for this domain (simulation mode)
+            # Use injected storage client for this domain
             # The XACT worker supports multi-domain routing, so we need to set it as the domain client
             self.onelake_clients[self.domain] = self._injected_storage_client
 

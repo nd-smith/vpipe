@@ -1,17 +1,7 @@
-"""
-ClaimX upload worker for uploading cached downloads to OneLake.
+"""ClaimX upload worker for OneLake uploads.
 
-Consumes ClaimXCachedDownloadMessage from claimx.downloads.cached topic,
-uploads files to OneLake, and produces ClaimXUploadResultMessage.
-
-This worker is decoupled from the Download Worker to allow:
-- Independent scaling of download vs upload workers
-- Downloads not blocked by slow OneLake uploads
-- Cache buffer if OneLake has temporary issues
-
-Architecture:
-- Download Worker: downloads → local cache → ClaimXCachedDownloadMessage
-- Upload Worker: ClaimXCachedDownloadMessage → OneLake → ClaimXUploadResultMessage
+Uploads cached files to OneLake with concurrent processing.
+Decoupled from download worker for independent scaling.
 """
 
 import asyncio
@@ -99,14 +89,7 @@ class ClaimXUploadWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Store injected storage client (for simulation mode)
         self._injected_storage_client = storage_client
-
-        if storage_client is not None:
-            logger.info(
-                "Using injected storage client (simulation mode)",
-                extra={"storage_type": type(storage_client).__name__},
-            )
 
         # Validate OneLake configuration for claimx domain (only if not using injected client)
         if (
@@ -216,14 +199,12 @@ class ClaimXUploadWorker:
         # Start producer
         await self.producer.start()
 
-        # Sync topic with producer's actual entity name (Event Hub entity may
-        # differ from the Kafka topic name resolved by get_topic()).
         if hasattr(self.producer, "eventhub_name"):
             self.results_topic = self.producer.eventhub_name
 
         # Initialize storage client (use injected client or create OneLake client)
         if self._injected_storage_client is not None:
-            # Use injected storage client (simulation mode)
+            # Use injected storage client
             self.onelake_client = self._injected_storage_client
 
             # If the injected client is an async context manager, enter it
@@ -713,13 +694,6 @@ class ClaimXUploadWorker:
                     async with self._in_flight_lock:
                         in_flight = len(self._in_flight_tasks)
 
-                    # Calculate cycle-specific deltas
-                    (
-                        self._records_processed - self._last_cycle_processed
-                    )
-                    self._records_failed - self._last_cycle_failed
-
-                    # Use standardized cycle output format
                     logger.info(
                         format_cycle_output(
                             cycle_count=self._cycle_count,
