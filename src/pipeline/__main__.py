@@ -528,7 +528,7 @@ def main():
         pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
     else:
         try:
-            pipeline_config, eventhub_config, kafka_config = (
+            pipeline_config, eventhub_config, local_kafka_config = (
                 load_production_config()
             )
         except ValueError as e:
