@@ -328,9 +328,8 @@ class EventIngesterWorker:
         # CRITICAL: Must await send confirmation before allowing offset commit
         try:
             metadata = await self.producer.send(
-                topic=self.enrichment_topic,
-                key=event.trace_id,
                 value=enrichment_task,
+                key=event.trace_id,
                 headers={"trace_id": event.trace_id, "event_id": event_id},
             )
 

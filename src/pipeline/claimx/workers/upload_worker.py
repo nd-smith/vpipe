@@ -721,9 +721,8 @@ class ClaimXUploadWorker:
 
             # Use source_event_id as key for consistent partitioning across all ClaimX topics
             await self.producer.send(
-                topic=self.results_topic,
-                key=cached_message.source_event_id,
                 value=result_message,
+                key=cached_message.source_event_id,
             )
 
             # Clean up cached file

@@ -419,9 +419,8 @@ class DownloadRetryHandler:
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self._retry_producer.send(
-            topic=retry_topic,
-            key=task.source_event_id,
             value=updated_task,
+            key=task.source_event_id,
             headers={
                 "retry_count": str(updated_task.retry_count),
                 "scheduled_retry_time": retry_at.isoformat(),
@@ -489,9 +488,8 @@ class DownloadRetryHandler:
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
         await self._dlq_producer.send(
-            topic=self.dlq_topic,
-            key=task.source_event_id,
             value=dlq_message,
+            key=task.source_event_id,
             headers={
                 "retry_count": str(task.retry_count),
                 "error_category": error_category.value,

@@ -875,9 +875,8 @@ class ClaimXDownloadWorker:
         )
 
         await self.producer.send(
-            topic=self.cached_topic,
-            key=task_message.source_event_id,
             value=cached_message,
+            key=task_message.source_event_id,
         )
 
         logger.debug(

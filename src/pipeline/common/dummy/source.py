@@ -326,7 +326,7 @@ class DummyDataSource:
             logger.warning("Unknown domain: %s", domain)
             return
 
-        await producer.send(topic=topic, key=key, value=event)
+        await producer.send(value=event, key=key)
         self._total_events += 1
 
         if self._total_events % 100 == 0:

@@ -185,17 +185,18 @@ class EventHubProducer:
 
     async def send(
         self,
-        topic: str,
-        key: str | bytes | None,
         value: BaseModel | dict[str, Any] | bytes,
+        topic: str | None = None,
+        key: str | bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> ProduceResult:
         """Send a single message to Event Hub.
 
         Args:
-            topic: Event Hub entity name (must match self.eventhub_name)
-            key: Message key (stored in Event Hub properties)
             value: Message value (Pydantic model, dict, or bytes)
+            topic: Optional Event Hub entity name. If not provided, uses the producer's
+                   configured eventhub_name. For compatibility with Kafka-style interfaces.
+            key: Message key (stored in Event Hub properties)
             headers: Optional message headers (stored in Event Hub properties)
 
         Returns:
@@ -203,6 +204,10 @@ class EventHubProducer:
         """
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")
+
+        # Default to the producer's configured entity name
+        if topic is None:
+            topic = self.eventhub_name
 
         # Validate topic matches entity
         if topic != self.eventhub_name:
@@ -277,15 +282,16 @@ class EventHubProducer:
 
     async def send_batch(
         self,
-        topic: str,
         messages: list[tuple[str, BaseModel]],
+        topic: str | None = None,
         headers: dict[str, str] | None = None,
     ) -> list[ProduceResult]:
         """Send a batch of messages to Event Hub.
 
         Args:
-            topic: Event Hub entity name (must match self.eventhub_name)
             messages: List of (key, value) tuples
+            topic: Optional Event Hub entity name. If not provided, uses the producer's
+                   configured eventhub_name. For compatibility with Kafka-style interfaces.
             headers: Optional headers applied to all messages
 
         Returns:
@@ -297,6 +303,10 @@ class EventHubProducer:
         if not messages:
             logger.warning("send_batch called with empty message list")
             return []
+
+        # Default to the producer's configured entity name
+        if topic is None:
+            topic = self.eventhub_name
 
         # Validate topic
         if topic != self.eventhub_name:

@@ -581,9 +581,8 @@ class XACTEnrichmentWorker:
         for task in download_tasks:
             try:
                 metadata = await self.producer.send(
-                    topic=self.download_topic,
-                    key=task.trace_id,
                     value=task,
+                    key=task.trace_id,
                     headers={"trace_id": task.trace_id, "media_id": task.media_id},
                 )
 

@@ -247,9 +247,8 @@ class DLQHandler:
 
         # Send to pending topic
         await self._producer.send(
-            topic=self._pending_topic,
-            key=replayed_task.trace_id,
             value=replayed_task,
+            key=replayed_task.trace_id,
             headers={
                 "trace_id": replayed_task.trace_id,
                 "replayed_from_dlq": "true",

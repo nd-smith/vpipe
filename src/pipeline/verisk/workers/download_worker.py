@@ -749,9 +749,8 @@ class DownloadWorker:
         )
 
         await self.producer.send(
-            topic=self.cached_topic,
-            key=task_message.trace_id,
             value=cached_message,
+            key=task_message.trace_id,
         )
 
         logger.info(
@@ -856,9 +855,8 @@ class DownloadWorker:
         )
 
         await self.producer.send(
-            topic=self.results_topic,
-            key=task_message.trace_id,
             value=result_message,
+            key=task_message.trace_id,
         )
 
         logger.info(
