@@ -1,18 +1,20 @@
 # =============================================================================
-# Kafka Pipeline Configuration
+# EventHub Pipeline Configuration
 # =============================================================================
-# This file configures the Kafka-based event processing pipeline for both
-# XACT and ClaimX domains. Each consumer and producer can be individually
-# configured with batch sizes, time windows, and performance settings.
+# This file configures the EventHub-based event processing pipeline for both
+# Verisk and ClaimX domains. Each worker can be individually configured with
+# batch sizes, time windows, and performance settings.
 #
 # Configuration is loaded ONLY from this YAML file.
 # Environment variables are NOT supported.
+#
+# NOTE: Kafka has been removed - EventHub is used for all pipeline communication
 # =============================================================================
 
 # =============================================================================
 # PIPELINE EVENT SOURCE
 # =============================================================================
-# Determines which event source the Kafka pipeline uses for ingestion
+# Determines which event source the pipeline uses for ingestion
 # Options:
 #   - "eventhouse": Production source - Microsoft Fabric Eventhouse
 #   - "eventhub": Production source - Azure Event Hub
@@ -20,155 +22,28 @@
 event_source: "eventhouse"
 
 # =============================================================================
-# KAFKA PIPELINE CONFIGURATION
+# PIPELINE CONFIGURATION
 # =============================================================================
-kafka:
+pipeline:
   # ===========================================================================
-  # SHARED CONNECTION SETTINGS
-  # Applied to all consumers and producers across all domains
+  # VERISK DOMAIN CONFIGURATION (formerly XACT)
+  # Verisk property claim assignments and attachments pipeline
   # ===========================================================================
-  connection:
-    # Comma-separated list of Kafka broker addresses (host:port)
-    # Port depends on security protocol:
-    #   SASL_PLAINTEXT -> 9092 | SASL_SSL -> 9093 | SSL (mTLS) -> 9094
-    #
-    # Example for corporate Kafka cluster (SASL_SSL on port 9093):
-    #   bootstrap_servers: "lxv102325.company.com:9093,lxv102326.company.com:9093,..."
-    bootstrap_servers: "localhost:9092"
-
-    # Security protocol for broker communication
-    # Options: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
-    security_protocol: "PLAINTEXT"
-
-    # SASL authentication mechanism
-    # Options: GSSAPI (Kerberos), PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
-    sasl_mechanism: "GSSAPI"
-
-    # Kerberos service name (GSSAPI only, default: "kafka")
-    # Must match the service principal name configured on the Kafka brokers
-    sasl_kerberos_service_name: "kafka"
-
-    # Username for SASL/PLAIN authentication or Azure Event Hubs
-    sasl_plain_username: ""
-
-    # Password for SASL/PLAIN authentication or Azure Event Hubs
-    sasl_plain_password: ""
-
-    # Confluent Schema Registry URL (optional)
-    # schema_registry_url: "https://your-registry.company.com:8081"
-    schema_registry_url: ""
-
-    # Maximum time to wait for any request to complete (milliseconds)
-    # Prevents requests from hanging indefinitely during network issues
-    request_timeout_ms: 120000  # 2 minutes
-
-    # How often to refresh cluster metadata (milliseconds)
-    # Lower values detect broker changes faster, but increase overhead
-    metadata_max_age_ms: 300000  # 5 minutes
-
-    # Close idle connections after this duration (milliseconds)
-    # Should be longer than max_poll_interval_ms to avoid reconnects
-    connections_max_idle_ms: 540000  # 9 minutes
-
-  # ===========================================================================
-  # DEFAULT CONSUMER SETTINGS
-  # Applied to all consumers unless overridden in worker-specific config
-  # ===========================================================================
-  consumer_defaults:
-    # Where to start consuming if no committed offset exists
-    # Options: earliest (start from beginning), latest (only new messages), none (error)
-    auto_offset_reset: "earliest"
-
-    # Automatically commit offsets after processing
-    # false = manual commit (recommended for at-least-once processing)
-    enable_auto_commit: false
-
-    # Maximum number of records returned in a single poll() call
-    # Higher = more throughput but more memory. Lower = less latency
-    max_poll_records: 100
-
-    # Maximum time between poll() calls before consumer is considered dead (milliseconds)
-    # Must be > session_timeout_ms. Increase for slow message processing
-    max_poll_interval_ms: 300000  # 5 minutes
-
-    # Minimum bytes to accumulate before returning from a fetch request
-    # Higher = better throughput, higher latency. 1 = return immediately
-    fetch_min_bytes: 1
-
-    # Maximum time to wait for fetch_min_bytes to accumulate (milliseconds)
-    # Controls how long broker waits before returning data
-    fetch_max_wait_ms: 500
-
-    # Timeout for detecting consumer failures (milliseconds)
-    # Consumer is removed from group if no heartbeat received within this time
-    session_timeout_ms: 30000  # 30 seconds
-
-    # How often to send heartbeats to the broker (milliseconds)
-    # Must be < session_timeout_ms / 3 to avoid false timeouts
-    heartbeat_interval_ms: 3000  # 3 seconds
-
-    # Strategy for assigning partitions to consumers in a group
-    # Options: RoundRobin, Range, Sticky
-    partition_assignment_strategy: "RoundRobin"
-
-  # ===========================================================================
-  # DEFAULT PRODUCER SETTINGS
-  # Applied to all producers unless overridden in worker-specific config
-  # ===========================================================================
-  producer_defaults:
-    # Number of acknowledgments producer requires before considering send successful
-    # Options: 0 (no ack), 1 (leader only), all (all in-sync replicas)
-    # all = most durable but slowest, 0 = fastest but may lose data
-    acks: "all"
-
-    # Maximum number of retry attempts for failed sends
-    # Producer will retry transient errors up to this many times
-    retries: 3
-
-    # Delay between retry attempts (milliseconds)
-    # Exponential backoff may be applied on top of this base delay
-    retry_backoff_ms: 1000  # 1 second
-
-    # Maximum size of a batch in bytes before sending
-    # Larger batches = better throughput but higher latency and memory
-    batch_size: 16384  # 16 KB
-
-    # Time to wait for batch to fill before sending (milliseconds)
-    # 0 = send immediately, >0 = wait up to this long to batch more records
-    linger_ms: 0
-
-    # Compression algorithm for message batches
-    # Options: none, gzip, snappy, lz4, zstd
-    # Compression reduces network bandwidth but increases CPU usage
-    compression_type: "none"
-
-    # Maximum number of unacknowledged requests per connection
-    # Lower values provide stronger ordering guarantees
-    max_in_flight_requests_per_connection: 5
-
-    # Total bytes of buffer memory for producer (bytes)
-    # Producer will block if buffer fills up
-    buffer_memory: 33554432  # 32 MB
-
-  # ===========================================================================
-  # XACT DOMAIN CONFIGURATION
-  # Verisk XACT pipeline - property claim assignments and attachments
-  # ===========================================================================
-  xact:
+  verisk:
     # -------------------------------------------------------------------------
-    # Topic Configuration
+    # EventHub Entity Names (formerly Kafka topics)
     # -------------------------------------------------------------------------
     topics:
-      events: "com.allstate.pcesdopodappv1.xact.events.raw"                  # Raw events from Event Hub/Eventhouse
-      enrichment_pending: "com.allstate.pcesdopodappv1.xact.enrichment.pending"  # Events awaiting enrichment
-      downloads_pending: "com.allstate.pcesdopodappv1.xact.downloads.pending"  # Download tasks awaiting processing
-      downloads_cached: "com.allstate.pcesdopodappv1.xact.downloads.cached"    # Downloads cached locally, awaiting upload
-      downloads_results: "com.allstate.pcesdopodappv1.xact.downloads.results"  # Upload results for Delta processing
-      dlq: "com.allstate.pcesdopodappv1.xact.downloads.dlq"                    # Dead letter queue for failed messages
+      events: "com.allstate.pcesdopodappv1.verisk.events.raw"                  # Raw events from Event Hub/Eventhouse
+      enrichment_pending: "com.allstate.pcesdopodappv1.verisk.enrichment.pending"  # Events awaiting enrichment
+      downloads_pending: "com.allstate.pcesdopodappv1.verisk.downloads.pending"  # Download tasks awaiting processing
+      downloads_cached: "com.allstate.pcesdopodappv1.verisk.downloads.cached"    # Downloads cached locally, awaiting upload
+      downloads_results: "com.allstate.pcesdopodappv1.verisk.downloads.results"  # Upload results for Delta processing
+      dlq: "com.allstate.pcesdopodappv1.verisk.downloads.dlq"                    # Dead letter queue for failed messages
 
-    # Prefix for consumer group names in this domain
+    # Consumer group prefix for all consumers in this domain
     # Group names will be: {prefix}-{worker_name}
-    consumer_group_prefix: "xact"
+    consumer_group_prefix: "verisk"
 
     # Retry configuration for download retry topics
     # Delays in seconds for each retry attempt: 5min, 10min, 20min, 40min
@@ -179,43 +54,11 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Event Ingester Worker
-    # Consumes: com.allstate.pcesdopodappv1.xact.events.raw
-    # Produces to: com.allstate.pcesdopodappv1.xact.enrichment.pending
+    # Consumes from: verisk.events.raw
+    # Produces to: verisk.enrichment.pending
     # Purpose: Parse events, create enrichment tasks for plugin execution
     # -------------------------------------------------------------------------
     event_ingester:
-      consumer:
-        # Consumer group name (overrides default pattern)
-        group_id: "xact-event-ingester"
-
-        # Larger batches for high-volume event ingestion
-        max_poll_records: 500
-
-        # Longer processing window for batch processing
-        max_poll_interval_ms: 600000  # 10 minutes
-
-        # More tolerance for processing delays
-        session_timeout_ms: 45000  # 45 seconds
-
-        # Wait for more data to accumulate before returning
-        fetch_min_bytes: 10240  # 10 KB
-
-        # Maximum wait time for batch accumulation
-        fetch_max_wait_ms: 1000  # 1 second
-
-      producer:
-        # Only wait for leader acknowledgment (faster, slightly less durable)
-        acks: "1"
-
-        # Larger batches for better throughput
-        batch_size: 32768  # 32 KB
-
-        # Wait briefly for batch to fill
-        linger_ms: 100  # 100 milliseconds
-
-        # Fast compression for high throughput
-        compression_type: "lz4"
-
       processing:
         # Application-level batch size for event processing
         batch_size: 100
@@ -226,33 +69,11 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Download Worker
-    # Consumes: com.allstate.pcesdopodappv1.xact.downloads.pending + com.allstate.pcesdopodappv1.xact.retry
-    # Produces to: com.allstate.pcesdopodappv1.xact.downloads.cached
+    # Consumes from: verisk.downloads.pending + verisk.retry
+    # Produces to: verisk.downloads.cached
     # Purpose: Download attachments from S3, cache locally for upload
     # -------------------------------------------------------------------------
     download_worker:
-      consumer:
-        group_id: "xact-download-worker"
-
-        # Smaller batches - downloads are slow operations
-        max_poll_records: 50
-
-        # Very long processing window - downloads can take time
-        max_poll_interval_ms: 900000  # 15 minutes
-
-        # Longer timeout for slow downloads
-        session_timeout_ms: 60000  # 60 seconds
-
-        # Wait longer for batch to accumulate
-        fetch_max_wait_ms: 2000  # 2 seconds
-
-      producer:
-        # Ensure cached download metadata is durable
-        acks: "all"
-
-        # No compression for small metadata messages
-        compression_type: "none"
-
       processing:
         # Maximum number of concurrent downloads (1-50)
         # Higher = more throughput but more memory and connections
@@ -266,30 +87,11 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Upload Worker
-    # Consumes: com.allstate.pcesdopodappv1.xact.downloads.cached
-    # Produces to: com.allstate.pcesdopodappv1.xact.downloads.results
+    # Consumes from: verisk.downloads.cached
+    # Produces to: verisk.downloads.results
     # Purpose: Upload cached files to OneLake, produce results
     # -------------------------------------------------------------------------
     upload_worker:
-      consumer:
-        group_id: "xact-upload-worker"
-
-        # Smaller batches - uploads are slow operations
-        max_poll_records: 50
-
-        # Very long processing window - uploads can take time
-        max_poll_interval_ms: 900000  # 15 minutes
-
-        # Longer timeout for slow uploads
-        session_timeout_ms: 60000  # 60 seconds
-
-      producer:
-        # Ensure results are durable
-        acks: "all"
-
-        # No compression for metadata
-        compression_type: "none"
-
       processing:
         # Maximum number of concurrent uploads (1-50)
         concurrency: 10
@@ -299,30 +101,11 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Delta Events Writer Worker
-    # Consumes: com.allstate.pcesdopodappv1.xact.downloads.results
-    # Produces to: com.allstate.pcesdopodappv1.delta-events.retry.*, com.allstate.pcesdopodappv1.delta-events.dlq
+    # Consumes from: verisk.downloads.results
+    # Produces to: delta-events.retry.*, delta-events.dlq
     # Purpose: Write events to Delta tables in batches
     # -------------------------------------------------------------------------
     delta_events_writer:
-      consumer:
-        group_id: "xact-delta-events-writer"
-
-        # Large batches for efficient Delta writes
-        max_poll_records: 1000
-
-        # Longer processing window for batch writing
-        max_poll_interval_ms: 600000  # 10 minutes
-
-        # More tolerance for batch processing
-        session_timeout_ms: 45000  # 45 seconds
-
-      producer:
-        # Ensure retry/DLQ messages are durable
-        acks: "all"
-
-        # Good compression for retry/DLQ topics
-        compression_type: "snappy"
-
       processing:
         # Number of events per Delta batch write
         batch_size: 1000
@@ -336,10 +119,10 @@ kafka:
         # Maximum retries before DLQ
         max_retries: 4
 
-        # Topic prefix for retry topics
+        # EventHub entity prefix for retry
         retry_topic_prefix: "com.allstate.pcesdopodappv1.delta-events.retry"
 
-        # Dead letter queue topic
+        # Dead letter queue entity
         dlq_topic: "com.allstate.pcesdopodappv1.delta-events.dlq"
 
   # ===========================================================================
@@ -348,7 +131,7 @@ kafka:
   # ===========================================================================
   claimx:
     # -------------------------------------------------------------------------
-    # Topic Configuration
+    # EventHub Entity Names
     # -------------------------------------------------------------------------
     topics:
       events: "com.allstate.pcesdopodappv1.claimx.events.raw"                      # Raw events from Eventhouse
@@ -367,44 +150,21 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Event Ingester Worker
-    # Consumes: com.allstate.pcesdopodappv1.claimx.events.raw
-    # Produces to: com.allstate.pcesdopodappv1.claimx.enrichment.pending
+    # Consumes from: claimx.events.raw
+    # Produces to: claimx.enrichment.pending
     # Purpose: Parse events, route to enrichment
     # -------------------------------------------------------------------------
     event_ingester:
-      consumer:
-        group_id: "claimx-event-ingester"
-        max_poll_records: 200
-        max_poll_interval_ms: 300000  # 5 minutes
-
-      producer:
-        acks: "1"
-        batch_size: 32768  # 32 KB
-        linger_ms: 100
-        compression_type: "lz4"
-
       processing:
         batch_size: 100
 
     # -------------------------------------------------------------------------
     # Enrichment Worker
-    # Consumes: com.allstate.pcesdopodappv1.claimx.enrichment.pending
-    # Produces to: com.allstate.pcesdopodappv1.claimx.downloads.pending
+    # Consumes from: claimx.enrichment.pending
+    # Produces to: claimx.downloads.pending
     # Purpose: Enrich events with ClaimX API data
     # -------------------------------------------------------------------------
     enrichment_worker:
-      consumer:
-        group_id: "claimx-enrichment-worker"
-        max_poll_records: 100
-
-        # Longer window - API calls can be slow
-        max_poll_interval_ms: 600000  # 10 minutes
-        session_timeout_ms: 45000  # 45 seconds
-
-      producer:
-        acks: "1"
-        compression_type: "lz4"
-
       processing:
         # Maximum concurrent API requests
         api_concurrency: 20
@@ -417,20 +177,11 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Download Worker
-    # Consumes: com.allstate.pcesdopodappv1.claimx.downloads.pending + com.allstate.pcesdopodappv1.claimx.retry
-    # Produces to: com.allstate.pcesdopodappv1.claimx.downloads.cached
+    # Consumes from: claimx.downloads.pending + claimx.retry
+    # Produces to: claimx.downloads.cached
     # Purpose: Download attachments from ClaimX S3
     # -------------------------------------------------------------------------
     download_worker:
-      consumer:
-        group_id: "claimx-download-worker"
-        max_poll_records: 50
-        max_poll_interval_ms: 900000  # 15 minutes
-        session_timeout_ms: 60000  # 60 seconds
-
-      producer:
-        acks: "all"
-
       processing:
         # ClaimX may need higher concurrency
         concurrency: 15
@@ -441,40 +192,22 @@ kafka:
 
     # -------------------------------------------------------------------------
     # Upload Worker
-    # Consumes: com.allstate.pcesdopodappv1.claimx.downloads.cached
-    # Produces to: com.allstate.pcesdopodappv1.claimx.downloads.results
+    # Consumes from: claimx.downloads.cached
+    # Produces to: claimx.downloads.results
     # Purpose: Upload cached files to OneLake
     # -------------------------------------------------------------------------
     upload_worker:
-      consumer:
-        group_id: "claimx-upload-worker"
-        max_poll_records: 50
-        max_poll_interval_ms: 900000  # 15 minutes
-        session_timeout_ms: 60000  # 60 seconds
-
-      producer:
-        acks: "all"
-
       processing:
         concurrency: 15
         batch_size: 30
 
     # -------------------------------------------------------------------------
     # Delta Events Writer Worker
-    # Consumes: com.allstate.pcesdopodappv1.claimx.downloads.results
-    # Produces to: com.allstate.pcesdopodappv1.delta-events.retry.*, com.allstate.pcesdopodappv1.delta-events.dlq
+    # Consumes from: claimx.downloads.results
+    # Produces to: delta-events.retry.*, delta-events.dlq
     # Purpose: Write events to Delta tables
     # -------------------------------------------------------------------------
     delta_events_writer:
-      consumer:
-        group_id: "claimx-delta-events-writer"
-        max_poll_records: 1000
-        max_poll_interval_ms: 600000  # 10 minutes
-
-      producer:
-        acks: "all"
-        compression_type: "snappy"
-
       processing:
         batch_size: 1000
         retry_delays: [300, 600, 1200, 2400]
@@ -487,7 +220,7 @@ kafka:
     # OneLake paths by domain (abfss:// URIs)
     # Format: abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Files/{domain}
     onelake_domain_paths:
-      xact: ""     # OneLake path for XACT domain
+      verisk: ""   # OneLake path for Verisk domain
       claimx: ""   # OneLake path for ClaimX domain
 
     # Fallback path if domain not in onelake_domain_paths
@@ -500,21 +233,21 @@ kafka:
 # =============================================================================
 # DELTA LAKE TABLE CONFIGURATION
 # =============================================================================
-# Paths to Delta tables for the pipeline. These support both xact and claimx domains.
+# Paths to Delta tables for the pipeline. These support both verisk and claimx domains.
 # Format: abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/{table}
 delta:
   # Enable/disable Delta Lake writes globally
   enable_writes: true
 
-  # XACT domain tables
-  xact:
-    # Path to xact_events table (for deduplication and analytics)
+  # Verisk domain tables
+  verisk:
+    # Path to verisk_events table (for deduplication and analytics)
     events_table_path: ""
 
-    # Path to xact_attachments table (for tracking downloaded attachments)
+    # Path to verisk_attachments table (for tracking downloaded attachments)
     inventory_table_path: ""
 
-    # Path to xact_attachments_failed table (for tracking permanent failures)
+    # Path to verisk_attachments_failed table (for tracking permanent failures)
     # Optional: If not set, permanent failures are only tracked in DLQ
     failed_table_path: ""
 
@@ -550,7 +283,7 @@ claimx:
 
 
 # =============================================================================
-# EVENTHOUSE INTEGRATION (for Kafka pipeline event source)
+# EVENTHOUSE INTEGRATION (for pipeline event source)
 # =============================================================================
 eventhouse:
   # ---------------------------------------------------------------------------
@@ -596,10 +329,10 @@ eventhouse:
     # Path to events table for tracking processed events
     events_table_path: ""
 
-    # Backpressure: pause polling if Kafka lag exceeds this
-    max_kafka_lag: 10000
+    # Backpressure: pause polling if EventHub lag exceeds this
+    max_eventhub_lag: 10000
 
-    # How often to check Kafka lag (seconds)
+    # How often to check EventHub lag (seconds)
     lag_check_interval_seconds: 60
 
     # Column mapping from Eventhouse to EventMessage fields
@@ -675,7 +408,7 @@ dummy:
   # ---------------------------------------------------------------------------
   # Which domains to generate events for
   domains:
-    - "xact"
+    - "verisk"
     - "claimx"
 
   # Events generated per minute (per domain)

@@ -81,7 +81,6 @@ from config.pipeline_config import (
     ClaimXEventhouseSourceConfig,
     EventhouseSourceConfig,
     EventSourceType,
-    LocalKafkaConfig,
     PipelineConfig,
     get_event_source_type,
     get_pipeline_config,
@@ -100,7 +99,6 @@ __all__ = [
     "get_event_source_type",
     # Pipeline config classes
     "PipelineConfig",
-    "LocalKafkaConfig",
     "EventhouseSourceConfig",
     "ClaimXEventhouseSourceConfig",
     "EventSourceType",

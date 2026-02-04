@@ -1,6 +1,23 @@
-# docker-compose -f docker-compose.kafka.yml down -v (recreate containers - destroy volumes)
-# docker-compose -f docker-compose.kafka.yml --profile ui up -d (to start with UI)
-# Local Kafka for development and testing
+# =============================================================================
+# DEPRECATED: Kafka Docker Compose
+# =============================================================================
+# ⚠️  NOTICE: Kafka has been removed from the pipeline (Phase 3, 2026-02-04)
+#
+# The pipeline now uses EventHub for all internal communication.
+# This file is retained for:
+#   - Reference/documentation purposes
+#   - Local Kafka testing (if needed for development)
+#   - Backward compatibility during transition
+#
+# For the production pipeline, see:
+#   - PHASE_3_KAFKA_REMOVAL.md for migration details
+#   - EventHub configuration in .env.example
+#
+# Usage (for local Kafka testing only):
+#   docker-compose -f docker-compose.kafka.yml down -v  # Recreate containers
+#   docker-compose -f docker-compose.kafka.yml --profile ui up -d  # Start with UI
+# =============================================================================
+
 services:
   kafka:
     image: apache/kafka:3.7.0

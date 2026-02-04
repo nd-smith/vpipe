@@ -27,6 +27,31 @@ from config.config import ClaimXDomainConfig, KafkaConfig, VeriskDomainConfig
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
 
 
+def _get_config_value(env_var: str, yaml_value: str, default: str = "") -> str:
+    """Get config value from env var or yaml or default."""
+    value = os.getenv(env_var)
+    if value:
+        return value
+    return yaml_value or default
+
+
+def _get_storage_config(kafka_data: dict) -> dict:
+    """Get storage config from kafka.storage section only."""
+    return kafka_data.get("storage", {})
+
+
+def _parse_bool_env(env_var: str, yaml_value: Any) -> bool:
+    """Parse boolean from env var or yaml value."""
+    env_str = os.getenv(env_var)
+    if env_str is not None:
+        return env_str.lower() in ("true", "1", "yes")
+    if isinstance(yaml_value, bool):
+        return yaml_value
+    if isinstance(yaml_value, str):
+        return yaml_value.lower() in ("true", "1", "yes")
+    return bool(yaml_value)
+
+
 def _load_config_data(config_path: Path) -> dict[str, Any]:
     """Load configuration data from config.yaml file.
 
@@ -158,303 +183,13 @@ class EventHubConfig:
         )
 
 
-@dataclass
-class LocalKafkaConfig:
-    """Configuration for local Kafka instance (internal pipeline communication).
-
-    Uses PLAINTEXT for local development/testing.
-    """
-
-    bootstrap_servers: str = "localhost:9092"
-    security_protocol: str = "PLAINTEXT"
-    sasl_mechanism: str = ""  # Not used for PLAINTEXT
-    sasl_plain_username: str = ""  # For SASL authentication (e.g., Event Hub)
-    sasl_plain_password: str = ""  # For SASL authentication (e.g., Event Hub)
-
-    # Topics for internal pipeline
-    events_topic: str = (
-        "com.allstate.pcesdopodappv1.xact.events.raw"  # Raw events from source
-    )
-    downloads_pending_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.pending"
-    downloads_cached_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.cached"
-    downloads_results_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.results"
-    dlq_topic: str = "com.allstate.pcesdopodappv1.xact.downloads.dlq"
-
-    # Consumer group prefix
-    consumer_group_prefix: str = "verisk"
-
-    # Retry configuration (delays in seconds)
-    retry_delays: list[int] = field(default_factory=lambda: [300, 600, 1200, 2400])
-    max_retries: int = 4
-
-    # Storage
-    onelake_base_path: str = ""
-    onelake_domain_paths: dict[str, str] = field(default_factory=dict)
-
-    # Cache directory
-    cache_dir: str = "/tmp/pipeline_cache"
-
-    # Delta events writer settings
-    delta_events_batch_size: int = 1000
-
-    # ClaimX domain config (loaded from yaml)
-    claimx_config: ClaimXDomainConfig = field(default_factory=dict)
-
-    # Verisk domain config (loaded from yaml) - preserves full yaml structure
-    verisk_config: VeriskDomainConfig = field(default_factory=dict)
-
-    # ClaimX API settings
-    claimx_api_url: str = ""
-    claimx_api_token: str = ""
-    claimx_api_timeout_seconds: int = 30
-    claimx_api_concurrency: int = 20
-
-    @classmethod
-    def load_config(cls, config_path: Path | None = None) -> "LocalKafkaConfig":
-        """Load local Kafka configuration from config directory and environment variables.
-
-        Configuration priority (highest to lowest):
-        1. Environment variables
-        2. Config files in config/ directory
-        3. Dataclass defaults
-
-        Optional env vars (all have defaults):
-            LOCAL_KAFKA_BOOTSTRAP_SERVERS: Kafka broker (default: localhost:9092)
-            LOCAL_KAFKA_SECURITY_PROTOCOL: Protocol (default: PLAINTEXT)
-            KAFKA_DOWNLOADS_PENDING_TOPIC: Pending topic (default: com.allstate.pcesdopodappv1.xact.downloads.pending)
-            KAFKA_DOWNLOADS_RESULTS_TOPIC: Results topic (default: com.allstate.pcesdopodappv1.xact.downloads.results)
-            KAFKA_DLQ_TOPIC: DLQ topic (default: com.allstate.pcesdopodappv1.xact.downloads.dlq)
-            ONELAKE_BASE_PATH: OneLake path for uploads (fallback)
-            ONELAKE_VERISK_PATH: OneLake path for verisk domain
-            ONELAKE_CLAIMX_PATH: OneLake path for claimx domain
-            DELTA_EVENTS_BATCH_SIZE: Events per batch for Delta writes (default: 1000)
-        """
-        resolved_path = config_path or DEFAULT_CONFIG_FILE
-        yaml_data = _load_config_data(resolved_path)
-        kafka_data = yaml_data.get("kafka", {})
-        connection_data = kafka_data.get("connection", kafka_data)
-        verisk_config = kafka_data.get("verisk", {})
-        topics_data = verisk_config.get("topics", {})
-        claimx_config = kafka_data.get("claimx", {})
-        claimx_root = yaml_data.get("claimx", {})
-        claimx_api_data = claimx_root.get("api", {})
-        retry_delays_default = verisk_config.get(
-            "retry_delays", kafka_data.get("retry_delays", [300, 600, 1200, 2400])
-        )
-        retry_delays_str = os.getenv(
-            "RETRY_DELAYS", ",".join(str(d) for d in retry_delays_default)
-        )
-        retry_delays = [int(d.strip()) for d in retry_delays_str.split(",")]
-
-        # Build storage config from multiple locations (matching config.py logic)
-        # Priority: kafka.storage > root storage > flat kafka structure
-        storage_data: dict[str, Any] = {}
-
-        # Start with flat kafka structure as base (lowest priority)
-        for key in ["onelake_base_path", "onelake_domain_paths", "cache_dir"]:
-            if key in kafka_data:
-                storage_data[key] = kafka_data[key]
-
-        # Merge root-level storage section (medium priority)
-        root_storage = yaml_data.get("storage", {})
-        if root_storage:
-            storage_data.update(root_storage)
-
-        # Merge kafka.storage section (highest priority)
-        kafka_storage = kafka_data.get("storage", {})
-        if kafka_storage:
-            storage_data.update(kafka_storage)
-
-        # Build domain paths from merged storage config and environment variables
-        onelake_domain_paths: dict[str, str] = storage_data.get(
-            "onelake_domain_paths", {}
-        ).copy()
-        if os.getenv("ONELAKE_VERISK_PATH"):
-            onelake_domain_paths["verisk"] = os.getenv("ONELAKE_VERISK_PATH", "")
-        if os.getenv("ONELAKE_CLAIMX_PATH"):
-            onelake_domain_paths["claimx"] = os.getenv("ONELAKE_CLAIMX_PATH", "")
-
-        return cls(
-            bootstrap_servers=os.getenv(
-                "LOCAL_KAFKA_BOOTSTRAP_SERVERS",
-                connection_data.get("bootstrap_servers", "localhost:9092"),
-            ),
-            security_protocol=os.getenv(
-                "LOCAL_KAFKA_SECURITY_PROTOCOL",
-                connection_data.get("security_protocol", "PLAINTEXT"),
-            ),
-            sasl_mechanism=os.getenv(
-                "LOCAL_KAFKA_SASL_MECHANISM", connection_data.get("sasl_mechanism", "")
-            ),
-            sasl_plain_username=os.getenv(
-                "LOCAL_KAFKA_SASL_USERNAME",
-                connection_data.get("sasl_plain_username", ""),
-            ),
-            sasl_plain_password=os.getenv(
-                "LOCAL_KAFKA_SASL_PASSWORD",
-                connection_data.get("sasl_plain_password", ""),
-            ),
-            # Topics: check nested kafka.xact.topics first, then flat kafka.*, then defaults
-            events_topic=os.getenv(
-                "KAFKA_EVENTS_TOPIC",
-                topics_data.get(
-                    "events",
-                    kafka_data.get(
-                        "events_topic", "com.allstate.pcesdopodappv1.xact.events.raw"
-                    ),
-                ),
-            ),
-            downloads_pending_topic=os.getenv(
-                "KAFKA_DOWNLOADS_PENDING_TOPIC",
-                topics_data.get(
-                    "downloads_pending",
-                    kafka_data.get(
-                        "downloads_pending_topic",
-                        "com.allstate.pcesdopodappv1.xact.downloads.pending",
-                    ),
-                ),
-            ),
-            downloads_cached_topic=os.getenv(
-                "KAFKA_DOWNLOADS_CACHED_TOPIC",
-                topics_data.get(
-                    "downloads_cached",
-                    kafka_data.get(
-                        "downloads_cached_topic",
-                        "com.allstate.pcesdopodappv1.xact.downloads.cached",
-                    ),
-                ),
-            ),
-            downloads_results_topic=os.getenv(
-                "KAFKA_DOWNLOADS_RESULTS_TOPIC",
-                topics_data.get(
-                    "downloads_results",
-                    kafka_data.get(
-                        "downloads_results_topic",
-                        "com.allstate.pcesdopodappv1.xact.downloads.results",
-                    ),
-                ),
-            ),
-            dlq_topic=os.getenv(
-                "KAFKA_DLQ_TOPIC",
-                topics_data.get(
-                    "dlq",
-                    kafka_data.get(
-                        "dlq_topic", "com.allstate.pcesdopodappv1.xact.downloads.dlq"
-                    ),
-                ),
-            ),
-            consumer_group_prefix=os.getenv(
-                "KAFKA_CONSUMER_GROUP_PREFIX",
-                verisk_config.get(
-                    "consumer_group_prefix",
-                    kafka_data.get("consumer_group_prefix", "verisk"),
-                ),
-            ),
-            retry_delays=retry_delays,
-            max_retries=int(
-                os.getenv(
-                    "MAX_RETRIES",
-                    str(
-                        verisk_config.get(
-                            "max_retries", kafka_data.get("max_retries", 4)
-                        )
-                    ),
-                )
-            ),
-            onelake_base_path=os.getenv(
-                "ONELAKE_BASE_PATH", storage_data.get("onelake_base_path", "")
-            ),
-            onelake_domain_paths=onelake_domain_paths,
-            cache_dir=os.getenv(
-                "CACHE_DIR", storage_data.get("cache_dir", "/tmp/pipeline_cache")
-            ),
-            delta_events_batch_size=int(
-                os.getenv(
-                    "DELTA_EVENTS_BATCH_SIZE",
-                    str(kafka_data.get("delta_events_batch_size", 1000)),
-                )
-            ),
-            claimx_config=claimx_config,
-            verisk_config=verisk_config,
-            # ClaimX API settings (loaded from root claimx.api section)
-            claimx_api_url=os.getenv("CLAIMX_API_BASE_PATH")
-            or os.getenv("CLAIMX_API_URL")
-            or claimx_api_data.get("base_url", ""),
-            claimx_api_token=os.getenv(
-                "CLAIMX_API_TOKEN", claimx_api_data.get("token", "")
-            ),
-            claimx_api_timeout_seconds=int(
-                os.getenv(
-                    "CLAIMX_API_TIMEOUT_SECONDS",
-                    str(claimx_api_data.get("timeout_seconds", 30)),
-                )
-            ),
-            claimx_api_concurrency=int(
-                os.getenv(
-                    "CLAIMX_API_CONCURRENCY",
-                    str(claimx_api_data.get("max_concurrent", 20)),
-                )
-            ),
-        )
-
-    def to_kafka_config(self) -> KafkaConfig:
-        """Convert to KafkaConfig for use with workers.
-
-        Creates a hierarchical KafkaConfig matching the new config.yaml structure.
-        Uses full yaml config for both xact and claimx domains.
-        Flat fields provide fallbacks for topics if not in yaml.
-        """
-        # Start with full yaml xact config, ensure topics have fallbacks from flat fields
-        verisk_config = self.verisk_config.copy() if self.verisk_config else {}
-
-        # Ensure topics exist with fallbacks from flat fields
-        if "topics" not in verisk_config:
-            verisk_config["topics"] = {}
-        topics = verisk_config["topics"]
-        topics.setdefault("events", self.events_topic)
-        topics.setdefault("downloads_pending", self.downloads_pending_topic)
-        topics.setdefault("downloads_cached", self.downloads_cached_topic)
-        topics.setdefault("downloads_results", self.downloads_results_topic)
-        topics.setdefault("dlq", self.dlq_topic)
-
-        # Ensure other required fields have fallbacks
-        verisk_config.setdefault("consumer_group_prefix", self.consumer_group_prefix)
-        verisk_config.setdefault("retry_delays", self.retry_delays)
-        verisk_config.setdefault("max_retries", self.max_retries)
-
-        # Ensure delta_events_writer has processing defaults
-        if "delta_events_writer" not in verisk_config:
-            verisk_config["delta_events_writer"] = {}
-        if "processing" not in verisk_config["delta_events_writer"]:
-            verisk_config["delta_events_writer"]["processing"] = {}
-        delta_processing = verisk_config["delta_events_writer"]["processing"]
-        delta_processing.setdefault("batch_size", self.delta_events_batch_size)
-        delta_processing.setdefault("retry_delays", self.retry_delays)
-        delta_processing.setdefault("max_retries", self.max_retries)
-        delta_processing.setdefault(
-            "retry_topic_prefix", "com.allstate.pcesdopodappv1.delta-events.retry"
-        )
-        delta_processing.setdefault(
-            "dlq_topic", "com.allstate.pcesdopodappv1.delta-events.dlq"
-        )
-
-        return KafkaConfig(
-            bootstrap_servers=self.bootstrap_servers,
-            security_protocol=self.security_protocol,
-            sasl_mechanism=self.sasl_mechanism,
-            sasl_plain_username=self.sasl_plain_username,
-            sasl_plain_password=self.sasl_plain_password,
-            verisk=verisk_config,
-            claimx=self.claimx_config,
-            onelake_base_path=self.onelake_base_path,
-            onelake_domain_paths=self.onelake_domain_paths,
-            cache_dir=self.cache_dir,
-            # ClaimX API settings
-            claimx_api_url=self.claimx_api_url,
-            claimx_api_token=self.claimx_api_token,
-            claimx_api_timeout_seconds=self.claimx_api_timeout_seconds,
-            claimx_api_concurrency=self.claimx_api_concurrency,
-        )
+# =============================================================================
+# LocalKafkaConfig REMOVED - Kafka replaced with EventHub
+# =============================================================================
+# Internal pipeline communication now uses EventHub instead of local Kafka.
+# EventHub configuration is defined per-domain in EventHubConfig (if needed).
+# Domain-specific settings (topics, retry, storage) remain in KafkaConfig.
+# =============================================================================
 
 
 @dataclass
@@ -516,49 +251,37 @@ class EventhouseSourceConfig:
         # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
 
-        # Check for verisk_eventhouse first, fallback to legacy eventhouse
-        eventhouse_data = yaml_data.get(
-            "verisk_eventhouse", yaml_data.get("eventhouse", {})
-        )
+        eventhouse_data = yaml_data.get("verisk_eventhouse", {})
         poller_data = eventhouse_data.get("poller", {})
         dedup_data = eventhouse_data.get("dedup", {})
 
-        cluster_url = os.getenv(
-            "VERISK_EVENTHOUSE_CLUSTER_URL",
-            os.getenv("EVENTHOUSE_CLUSTER_URL", eventhouse_data.get("cluster_url", "")),
+        cluster_url = _get_config_value(
+            "EVENTHOUSE_CLUSTER_URL", eventhouse_data.get("cluster_url", "")
         )
-        database = os.getenv(
-            "VERISK_EVENTHOUSE_DATABASE",
-            os.getenv("EVENTHOUSE_DATABASE", eventhouse_data.get("database", "")),
+        database = _get_config_value(
+            "VERISK_EVENTHOUSE_DATABASE", eventhouse_data.get("database", "")
         )
 
         if not cluster_url:
             raise ValueError(
-                "Xact Eventhouse cluster_url is required. "
-                "Set in config.yaml under 'verisk_eventhouse:' (or 'eventhouse:') "
-                "or via VERISK_EVENTHOUSE_CLUSTER_URL env var."
+                "Eventhouse cluster_url is required. "
+                "Set EVENTHOUSE_CLUSTER_URL env var or in config.yaml under 'verisk_eventhouse.cluster_url'"
             )
         if not database:
             raise ValueError(
-                "Xact Eventhouse database is required. "
-                "Set in config.yaml under 'verisk_eventhouse:' (or 'eventhouse:') "
-                "or via VERISK_EVENTHOUSE_DATABASE env var."
+                "Verisk Eventhouse database is required. "
+                "Set VERISK_EVENTHOUSE_DATABASE env var or in config.yaml under 'verisk_eventhouse.database'"
             )
 
-        # Parse bulk_backfill boolean
-        bulk_backfill_str = os.getenv(
-            "DEDUP_BULK_BACKFILL", str(poller_data.get("bulk_backfill", False))
-        ).lower()
-        bulk_backfill = bulk_backfill_str in ("true", "1", "yes")
+        bulk_backfill = _parse_bool_env(
+            "VERISK_DEDUP_BULK_BACKFILL", poller_data.get("bulk_backfill", False)
+        )
 
         return cls(
             cluster_url=cluster_url,
             database=database,
-            source_table=os.getenv(
-                "VERISK_EVENTHOUSE_SOURCE_TABLE",
-                os.getenv(
-                    "EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")
-                ),
+            source_table=_get_config_value(
+                "VERISK_EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")
             ),
             poll_interval_seconds=int(
                 os.getenv(
@@ -677,35 +400,27 @@ class ClaimXEventhouseSourceConfig:
         poller_data = claimx_eventhouse_data.get("poller", {})
         dedup_data = claimx_eventhouse_data.get("dedup", {})
 
-        # Get cluster_url with fallback to shared EVENTHOUSE_CLUSTER_URL
-        # Priority: CLAIMX_EVENTHOUSE_CLUSTER_URL > EVENTHOUSE_CLUSTER_URL > YAML value
-        cluster_url = os.getenv(
-            "CLAIMX_EVENTHOUSE_CLUSTER_URL",
-            os.getenv(
-                "EVENTHOUSE_CLUSTER_URL", claimx_eventhouse_data.get("cluster_url", "")
-            ),
+        cluster_url = _get_config_value(
+            "EVENTHOUSE_CLUSTER_URL", claimx_eventhouse_data.get("cluster_url", "")
         )
-        database = os.getenv(
+        database = _get_config_value(
             "CLAIMX_EVENTHOUSE_DATABASE", claimx_eventhouse_data.get("database", "")
         )
 
         if not cluster_url:
             raise ValueError(
-                "ClaimX Eventhouse cluster_url is required. "
-                "Set via CLAIMX_EVENTHOUSE_CLUSTER_URL or EVENTHOUSE_CLUSTER_URL env var, "
-                "or in config.yaml under 'claimx_eventhouse:'."
+                "Eventhouse cluster_url is required. "
+                "Set EVENTHOUSE_CLUSTER_URL env var or in config.yaml under 'claimx_eventhouse.cluster_url'"
             )
         if not database:
             raise ValueError(
                 "ClaimX Eventhouse database is required. "
-                "Set in config.yaml under 'claimx_eventhouse:' or via CLAIMX_EVENTHOUSE_DATABASE env var."
+                "Set CLAIMX_EVENTHOUSE_DATABASE env var or in config.yaml under 'claimx_eventhouse.database'"
             )
 
-        # Parse bulk_backfill boolean
-        bulk_backfill_str = os.getenv(
-            "CLAIMX_DEDUP_BULK_BACKFILL", str(poller_data.get("bulk_backfill", False))
-        ).lower()
-        bulk_backfill = bulk_backfill_str in ("true", "1", "yes")
+        bulk_backfill = _parse_bool_env(
+            "CLAIMX_DEDUP_BULK_BACKFILL", poller_data.get("bulk_backfill", False)
+        )
 
         return cls(
             cluster_url=cluster_url,
@@ -731,9 +446,8 @@ class ClaimXEventhouseSourceConfig:
                     str(claimx_eventhouse_data.get("query_timeout_seconds", 120)),
                 )
             ),
-            claimx_events_table_path=(
-                os.getenv("CLAIMX_EVENTS_TABLE_PATH")
-                or poller_data.get("events_table_path", "")
+            claimx_events_table_path=_get_config_value(
+                "CLAIMX_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
             ),
             claimx_events_window_hours=int(
                 os.getenv(
@@ -780,7 +494,8 @@ class ClaimXEventhouseSourceConfig:
 class PipelineConfig:
     """Complete pipeline configuration.
 
-    Combines event source (Event Hub or Eventhouse) and Local Kafka configurations.
+    Combines event source (EventHub or Eventhouse) with EventHub transport.
+    Kafka has been removed - EventHub is now used for all pipeline communication.
     """
 
     # Event source type (eventhub or eventhouse)
@@ -790,14 +505,10 @@ class PipelineConfig:
     eventhub: EventHubConfig | None = None
 
     # Eventhouse config (only populated if event_source == eventhouse)
-    # This is the Verisk domain Eventhouse config (legacy name: eventhouse, new name: verisk_eventhouse)
     verisk_eventhouse: EventhouseSourceConfig | None = None
 
-    # ClaimX Eventhouse config (optional, can run alongside xact)
+    # ClaimX Eventhouse config (optional)
     claimx_eventhouse: ClaimXEventhouseSourceConfig | None = None
-
-    # Local Kafka for internal pipeline communication
-    local_kafka: LocalKafkaConfig = field(default_factory=LocalKafkaConfig)
 
     # Domain identifier for OneLake routing (e.g., "verisk", "claimx")
     domain: str = "verisk"
@@ -850,8 +561,6 @@ class PipelineConfig:
                 f"Invalid event_source '{source_str}'. Must be 'eventhub' or 'eventhouse'"
             )
 
-        local_kafka = LocalKafkaConfig.load_config(resolved_path)
-
         eventhub_config = None
         eventhouse_config = None
         claimx_eventhouse_config = None
@@ -897,68 +606,51 @@ class PipelineConfig:
             eventhub=eventhub_config,
             verisk_eventhouse=eventhouse_config,
             claimx_eventhouse=claimx_eventhouse_config,
-            local_kafka=local_kafka,
             domain=domain,
             enable_delta_writes=enable_delta_writes,
-            # XACT table paths - check domain-specific env vars first, then generic
-            events_table_path=(
-                os.getenv("VERISK_EVENTS_TABLE_PATH")
-                or os.getenv("VERISK_DELTA_EVENTS_TABLE")
-                or os.getenv("DELTA_EVENTS_TABLE_PATH")
-                or domain_delta_config.get("events_table_path", "")
+            events_table_path=_get_config_value(
+                "VERISK_EVENTS_TABLE_PATH",
+                domain_delta_config.get("events_table_path", ""),
             ),
-            inventory_table_path=(
-                os.getenv("VERISK_INVENTORY_TABLE_PATH")
-                or os.getenv("VERISK_DELTA_INVENTORY_TABLE")
-                or os.getenv("DELTA_INVENTORY_TABLE_PATH")
-                or domain_delta_config.get("inventory_table_path", "")
+            inventory_table_path=_get_config_value(
+                "VERISK_INVENTORY_TABLE_PATH",
+                domain_delta_config.get("inventory_table_path", ""),
             ),
-            failed_table_path=(
-                os.getenv("VERISK_FAILED_TABLE_PATH")
-                or os.getenv("VERISK_DELTA_FAILED_TABLE")
-                or os.getenv("DELTA_FAILED_TABLE_PATH")
-                or domain_delta_config.get("failed_table_path", "")
+            failed_table_path=_get_config_value(
+                "VERISK_FAILED_TABLE_PATH",
+                domain_delta_config.get("failed_table_path", ""),
             ),
-            # Load ClaimX table paths - check env vars first, then config file
-            claimx_projects_table_path=(
-                os.getenv("CLAIMX_PROJECTS_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_PROJECTS_TABLE")
-                or delta_config.get("claimx", {}).get("projects_table_path", "")
+            claimx_projects_table_path=_get_config_value(
+                "CLAIMX_PROJECTS_TABLE_PATH",
+                delta_config.get("claimx", {}).get("projects_table_path", ""),
             ),
-            claimx_contacts_table_path=(
-                os.getenv("CLAIMX_CONTACTS_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_CONTACTS_TABLE")
-                or delta_config.get("claimx", {}).get("contacts_table_path", "")
+            claimx_contacts_table_path=_get_config_value(
+                "CLAIMX_CONTACTS_TABLE_PATH",
+                delta_config.get("claimx", {}).get("contacts_table_path", ""),
             ),
-            claimx_inventory_table_path=(
-                os.getenv("CLAIMX_INVENTORY_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_INVENTORY_TABLE")
-                or delta_config.get("claimx", {}).get("inventory_table_path", "")
+            claimx_inventory_table_path=_get_config_value(
+                "CLAIMX_INVENTORY_TABLE_PATH",
+                delta_config.get("claimx", {}).get("inventory_table_path", ""),
             ),
-            claimx_media_table_path=(
-                os.getenv("CLAIMX_MEDIA_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_MEDIA_TABLE")
-                or delta_config.get("claimx", {}).get("media_table_path", "")
+            claimx_media_table_path=_get_config_value(
+                "CLAIMX_MEDIA_TABLE_PATH",
+                delta_config.get("claimx", {}).get("media_table_path", ""),
             ),
-            claimx_tasks_table_path=(
-                os.getenv("CLAIMX_TASKS_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_TASKS_TABLE")
-                or delta_config.get("claimx", {}).get("tasks_table_path", "")
+            claimx_tasks_table_path=_get_config_value(
+                "CLAIMX_TASKS_TABLE_PATH",
+                delta_config.get("claimx", {}).get("tasks_table_path", ""),
             ),
-            claimx_task_templates_table_path=(
-                os.getenv("CLAIMX_TASK_TEMPLATES_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_TASK_TEMPLATES_TABLE")
-                or delta_config.get("claimx", {}).get("task_templates_table_path", "")
+            claimx_task_templates_table_path=_get_config_value(
+                "CLAIMX_TASK_TEMPLATES_TABLE_PATH",
+                delta_config.get("claimx", {}).get("task_templates_table_path", ""),
             ),
-            claimx_external_links_table_path=(
-                os.getenv("CLAIMX_EXTERNAL_LINKS_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_EXTERNAL_LINKS_TABLE")
-                or delta_config.get("claimx", {}).get("external_links_table_path", "")
+            claimx_external_links_table_path=_get_config_value(
+                "CLAIMX_EXTERNAL_LINKS_TABLE_PATH",
+                delta_config.get("claimx", {}).get("external_links_table_path", ""),
             ),
-            claimx_video_collab_table_path=(
-                os.getenv("CLAIMX_VIDEO_COLLAB_TABLE_PATH")
-                or os.getenv("CLAIMX_DELTA_VIDEO_COLLAB_TABLE")
-                or delta_config.get("claimx", {}).get("video_collab_table_path", "")
+            claimx_video_collab_table_path=_get_config_value(
+                "CLAIMX_VIDEO_COLLAB_TABLE_PATH",
+                delta_config.get("claimx", {}).get("video_collab_table_path", ""),
             ),
         )
 

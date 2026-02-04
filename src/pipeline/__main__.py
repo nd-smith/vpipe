@@ -1,4 +1,4 @@
-"""Kafka pipeline worker orchestration. Use --help for usage."""
+"""EventHub pipeline worker orchestration. Use --help for usage."""
 
 import argparse
 import asyncio
@@ -86,47 +86,46 @@ def enter_error_mode(loop: asyncio.AbstractEventLoop, worker_name: str, error_ms
 
 
 def load_dev_config():
-    """Load configuration for development mode (local Kafka only)."""
-    logger.info("Running in DEVELOPMENT mode (local Kafka only)")
+    """Load configuration for development mode (EventHub only)."""
+    logger.info("Running in DEVELOPMENT mode (EventHub only)")
+    from config import get_config
     from config.pipeline_config import (
         EventSourceType,
-        LocalKafkaConfig,
         PipelineConfig,
     )
 
-    local_config = LocalKafkaConfig.load_config()
-    kafka_config = local_config.to_kafka_config()
+    kafka_config = get_config()
 
     pipeline_config = PipelineConfig(
         event_source=EventSourceType.EVENTHUB,
-        local_kafka=local_config,
     )
 
     return pipeline_config, kafka_config, kafka_config
 
 
 def load_production_config():
-    """Load configuration for production mode (Event Hub/Eventhouse + Kafka).
+    """Load configuration for production mode (Event Hub/Eventhouse).
 
     Returns:
-        Tuple of (pipeline_config, eventhub_config, local_kafka_config)
+        Tuple of (pipeline_config, eventhub_config, kafka_config)
 
     Raises:
         ValueError: If configuration is invalid
     """
+    from config import get_config
     from config.pipeline_config import EventSourceType, get_pipeline_config
 
     pipeline_config = get_pipeline_config()
-    local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
+    kafka_config = get_config()
 
     if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-        logger.info("Running in PRODUCTION mode (Eventhouse + local Kafka)")
+        logger.info("Running in PRODUCTION mode (Eventhouse → EventHub pipeline)")
         eventhub_config = None
     else:
-        logger.info("Running in PRODUCTION mode (Event Hub + local Kafka)")
+        logger.info("Running in PRODUCTION mode (Event Hub → EventHub pipeline)")
         eventhub_config = pipeline_config.eventhub.to_kafka_config()
 
-    return pipeline_config, eventhub_config, local_kafka_config
+    return pipeline_config, eventhub_config, kafka_config
 
 
 async def run_worker_pool(
@@ -171,11 +170,11 @@ async def run_worker_pool(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run Kafka pipeline workers",
+        description="Run EventHub pipeline workers",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Run all workers (Event Hub → Local Kafka pipeline)
+    # Run all workers (Event Hub → EventHub pipeline)
     python -m pipeline
 
     # Run specific xact worker
@@ -184,7 +183,7 @@ Examples:
     # Run specific claimx worker
     python -m pipeline --worker claimx-enricher
 
-    # Run in development mode (local Kafka only)
+    # Run in development mode (EventHub transport)
     python -m pipeline --dev
 
     # Run with custom metrics port
@@ -209,7 +208,7 @@ Examples:
     parser.add_argument(
         "--dev",
         action="store_true",
-        help="Development mode: use local Kafka only (no Event Hub/Eventhouse credentials required)",
+        help="Development mode: use EventHub transport (no Eventhouse credentials required)",
     )
 
     parser.add_argument(
@@ -259,12 +258,13 @@ async def run_all_workers(
     """Run all pipeline workers concurrently.
     Architecture: events.raw → EventIngester → downloads.pending → DownloadWorker → ...
                   events.raw → DeltaEventsWorker → Delta table (parallel)"""
+    from config import get_config
     from config.pipeline_config import EventSourceType
     from pipeline.runners import verisk_runners
 
     logger.info("Starting all pipeline workers...")
 
-    local_kafka_config = pipeline_config.local_kafka.to_kafka_config()
+    kafka_config = get_config()
     shutdown_event = get_shutdown_event()
 
     tasks = []
@@ -287,7 +287,7 @@ async def run_all_workers(
         tasks.append(
             asyncio.create_task(
                 verisk_runners.run_local_event_ingester(
-                    local_kafka_config,
+                    kafka_config,
                     shutdown_event,
                     domain=pipeline_config.domain,
                 ),
@@ -301,7 +301,7 @@ async def run_all_workers(
             asyncio.create_task(
                 verisk_runners.run_event_ingester(
                     eventhub_config,
-                    local_kafka_config,
+                    kafka_config,
                     shutdown_event,
                     domain=pipeline_config.domain,
                 ),
@@ -314,7 +314,7 @@ async def run_all_workers(
         tasks.append(
             asyncio.create_task(
                 verisk_runners.run_delta_events_worker(
-                    local_kafka_config, events_table_path, shutdown_event
+                    kafka_config, events_table_path, shutdown_event
                 ),
                 name="xact-delta-writer",
             )
@@ -324,7 +324,7 @@ async def run_all_workers(
         tasks.append(
             asyncio.create_task(
                 verisk_runners.run_xact_retry_scheduler(
-                    local_kafka_config, shutdown_event
+                    kafka_config, shutdown_event
                 ),
                 name="xact-retry-scheduler",
             )
@@ -334,16 +334,16 @@ async def run_all_workers(
     tasks.extend(
         [
             asyncio.create_task(
-                verisk_runners.run_download_worker(local_kafka_config, shutdown_event),
+                verisk_runners.run_download_worker(kafka_config, shutdown_event),
                 name="xact-download",
             ),
             asyncio.create_task(
-                verisk_runners.run_upload_worker(local_kafka_config, shutdown_event),
+                verisk_runners.run_upload_worker(kafka_config, shutdown_event),
                 name="xact-upload",
             ),
             asyncio.create_task(
                 verisk_runners.run_result_processor(
-                    local_kafka_config,
+                    kafka_config,
                     shutdown_event,
                     enable_delta_writes,
                     inventory_table_path=pipeline_config.inventory_table_path,
@@ -529,14 +529,14 @@ def main():
         pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
     else:
         try:
-            pipeline_config, eventhub_config, local_kafka_config = (
+            pipeline_config, eventhub_config, kafka_config = (
                 load_production_config()
             )
         except ValueError as e:
             error_msg = str(e)
             logger.exception("Configuration error", extra={"error": error_msg})
             logger.error(
-                "Use --dev flag for local development without Event Hub/Eventhouse"
+                "Use --dev flag for local development without Eventhouse"
             )
 
             # Enter error mode and exit

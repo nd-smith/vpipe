@@ -1,9 +1,11 @@
 # =============================================================================
-# Kafka Pipeline Configuration
+# EventHub Pipeline Configuration
 # =============================================================================
-# This file configures the Kafka-based event processing pipeline.
+# This file configures the EventHub-based event processing pipeline.
 # Supports ${VAR} and ${VAR:-default} syntax for environment variable expansion.
 # Secrets use env var references so they are never stored in this file.
+#
+# NOTE: Kafka has been removed - EventHub is used for all pipeline communication
 #
 # Priority chain (highest wins):
 #   1. OS environment variables (Jenkins envVars in deployed environments)
@@ -18,31 +20,11 @@
 event_source: ${EVENT_SOURCE:-eventhouse}
 
 # =============================================================================
-# KAFKA PIPELINE CONFIGURATION
+# PIPELINE CONFIGURATION
 # =============================================================================
-kafka:
+pipeline:
   # ---------------------------------------------------------------------------
-  # Kafka Connection (defaults to local Docker Kafka)
-  # ---------------------------------------------------------------------------
-  # For corporate cluster, set KAFKA_BOOTSTRAP_SERVERS env var
-  connection:
-    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}
-    security_protocol: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
-    sasl_mechanism: ${KAFKA_SASL_MECHANISM:-GSSAPI}
-    sasl_kerberos_service_name: ${KAFKA_SASL_KERBEROS_SERVICE_NAME:-kafka}
-    schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:-http://localhost:8081}
-
-  consumer_defaults:
-    auto_offset_reset: earliest
-    enable_auto_commit: false
-    max_poll_records: 100
-
-  producer_defaults:
-    acks: "1"
-    compression_type: "lz4"
-
-  # ---------------------------------------------------------------------------
-  # Verisk Domain
+  # Verisk Domain (formerly XACT)
   # ---------------------------------------------------------------------------
   verisk:
     topics:

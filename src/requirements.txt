@@ -18,11 +18,7 @@ azure-storage-file-datalake>=12.14.0,<13.0.0
 # Async HTTP
 aiohttp>=3.9.2,<4.0.0
 
-# Kafka
-aiokafka[lz4]>=0.11.0,<1.0.0
-gssapi>=1.8.0,<2.0.0  # Kerberos (GSSAPI) SASL auth; wheel pre-built in vendor/
-
-# Azure Event Hub (AMQP alternative transport)
+# Azure Event Hub (AMQP transport - Kafka removed in Phase 3)
 azure-eventhub>=5.11.0,<6.0.0
 azure-eventhub-checkpointstoreblob-aio>=1.1.0,<2.0.0  # Durable checkpoint persistence
 

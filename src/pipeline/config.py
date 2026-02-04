@@ -11,7 +11,6 @@ from config.pipeline_config import (
     DEFAULT_CONFIG_FILE,
     EventHubConfig,
     EventSourceType,
-    LocalKafkaConfig,
     PipelineConfig,
 )
 
@@ -19,7 +18,6 @@ __all__ = [
     "KafkaConfig",
     "EventHubConfig",
     "EventSourceType",
-    "LocalKafkaConfig",
     "PipelineConfig",
     "DEFAULT_CONFIG_FILE",
     "load_config",
