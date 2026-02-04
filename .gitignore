@@ -26,6 +26,7 @@ MANIFEST
 .ruff_cache
 docs*
 *.code-workspace
+claude.md
 
 # Virtual environments
 venv/

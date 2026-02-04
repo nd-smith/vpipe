@@ -23,11 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from aiokafka import AIOKafkaConsumer
-from aiokafka.structs import ConsumerRecord as AIOConsumerRecord
-
 from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
@@ -40,8 +36,8 @@ from pipeline.common.metrics import (
     update_connection_status,
 )
 from pipeline.common.storage import OneLakeClient
-from pipeline.common.transport import create_producer
-from pipeline.common.types import PipelineMessage, from_consumer_record
+from pipeline.common.transport import create_batch_consumer, create_producer
+from pipeline.common.types import PipelineMessage
 
 logger = get_logger(__name__)
 
@@ -132,12 +128,12 @@ class ClaimXUploadWorker:
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
 
-        # Topic to consume from
-        self.topic = config.get_topic(domain, "downloads_cached")
+        # Topics to consume from
+        self.topics = [config.get_topic(domain, "downloads_cached")]
         self.results_topic = config.get_topic(domain, "downloads_results")
 
         # Consumer will be created in start()
-        self._consumer: AIOKafkaConsumer | None = None
+        self._consumer = None
         self._running = False
 
         # Concurrency control
@@ -185,7 +181,7 @@ class ClaimXUploadWorker:
                 "worker_name": self.WORKER_NAME,
                 "instance_id": instance_id,
                 "consumer_group": config.get_consumer_group(domain, self.WORKER_NAME),
-                "topic": self.topic,
+                "topics": self.topics,
                 "results_topic": self.results_topic,
                 "upload_concurrency": self.concurrency,
                 "upload_batch_size": self.batch_size,
@@ -278,12 +274,22 @@ class ClaimXUploadWorker:
                 await self.health_server.stop()
                 raise
 
-        # Create Kafka consumer with cleanup on failure
+        # Create batch consumer from transport layer
         try:
-            await self._create_consumer()
+            self._consumer = await create_batch_consumer(
+                config=self.config,
+                domain=self.domain,
+                worker_name=self.WORKER_NAME,
+                topics=self.topics,
+                batch_handler=self._process_batch,
+                batch_size=self.batch_size,
+                batch_timeout_ms=1000,
+                instance_id=self.instance_id,
+                topic_key="downloads_cached",
+            )
         except Exception as e:
             logger.error(
-                "Failed to create Kafka consumer",
+                "Failed to create batch consumer",
                 extra={"error": str(e)},
                 exc_info=True,
             )
@@ -310,13 +316,11 @@ class ClaimXUploadWorker:
         # Update health check readiness (upload worker doesn't use API)
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)
 
-        # Update connection status
-        update_connection_status("consumer", connected=True)
-
         logger.info("ClaimX upload worker started successfully")
 
         try:
-            await self._consume_batch_loop()
+            # Transport layer handles the consume loop
+            await self._consumer.start()
         except asyncio.CancelledError:
             logger.info("ClaimX upload worker cancelled")
         except Exception as e:
@@ -390,8 +394,16 @@ class ClaimXUploadWorker:
 
         # Stop consumer
         if self._consumer is not None:
-            await self._consumer.stop()
-            self._consumer = None
+            try:
+                await self._consumer.stop()
+            except Exception as e:
+                logger.error(
+                    "Error stopping consumer",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self._consumer = None
 
         # Stop producer
         await self.producer.stop()
@@ -416,153 +428,15 @@ class ClaimXUploadWorker:
 
         logger.info("ClaimX upload worker stopped")
 
-    async def _create_consumer(self) -> None:
-        # Get worker-specific consumer config (merged with defaults)
-        consumer_config_dict = self.config.get_worker_config(
-            self.domain, self.WORKER_NAME, "consumer"
-        )
-
-        consumer_config = {
-            "bootstrap_servers": self.config.bootstrap_servers,
-            "group_id": self.config.get_consumer_group(self.domain, self.WORKER_NAME),
-            "client_id": (
-                f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-{self.WORKER_NAME.replace('_', '-')}"
-            ),
-            "auto_offset_reset": consumer_config_dict.get(
-                "auto_offset_reset", "earliest"
-            ),
-            "enable_auto_commit": False,
-            "max_poll_records": self.batch_size,
-            "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
-            "max_poll_interval_ms": consumer_config_dict.get(
-                "max_poll_interval_ms", 300000
-            ),
-            # Connection timeout settings
-            "request_timeout_ms": self.config.request_timeout_ms,
-            "metadata_max_age_ms": self.config.metadata_max_age_ms,
-            "connections_max_idle_ms": self.config.connections_max_idle_ms,
-        }
-
-        # Add optional consumer settings if present in worker config
-        if "heartbeat_interval_ms" in consumer_config_dict:
-            consumer_config["heartbeat_interval_ms"] = consumer_config_dict[
-                "heartbeat_interval_ms"
-            ]
-        if "fetch_min_bytes" in consumer_config_dict:
-            consumer_config["fetch_min_bytes"] = consumer_config_dict["fetch_min_bytes"]
-        if "fetch_max_wait_ms" in consumer_config_dict:
-            consumer_config["fetch_max_wait_ms"] = consumer_config_dict[
-                "fetch_max_wait_ms"
-            ]
-
-        # Add security configuration
-        if self.config.security_protocol != "PLAINTEXT":
-            consumer_config["security_protocol"] = self.config.security_protocol
-            consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                consumer_config["sasl_oauth_token_provider"] = (
-                    create_kafka_oauth_callback()
-                )
-            elif self.config.sasl_mechanism == "PLAIN":
-                consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
-
-        self._consumer = AIOKafkaConsumer(self.topic, **consumer_config)
-        await self._consumer.start()
-
-        logger.info(
-            "Consumer started",
-            extra={
-                "topic": self.topic,
-                "consumer_group": self.config.get_consumer_group(
-                    self.domain, self.WORKER_NAME
-                ),
-            },
-        )
-
-    async def _consume_batch_loop(self) -> None:
-        if self._consumer is None:
-            raise RuntimeError("Consumer not initialized - call start() first")
-
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-
-        # Track partition assignment status for logging
-        _logged_waiting_for_assignment = False
-        _logged_assignment_received = False
-
-        while self._running:
-            try:
-                # Check partition assignment before fetching
-                # During consumer group rebalances, getmany() can block indefinitely
-                # waiting for partition assignment (ignoring timeout_ms).
-                # This check ensures we don't hang during startup with multiple consumers.
-                assignment = self._consumer.assignment()
-                if not assignment:
-                    if not _logged_waiting_for_assignment:
-                        logger.info(
-                            "Waiting for partition assignment (consumer group rebalance in progress)",
-                            extra={
-                                "consumer_group": consumer_group,
-                                "topic": self.topic,
-                            },
-                        )
-                        _logged_waiting_for_assignment = True
-                    await asyncio.sleep(0.5)
-                    continue
-
-                # Log when we first receive partition assignment
-                if not _logged_assignment_received:
-                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    logger.info(
-                        "Partition assignment received, starting message consumption",
-                        extra={
-                            "consumer_group": consumer_group,
-                            "partition_count": len(assignment),
-                            "partitions": partition_info,
-                        },
-                    )
-                    _logged_assignment_received = True
-                    # Update partition assignment metric
-                    update_assigned_partitions(consumer_group, len(assignment))
-
-                # Fetch batch of messages
-                batch: dict[str, list[AIOConsumerRecord]] = (
-                    await self._consumer.getmany(
-                        timeout_ms=1000,
-                        max_records=self.batch_size,
-                    )
-                )
-
-                if not batch:
-                    continue
-
-                # Flatten messages from all partitions and convert to PipelineMessage
-                messages = []
-                for _topic_partition, records in batch.items():
-                    for record in records:
-                        messages.append(from_consumer_record(record))
-
-                if messages:
-                    await self._process_batch(messages)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(
-                    "Error in consume loop", extra={"error": str(e)}, exc_info=True
-                )
-                record_processing_error(self.topic, consumer_group, "consume_error")
-                await asyncio.sleep(1)
-
-    async def _process_batch(self, messages: list[PipelineMessage]) -> None:
+    async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
         """
         Process a batch of messages concurrently.
 
         CRITICAL (Issue #38): Verifies all uploads succeeded before committing offsets.
         Failed uploads are tracked and offsets are not committed for those messages.
+
+        Returns:
+            True to commit batch, False to skip commit (upload failures)
         """
         if self._consumer is None:
             raise RuntimeError("Consumer not initialized - call start() first")
@@ -595,7 +469,7 @@ class ClaimXUploadWorker:
                     extra={"error": str(upload_result)},
                     exc_info=True,
                 )
-                record_processing_error(self.topic, consumer_group, "unexpected_error")
+                record_processing_error(self.topics[0], consumer_group, "unexpected_error")
                 exception_count += 1
             elif isinstance(upload_result, UploadResult):
                 if upload_result.success:
@@ -612,22 +486,17 @@ class ClaimXUploadWorker:
         # Only commit offsets if ALL uploads in batch succeeded
         # This ensures at-least-once semantics: failed uploads will be retried
         if failed_count == 0 and exception_count == 0:
-            try:
-                await self._consumer.commit()
-                logger.debug(
-                    "Committed offsets after successful batch",
-                    extra={
-                        "batch_size": len(messages),
-                        "success_count": success_count,
-                    },
-                )
-            except Exception as e:
-                logger.error(
-                    "Failed to commit offsets", extra={"error": str(e)}, exc_info=True
-                )
+            logger.debug(
+                "All uploads succeeded - committing batch",
+                extra={
+                    "batch_size": len(messages),
+                    "success_count": success_count,
+                },
+            )
+            return True
         else:
             logger.warning(
-                "Skipping offset commit due to upload failures in batch",
+                "Upload failures in batch - not committing offsets",
                 extra={
                     "batch_size": len(messages),
                     "success_count": success_count,
@@ -635,6 +504,7 @@ class ClaimXUploadWorker:
                     "exception_count": exception_count,
                 },
             )
+            return False
 
     async def _process_single_with_semaphore(
         self, message: PipelineMessage
@@ -664,7 +534,7 @@ class ClaimXUploadWorker:
                 self.domain, self.WORKER_NAME
             )
             record_message_consumed(
-                self.topic, consumer_group, len(message.value), success=True
+                message.topic, consumer_group, len(message.value), success=True
             )
 
             # Track records processed
@@ -760,7 +630,7 @@ class ClaimXUploadWorker:
             consumer_group = self.config.get_consumer_group(
                 self.domain, self.WORKER_NAME
             )
-            record_processing_error(self.topic, consumer_group, "upload_error")
+            record_processing_error(message.topic, consumer_group, "upload_error")
             self._records_failed += 1
 
             # For upload failures, we produce a failure result
