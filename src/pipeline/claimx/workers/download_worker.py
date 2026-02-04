@@ -108,7 +108,6 @@ class ClaimXDownloadWorker:
         domain: str = "claimx",
         temp_dir: Path | None = None,
         instance_id: str | None = None,
-        simulation_config: Any | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -173,16 +172,6 @@ class ClaimXDownloadWorker:
         self.api_client: ClaimXApiClient | None = None
         self.retry_handler: DownloadRetryHandler | None = None
 
-        # Store simulation config if provided (already validated at startup)
-        self._simulation_config = simulation_config
-        if simulation_config is not None:
-            logger.info(
-                "Simulation mode enabled - localhost URLs will be allowed",
-                extra={
-                    "allow_localhost_urls": simulation_config.allow_localhost_urls,
-                },
-            )
-
         health_port = processing_config.get("health_port", 8082)
         self.health_server = HealthCheckServer(
             port=health_port,
@@ -243,22 +232,13 @@ class ClaimXDownloadWorker:
         if hasattr(self.producer, "eventhub_name"):
             self.cached_topic = self.producer.eventhub_name
 
-        if self._simulation_config is not None:
-            # In simulation mode, use mock API client (doesn't need real credentials)
-            from pipeline.simulation.claimx_api_mock import MockClaimXAPIClient
-
-            self.api_client = MockClaimXAPIClient(
-                fixtures_dir=self._simulation_config.fixtures_dir
-            )
-            logger.info("Using MockClaimXAPIClient for simulation mode")
-        else:
-            self.api_client = ClaimXApiClient(
-                base_url=self.config.claimx_api_url
-                or "https://api.test.claimxperience.com",
-                token=self.config.claimx_api_token,
-                timeout_seconds=self.config.claimx_api_timeout_seconds,
-                max_concurrent=self.config.claimx_api_concurrency,
-            )
+        self.api_client = ClaimXApiClient(
+            base_url=self.config.claimx_api_url
+            or "https://api.test.claimxperience.com",
+            token=self.config.claimx_api_token,
+            timeout_seconds=self.config.claimx_api_timeout_seconds,
+            max_concurrent=self.config.claimx_api_concurrency,
+        )
 
         self.retry_handler = DownloadRetryHandler(
             config=self.config,
@@ -586,18 +566,13 @@ class ClaimXDownloadWorker:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.media_id / destination_filename
 
-        # Determine if localhost URLs should be allowed based on simulation config
-        allow_localhost = False
-        if self._simulation_config is not None:
-            allow_localhost = self._simulation_config.allow_localhost_urls
-
         return DownloadTask(
             url=task_message.download_url,
             destination=temp_file,
             timeout=60,
             validate_url=True,
             validate_file_type=True,
-            allow_localhost=allow_localhost,
+            allow_localhost=False,
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,
