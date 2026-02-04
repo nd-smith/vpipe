@@ -5,6 +5,7 @@ Provides domain-agnostic plugin infrastructure that works with
 both XACT and ClaimX pipelines.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -12,8 +13,6 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel
-
-from pipeline.common.logging import LoggedClass
 
 if TYPE_CHECKING:
     from pipeline.claimx.schemas.entities import EntityRowsMessage
@@ -348,18 +347,13 @@ class PluginContext:
         return tasks[0] if tasks else None
 
 
-class Plugin(LoggedClass, ABC):
+class Plugin(ABC):
     """
     Base class for plugins.
 
     Subclasses define:
       - Which domains/stages/event_types they handle
       - The execute() method with business logic
-
-    Provides logging infrastructure via LoggedClass:
-      - self._logger: Logger instance
-      - self._log(level, msg, **extra): Log with context
-      - self._log_exception(exc, msg, **extra): Exception logging
     """
 
     # Plugin metadata
@@ -386,7 +380,7 @@ class Plugin(LoggedClass, ABC):
         Args:
             config: Config dict to merge with default_config
         """
-        super().__init__()
+        self.logger = logging.getLogger(__name__)
         self.config = {**self.default_config, **(config or {})}
         self._enabled = True
 

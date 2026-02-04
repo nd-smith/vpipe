@@ -34,7 +34,7 @@ import yaml
 from dotenv import load_dotenv
 
 from config.config import KafkaConfig
-from core.logging import get_logger, setup_logging
+from core.logging import setup_logging
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 
@@ -48,7 +48,7 @@ from pipeline.plugins.shared.connections import (
     is_http_error,
 )
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"

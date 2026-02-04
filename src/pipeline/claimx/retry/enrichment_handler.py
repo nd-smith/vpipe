@@ -5,10 +5,10 @@ Handles retry routing logic with exponential backoff via dedicated
 retry topics. Routes exhausted retries to dead-letter queue (DLQ).
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import KafkaConfig
-from core.logging import get_logger
 from core.types import ErrorCategory
 from pipeline.claimx.handlers.utils import (
     LOG_ERROR_TRUNCATE_LONG,
@@ -18,7 +18,7 @@ from pipeline.claimx.schemas.results import FailedEnrichmentMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.common.transport import create_producer
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class EnrichmentRetryHandler:

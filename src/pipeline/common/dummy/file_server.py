@@ -12,6 +12,7 @@ Supports controlled failure injection for testing retry logic via environment va
 
 import asyncio
 import hashlib
+import logging
 import os
 import random
 import struct
@@ -20,9 +21,7 @@ from dataclasses import dataclass
 
 from aiohttp import web
 
-from core.logging.setup import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

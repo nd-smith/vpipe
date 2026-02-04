@@ -7,6 +7,7 @@ All events trigger API enrichment for entity data.
 import asyncio
 import contextlib
 import json
+import logging
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -15,7 +16,6 @@ from pydantic import ValidationError
 
 from config.config import KafkaConfig
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
@@ -26,7 +26,7 @@ from pipeline.common.metrics import (
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ClaimXEventIngesterWorker:

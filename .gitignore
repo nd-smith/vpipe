@@ -24,9 +24,7 @@ share/python-wheels/
 MANIFEST
 *.tmp.*
 .ruff_cache
-docs*
 *.code-workspace
-claude.md
 
 # Virtual environments
 venv/
@@ -62,7 +60,7 @@ tokens.json
 .env.local
 .env.*.local
 .env.simulation
-/docs
+
 # Allow .env.example and .env.template to be committed
 !.env.example
 !.env.template

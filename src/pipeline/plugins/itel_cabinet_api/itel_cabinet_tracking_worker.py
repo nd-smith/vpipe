@@ -29,7 +29,7 @@ from aiokafka import AIOKafkaProducer
 from dotenv import load_dotenv
 
 from config.config import KafkaConfig
-from core.logging import get_logger, log_worker_startup, setup_logging
+from core.logging import log_worker_startup, setup_logging
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 
@@ -45,7 +45,7 @@ from pipeline.plugins.shared.connections import (
 from .delta import ItelCabinetDeltaWriter
 from .pipeline import ItelCabinetPipeline
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"

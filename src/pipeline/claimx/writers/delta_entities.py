@@ -3,13 +3,13 @@
 Writes entity data to 7 Delta tables using merge operations for idempotency.
 """
 
+import logging
 import shutil
 from datetime import UTC, date, datetime
 from typing import Any
 
 import polars as pl
 
-from core.logging.setup import get_logger
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.common.writers.base import BaseDeltaWriter
 
@@ -234,7 +234,7 @@ class ClaimXEntityWriter:
             external_links_table_path: Full abfss:// path to claimx_external_links table
             video_collab_table_path: Full abfss:// path to claimx_video_collab table
         """
-        self.logger = get_logger(self.__class__.__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         table_paths = {
             "projects": projects_table_path,

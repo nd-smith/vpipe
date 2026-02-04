@@ -17,14 +17,13 @@ from aiokafka import AIOKafkaConsumer
 
 from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
-from core.logging import get_logger, log_with_context
 from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
 from pipeline.common.types import PipelineMessage, from_consumer_record
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class KafkaBatchConsumer:
@@ -92,19 +91,19 @@ class KafkaBatchConsumer:
         self.max_batches = processing_config.get("max_batches")
         self._batch_count = 0
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initialized Kafka batch consumer",
-            domain=domain,
-            worker_name=worker_name,
-            topics=topics,
-            group_id=self.group_id,
-            batch_size=batch_size,
-            batch_timeout_ms=batch_timeout_ms,
-            bootstrap_servers=config.bootstrap_servers,
-            max_batches=self.max_batches,
-            enable_message_commit=enable_message_commit,
+            extra={
+                "domain": domain,
+                "worker_name": worker_name,
+                "topics": topics,
+                "group_id": self.group_id,
+                "batch_size": batch_size,
+                "batch_timeout_ms": batch_timeout_ms,
+                "bootstrap_servers": config.bootstrap_servers,
+                "max_batches": self.max_batches,
+                "enable_message_commit": enable_message_commit,
+            },
         )
 
     async def start(self) -> None:
@@ -113,13 +112,13 @@ class KafkaBatchConsumer:
             logger.warning("Batch consumer already running, ignoring duplicate start call")
             return
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Starting Kafka batch consumer",
-            topics=self.topics,
-            group_id=self.group_id,
-            batch_size=self.batch_size,
+            extra={
+                "topics": self.topics,
+                "group_id": self.group_id,
+                "batch_size": self.batch_size,
+            },
         )
 
         kafka_consumer_config = {
@@ -205,13 +204,13 @@ class KafkaBatchConsumer:
         partition_count = len(self._consumer.assignment())
         update_assigned_partitions(self.group_id, partition_count)
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Kafka batch consumer started successfully",
-            topics=self.topics,
-            group_id=self.group_id,
-            partitions=partition_count,
+            extra={
+                "topics": self.topics,
+                "group_id": self.group_id,
+                "partitions": partition_count,
+            },
         )
 
         try:
@@ -220,11 +219,9 @@ class KafkaBatchConsumer:
             logger.info("Batch consumer loop cancelled, shutting down")
             raise
         except Exception as e:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Batch consumer loop terminated with error",
-                error=str(e),
+                extra={"error": str(e)},
                 exc_info=True,
             )
             raise
@@ -247,11 +244,9 @@ class KafkaBatchConsumer:
 
             logger.info("Kafka batch consumer stopped successfully")
         except Exception as e:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Error stopping Kafka batch consumer",
-                error=str(e),
+                extra={"error": str(e)},
                 exc_info=True,
             )
             raise
@@ -270,23 +265,21 @@ class KafkaBatchConsumer:
             return
 
         await self._consumer.commit()
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Committed offsets",
-            group_id=self.group_id,
+            extra={"group_id": self.group_id},
         )
 
     async def _consume_loop(self) -> None:
         """Main consumption loop - fetches and processes batches."""
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Starting batch consumption loop",
-            max_batches=self.max_batches,
-            topics=self.topics,
-            group_id=self.group_id,
-            batch_size=self.batch_size,
+            extra={
+                "max_batches": self.max_batches,
+                "topics": self.topics,
+                "group_id": self.group_id,
+                "batch_size": self.batch_size,
+            },
         )
 
         _logged_waiting_for_assignment = False
@@ -299,12 +292,12 @@ class KafkaBatchConsumer:
                     self.max_batches is not None
                     and self._batch_count >= self.max_batches
                 ):
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Reached max_batches limit, stopping consumer",
-                        max_batches=self.max_batches,
-                        batches_processed=self._batch_count,
+                        extra={
+                            "max_batches": self.max_batches,
+                            "batches_processed": self._batch_count,
+                        },
                     )
                     return
 
@@ -312,12 +305,9 @@ class KafkaBatchConsumer:
                 assignment = self._consumer.assignment()
                 if not assignment:
                     if not _logged_waiting_for_assignment:
-                        log_with_context(
-                            logger,
-                            logging.INFO,
+                        logger.info(
                             "Waiting for partition assignment (consumer group rebalance in progress)",
-                            group_id=self.group_id,
-                            topics=self.topics,
+                            extra={"group_id": self.group_id, "topics": self.topics},
                         )
                         _logged_waiting_for_assignment = True
                     await asyncio.sleep(0.5)
@@ -325,13 +315,13 @@ class KafkaBatchConsumer:
 
                 if not _logged_assignment_received:
                     partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Partition assignment received, starting batch consumption",
-                        group_id=self.group_id,
-                        partition_count=len(assignment),
-                        partitions=partition_info,
+                        extra={
+                            "group_id": self.group_id,
+                            "partition_count": len(assignment),
+                            "partitions": partition_info,
+                        },
                     )
                     _logged_assignment_received = True
                     update_assigned_partitions(self.group_id, len(assignment))
@@ -358,11 +348,9 @@ class KafkaBatchConsumer:
 
                 self._batch_count += 1
 
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Processing batch",
-                    batch_size=len(messages),
+                    extra={"batch_size": len(messages)},
                 )
 
                 start_time = time.perf_counter()
@@ -375,33 +363,33 @@ class KafkaBatchConsumer:
 
                     if should_commit and self._enable_message_commit:
                         await self._consumer.commit()
-                        log_with_context(
-                            logger,
-                            logging.DEBUG,
+                        logger.debug(
                             "Batch committed",
-                            batch_size=len(messages),
-                            duration_ms=round(duration * 1000, 2),
+                            extra={
+                                "batch_size": len(messages),
+                                "duration_ms": round(duration * 1000, 2),
+                            },
                         )
                     else:
-                        log_with_context(
-                            logger,
-                            logging.INFO,
+                        logger.info(
                             "Batch commit skipped (handler returned False) - messages will be redelivered",
-                            batch_size=len(messages),
-                            duration_ms=round(duration * 1000, 2),
+                            extra={
+                                "batch_size": len(messages),
+                                "duration_ms": round(duration * 1000, 2),
+                            },
                         )
 
                 except Exception as e:
                     duration = time.perf_counter() - start_time
 
                     # Handler raised exception - don't commit
-                    log_with_context(
-                        logger,
-                        logging.ERROR,
+                    logger.error(
                         "Batch processing failed - messages will be redelivered",
-                        batch_size=len(messages),
-                        duration_ms=round(duration * 1000, 2),
-                        error=str(e),
+                        extra={
+                            "batch_size": len(messages),
+                            "duration_ms": round(duration * 1000, 2),
+                            "error": str(e),
+                        },
                         exc_info=True,
                     )
                     # Don't re-raise - continue processing next batch
@@ -410,11 +398,9 @@ class KafkaBatchConsumer:
                 logger.info("Batch consumption loop cancelled")
                 raise
             except Exception as e:
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "Error in batch consumption loop",
-                    error=str(e),
+                    extra={"error": str(e)},
                     exc_info=True,
                 )
                 await asyncio.sleep(1)  # Avoid tight loop on errors

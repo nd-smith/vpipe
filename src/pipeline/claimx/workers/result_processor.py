@@ -7,6 +7,7 @@ Final stage of the download pipeline.
 import asyncio
 import contextlib
 import json
+import logging
 import time
 import uuid
 from datetime import UTC, datetime
@@ -16,7 +17,6 @@ from pydantic import ValidationError
 
 from config.config import KafkaConfig
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.common.health import HealthCheckServer
@@ -28,7 +28,7 @@ from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.common.writers.base import BaseDeltaWriter
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ClaimXResultProcessor:

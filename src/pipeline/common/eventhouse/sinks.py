@@ -15,11 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+import logging
+
 from pydantic import BaseModel
 
-from core.logging.setup import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable

@@ -19,12 +19,12 @@ Features:
 
 import asyncio
 import contextlib
+import logging
 import time
 import uuid
 
 from config.config import KafkaConfig
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
@@ -39,7 +39,7 @@ from pipeline.verisk.writers.delta_inventory import (
 )
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ResultProcessor:

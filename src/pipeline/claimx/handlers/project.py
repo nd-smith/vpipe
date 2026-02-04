@@ -7,7 +7,6 @@ Handles: PROJECT_CREATED, PROJECT_MFN_ADDED
 import logging
 from datetime import UTC, datetime
 
-from core.logging import get_logger, log_exception, log_with_context
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers.base import (
@@ -25,7 +24,7 @@ from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.common.logging import extract_log_context
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @register_handler
@@ -46,12 +45,12 @@ class ProjectHandler(EventHandler):
         """Fetch project details and transform to entity rows."""
         start_time = datetime.now(UTC)
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Processing project event",
-            handler_name=ProjectHandler.HANDLER_NAME,
-            **extract_log_context(event),
+            extra={
+                "handler_name": ProjectHandler.HANDLER_NAME,
+                **extract_log_context(event),
+            },
         )
 
         try:
@@ -79,16 +78,16 @@ class ProjectHandler(EventHandler):
                     )
 
                 duration_ms = elapsed_ms(start_time)
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Handler complete",
-                    handler_name=ProjectHandler.HANDLER_NAME,
-                    api_calls=1,
-                    projects_count=len(rows.projects),
-                    contacts_count=len(rows.contacts),
-                    duration_ms=duration_ms,
-                    **extract_log_context(event),
+                    extra={
+                        "handler_name": ProjectHandler.HANDLER_NAME,
+                        "api_calls": 1,
+                        "projects_count": len(rows.projects),
+                        "contacts_count": len(rows.contacts),
+                        "duration_ms": duration_ms,
+                        **extract_log_context(event),
+                    },
                 )
 
                 return EnrichmentResult(
@@ -105,16 +104,16 @@ class ProjectHandler(EventHandler):
             )
 
             duration_ms = elapsed_ms(start_time)
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Handler complete",
-                handler_name=ProjectHandler.HANDLER_NAME,
-                api_calls=1,
-                projects_count=len(rows.projects),
-                contacts_count=len(rows.contacts),
-                duration_ms=duration_ms,
-                **extract_log_context(event),
+                extra={
+                    "handler_name": ProjectHandler.HANDLER_NAME,
+                    "api_calls": 1,
+                    "projects_count": len(rows.projects),
+                    "contacts_count": len(rows.contacts),
+                    "duration_ms": duration_ms,
+                    **extract_log_context(event),
+                },
             )
 
             return EnrichmentResult(
@@ -127,17 +126,17 @@ class ProjectHandler(EventHandler):
 
         except ClaimXApiError as e:
             duration_ms = elapsed_ms(start_time)
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "API error for project",
-                handler_name=ProjectHandler.HANDLER_NAME,
-                error_message=str(e)[:LOG_ERROR_TRUNCATE_SHORT],
-                error_category=e.category.value if e.category else None,
-                http_status=e.status_code,
-                is_retryable=e.is_retryable,
-                duration_ms=duration_ms,
-                **extract_log_context(event),
+                extra={
+                    "handler_name": ProjectHandler.HANDLER_NAME,
+                    "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
+                    "error_category": e.category.value if e.category else None,
+                    "http_status": e.status_code,
+                    "is_retryable": e.is_retryable,
+                    "duration_ms": duration_ms,
+                    **extract_log_context(event),
+                },
             )
             return EnrichmentResult(
                 event=event,
@@ -151,13 +150,14 @@ class ProjectHandler(EventHandler):
 
         except Exception as e:
             duration_ms = elapsed_ms(start_time)
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Unexpected error for project",
-                handler_name=ProjectHandler.HANDLER_NAME,
-                duration_ms=duration_ms,
-                **extract_log_context(event),
+                extra={
+                    "handler_name": ProjectHandler.HANDLER_NAME,
+                    "duration_ms": duration_ms,
+                    **extract_log_context(event),
+                },
+                exc_info=True,
             )
             return EnrichmentResult(
                 event=event,

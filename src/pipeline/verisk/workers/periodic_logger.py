@@ -1,12 +1,11 @@
 """Periodic statistics logging utility for workers."""
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any
 
-from core.logging.setup import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class PeriodicStatsLogger:

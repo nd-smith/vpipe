@@ -13,8 +13,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import logging
+
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from pipeline.common.eventhouse.kql_client import (
     EventhouseConfig,
     KQLClient,
@@ -24,7 +25,7 @@ from pipeline.common.eventhouse.sinks import (
     create_kafka_sink,
 )
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # Default checkpoint directory

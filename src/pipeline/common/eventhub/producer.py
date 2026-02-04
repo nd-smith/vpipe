@@ -16,10 +16,11 @@ import os
 import time
 from typing import Any
 
+import logging
+
 from azure.eventhub import EventData, EventHubProducerClient, TransportType
 from pydantic import BaseModel
 
-from core.logging import get_logger, log_exception, log_with_context
 from core.utils.json_serializers import json_serializer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -29,7 +30,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.types import ProduceResult
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class EventHubRecordMetadata:
@@ -107,14 +108,14 @@ class EventHubProducer:
         self._producer: EventHubProducerClient | None = None
         self._started = False
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initialized Event Hub producer",
-            domain=domain,
-            worker_name=worker_name,
-            eventhub_name=self.eventhub_name,
-            transport="AmqpOverWebsocket",
+            extra={
+                "domain": domain,
+                "worker_name": worker_name,
+                "eventhub_name": self.eventhub_name,
+                "transport": "AmqpOverWebsocket",
+            },
         )
 
     async def start(self) -> None:
@@ -154,16 +155,20 @@ class EventHubProducer:
             self._started = True
             update_connection_status("producer", connected=True)
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Event Hub producer started successfully",
-                eventhub_name=self.eventhub_name,
-                transport="AmqpOverWebsocket",
+                extra={
+                    "eventhub_name": self.eventhub_name,
+                    "transport": "AmqpOverWebsocket",
+                },
             )
 
         except Exception as e:
-            log_exception(logger, e, "Failed to start Event Hub producer")
+            logger.error(
+                "Failed to start Event Hub producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
             raise
 
     async def stop(self) -> None:
@@ -177,7 +182,11 @@ class EventHubProducer:
             self._producer.close()
             logger.info("Event Hub producer stopped successfully")
         except Exception as e:
-            log_exception(logger, e, "Error stopping Event Hub producer")
+            logger.error(
+                "Error stopping Event Hub producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
         finally:
             update_connection_status("producer", connected=False)
             self._producer = None
@@ -237,14 +246,14 @@ class EventHubProducer:
             for k, v in headers.items():
                 event_data.properties[k] = v
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Sending message to Event Hub",
-            entity=self.eventhub_name,
-            key=key,
-            headers=headers,
-            value_size=len(value_bytes),
+            extra={
+                "entity": self.eventhub_name,
+                "key": key,
+                "headers": headers,
+                "value_size": len(value_bytes),
+            },
         )
 
         try:
@@ -256,11 +265,9 @@ class EventHubProducer:
 
             record_message_produced(self.eventhub_name, len(value_bytes), success=True)
 
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Message sent successfully",
-                entity=self.eventhub_name,
+                extra={"entity": self.eventhub_name},
             )
 
             # Return ProduceResult for transport-agnostic interface
@@ -275,8 +282,10 @@ class EventHubProducer:
         except Exception as e:
             record_message_produced(self.eventhub_name, len(value_bytes), success=False)
             record_producer_error(self.eventhub_name, type(e).__name__)
-            log_exception(
-                logger, e, "Failed to send message", entity=self.eventhub_name, key=key
+            logger.error(
+                "Failed to send message",
+                extra={"entity": self.eventhub_name, "key": key, "error": str(e)},
+                exc_info=True,
             )
             raise
 
@@ -314,13 +323,13 @@ class EventHubProducer:
                 f"Topic mismatch: requested '{topic}', using '{self.eventhub_name}'"
             )
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Sending batch to Event Hub",
-            entity=self.eventhub_name,
-            message_count=len(messages),
-            headers=headers,
+            extra={
+                "entity": self.eventhub_name,
+                "message_count": len(messages),
+                "headers": headers,
+            },
         )
 
         start_time = time.perf_counter()
@@ -356,13 +365,13 @@ class EventHubProducer:
                     self.eventhub_name, total_bytes // len(messages), success=True
                 )
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Batch sent successfully",
-                entity=self.eventhub_name,
-                message_count=len(messages),
-                duration_ms=round(duration * 1000, 2),
+                extra={
+                    "entity": self.eventhub_name,
+                    "message_count": len(messages),
+                    "duration_ms": round(duration * 1000, 2),
+                },
             )
 
             # Return ProduceResult list for transport-agnostic interface
@@ -385,13 +394,15 @@ class EventHubProducer:
                 )
             record_producer_error(self.eventhub_name, type(e).__name__)
 
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Failed to send batch",
-                entity=self.eventhub_name,
-                message_count=len(messages),
-                duration_ms=round(duration * 1000, 2),
+                extra={
+                    "entity": self.eventhub_name,
+                    "message_count": len(messages),
+                    "duration_ms": round(duration * 1000, 2),
+                    "error": str(e),
+                },
+                exc_info=True,
             )
             raise
 

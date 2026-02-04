@@ -106,9 +106,9 @@ def validate_download_url(
     # CRITICAL SECURITY CHECK: Never allow localhost in production
     # This check happens BEFORE any other validation to ensure safety
     if allow_localhost and _is_production_environment():
-        from core.logging.setup import get_logger
+        import logging
 
-        logger = get_logger(__name__)
+        logger = logging.getLogger(__name__)
         logger.error(
             "SECURITY: Attempted to allow localhost URLs in production environment",
             extra={
@@ -172,9 +172,9 @@ def _validate_localhost_url(url: str, parsed) -> None:
     Raises:
         URLValidationError: If validation fails
     """
-    from core.logging.setup import get_logger
+    import logging
 
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
 
     # Must be http (not https - no need for TLS on localhost)
     # We allow https too for flexibility, but http is typical for local servers

@@ -205,13 +205,13 @@ class NormalizedXACTTaskPlugin(Plugin):
 
             if project_id:
                 format_used = claim_format
-                log_with_context(
-                    self._logger,
-                    logging.INFO,
+                self._logger.info(
                     "Found ClaimX project with normalized format",
-                    original_claim=claim_number_raw,
-                    normalized_claim=claim_format,
-                    project_id=project_id,
+                    extra={
+                        "original_claim": claim_number_raw,
+                        "normalized_claim": claim_format,
+                        "project_id": project_id,
+                    },
                 )
                 break
 

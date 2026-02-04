@@ -5,9 +5,9 @@ Maintains a simple set of project IDs that have been processed
 to avoid redundant API calls.
 """
 
-from core.logging import get_logger
+import logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ProjectCache:

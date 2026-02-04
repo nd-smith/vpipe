@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 from prometheus_client import REGISTRY, start_http_server
 
 from core.logging.setup import (
-    get_logger,
     setup_logging,
     setup_multi_worker_logging,
     upload_crash_logs,
@@ -483,7 +482,7 @@ def main():
             log_to_stdout=log_to_stdout,
         )
 
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
 
     _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
     if _debug_token_file:

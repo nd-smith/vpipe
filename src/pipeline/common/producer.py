@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
-from core.logging import get_logger, log_exception, log_with_context
 from core.utils.json_serializers import json_serializer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -20,7 +19,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.types import ProduceResult
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BaseKafkaProducer:
@@ -41,16 +40,16 @@ class BaseKafkaProducer:
         self._started = False
         self.producer_config = config.get_worker_config(domain, worker_name, "producer")
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initialized Kafka producer",
-            domain=domain,
-            worker_name=worker_name,
-            bootstrap_servers=config.bootstrap_servers,
-            security_protocol=config.security_protocol,
-            sasl_mechanism=config.sasl_mechanism,
-            producer_config=self.producer_config,
+            extra={
+                "domain": domain,
+                "worker_name": worker_name,
+                "bootstrap_servers": config.bootstrap_servers,
+                "security_protocol": config.security_protocol,
+                "sasl_mechanism": config.sasl_mechanism,
+                "producer_config": self.producer_config,
+            },
         )
 
     async def start(self) -> None:
@@ -77,13 +76,13 @@ class BaseKafkaProducer:
         # Kafka assigns Producer ID and tracks sequence numbers for deduplication.
         enable_idempotence = self.producer_config.get("enable_idempotence", True)
         if enable_idempotence and acks_value != "all":
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "Overriding acks to 'all' because enable_idempotence=True requires it",
-                configured_acks=acks_value,
-                domain=self.domain,
-                worker_name=self.worker_name,
+                extra={
+                    "configured_acks": acks_value,
+                    "domain": self.domain,
+                    "worker_name": self.worker_name,
+                },
             )
             acks_value = "all"
 
@@ -154,14 +153,14 @@ class BaseKafkaProducer:
         self._started = True
         update_connection_status("producer", connected=True)
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Kafka producer started successfully",
-            bootstrap_servers=self.config.bootstrap_servers,
-            acks=self.producer_config.get("acks", "all"),
-            compression_type=self.producer_config.get("compression_type", "none"),
-            enable_idempotence=enable_idempotence,
+            extra={
+                "bootstrap_servers": self.config.bootstrap_servers,
+                "acks": self.producer_config.get("acks", "all"),
+                "compression_type": self.producer_config.get("compression_type", "none"),
+                "enable_idempotence": enable_idempotence,
+            },
         )
 
     async def stop(self) -> None:
@@ -195,7 +194,11 @@ class BaseKafkaProducer:
             await self._producer.stop()
             logger.info("Kafka producer stopped successfully")
         except Exception as e:
-            log_exception(logger, e, "Error stopping Kafka producer")
+            logger.error(
+                "Error stopping Kafka producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
         finally:
             update_connection_status("producer", connected=False)
             self._producer = None
@@ -225,14 +228,14 @@ class BaseKafkaProducer:
 
         # Note: Distributed tracing has been removed or no active span
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Sending message to Kafka",
-            topic=topic,
-            key=key,
-            headers=headers,
-            value_size=len(value_bytes),
+            extra={
+                "topic": topic,
+                "key": key,
+                "headers": headers,
+                "value_size": len(value_bytes),
+            },
         )
 
         try:
@@ -252,13 +255,13 @@ class BaseKafkaProducer:
             )
             record_message_produced(topic, len(value_bytes), success=True)
 
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Message sent successfully",
-                topic=metadata.topic,
-                partition=metadata.partition,
-                offset=metadata.offset,
+                extra={
+                    "topic": metadata.topic,
+                    "partition": metadata.partition,
+                    "offset": metadata.offset,
+                },
             )
 
             # Convert RecordMetadata to transport-agnostic ProduceResult
@@ -271,7 +274,11 @@ class BaseKafkaProducer:
         except Exception as e:
             record_message_produced(topic, len(value_bytes), success=False)
             record_producer_error(topic, type(e).__name__)
-            log_exception(logger, e, "Failed to send message", topic=topic, key=key)
+            logger.error(
+                "Failed to send message",
+                extra={"topic": topic, "key": key, "error": str(e)},
+                exc_info=True,
+            )
             raise
 
     async def send_batch(
@@ -287,13 +294,9 @@ class BaseKafkaProducer:
             logger.warning("send_batch called with empty message list")
             return []
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Sending batch to Kafka",
-            topic=topic,
-            message_count=len(messages),
-            headers=headers,
+            extra={"topic": topic, "message_count": len(messages), "headers": headers},
         )
 
         headers_list = None
@@ -333,14 +336,14 @@ class BaseKafkaProducer:
                     topic, total_bytes // len(results), success=True
                 )
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Batch sent successfully",
-                topic=topic,
-                message_count=len(results),
-                partitions=list({r.partition for r in results}),
-                duration_ms=round(duration * 1000, 2),
+                extra={
+                    "topic": topic,
+                    "message_count": len(results),
+                    "partitions": list({r.partition for r in results}),
+                    "duration_ms": round(duration * 1000, 2),
+                },
             )
 
             return results
@@ -353,13 +356,15 @@ class BaseKafkaProducer:
                     topic, total_bytes // len(messages), success=False
                 )
             record_producer_error(topic, type(e).__name__)
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Failed to send batch",
-                topic=topic,
-                message_count=len(messages),
-                duration_ms=round(duration * 1000, 2),
+                extra={
+                    "topic": topic,
+                    "message_count": len(messages),
+                    "duration_ms": round(duration * 1000, 2),
+                    "error": str(e),
+                },
+                exc_info=True,
             )
             raise
 

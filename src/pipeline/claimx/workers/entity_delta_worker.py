@@ -6,9 +6,9 @@ Writes entity rows to Delta Lake tables with batch processing.
 import asyncio
 import contextlib
 import json
+import logging
 
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.schemas.entities import EntityRowsMessage
@@ -19,7 +19,7 @@ from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ClaimXEntityDeltaWorker:

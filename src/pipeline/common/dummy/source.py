@@ -7,12 +7,12 @@ to Kafka topics, allowing pipeline testing without external dependencies.
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from pipeline.common.dummy.file_server import DummyFileServer, FileServerConfig
 from pipeline.common.dummy.generators import (
     GeneratorConfig,
@@ -20,7 +20,7 @@ from pipeline.common.dummy.generators import (
 )
 from pipeline.common.producer import BaseKafkaProducer
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

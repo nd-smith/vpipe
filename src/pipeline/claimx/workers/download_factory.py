@@ -3,12 +3,12 @@
 Converts media metadata rows into ClaimXDownloadTask objects for download worker.
 """
 
+import logging
 from typing import Any
 
-from core.logging import get_logger
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class DownloadTaskFactory:

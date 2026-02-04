@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
-from core.logging import get_logger, log_exception, log_with_context
 from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 from pipeline.common.eventhub.consumer import EventHubConsumerRecord
 from pipeline.common.eventhub.producer import EventHubProducer
@@ -34,7 +33,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -120,18 +119,18 @@ class EventHubBatchConsumer:
         # Background task for timeout-based flushing
         self._flush_task: asyncio.Task | None = None
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initialized Event Hub batch consumer",
-            domain=domain,
-            worker_name=worker_name,
-            entity=eventhub_name,
-            consumer_group=consumer_group,
-            batch_size=batch_size,
-            batch_timeout_ms=batch_timeout_ms,
-            enable_message_commit=enable_message_commit,
-            checkpoint_persistence="blob_storage" if checkpoint_store else "in_memory",
+            extra={
+                "domain": domain,
+                "worker_name": worker_name,
+                "entity": eventhub_name,
+                "consumer_group": consumer_group,
+                "batch_size": batch_size,
+                "batch_timeout_ms": batch_timeout_ms,
+                "enable_message_commit": enable_message_commit,
+                "checkpoint_persistence": "blob_storage" if checkpoint_store else "in_memory",
+            },
         )
 
     async def start(self) -> None:
@@ -148,17 +147,17 @@ class EventHubBatchConsumer:
             if self.checkpoint_store
             else "with in-memory checkpoints only"
         )
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             f"Starting Event Hub batch consumer {checkpoint_mode}",
-            entity=self.eventhub_name,
-            consumer_group=self.consumer_group,
-            batch_size=self.batch_size,
-            batch_timeout_ms=self.batch_timeout_ms,
-            checkpoint_persistence=(
-                "blob_storage" if self.checkpoint_store else "in_memory"
-            ),
+            extra={
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+                "batch_size": self.batch_size,
+                "batch_timeout_ms": self.batch_timeout_ms,
+                "checkpoint_persistence": (
+                    "blob_storage" if self.checkpoint_store else "in_memory"
+                ),
+            },
         )
 
         try:
@@ -183,12 +182,12 @@ class EventHubBatchConsumer:
             self._running = True
             update_connection_status("consumer", connected=True)
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Event Hub batch consumer started successfully",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                },
             )
 
             # Start background timeout flush task
@@ -201,7 +200,7 @@ class EventHubBatchConsumer:
             logger.info("Batch consumer loop cancelled, shutting down")
             raise
         except Exception as e:
-            log_exception(logger, e, "Batch consumer loop terminated with error")
+            logger.error("Batch consumer loop terminated with error", exc_info=True)
             raise
         finally:
             self._running = False
@@ -234,7 +233,7 @@ class EventHubBatchConsumer:
 
             logger.info("Event Hub batch consumer stopped successfully")
         except Exception as e:
-            log_exception(logger, e, "Error stopping Event Hub batch consumer")
+            logger.error("Error stopping Event Hub batch consumer", exc_info=True)
             raise
         finally:
             update_connection_status("consumer", connected=False)
@@ -247,21 +246,19 @@ class EventHubBatchConsumer:
         For batch consumer, checkpointing happens in _flush_partition_batch after
         successful batch processing. This method is a no-op.
         """
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Commit called (no-op for batch consumer - checkpointing done per batch)",
-            consumer_group=self.consumer_group,
+            extra={"consumer_group": self.consumer_group},
         )
 
     async def _consume_loop(self) -> None:
         """Main consumption loop using Event Hub async receive."""
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Starting batch message consumption loop",
-            entity=self.eventhub_name,
-            consumer_group=self.consumer_group,
+            extra={
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+            },
         )
 
         # Define event handler for each partition
@@ -301,13 +298,13 @@ class EventHubBatchConsumer:
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
             partition_id = partition_context.partition_id
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Partition assigned",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                partition_id=partition_id,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "partition_id": partition_id,
+                },
             )
             # Update metrics
             current_count = len(self._batch_buffers)
@@ -316,14 +313,14 @@ class EventHubBatchConsumer:
         async def on_partition_close(partition_context, reason):
             """Called when partition is revoked - flush incomplete batch."""
             partition_id = partition_context.partition_id
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Partition revoked - flushing incomplete batch",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                partition_id=partition_id,
-                reason=reason,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "partition_id": partition_id,
+                    "reason": reason,
+                },
             )
 
             # Flush incomplete batch before yielding partition
@@ -344,13 +341,14 @@ class EventHubBatchConsumer:
             partition_id = (
                 partition_context.partition_id if partition_context else "unknown"
             )
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Error in Event Hub batch consumption",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                partition_id=partition_id,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "partition_id": partition_id,
+                },
+                exc_info=True,
             )
 
         # Start receiving events
@@ -364,7 +362,7 @@ class EventHubBatchConsumer:
                     starting_position="-1",  # Start from beginning
                 )
         except Exception as e:
-            log_exception(logger, e, "Error in Event Hub batch receive loop")
+            logger.error("Error in Event Hub batch receive loop", exc_info=True)
             raise
 
     async def _timeout_flush_loop(self):
@@ -386,21 +384,21 @@ class EventHubBatchConsumer:
 
                     # Flush if timeout exceeded and batch not empty
                     if batch_size > 0 and elapsed_ms >= self.batch_timeout_ms:
-                        log_with_context(
-                            logger,
-                            logging.DEBUG,
+                        logger.debug(
                             "Timeout flush triggered",
-                            partition_id=partition_id,
-                            batch_size=batch_size,
-                            elapsed_ms=round(elapsed_ms, 1),
-                            timeout_ms=self.batch_timeout_ms,
+                            extra={
+                                "partition_id": partition_id,
+                                "batch_size": batch_size,
+                                "elapsed_ms": round(elapsed_ms, 1),
+                                "timeout_ms": self.batch_timeout_ms,
+                            },
                         )
                         asyncio.create_task(self._flush_partition_batch(partition_id))
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log_exception(logger, e, "Error in timeout flush loop")
+                logger.error("Error in timeout flush loop", exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on errors
 
     async def _flush_partition_batch(self, partition_id: str):
@@ -435,12 +433,12 @@ class EventHubBatchConsumer:
         # Extract messages for handler
         messages = [buffered.message for buffered in batch]
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Processing batch",
-            partition_id=partition_id,
-            batch_size=len(messages),
+            extra={
+                "partition_id": partition_id,
+                "batch_size": len(messages),
+            },
         )
 
         start_time = time.perf_counter()
@@ -461,45 +459,47 @@ class EventHubBatchConsumer:
                         )
                     except Exception as checkpoint_error:
                         # Log but continue - message will be redelivered (at-least-once)
-                        log_exception(
-                            logger,
-                            checkpoint_error,
+                        logger.error(
                             "Failed to checkpoint message - will be redelivered",
-                            partition_id=partition_id,
-                            offset=buffered.message.offset,
+                            extra={
+                                "partition_id": partition_id,
+                                "offset": buffered.message.offset,
+                            },
+                            exc_info=True,
                         )
                         checkpoint_errors += 1
 
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Batch checkpointed",
-                    partition_id=partition_id,
-                    batch_size=len(batch),
-                    duration_ms=round(duration * 1000, 2),
-                    checkpoint_errors=checkpoint_errors,
+                    extra={
+                        "partition_id": partition_id,
+                        "batch_size": len(batch),
+                        "duration_ms": round(duration * 1000, 2),
+                        "checkpoint_errors": checkpoint_errors,
+                    },
                 )
             else:
-                log_with_context(
-                    logger,
-                    logging.INFO,
+                logger.info(
                     "Batch checkpoint skipped (handler returned False) - messages will be redelivered",
-                    partition_id=partition_id,
-                    batch_size=len(batch),
-                    duration_ms=round(duration * 1000, 2),
+                    extra={
+                        "partition_id": partition_id,
+                        "batch_size": len(batch),
+                        "duration_ms": round(duration * 1000, 2),
+                    },
                 )
 
         except Exception as e:
             duration = time.perf_counter() - start_time
 
             # Handler raised exception - don't checkpoint
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Batch processing failed - messages will be redelivered",
-                partition_id=partition_id,
-                batch_size=len(batch),
-                duration_ms=round(duration * 1000, 2),
+                extra={
+                    "partition_id": partition_id,
+                    "batch_size": len(batch),
+                    "duration_ms": round(duration * 1000, 2),
+                },
+                exc_info=True,
             )
             # Don't re-raise - continue processing other partitions
 

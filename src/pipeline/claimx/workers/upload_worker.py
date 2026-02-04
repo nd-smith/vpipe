@@ -6,6 +6,7 @@ Decoupled from download worker for independent scaling.
 
 import asyncio
 import contextlib
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -14,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
@@ -29,7 +29,7 @@ from pipeline.common.storage import OneLakeClient
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

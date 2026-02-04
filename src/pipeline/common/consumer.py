@@ -14,7 +14,7 @@ from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
-from core.logging import MessageLogContext, get_logger, log_exception, log_with_context
+from core.logging import MessageLogContext
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_dlq_message,
@@ -27,7 +27,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.types import PipelineMessage, from_consumer_record
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BaseKafkaConsumer:
@@ -67,18 +67,18 @@ class BaseKafkaConsumer:
 
         self._enable_message_commit = enable_message_commit
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initialized Kafka consumer",
-            domain=domain,
-            worker_name=worker_name,
-            topics=topics,
-            group_id=self.group_id,
-            bootstrap_servers=config.bootstrap_servers,
-            max_batches=self.max_batches,
-            enable_message_commit=enable_message_commit,
-            consumer_config=self.consumer_config,
+            extra={
+                "domain": domain,
+                "worker_name": worker_name,
+                "topics": topics,
+                "group_id": self.group_id,
+                "bootstrap_servers": config.bootstrap_servers,
+                "max_batches": self.max_batches,
+                "enable_message_commit": enable_message_commit,
+                "consumer_config": self.consumer_config,
+            },
         )
 
     async def start(self) -> None:
@@ -86,12 +86,12 @@ class BaseKafkaConsumer:
             logger.warning("Consumer already running, ignoring duplicate start call")
             return
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Starting Kafka consumer",
-            topics=self.topics,
-            group_id=self.group_id,
+            extra={
+                "topics": self.topics,
+                "group_id": self.group_id,
+            },
         )
 
         kafka_consumer_config = {
@@ -177,13 +177,13 @@ class BaseKafkaConsumer:
         partition_count = len(self._consumer.assignment())
         update_assigned_partitions(self.group_id, partition_count)
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Kafka consumer started successfully",
-            topics=self.topics,
-            group_id=self.group_id,
-            partitions=partition_count,
+            extra={
+                "topics": self.topics,
+                "group_id": self.group_id,
+                "partitions": partition_count,
+            },
         )
 
         try:
@@ -192,10 +192,9 @@ class BaseKafkaConsumer:
             logger.info("Consumer loop cancelled, shutting down")
             raise
         except Exception as e:
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Consumer loop terminated with error",
+                exc_info=True,
             )
             raise
         finally:
@@ -220,20 +219,18 @@ class BaseKafkaConsumer:
                     await self._dlq_producer.stop()
                     logger.info("DLQ producer stopped successfully")
                 except Exception as dlq_error:
-                    log_exception(
-                        logger,
-                        dlq_error,
+                    logger.error(
                         "Error stopping DLQ producer",
+                        exc_info=True,
                     )
                 finally:
                     self._dlq_producer = None
 
             logger.info("Kafka consumer stopped successfully")
         except Exception as e:
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Error stopping Kafka consumer",
+                exc_info=True,
             )
             raise
         finally:
@@ -248,21 +245,21 @@ class BaseKafkaConsumer:
             return
 
         await self._consumer.commit()
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Committed offsets",
-            group_id=self.group_id,
+            extra={
+                "group_id": self.group_id,
+            },
         )
 
     async def _consume_loop(self) -> None:
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Starting message consumption loop",
-            max_batches=self.max_batches,
-            topics=self.topics,
-            group_id=self.group_id,
+            extra={
+                "max_batches": self.max_batches,
+                "topics": self.topics,
+                "group_id": self.group_id,
+            },
         )
 
         _logged_waiting_for_assignment = False
@@ -274,12 +271,12 @@ class BaseKafkaConsumer:
                     self.max_batches is not None
                     and self._batch_count >= self.max_batches
                 ):
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Reached max_batches limit, stopping consumer",
-                        max_batches=self.max_batches,
-                        batches_processed=self._batch_count,
+                        extra={
+                            "max_batches": self.max_batches,
+                            "batches_processed": self._batch_count,
+                        },
                     )
                     return
 
@@ -287,12 +284,12 @@ class BaseKafkaConsumer:
                 assignment = self._consumer.assignment()
                 if not assignment:
                     if not _logged_waiting_for_assignment:
-                        log_with_context(
-                            logger,
-                            logging.INFO,
+                        logger.info(
                             "Waiting for partition assignment (consumer group rebalance in progress)",
-                            group_id=self.group_id,
-                            topics=self.topics,
+                            extra={
+                                "group_id": self.group_id,
+                                "topics": self.topics,
+                            },
                         )
                         _logged_waiting_for_assignment = True
                     await asyncio.sleep(0.5)
@@ -300,13 +297,13 @@ class BaseKafkaConsumer:
 
                 if not _logged_assignment_received:
                     partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Partition assignment received, starting message consumption",
-                        group_id=self.group_id,
-                        partition_count=len(assignment),
-                        partitions=partition_info,
+                        extra={
+                            "group_id": self.group_id,
+                            "partition_count": len(assignment),
+                            "partitions": partition_info,
+                        },
                     )
                     _logged_assignment_received = True
                     update_assigned_partitions(self.group_id, len(assignment))
@@ -329,10 +326,9 @@ class BaseKafkaConsumer:
                 logger.info("Consumption loop cancelled")
                 raise
             except Exception as e:
-                log_exception(
-                    logger,
-                    e,
+                logger.error(
                     "Error in consumption loop",
+                    exc_info=True,
                 )
                 await asyncio.sleep(1)
 
@@ -344,11 +340,11 @@ class BaseKafkaConsumer:
             key=message.key.decode("utf-8") if message.key else None,
             consumer_group=self.group_id,
         ):
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Processing message",
-                message_size=len(message.value) if message.value else 0,
+                extra={
+                    "message_size": len(message.value) if message.value else 0,
+                },
             )
 
             start_time = time.perf_counter()
@@ -373,11 +369,11 @@ class BaseKafkaConsumer:
                     message.topic, self.group_id, message_size, success=True
                 )
 
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Message processed successfully",
-                    duration_ms=round(duration * 1000, 2),
+                    extra={
+                        "duration_ms": round(duration * 1000, 2),
+                    },
                 )
 
             except Exception as e:
@@ -424,11 +420,10 @@ class BaseKafkaConsumer:
         }
 
         if error_category == ErrorCategory.PERMANENT:
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Permanent error processing message - routing to DLQ",
-                **common_context,
+                extra={**common_context},
+                exc_info=True,
             )
 
             try:
@@ -437,56 +432,48 @@ class BaseKafkaConsumer:
                 # Commit offset after DLQ routing to advance past poison pill
                 if self._enable_message_commit:
                     await self._consumer.commit()
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Offset committed after DLQ routing - partition can advance",
-                        topic=message.topic,
-                        partition=message.partition,
-                        offset=message.offset,
+                        extra={
+                            "topic": message.topic,
+                            "partition": message.partition,
+                            "offset": message.offset,
+                        },
                     )
 
             except Exception as dlq_error:
-                log_exception(
-                    logger,
-                    dlq_error,
+                logger.error(
                     "DLQ routing failed - message will be retried",
-                    **common_context,
+                    extra={**common_context},
+                    exc_info=True,
                 )
 
         elif error_category == ErrorCategory.TRANSIENT:
-            log_exception(
-                logger,
-                error,
+            logger.warning(
                 "Transient error - will reprocess message",
-                level=logging.WARNING,
-                **common_context,
+                extra={**common_context},
+                exc_info=True,
             )
 
         elif error_category == ErrorCategory.AUTH:
-            log_exception(
-                logger,
-                error,
+            logger.warning(
                 "Authentication error - will reprocess after token refresh",
-                level=logging.WARNING,
-                **common_context,
+                extra={**common_context},
+                exc_info=True,
             )
 
         elif error_category == ErrorCategory.CIRCUIT_OPEN:
-            log_exception(
-                logger,
-                error,
+            logger.warning(
                 "Circuit breaker open - will reprocess when circuit closes",
-                level=logging.WARNING,
-                **common_context,
+                extra={**common_context},
+                exc_info=True,
             )
 
         else:
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Unknown error category - applying conservative retry",
-                **common_context,
+                extra={**common_context},
+                exc_info=True,
             )
 
     def _update_partition_metrics(self, message: ConsumerRecord) -> None:
@@ -508,13 +495,13 @@ class BaseKafkaConsumer:
                 )
 
         except Exception as e:
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Failed to update partition metrics",
-                topic=message.topic,
-                partition=message.partition,
-                error=str(e),
+                extra={
+                    "topic": message.topic,
+                    "partition": message.partition,
+                    "error": str(e),
+                },
             )
 
     async def _ensure_dlq_producer(self) -> None:
@@ -522,12 +509,12 @@ class BaseKafkaConsumer:
         if self._dlq_producer is not None:
             return
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initializing DLQ producer for permanent error routing",
-            domain=self.domain,
-            worker_name=self.worker_name,
+            extra={
+                "domain": self.domain,
+                "worker_name": self.worker_name,
+            },
         )
 
         dlq_producer_config = {
@@ -570,11 +557,11 @@ class BaseKafkaConsumer:
         self._dlq_producer = AIOKafkaProducer(**dlq_producer_config)
         await self._dlq_producer.start()
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "DLQ producer started successfully",
-            bootstrap_servers=self.config.bootstrap_servers,
+            extra={
+                "bootstrap_servers": self.config.bootstrap_servers,
+            },
         )
 
     async def _send_to_dlq(
@@ -637,33 +624,34 @@ class BaseKafkaConsumer:
                 headers=dlq_headers,
             )
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Message sent to DLQ successfully",
-                dlq_topic=dlq_topic,
-                dlq_partition=metadata.partition,
-                dlq_offset=metadata.offset,
-                original_topic=pipeline_message.topic,
-                original_partition=pipeline_message.partition,
-                original_offset=pipeline_message.offset,
-                error_category=error_category.value,
-                error_type=type(error).__name__,
+                extra={
+                    "dlq_topic": dlq_topic,
+                    "dlq_partition": metadata.partition,
+                    "dlq_offset": metadata.offset,
+                    "original_topic": pipeline_message.topic,
+                    "original_partition": pipeline_message.partition,
+                    "original_offset": pipeline_message.offset,
+                    "error_category": error_category.value,
+                    "error_type": type(error).__name__,
+                },
             )
 
             # Record DLQ routing metric
             record_dlq_message(self.domain, error_category.value)
 
         except Exception as dlq_error:
-            log_exception(
-                logger,
-                dlq_error,
+            logger.error(
                 "Failed to send message to DLQ - message will be retried",
-                dlq_topic=dlq_topic,
-                original_topic=pipeline_message.topic,
-                original_partition=pipeline_message.partition,
-                original_offset=pipeline_message.offset,
-                error_category=error_category.value,
+                extra={
+                    "dlq_topic": dlq_topic,
+                    "original_topic": pipeline_message.topic,
+                    "original_partition": pipeline_message.partition,
+                    "original_offset": pipeline_message.offset,
+                    "error_category": error_category.value,
+                },
+                exc_info=True,
             )
 
     @property

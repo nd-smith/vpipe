@@ -20,6 +20,7 @@ Concurrent Processing (WP-313):
 
 import asyncio
 import contextlib
+import logging
 import shutil
 import tempfile
 import time
@@ -35,7 +36,6 @@ from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.common.decorators import set_log_context_from_message
@@ -56,7 +56,7 @@ from pipeline.verisk.schemas.tasks import DownloadTaskMessage
 from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

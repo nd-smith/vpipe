@@ -12,7 +12,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipeline.common.logging import LoggedClass
 from pipeline.plugins.shared.connections import ConnectionManager
 
 logger = logging.getLogger(__name__)
@@ -75,7 +74,7 @@ class EnrichmentResult:
         return cls(success=False, error=error)
 
 
-class EnrichmentHandler(LoggedClass, ABC):
+class EnrichmentHandler(ABC):
     """Base class for enrichment handlers.
 
     Handlers are executed in sequence to transform/enrich data before
@@ -86,18 +85,13 @@ class EnrichmentHandler(LoggedClass, ABC):
     - Aggregate/batch data
 
     Handlers should be stateless and async.
-
-    Provides logging infrastructure via LoggedClass:
-    - self._logger: Logger instance
-    - self._log(level, msg, **extra): Log with automatic context
-    - self._log_exception(exc, msg, **extra): Exception logging with context
     """
 
     def __init__(self, config: dict[str, Any] | None = None):
         """Initialize handler with configuration."""
+        self.logger = logging.getLogger(__name__)
         self.config = config or {}
         self.name = self.__class__.__name__
-        super().__init__()  # Initialize LoggedClass
 
     @abstractmethod
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:

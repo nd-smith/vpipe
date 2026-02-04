@@ -38,9 +38,7 @@ import logging
 import os
 from typing import Any, Iterable, Protocol
 
-from core.logging import get_logger, log_exception, log_with_context
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -236,31 +234,25 @@ def _create_blob_store(config: dict) -> CheckpointStoreProtocol | None:
 
     # Graceful degradation if not configured
     if not connection_string:
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Checkpoint store not configured - blob_storage_connection_string is empty. "
             "Event Hub consumers will use default checkpointing behavior. "
             "To enable persistent checkpoints, set EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING "
-            "or configure eventhub.checkpoint_store.blob_storage_connection_string in config.yaml.",
+            "or configure eventhub.checkpoint_store.blob_storage_connection_string in config.yaml."
         )
         return None
 
     if not container_name:
-        log_with_context(
-            logger,
-            logging.WARNING,
+        logger.warning(
             "Checkpoint store container_name is empty. "
-            "Using default container name: 'eventhub-checkpoints'",
+            "Using default container name: 'eventhub-checkpoints'"
         )
         container_name = "eventhub-checkpoints"
 
     try:
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initializing BlobCheckpointStore",
-            container_name=container_name,
+            extra={"container_name": container_name},
         )
 
         store = BlobCheckpointStore.from_connection_string(
@@ -268,22 +260,22 @@ def _create_blob_store(config: dict) -> CheckpointStoreProtocol | None:
             container_name=container_name,
         )
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "BlobCheckpointStore initialized successfully",
-            container_name=container_name,
+            extra={"container_name": container_name},
         )
 
         return store
 
     except Exception as e:
-        log_exception(
-            logger,
-            e,
+        logger.error(
             "Failed to initialize BlobCheckpointStore",
-            container_name=container_name,
-            connection_string_configured=bool(connection_string),
+            extra={
+                "container_name": container_name,
+                "connection_string_configured": bool(connection_string),
+                "error": str(e),
+            },
+            exc_info=True,
         )
         raise
 
@@ -308,27 +300,21 @@ async def close_checkpoint_store() -> None:
             return
 
         try:
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Closing checkpoint store",
-                store_type=type(_checkpoint_store).__name__,
+                extra={"store_type": type(_checkpoint_store).__name__},
             )
 
             if hasattr(_checkpoint_store, "close"):
                 await _checkpoint_store.close()
 
-            log_with_context(
-                logger,
-                logging.INFO,
-                "Checkpoint store closed successfully",
-            )
+            logger.info("Checkpoint store closed successfully")
 
         except Exception as e:
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Error closing checkpoint store",
+                extra={"error": str(e)},
+                exc_info=True,
             )
 
         finally:

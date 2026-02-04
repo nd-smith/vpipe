@@ -32,7 +32,7 @@ from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
-from core.logging import MessageLogContext, get_logger, log_exception, log_with_context
+from core.logging import MessageLogContext
 from pipeline.common.eventhub.producer import EventHubProducer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -44,7 +44,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class EventHubConsumerRecord:
@@ -194,16 +194,16 @@ class EventHubConsumer:
         # DLQ configuration mapping
         self._dlq_entity_map = self._build_dlq_entity_map()
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initialized Event Hub consumer",
-            domain=domain,
-            worker_name=worker_name,
-            entity=eventhub_name,
-            consumer_group=consumer_group,
-            enable_message_commit=enable_message_commit,
-            checkpoint_persistence="blob_storage" if checkpoint_store else "in_memory",
+            extra={
+                "domain": domain,
+                "worker_name": worker_name,
+                "entity": eventhub_name,
+                "consumer_group": consumer_group,
+                "enable_message_commit": enable_message_commit,
+                "checkpoint_persistence": "blob_storage" if checkpoint_store else "in_memory",
+            },
         )
 
     async def start(self) -> None:
@@ -225,15 +225,15 @@ class EventHubConsumer:
             if self.checkpoint_store
             else "with in-memory checkpoints only"
         )
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             f"Starting Event Hub consumer {checkpoint_mode}",
-            entity=self.eventhub_name,
-            consumer_group=self.consumer_group,
-            checkpoint_persistence=(
-                "blob_storage" if self.checkpoint_store else "in_memory"
-            ),
+            extra={
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+                "checkpoint_persistence": (
+                    "blob_storage" if self.checkpoint_store else "in_memory"
+                ),
+            },
         )
 
         try:
@@ -261,15 +261,15 @@ class EventHubConsumer:
             self._running = True
             update_connection_status("consumer", connected=True)
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Event Hub consumer started successfully",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                checkpoint_persistence=(
-                    "blob_storage" if self.checkpoint_store else "in_memory"
-                ),
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "checkpoint_persistence": (
+                        "blob_storage" if self.checkpoint_store else "in_memory"
+                    ),
+                },
             )
 
             # Start consuming
@@ -279,7 +279,7 @@ class EventHubConsumer:
             logger.info("Consumer loop cancelled, shutting down")
             raise
         except Exception as e:
-            log_exception(logger, e, "Consumer loop terminated with error")
+            logger.error("Consumer loop terminated with error", exc_info=True)
             raise
         finally:
             self._running = False
@@ -302,13 +302,13 @@ class EventHubConsumer:
                     await self._dlq_producer.stop()
                     logger.info("DLQ producer stopped successfully")
                 except Exception as dlq_error:
-                    log_exception(logger, dlq_error, "Error stopping DLQ producer")
+                    logger.error("Error stopping DLQ producer", exc_info=True)
                 finally:
                     self._dlq_producer = None
 
             logger.info("Event Hub consumer stopped successfully")
         except Exception as e:
-            log_exception(logger, e, "Error stopping Event Hub consumer")
+            logger.error("Error stopping Event Hub consumer", exc_info=True)
             raise
         finally:
             update_connection_status("consumer", connected=False)
@@ -325,21 +325,19 @@ class EventHubConsumer:
             logger.warning("Cannot commit: consumer not started")
             return
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Committed checkpoints",
-            consumer_group=self.consumer_group,
+            extra={"consumer_group": self.consumer_group},
         )
 
     async def _consume_loop(self) -> None:
         """Main consumption loop using Event Hub async receive."""
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Starting message consumption loop",
-            entity=self.eventhub_name,
-            consumer_group=self.consumer_group,
+            extra={
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+            },
         )
 
         # Define event handler for each partition
@@ -372,13 +370,14 @@ class EventHubConsumer:
             except Exception as processing_error:
                 # If processing failed and we couldn't send to DLQ,
                 # do not checkpoint - let Event Hub redeliver the message
-                log_exception(
-                    logger,
-                    processing_error,
+                logger.error(
                     "Message processing failed - will not checkpoint",
-                    entity=self.eventhub_name,
-                    partition_id=partition_id,
-                    offset=message.offset,
+                    extra={
+                        "entity": self.eventhub_name,
+                        "partition_id": partition_id,
+                        "offset": message.offset,
+                    },
+                    exc_info=True,
                 )
                 # Do not re-raise - continue processing other messages
                 # Event Hub will redeliver this message on the next receive
@@ -386,13 +385,13 @@ class EventHubConsumer:
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
             partition_id = partition_context.partition_id
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Partition assigned",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                partition_id=partition_id,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "partition_id": partition_id,
+                },
             )
             # Update metrics
             current_count = len(self._current_partition_context)
@@ -401,14 +400,14 @@ class EventHubConsumer:
         async def on_partition_close(partition_context, reason):
             """Called when partition is revoked from this consumer."""
             partition_id = partition_context.partition_id
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Partition revoked",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                partition_id=partition_id,
-                reason=reason,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "partition_id": partition_id,
+                    "reason": reason,
+                },
             )
             # Clean up partition context
             self._current_partition_context.pop(partition_id, None)
@@ -422,13 +421,14 @@ class EventHubConsumer:
             partition_id = (
                 partition_context.partition_id if partition_context else "unknown"
             )
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Error in Event Hub consumption",
-                entity=self.eventhub_name,
-                consumer_group=self.consumer_group,
-                partition_id=partition_id,
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "partition_id": partition_id,
+                },
+                exc_info=True,
             )
 
         # Start receiving events
@@ -443,7 +443,7 @@ class EventHubConsumer:
                     starting_position="-1",  # Start from beginning (like earliest)
                 )
         except Exception as e:
-            log_exception(logger, e, "Error in Event Hub receive loop")
+            logger.error("Error in Event Hub receive loop", exc_info=True)
             raise
 
     async def _process_message(self, message: PipelineMessage) -> None:
@@ -455,11 +455,9 @@ class EventHubConsumer:
             key=message.key.decode("utf-8") if message.key else None,
             consumer_group=self.consumer_group,
         ):
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Processing message",
-                message_size=len(message.value) if message.value else 0,
+                extra={"message_size": len(message.value) if message.value else 0},
             )
 
             start_time = time.perf_counter()
@@ -477,11 +475,9 @@ class EventHubConsumer:
                     message.topic, self.consumer_group, message_size, success=True
                 )
 
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Message processed successfully",
-                    duration_ms=round(duration * 1000, 2),
+                    extra={"duration_ms": round(duration * 1000, 2)},
                 )
 
             except Exception as e:
@@ -546,13 +542,13 @@ class EventHubConsumer:
                 await self._dlq_producer.stop()
                 self._dlq_producer = None
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Initializing DLQ producer for permanent error routing",
-            domain=self.domain,
-            worker_name=self.worker_name,
-            dlq_entity=dlq_entity_name,
+            extra={
+                "domain": self.domain,
+                "worker_name": self.worker_name,
+                "dlq_entity": dlq_entity_name,
+            },
         )
 
         # Create EventHub producer for DLQ entity
@@ -564,11 +560,9 @@ class EventHubConsumer:
         )
         await self._dlq_producer.start()
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "DLQ producer started successfully",
-            dlq_entity=dlq_entity_name,
+            extra={"dlq_entity": dlq_entity_name},
         )
 
     async def _send_to_dlq(
@@ -587,12 +581,13 @@ class EventHubConsumer:
         # Determine DLQ entity name
         dlq_entity_name = self._get_dlq_entity_name(message.topic)
         if dlq_entity_name is None:
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Cannot route to DLQ - no DLQ entity configured for topic",
-                original_topic=message.topic,
-                error_category=error_category.value,
+                extra={
+                    "original_topic": message.topic,
+                    "error_category": error_category.value,
+                },
+                exc_info=True,
             )
             return False
 
@@ -600,11 +595,10 @@ class EventHubConsumer:
         try:
             await self._ensure_dlq_producer(dlq_entity_name)
         except Exception as init_error:
-            log_exception(
-                logger,
-                init_error,
+            logger.error(
                 "Failed to initialize DLQ producer",
-                dlq_entity=dlq_entity_name,
+                extra={"dlq_entity": dlq_entity_name},
+                exc_info=True,
             )
             return False
 
@@ -655,18 +649,18 @@ class EventHubConsumer:
                 headers=dlq_headers,
             )
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Message sent to DLQ successfully",
-                dlq_entity=dlq_entity_name,
-                dlq_partition=metadata.partition,
-                dlq_offset=metadata.offset,
-                original_topic=message.topic,
-                original_partition=message.partition,
-                original_offset=message.offset,
-                error_category=error_category.value,
-                error_type=type(error).__name__,
+                extra={
+                    "dlq_entity": dlq_entity_name,
+                    "dlq_partition": metadata.partition,
+                    "dlq_offset": metadata.offset,
+                    "original_topic": message.topic,
+                    "original_partition": message.partition,
+                    "original_offset": message.offset,
+                    "error_category": error_category.value,
+                    "error_type": type(error).__name__,
+                },
             )
 
             # Record metrics
@@ -675,15 +669,16 @@ class EventHubConsumer:
             return True
 
         except Exception as dlq_error:
-            log_exception(
-                logger,
-                dlq_error,
+            logger.error(
                 "Failed to send message to DLQ - message will be retried",
-                dlq_entity=dlq_entity_name,
-                original_topic=message.topic,
-                original_partition=message.partition,
-                original_offset=message.offset,
-                error_category=error_category.value,
+                extra={
+                    "dlq_entity": dlq_entity_name,
+                    "original_topic": message.topic,
+                    "original_partition": message.partition,
+                    "original_offset": message.offset,
+                    "error_category": error_category.value,
+                },
+                exc_info=True,
             )
             return False
 
@@ -713,11 +708,10 @@ class EventHubConsumer:
         }
 
         if error_category == ErrorCategory.PERMANENT:
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Permanent error processing message - routing to DLQ",
-                **common_context,
+                extra=common_context,
+                exc_info=True,
             )
 
             # Route to DLQ
@@ -726,43 +720,40 @@ class EventHubConsumer:
             if dlq_success:
                 # Successfully sent to DLQ
                 # Allow normal flow to continue - checkpoint will happen in on_event
-                log_with_context(
-                    logger,
-                    logging.INFO,
+                logger.info(
                     "Message sent to DLQ successfully - will checkpoint to skip",
-                    original_topic=message.topic,
-                    original_partition=message.partition,
-                    original_offset=message.offset,
+                    extra={
+                        "original_topic": message.topic,
+                        "original_partition": message.partition,
+                        "original_offset": message.offset,
+                    },
                 )
                 # Do NOT re-raise - this allows checkpoint to happen
             else:
                 # DLQ write failed - prevent checkpoint by re-raising
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "DLQ write failed - preventing checkpoint, message will be retried",
-                    original_topic=message.topic,
-                    original_partition=message.partition,
-                    original_offset=message.offset,
+                    extra={
+                        "original_topic": message.topic,
+                        "original_partition": message.partition,
+                        "original_offset": message.offset,
+                    },
                 )
                 # Re-raise to prevent checkpoint
                 raise error
 
         elif error_category == ErrorCategory.TRANSIENT:
-            log_exception(
-                logger,
-                error,
+            logger.warning(
                 "Transient error - will reprocess message",
-                level=logging.WARNING,
-                **common_context,
+                extra=common_context,
+                exc_info=True,
             )
 
         else:
-            log_exception(
-                logger,
-                error,
+            logger.error(
                 "Unknown error category - applying conservative retry",
-                **common_context,
+                extra=common_context,
+                exc_info=True,
             )
 
     @property

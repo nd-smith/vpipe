@@ -10,7 +10,7 @@ This package provides domain-agnostic infrastructure including:
 Import classes directly from submodules to avoid loading heavy dependencies:
     from pipeline.common.consumer import BaseKafkaConsumer
     from pipeline.common.producer import BaseKafkaProducer
-    from core.logging import get_logger, log_with_context
+    import logging
     from core.types import ErrorCategory
 """
 

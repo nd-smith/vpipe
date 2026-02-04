@@ -17,6 +17,7 @@ Output topic: xact.downloads.pending
 import asyncio
 import contextlib
 import json
+import logging
 import time
 import uuid
 from datetime import UTC, datetime
@@ -25,7 +26,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.paths.resolver import generate_blob_path
 from core.security.exceptions import URLValidationError
@@ -54,7 +54,7 @@ from pipeline.verisk.schemas.tasks import (
 from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class XACTEnrichmentWorker:

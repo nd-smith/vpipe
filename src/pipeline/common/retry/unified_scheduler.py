@@ -10,18 +10,18 @@ import base64
 import contextlib
 import heapq
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.producer import BaseKafkaProducer
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

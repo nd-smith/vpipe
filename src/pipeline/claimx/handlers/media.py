@@ -7,7 +7,6 @@ Handles: PROJECT_FILE_ADDED
 import logging
 from datetime import UTC, datetime
 
-from core.logging import get_logger, log_exception, log_with_context
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers import transformers
@@ -25,7 +24,7 @@ from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.common.logging import extract_log_context
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Batch threshold for triggering pre-flight project verification
 # Reduces API calls while ensuring projects exist before processing attachments
@@ -64,15 +63,15 @@ class MediaHandler(EventHandler):
             fetch_strategy = (
                 "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
             )
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Media fetch strategy selected",
-                handler_name=MediaHandler.HANDLER_NAME,
-                project_id=project_id,
-                media_count=len(media_ids),
-                fetch_strategy=fetch_strategy,
-                threshold=BATCH_THRESHOLD,
+                extra={
+                    "handler_name": MediaHandler.HANDLER_NAME,
+                    "project_id": project_id,
+                    "media_count": len(media_ids),
+                    "fetch_strategy": fetch_strategy,
+                    "threshold": BATCH_THRESHOLD,
+                },
             )
 
             if len(media_ids) <= BATCH_THRESHOLD:
@@ -135,33 +134,33 @@ class MediaHandler(EventHandler):
                 if result.rows:
                     total_media_rows += len(result.rows.media)
 
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Handler complete",
-                handler_name=MediaHandler.HANDLER_NAME,
-                project_id=project_id,
-                events_count=len(events),
-                media_count=total_media_rows,
-                succeeded=sum(1 for r in results if r.success),
-                failed=sum(1 for r in results if not r.success),
-                project_verification=bool(project_rows.projects),
+                extra={
+                    "handler_name": MediaHandler.HANDLER_NAME,
+                    "project_id": project_id,
+                    "events_count": len(events),
+                    "media_count": total_media_rows,
+                    "succeeded": sum(1 for r in results if r.success),
+                    "failed": sum(1 for r in results if not r.success),
+                    "project_verification": bool(project_rows.projects),
+                },
             )
 
             return results
 
         except ClaimXApiError as e:
             duration = elapsed_ms(start_time)
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "API error for project media",
-                handler_name=MediaHandler.HANDLER_NAME,
-                project_id=project_id,
-                error_message=str(e)[:LOG_ERROR_TRUNCATE_SHORT],
-                error_category=e.category.value if e.category else None,
-                http_status=e.status_code,
-                is_retryable=e.is_retryable,
+                extra={
+                    "handler_name": MediaHandler.HANDLER_NAME,
+                    "project_id": project_id,
+                    "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
+                    "error_category": e.category.value if e.category else None,
+                    "http_status": e.status_code,
+                    "is_retryable": e.is_retryable,
+                },
             )
             return [
                 EnrichmentResult(
@@ -178,12 +177,13 @@ class MediaHandler(EventHandler):
 
         except Exception as e:
             duration = elapsed_ms(start_time)
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Unexpected error for project media",
-                handler_name=MediaHandler.HANDLER_NAME,
-                project_id=project_id,
+                extra={
+                    "handler_name": MediaHandler.HANDLER_NAME,
+                    "project_id": project_id,
+                },
+                exc_info=True,
             )
             return [
                 EnrichmentResult(
@@ -228,11 +228,11 @@ class MediaHandler(EventHandler):
                 duration_ms=0,
             )
         else:
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "Media not found in API response",
-                **extract_log_context(event),
+                extra={
+                    **extract_log_context(event),
+                },
             )
             return EnrichmentResult(
                 event=event,

@@ -8,7 +8,6 @@ import logging
 from collections import defaultdict
 from typing import Optional
 
-from core.logging import log_with_context
 from pipeline.plugins.shared.base import (
     ActionType,
     PipelineStage,
@@ -32,11 +31,7 @@ class PluginRegistry:
         self._plugins: dict[str, Plugin] = {}
         self._plugins_by_stage: dict[PipelineStage, list[Plugin]] = defaultdict(list)
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "PluginRegistry initialized",
-        )
+        logger.debug("PluginRegistry initialized")
 
     def register(self, plugin: Plugin) -> None:
         """
@@ -46,11 +41,9 @@ class PluginRegistry:
             plugin: Plugin instance to register
         """
         if plugin.name in self._plugins:
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "Overwriting plugin registration",
-                plugin_name=plugin.name,
+                extra={"plugin_name": plugin.name},
             )
 
         self._plugins[plugin.name] = plugin
@@ -67,16 +60,16 @@ class PluginRegistry:
                 self._plugins_by_stage[stage].append(plugin)
                 self._plugins_by_stage[stage].sort(key=lambda p: p.priority)
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Registered plugin",
-            plugin_name=plugin.name,
-            plugin_version=plugin.version,
-            domains=[d.value for d in plugin.domains] if plugin.domains else ["all"],
-            stages=[s.value for s in plugin.stages] if plugin.stages else ["all"],
-            event_types=plugin.event_types or ["all"],
-            priority=plugin.priority,
+            extra={
+                "plugin_name": plugin.name,
+                "plugin_version": plugin.version,
+                "domains": [d.value for d in plugin.domains] if plugin.domains else ["all"],
+                "stages": [s.value for s in plugin.stages] if plugin.stages else ["all"],
+                "event_types": plugin.event_types or ["all"],
+                "priority": plugin.priority,
+            },
         )
 
     def unregister(self, plugin_name: str) -> Plugin | None:
@@ -94,11 +87,9 @@ class PluginRegistry:
             for stage_plugins in self._plugins_by_stage.values():
                 if plugin in stage_plugins:
                     stage_plugins.remove(plugin)
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Unregistered plugin",
-                plugin_name=plugin_name,
+                extra={"plugin_name": plugin_name},
             )
         return plugin
 
@@ -174,68 +165,69 @@ class PluginOrchestrator:
                 log_level = logging.DEBUG if is_skipped else logging.INFO
                 log_message = "Plugin skipped" if is_skipped else "Plugin executed"
 
-                log_with_context(
-                    logger,
+                logger.log(
                     log_level,
                     log_message,
-                    plugin_name=plugin.name,
-                    success=result.success,
-                    result_message=result.message,
-                    actions_count=len(result.actions),
-                    event_id=context.event_id,
-                    event_type=context.event_type,
-                    project_id=context.project_id,
+                    extra={
+                        "plugin_name": plugin.name,
+                        "success": result.success,
+                        "result_message": result.message,
+                        "actions_count": len(result.actions),
+                        "event_id": context.event_id,
+                        "event_type": context.event_type,
+                        "project_id": context.project_id,
+                    },
                 )
 
                 # Execute actions
                 for action in result.actions:
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Executing plugin action",
-                        plugin_name=plugin.name,
-                        action_type=action.action_type.value,
-                        event_id=context.event_id,
-                        event_type=context.event_type,
-                        project_id=context.project_id,
+                        extra={
+                            "plugin_name": plugin.name,
+                            "action_type": action.action_type.value,
+                            "event_id": context.event_id,
+                            "event_type": context.event_type,
+                            "project_id": context.project_id,
+                        },
                     )
                     await self.action_executor.execute(action, context)
                     actions_executed += 1
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Plugin action executed successfully",
-                        plugin_name=plugin.name,
-                        action_type=action.action_type.value,
-                        event_id=context.event_id,
-                        event_type=context.event_type,
-                        project_id=context.project_id,
+                        extra={
+                            "plugin_name": plugin.name,
+                            "action_type": action.action_type.value,
+                            "event_id": context.event_id,
+                            "event_type": context.event_type,
+                            "project_id": context.project_id,
+                        },
                     )
 
                 # Check for termination
                 if result.terminate_pipeline:
                     terminated = True
                     termination_reason = result.message
-                    log_with_context(
-                        logger,
-                        logging.INFO,
+                    logger.info(
                         "Pipeline terminated by plugin",
-                        plugin_name=plugin.name,
-                        reason=termination_reason,
+                        extra={
+                            "plugin_name": plugin.name,
+                            "reason": termination_reason,
+                        },
                     )
                     break
 
             except Exception as e:
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "Plugin execution failed",
-                    plugin_name=plugin.name,
-                    error=str(e),
-                    stage=context.stage.value,
-                    event_id=context.event_id,
-                    event_type=context.event_type,
-                    project_id=context.project_id,
+                    extra={
+                        "plugin_name": plugin.name,
+                        "error": str(e),
+                        "stage": context.stage.value,
+                        "event_id": context.event_id,
+                        "event_type": context.event_type,
+                        "project_id": context.project_id,
+                    },
                     exc_info=True,
                 )
                 results.append(
@@ -334,14 +326,14 @@ class ActionExecutor:
         # Use event_id as key (project standard), allow override via params
         key = params.get("key", context.event_id)
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Plugin action: publish to topic",
-            topic=topic,
-            event_id=context.event_id,
-            project_id=context.project_id,
-            payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
+            extra={
+                "topic": topic,
+                "event_id": context.event_id,
+                "project_id": context.project_id,
+                "payload_keys": list(payload.keys()) if isinstance(payload, dict) else None,
+            },
         )
 
         if self.producer:
@@ -350,28 +342,26 @@ class ActionExecutor:
                 key=key,
                 headers=headers,
             )
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Plugin message published to topic successfully",
-                topic=topic,
-                event_id=context.event_id,
-                event_type=context.event_type,
-                project_id=context.project_id,
+                extra={
+                    "topic": topic,
+                    "event_id": context.event_id,
+                    "event_type": context.event_type,
+                    "project_id": context.project_id,
+                },
             )
         else:
             # Log only mode when no producer configured
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "No producer configured - publish action logged only",
-                topic=topic,
-                event_id=context.event_id,
-                event_type=context.event_type,
-                project_id=context.project_id,
-                payload_keys=(
-                    list(payload.keys()) if isinstance(payload, dict) else None
-                ),
+                extra={
+                    "topic": topic,
+                    "event_id": context.event_id,
+                    "event_type": context.event_type,
+                    "project_id": context.project_id,
+                    "payload_keys": list(payload.keys()) if isinstance(payload, dict) else None,
+                },
             )
 
     async def _http_webhook(
@@ -391,11 +381,9 @@ class ActionExecutor:
         if connection_name:
             # Use ConnectionManager for named connection
             if not self.connection_manager:
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "Named connection specified but no connection manager configured",
-                    connection=connection_name,
+                    extra={"connection": connection_name},
                 )
                 return
 
@@ -404,14 +392,14 @@ class ActionExecutor:
             body = params.get("body", {})
             headers = params.get("headers", {})
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Plugin action: HTTP webhook (named connection)",
-                connection=connection_name,
-                path=path,
-                method=method,
-                event_id=context.event_id,
+                extra={
+                    "connection": connection_name,
+                    "path": path,
+                    "method": method,
+                    "event_id": context.event_id,
+                },
             )
 
             try:
@@ -423,41 +411,39 @@ class ActionExecutor:
                     headers=headers,
                 )
 
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Webhook response",
-                    status=response.status,
-                    connection=connection_name,
-                    path=path,
+                    extra={
+                        "status": response.status,
+                        "connection": connection_name,
+                        "path": path,
+                    },
                 )
 
                 # Log error responses
                 if response.status >= 400:
                     response_body = await response.text()
-                    log_with_context(
-                        logger,
-                        logging.WARNING,
+                    logger.warning(
                         "Webhook returned error status",
-                        status=response.status,
-                        response=response_body[:200],
+                        extra={
+                            "status": response.status,
+                            "response": response_body[:200],
+                        },
                     )
             except Exception as e:
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "Webhook request failed",
-                    connection=connection_name,
-                    error=str(e),
+                    extra={
+                        "connection": connection_name,
+                        "error": str(e),
+                    },
                 )
         else:
             # Legacy mode: direct URL with http_client
             url = params.get("url")
             if not url:
-                log_with_context(
-                    logger,
-                    logging.ERROR,
-                    "HTTP webhook action requires either 'connection' or 'url' parameter",
+                logger.error(
+                    "HTTP webhook action requires either 'connection' or 'url' parameter"
                 )
                 return
 
@@ -465,13 +451,13 @@ class ActionExecutor:
             body = params.get("body", {})
             headers = params.get("headers", {})
 
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Plugin action: HTTP webhook (direct URL)",
-                url=url,
-                method=method,
-                event_id=context.event_id,
+                extra={
+                    "url": url,
+                    "method": method,
+                    "event_id": context.event_id,
+                },
             )
 
             if self.http_client:
@@ -481,20 +467,20 @@ class ActionExecutor:
                     json=body,
                     headers=headers,
                 ) as response:
-                    log_with_context(
-                        logger,
-                        logging.DEBUG,
+                    logger.debug(
                         "Webhook response",
-                        status=response.status,
-                        url=url,
+                        extra={
+                            "status": response.status,
+                            "url": url,
+                        },
                     )
             else:
-                log_with_context(
-                    logger,
-                    logging.WARNING,
+                logger.warning(
                     "No HTTP client configured - webhook action logged only",
-                    url=url,
-                    method=method,
+                    extra={
+                        "url": url,
+                        "method": method,
+                    },
                 )
 
     async def _send_email(
@@ -523,12 +509,12 @@ class ActionExecutor:
         connection_name = params.get("connection", "email_service")
 
         if not self.connection_manager:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Send email action requires connection manager but none configured",
-                connection=connection_name,
-                event_id=context.event_id,
+                extra={
+                    "connection": connection_name,
+                    "event_id": context.event_id,
+                },
             )
             return
 
@@ -571,16 +557,16 @@ class ActionExecutor:
             "stage": context.stage.value,
         }
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Plugin action: send email",
-            connection=connection_name,
-            to_count=len(to_addresses),
-            subject=subject[:50] + "..." if len(subject) > 50 else subject,
-            has_template=template_id is not None,
-            event_id=context.event_id,
-            project_id=context.project_id,
+            extra={
+                "connection": connection_name,
+                "to_count": len(to_addresses),
+                "subject": subject[:50] + "..." if len(subject) > 50 else subject,
+                "has_template": template_id is not None,
+                "event_id": context.event_id,
+                "project_id": context.project_id,
+            },
         )
 
         try:
@@ -593,34 +579,34 @@ class ActionExecutor:
 
             if response.status >= 400:
                 response_body = await response.text()
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "Email send failed with error status",
-                    status=response.status,
-                    response=response_body[:200],
-                    connection=connection_name,
-                    event_id=context.event_id,
+                    extra={
+                        "status": response.status,
+                        "response": response_body[:200],
+                        "connection": connection_name,
+                        "event_id": context.event_id,
+                    },
                 )
             else:
-                log_with_context(
-                    logger,
-                    logging.INFO,
+                logger.info(
                     "Email sent successfully",
-                    status=response.status,
-                    connection=connection_name,
-                    to_count=len(to_addresses),
-                    event_id=context.event_id,
-                    project_id=context.project_id,
+                    extra={
+                        "status": response.status,
+                        "connection": connection_name,
+                        "to_count": len(to_addresses),
+                        "event_id": context.event_id,
+                        "project_id": context.project_id,
+                    },
                 )
         except Exception as e:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Email send request failed",
-                connection=connection_name,
-                error=str(e),
-                event_id=context.event_id,
+                extra={
+                    "connection": connection_name,
+                    "error": str(e),
+                    "event_id": context.event_id,
+                },
                 exc_info=True,
             )
             raise
@@ -666,12 +652,12 @@ class ActionExecutor:
         connection_name = params.get("connection", "claimx_api")
 
         if not self.connection_manager:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Create ClaimX task action requires connection manager but none configured",
-                connection=connection_name,
-                event_id=context.event_id,
+                extra={
+                    "connection": connection_name,
+                    "event_id": context.event_id,
+                },
             )
             return
 
@@ -686,13 +672,13 @@ class ActionExecutor:
 
         # Resolve project_id from claim_number if needed
         if not project_id and claim_number:
-            log_with_context(
-                logger,
-                logging.INFO,
+            logger.info(
                 "Resolving ClaimX project ID from claim number",
-                connection=connection_name,
-                claim_number=claim_number,
-                event_id=context.event_id,
+                extra={
+                    "connection": connection_name,
+                    "claim_number": claim_number,
+                    "event_id": context.event_id,
+                },
             )
 
             try:
@@ -707,15 +693,15 @@ class ActionExecutor:
 
                 if response.status >= 400:
                     response_body = await response.text()
-                    log_with_context(
-                        logger,
-                        logging.WARNING,
+                    logger.warning(
                         "Failed to resolve ClaimX project ID from claim number",
-                        status=response.status,
-                        response=response_body[:200],
-                        connection=connection_name,
-                        claim_number=claim_number,
-                        event_id=context.event_id,
+                        extra={
+                            "status": response.status,
+                            "response": response_body[:200],
+                            "connection": connection_name,
+                            "claim_number": claim_number,
+                            "event_id": context.event_id,
+                        },
                     )
                     return
 
@@ -729,66 +715,64 @@ class ActionExecutor:
                     )
 
                 if not project_id:
-                    log_with_context(
-                        logger,
-                        logging.WARNING,
+                    logger.warning(
                         "ClaimX project ID not found in API response",
-                        connection=connection_name,
-                        claim_number=claim_number,
-                        response=str(response_data)[:200],
-                        event_id=context.event_id,
+                        extra={
+                            "connection": connection_name,
+                            "claim_number": claim_number,
+                            "response": str(response_data)[:200],
+                            "event_id": context.event_id,
+                        },
                     )
                     return
 
-                log_with_context(
-                    logger,
-                    logging.INFO,
+                logger.info(
                     "Resolved ClaimX project ID from claim number",
-                    connection=connection_name,
-                    claim_number=claim_number,
-                    project_id=project_id,
-                    event_id=context.event_id,
+                    extra={
+                        "connection": connection_name,
+                        "claim_number": claim_number,
+                        "project_id": project_id,
+                        "event_id": context.event_id,
+                    },
                 )
 
             except Exception as e:
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "Failed to resolve ClaimX project ID from claim number",
-                    connection=connection_name,
-                    claim_number=claim_number,
-                    error=str(e),
-                    event_id=context.event_id,
+                    extra={
+                        "connection": connection_name,
+                        "claim_number": claim_number,
+                        "error": str(e),
+                        "event_id": context.event_id,
+                    },
                     exc_info=True,
                 )
                 raise
 
         if not project_id:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Create ClaimX task action requires project_id or claim_number parameter",
-                event_id=context.event_id,
+                extra={"event_id": context.event_id},
             )
             return
 
         if not task_type:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Create ClaimX task action requires task_type parameter",
-                event_id=context.event_id,
-                project_id=project_id,
+                extra={
+                    "event_id": context.event_id,
+                    "project_id": project_id,
+                },
             )
             return
 
         if not task_data:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Create ClaimX task action requires task_data parameter",
-                event_id=context.event_id,
-                project_id=project_id,
+                extra={
+                    "event_id": context.event_id,
+                    "project_id": project_id,
+                },
             )
             return
 
@@ -804,14 +788,14 @@ class ActionExecutor:
         if sender_username:
             payload["senderUserName"] = sender_username
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Plugin action: create ClaimX task",
-            connection=connection_name,
-            project_id=project_id,
-            task_type=task_type,
-            event_id=context.event_id,
+            extra={
+                "connection": connection_name,
+                "project_id": project_id,
+                "task_type": task_type,
+                "event_id": context.event_id,
+            },
         )
 
         try:
@@ -824,38 +808,38 @@ class ActionExecutor:
 
             if response.status >= 400:
                 response_body = await response.text()
-                log_with_context(
-                    logger,
-                    logging.ERROR,
+                logger.error(
                     "ClaimX task creation failed with error status",
-                    status=response.status,
-                    response=response_body[:500],
-                    connection=connection_name,
-                    project_id=project_id,
-                    task_type=task_type,
-                    event_id=context.event_id,
+                    extra={
+                        "status": response.status,
+                        "response": response_body[:500],
+                        "connection": connection_name,
+                        "project_id": project_id,
+                        "task_type": task_type,
+                        "event_id": context.event_id,
+                    },
                 )
             else:
-                log_with_context(
-                    logger,
-                    logging.INFO,
+                logger.info(
                     "ClaimX task created successfully",
-                    status=response.status,
-                    connection=connection_name,
-                    project_id=project_id,
-                    task_type=task_type,
-                    event_id=context.event_id,
+                    extra={
+                        "status": response.status,
+                        "connection": connection_name,
+                        "project_id": project_id,
+                        "task_type": task_type,
+                        "event_id": context.event_id,
+                    },
                 )
         except Exception as e:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "ClaimX task creation request failed",
-                connection=connection_name,
-                project_id=project_id,
-                task_type=task_type,
-                error=str(e),
-                event_id=context.event_id,
+                extra={
+                    "connection": connection_name,
+                    "project_id": project_id,
+                    "task_type": task_type,
+                    "error": str(e),
+                    "event_id": context.event_id,
+                },
                 exc_info=True,
             )
             raise
@@ -866,12 +850,13 @@ class ActionExecutor:
         message = params.get("message", "")
 
         log_level = getattr(logging, level, logging.INFO)
-        log_with_context(
-            logger,
+        logger.log(
             log_level,
             f"Plugin log: {message}",
-            event_id=context.event_id,
-            project_id=context.project_id,
+            extra={
+                "event_id": context.event_id,
+                "project_id": context.project_id,
+            },
         )
 
     def _add_header(self, params: dict, context: PluginContext) -> None:
@@ -886,12 +871,12 @@ class ActionExecutor:
         name = params.get("name")
         labels = params.get("labels", {})
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Plugin action: emit metric",
-            metric_name=name,
-            labels=labels,
+            extra={
+                "metric_name": name,
+                "labels": labels,
+            },
         )
 
 

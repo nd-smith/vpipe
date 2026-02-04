@@ -20,10 +20,10 @@ Configuration in config.yaml:
         message: "Payment processor assigned"
 """
 
+import logging
 from datetime import datetime
 from typing import Any
 
-from core.logging.setup import get_logger
 from pipeline.plugins.shared.base import (
     ActionType,
     Domain,
@@ -34,7 +34,7 @@ from pipeline.plugins.shared.base import (
     PluginResult,
 )
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class XACTStatusTriggerPlugin(Plugin):

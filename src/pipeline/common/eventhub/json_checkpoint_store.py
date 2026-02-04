@@ -35,9 +35,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
-from core.logging import get_logger, log_with_context
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class JsonCheckpointStore:
@@ -58,11 +56,9 @@ class JsonCheckpointStore:
         self._base_path = Path(storage_path)
         self._locks: dict[str, asyncio.Lock] = {}
 
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "JsonCheckpointStore initialized",
-            storage_path=str(self._base_path),
+            extra={"storage_path": str(self._base_path)},
         )
 
     # =========================================================================

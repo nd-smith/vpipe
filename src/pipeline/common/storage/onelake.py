@@ -23,7 +23,6 @@ from azure.storage.filedatalake import DataLakeServiceClient  # type: ignore
 from requests.adapters import HTTPAdapter
 
 from pipeline.common.auth import clear_token_cache, get_auth
-from pipeline.common.logging import LoggedClass, logged_operation
 from pipeline.common.retry import RetryConfig, with_retry
 
 # Retry config for OneLake operations
@@ -240,14 +239,12 @@ def parse_abfss_path(path: str) -> tuple[str, str, str]:
     return account_host, container, directory_path
 
 
-class OneLakeClient(LoggedClass):
+class OneLakeClient:
     """Client for OneLake file operations with automatic operation logging.
 
     Uses Azure Data Lake Storage Gen2 API (DFS endpoint).
     Supports both Azure CLI and Service Principal authentication.
     """
-
-    log_component = "onelake"
 
     def __init__(
         self,
@@ -294,8 +291,6 @@ class OneLakeClient(LoggedClass):
         }
         self._pool_stats_lock = threading.Lock()
 
-        super().__init__()
-
     def _create_clients(self, max_pool_size: int = 25) -> None:
         """Create or recreate clients with dynamic connection pool sizing (P2.4)."""
         cpu_cores = os.cpu_count() or 4
@@ -305,13 +300,14 @@ class OneLakeClient(LoggedClass):
         calculated_size = min(cpu_cores * 10, max_concurrency, 250)
         actual_pool_size = max_pool_size if max_pool_size != 25 else calculated_size
 
-        self._log(
-            logging.INFO,
+        logger.info(
             "Connection pool sizing",
-            cpu_cores=cpu_cores,
-            max_concurrency=max_concurrency,
-            calculated_size=calculated_size,
-            actual_size=actual_pool_size,
+            extra={
+                "cpu_cores": cpu_cores,
+                "max_concurrency": max_concurrency,
+                "calculated_size": calculated_size,
+                "actual_size": actual_pool_size,
+            },
         )
 
         auth = get_auth()
@@ -321,16 +317,14 @@ class OneLakeClient(LoggedClass):
                 credential = FileBackedTokenCredential(resource=auth.STORAGE_RESOURCE)
                 self._file_credential = credential
                 auth_mode = "file"
-                self._log(
-                    logging.INFO,
+                logger.info(
                     "Using FileBackedTokenCredential for auto-refresh",
-                    token_file=auth.token_file,
+                    extra={"token_file": auth.token_file},
                 )
             except Exception as e:
-                self._log(
-                    logging.WARNING,
+                logger.warning(
                     "Token file auth failed, trying other methods",
-                    error=str(e)[:200],
+                    extra={"error": str(e)[:200]},
                 )
                 credential = None
                 auth_mode = None
@@ -405,13 +399,14 @@ class OneLakeClient(LoggedClass):
         with self._pool_stats_lock:
             self._pool_stats["connections_created"] += 1
 
-        self._log(
-            logging.DEBUG,
+        logger.debug(
             "Created OneLake client",
-            account_host=self.account_host,
-            container=self.container,
-            pool_size=actual_pool_size,
-            auth_mode=auth_mode,
+            extra={
+                "account_host": self.account_host,
+                "container": self.container,
+                "pool_size": actual_pool_size,
+                "auth_mode": auth_mode,
+            },
         )
 
     def __enter__(self):
@@ -440,12 +435,11 @@ class OneLakeClient(LoggedClass):
         if self._service_client is not None:
             try:
                 self._service_client.close()
-                self._log(logging.DEBUG, "Closed OneLake client")
+                logger.debug("Closed OneLake client")
             except Exception as e:
-                self._log_exception(
-                    e,
+                logger.warning(
                     "Error closing OneLake client",
-                    level=logging.WARNING,
+                    exc_info=True,
                 )
         if self._session is not None:
             with contextlib.suppress(Exception):
@@ -467,15 +461,11 @@ class OneLakeClient(LoggedClass):
         if hasattr(self, "_file_credential") and self._file_credential is not None:
             try:
                 self._file_credential.force_refresh()
-                self._log(
-                    logging.INFO,
-                    "FileBackedTokenCredential force refreshed",
-                )
+                logger.info("FileBackedTokenCredential force refreshed")
             except Exception as e:
-                self._log(
-                    logging.WARNING,
+                logger.warning(
                     "Failed to force refresh FileBackedTokenCredential",
-                    error=str(e)[:200],
+                    extra={"error": str(e)[:200]},
                 )
         else:
             clear_token_cache()
@@ -486,12 +476,11 @@ class OneLakeClient(LoggedClass):
         if self._service_client is not None:
             try:
                 self._service_client.close()
-                self._log(logging.DEBUG, "Closed OneLake client for refresh")
+                logger.debug("Closed OneLake client for refresh")
             except Exception as e:
-                self._log_exception(
-                    e,
+                logger.warning(
                     "Error closing OneLake client during refresh",
-                    level=logging.WARNING,
+                    exc_info=True,
                 )
         if self._session is not None:
             with contextlib.suppress(Exception):
@@ -500,14 +489,13 @@ class OneLakeClient(LoggedClass):
         self._service_client = None
         self._file_system_client = None
         self._create_clients(max_pool_size=self._max_pool_size)
-        self._log(logging.INFO, "OneLake client refreshed with new credentials")
+        logger.info("OneLake client refreshed with new credentials")
 
     def _handle_auth_error(self, e: Exception) -> None:
         if _is_auth_error(e):
-            self._log(
-                logging.WARNING,
+            logger.warning(
                 "Auth error detected, refreshing OneLake client",
-                error_message=str(e)[:200],
+                extra={"error_message": str(e)[:200]},
             )
             self._refresh_client()
 
@@ -530,14 +518,14 @@ class OneLakeClient(LoggedClass):
     def _record_token(self, write_op: WriteOperation) -> None:
         """Record write operation token for idempotency tracking (Task G.3b)."""
         self._write_tokens[write_op.token] = write_op
-        self._log(
-            logging.DEBUG,
+        logger.debug(
             "Recorded write operation token",
-            token=write_op.token[:8],
-            path=write_op.relative_path,
+            extra={
+                "token": write_op.token[:8],
+                "path": write_op.relative_path,
+            },
         )
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def upload_bytes(
         self,
@@ -557,11 +545,12 @@ class OneLakeClient(LoggedClass):
             file_client.upload_data(data, overwrite=overwrite)
 
             result_path = f"{self.base_path}/{relative_path}"
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Upload complete",
-                blob_path=relative_path,
-                bytes_written=bytes_count,
+                extra={
+                    "blob_path": relative_path,
+                    "bytes_written": bytes_count,
+                },
             )
             return result_path
 
@@ -569,7 +558,6 @@ class OneLakeClient(LoggedClass):
             self._handle_auth_error(e)
             raise
 
-    @logged_operation(level=logging.INFO)
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def upload_bytes_with_idempotency(
         self,
@@ -583,11 +571,12 @@ class OneLakeClient(LoggedClass):
             operation_token = str(uuid.uuid4())
 
         if self._is_duplicate(operation_token):
-            self._log(
-                logging.INFO,
+            logger.info(
                 "Skipping duplicate upload operation",
-                token=operation_token[:8],
-                path=relative_path,
+                extra={
+                    "token": operation_token[:8],
+                    "path": relative_path,
+                },
             )
             existing_op = self._write_tokens[operation_token]
             return WriteOperation(
@@ -609,7 +598,6 @@ class OneLakeClient(LoggedClass):
 
         return write_op
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def download_bytes(self, relative_path: str) -> bytes:
         self._ensure_client()
@@ -626,11 +614,12 @@ class OneLakeClient(LoggedClass):
 
             bytes_count = len(content)
 
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Download complete",
-                blob_path=relative_path,
-                bytes_downloaded=bytes_count,
+                extra={
+                    "blob_path": relative_path,
+                    "bytes_downloaded": bytes_count,
+                },
             )
             return content
 
@@ -638,7 +627,6 @@ class OneLakeClient(LoggedClass):
             self._handle_auth_error(e)
             raise
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def upload_file(
         self,
@@ -661,11 +649,12 @@ class OneLakeClient(LoggedClass):
                 file_client.upload_data(f, overwrite=overwrite)
 
             result_path = f"{self.base_path}/{relative_path}"
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Upload complete",
-                blob_path=relative_path,
-                bytes_written=file_size,
+                extra={
+                    "blob_path": relative_path,
+                    "bytes_written": file_size,
+                },
             )
             return result_path
 
@@ -689,7 +678,7 @@ class OneLakeClient(LoggedClass):
         except Exception as e:
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
-                self._log(logging.DEBUG, "File does not exist", blob_path=relative_path)
+                logger.debug("File does not exist", extra={"blob_path": relative_path})
                 return False
 
             self._handle_auth_error(e)
@@ -707,7 +696,7 @@ class OneLakeClient(LoggedClass):
             file_client = dir_client.get_file_client(filename)
             file_client.delete_file()
 
-            self._log(logging.DEBUG, "Deleted file", blob_path=relative_path)
+            logger.debug("Deleted file", extra={"blob_path": relative_path})
             return True
         except Exception as e:
             error_str = str(e).lower()
@@ -736,11 +725,12 @@ class OneLakeClient(LoggedClass):
                 "modified_on": props.last_modified,
                 "content_type": props.content_settings.content_type,
             }
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Got file properties",
-                blob_path=relative_path,
-                size=props.size,
+                extra={
+                    "blob_path": relative_path,
+                    "size": props.size,
+                },
             )
             return result
         except Exception as e:
@@ -785,14 +775,15 @@ class OneLakeClient(LoggedClass):
             else 0
         )
 
-        self._log(
-            logging.INFO,
+        logger.info(
             "OneLake connection pool health",
-            connections_created=stats["connections_created"],
-            requests_processed=stats["requests_processed"],
-            errors_encountered=stats["errors_encountered"],
-            error_rate_pct=round(error_rate, 2),
-            uptime_seconds=round(stats["uptime_seconds"], 1),
+            extra={
+                "connections_created": stats["connections_created"],
+                "requests_processed": stats["requests_processed"],
+                "errors_encountered": stats["errors_encountered"],
+                "error_rate_pct": round(error_rate, 2),
+                "uptime_seconds": round(stats["uptime_seconds"], 1),
+            },
         )
 
     # Async methods for use in async contexts

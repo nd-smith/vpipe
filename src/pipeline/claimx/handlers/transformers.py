@@ -7,7 +7,6 @@ Converts API responses to entity row dicts for Delta Lake writes.
 import logging
 from typing import Any
 
-from core.logging import get_logger, log_with_context
 from pipeline.claimx.handlers.utils import (
     inject_metadata,
     now_iso,
@@ -20,7 +19,7 @@ from pipeline.claimx.handlers.utils import (
     today_date,
 )
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def project_to_row(
@@ -51,16 +50,16 @@ def project_to_row(
 
     project_id = safe_str(project.get("projectId"))
 
-    log_with_context(
-        logger,
-        logging.DEBUG,
+    logger.debug(
         "Transformed project row",
-        project_id=project_id,
-        has_customer_info=bool(customer),
-        has_address=bool(address),
-        email_count=len(emails),
-        phone_count=len(phones),
-        team_member_count=len(inner.get("teamMembers", [])),
+        extra={
+            "project_id": project_id,
+            "has_customer_info": bool(customer),
+            "has_address": bool(address),
+            "email_count": len(emails),
+            "phone_count": len(phones),
+            "team_member_count": len(inner.get("teamMembers", [])),
+        },
     )
 
     row = {
@@ -179,14 +178,14 @@ def project_to_contacts(
     )
     claim_rep_count = sum(1 for c in contacts if c["contact_type"] == "CLAIM_REP")
 
-    log_with_context(
-        logger,
-        logging.DEBUG,
+    logger.debug(
         "Extracted contacts",
-        project_id=project_id,
-        total_contacts=len(contacts),
-        policyholder_count=policyholder_count,
-        claim_rep_count=claim_rep_count,
+        extra={
+            "project_id": project_id,
+            "total_contacts": len(contacts),
+            "policyholder_count": policyholder_count,
+            "claim_rep_count": claim_rep_count,
+        },
     )
 
     return contacts

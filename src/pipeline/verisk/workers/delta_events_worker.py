@@ -24,13 +24,13 @@ DLQ topic: com.allstate.pcesdopodappv1.delta-events.dlq
 import asyncio
 import contextlib
 import json
+import logging
 import time
 import uuid
 from typing import Any
 
 from config.config import KafkaConfig
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
@@ -41,7 +41,7 @@ from pipeline.verisk.writers import DeltaEventsWriter
 from pipeline.verisk.workers.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class DeltaEventsWorker:

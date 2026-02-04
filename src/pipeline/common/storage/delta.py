@@ -21,14 +21,12 @@ import polars as pl
 from deltalake import DeltaTable
 from deltalake import write_deltalake as _write_deltalake
 
-from core.logging import get_logger
 from core.resilience.circuit_breaker import CircuitBreakerConfig
 from pipeline.common.auth import get_auth, get_storage_options
-from pipeline.common.logging import LoggedClass, logged_operation
 from pipeline.common.retry import RetryConfig, with_retry
 from pipeline.common.storage.onelake import _refresh_all_credentials
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # Check if deltalake supports schema_mode parameter (added in newer versions)
@@ -86,7 +84,7 @@ def get_open_file_descriptors() -> int:
         return -1
 
 
-class DeltaTableReader(LoggedClass):
+class DeltaTableReader:
     """
     Reader for Delta tables with auth retry support.
 
@@ -104,7 +102,6 @@ class DeltaTableReader(LoggedClass):
         self._delta_table: DeltaTable | None = None
         self._closed = False
         self._init_lock = asyncio.Lock()
-        super().__init__()
 
     async def __aenter__(self) -> DeltaTableReader:
         return self
@@ -126,10 +123,9 @@ class DeltaTableReader(LoggedClass):
                 return
 
             if self._delta_table is not None:
-                self._log(
-                    logging.DEBUG,
+                logger.debug(
                     "Closing Delta table reader",
-                    table_path=self.table_path,
+                    extra={"table_path": self.table_path},
                 )
                 # Release the DeltaTable reference to allow file handles to close
                 self._delta_table = None
@@ -146,7 +142,6 @@ class DeltaTableReader(LoggedClass):
                 stacklevel=2,
             )
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def read(
         self,
@@ -160,10 +155,9 @@ class DeltaTableReader(LoggedClass):
             columns=columns,
         )
 
-        self._log(logging.DEBUG, "Read complete", rows_read=len(df))
+        logger.debug("Read complete", extra={"rows_read": len(df)})
         return df
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def scan(
         self,
@@ -178,7 +172,6 @@ class DeltaTableReader(LoggedClass):
 
         return lf
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def read_filtered(
         self,
@@ -202,19 +195,17 @@ class DeltaTableReader(LoggedClass):
         if limit:
             lf = lf.head(limit)
         if limit and not order_by:
-            self._log(
-                logging.WARNING,
+            logger.warning(
                 "read_filtered called with limit but no order_by - results may be non-deterministic",
-                limit=limit,
+                extra={"limit": limit},
             )
 
         # streaming=True can cause "invalid SlotMap key used" panic with sort()
         use_streaming = order_by is None
         df = lf.collect(streaming=use_streaming)
-        self._log(logging.DEBUG, "Read filtered complete", rows_read=len(df))
+        logger.debug("Read filtered complete", extra={"rows_read": len(df)})
         return df
 
-    @logged_operation(operation_name="read_as_polars")
     def read_as_polars(
         self,
         filters: list[tuple[str, str, Any]] | None = None,
@@ -283,15 +274,14 @@ class DeltaTableReader(LoggedClass):
             pl.scan_delta(self.table_path, storage_options=opts).collect_schema()
             return True
         except Exception as e:
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Table does not exist or is not readable",
-                error_message=str(e)[:200],
+                extra={"error_message": str(e)[:200]},
             )
             return False
 
 
-class DeltaTableWriter(LoggedClass):
+class DeltaTableWriter:
     """
     Writer for Delta tables with auth retry support.
 
@@ -319,8 +309,6 @@ class DeltaTableWriter(LoggedClass):
         self._closed = False
         self._init_lock = asyncio.Lock()
 
-        super().__init__()
-
     async def __aenter__(self) -> DeltaTableWriter:
         """Async context manager entry."""
         return self
@@ -345,10 +333,9 @@ class DeltaTableWriter(LoggedClass):
             await self._reader.close()
 
             if self._delta_table is not None:
-                self._log(
-                    logging.DEBUG,
+                logger.debug(
                     "Closing Delta table writer",
-                    table_path=self.table_path,
+                    extra={"table_path": self.table_path},
                 )
                 # Release the DeltaTable reference to allow file handles to close
                 self._delta_table = None
@@ -487,23 +474,24 @@ class DeltaTableWriter(LoggedClass):
 
             # Log detailed info for debugging schema issues
             log_level = logging.WARNING if mismatches else logging.DEBUG
-            self._log(
+            logger.log(
                 log_level,
                 "Aligned source schema with target",
-                source_columns=len(source_columns),
-                target_columns=len(target_types),
-                casts_applied=len(mismatches),
-                extra_source_cols=extra_cols if extra_cols else None,
-                type_changes=mismatches if mismatches else None,
+                extra={
+                    "source_columns": len(source_columns),
+                    "target_columns": len(target_types),
+                    "casts_applied": len(mismatches),
+                    "extra_source_cols": extra_cols if extra_cols else None,
+                    "type_changes": mismatches if mismatches else None,
+                },
             )
 
             return df
 
         except Exception as e:
-            self._log(
-                logging.WARNING,
+            logger.warning(
                 "Could not align schema with target, proceeding with original",
-                error_message=str(e)[:200],
+                extra={"error_message": str(e)[:200]},
             )
             return df
 
@@ -586,7 +574,6 @@ class DeltaTableWriter(LoggedClass):
 
         return None
 
-    @logged_operation(level=logging.INFO)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def append(
         self,
@@ -608,19 +595,20 @@ class DeltaTableWriter(LoggedClass):
             Number of rows written
         """
         if df.is_empty():
-            self._log(logging.DEBUG, "No data to write", batch_id=batch_id)
+            logger.debug("No data to write", extra={"batch_id": batch_id})
             return 0
 
         # Write to Delta - convert to Arrow for write_deltalake
         # Log auth context before write to help debug 403 errors
         auth = get_auth()
-        self._log(
-            logging.INFO,
+        logger.info(
             "Delta write starting",
-            batch_id=batch_id,
-            rows=len(df),
-            table_path=self.table_path,
-            auth_mode=auth.auth_mode,
+            extra={
+                "batch_id": batch_id,
+                "rows": len(df),
+                "table_path": self.table_path,
+                "auth_mode": auth.auth_mode,
+            },
         )
         opts = get_storage_options()
 
@@ -660,7 +648,6 @@ class DeltaTableWriter(LoggedClass):
 
         return len(df)
 
-    @logged_operation(level=logging.INFO)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def merge(
         self,
@@ -692,13 +679,14 @@ class DeltaTableWriter(LoggedClass):
 
         # Log auth context for merge operations to help debug 403 errors
         auth = get_auth()
-        self._log(
-            logging.INFO,
+        logger.info(
             "Delta merge starting",
-            rows=len(df),
-            merge_keys=merge_keys,
-            table_path=self.table_path,
-            auth_mode=auth.auth_mode,
+            extra={
+                "rows": len(df),
+                "merge_keys": merge_keys,
+                "table_path": self.table_path,
+                "auth_mode": auth.auth_mode,
+            },
         )
 
         if preserve_columns is None:
@@ -724,11 +712,12 @@ class DeltaTableWriter(LoggedClass):
         del merged  # Free dict
 
         if len(df) < initial_len:
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Deduped batch",
-                records_processed=initial_len,
-                rows_written=len(df),
+                extra={
+                    "records_processed": initial_len,
+                    "rows_written": len(df),
+                },
             )
 
         opts = get_storage_options()
@@ -753,10 +742,9 @@ class DeltaTableWriter(LoggedClass):
                 partition_by=[self.partition_column] if self.partition_column else None,
             )
             del arrow_table
-            self._log(
-                logging.INFO,
+            logger.info(
                 "Created table",
-                rows_written=len(df),
+                extra={"rows_written": len(df)},
             )
             return len(df)
 
@@ -803,17 +791,17 @@ class DeltaTableWriter(LoggedClass):
         rows_updated = result.get("num_target_rows_updated", 0) or 0
         rows_inserted = result.get("num_target_rows_inserted", 0) or 0
 
-        self._log(
-            logging.DEBUG,
+        logger.debug(
             "Merge complete",
-            rows_merged=rows_inserted + rows_updated,
-            rows_inserted=rows_inserted,
-            rows_updated=rows_updated,
+            extra={
+                "rows_merged": rows_inserted + rows_updated,
+                "rows_inserted": rows_inserted,
+                "rows_updated": rows_updated,
+            },
         )
 
         return rows_inserted + rows_updated
 
-    @logged_operation(level=logging.INFO)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def merge_batched(
         self,
@@ -839,7 +827,7 @@ class DeltaTableWriter(LoggedClass):
             Total rows merged
         """
         if df.is_empty():
-            self._log(logging.DEBUG, "No data to merge")
+            logger.debug("No data to merge")
             return 0
 
         # Get batch size from config if not provided
@@ -850,7 +838,7 @@ class DeltaTableWriter(LoggedClass):
 
         # Single batch optimization
         if total_rows <= batch_size:
-            self._log(logging.INFO, "Single batch merge", total_rows=total_rows)
+            logger.info("Single batch merge", extra={"total_rows": total_rows})
             return self.merge(
                 df,
                 merge_keys=merge_keys,
@@ -859,12 +847,13 @@ class DeltaTableWriter(LoggedClass):
 
         # Multi-batch merge
         num_batches = (total_rows + batch_size - 1) // batch_size
-        self._log(
-            logging.INFO,
+        logger.info(
             "Batched merge starting",
-            total_rows=total_rows,
-            batch_size=batch_size,
-            num_batches=num_batches,
+            extra={
+                "total_rows": total_rows,
+                "batch_size": batch_size,
+                "num_batches": num_batches,
+            },
         )
 
         rows_merged = 0
@@ -874,12 +863,13 @@ class DeltaTableWriter(LoggedClass):
             batch_end = min(batch_start + batch_size, total_rows)
             batch_df = df.slice(batch_start, batch_end - batch_start)
 
-            self._log(
-                logging.INFO,
+            logger.info(
                 f"Merging batch {batch_num}/{num_batches}",
-                batch_start=batch_start,
-                batch_end=batch_end,
-                batch_rows=len(batch_df),
+                extra={
+                    "batch_start": batch_start,
+                    "batch_end": batch_end,
+                    "batch_rows": len(batch_df),
+                },
             )
 
             # Perform merge for this batch
@@ -893,23 +883,24 @@ class DeltaTableWriter(LoggedClass):
 
             # Progress logging
             progress_pct = (batch_end / total_rows) * 100
-            self._log(
-                logging.INFO,
+            logger.info(
                 "Merge progress",
-                rows_processed=batch_end,
-                total_rows=total_rows,
-                progress_pct=round(progress_pct, 1),
+                extra={
+                    "rows_processed": batch_end,
+                    "total_rows": total_rows,
+                    "progress_pct": round(progress_pct, 1),
+                },
             )
 
-        self._log(
-            logging.INFO,
+        logger.info(
             "Batched merge complete",
-            rows_merged=rows_merged,
-            total_rows=total_rows,
+            extra={
+                "rows_merged": rows_merged,
+                "total_rows": total_rows,
+            },
         )
         return rows_merged
 
-    @logged_operation(level=logging.DEBUG)
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def write_rows(self, rows: list[dict], schema: dict | None = None) -> int:
         """
@@ -955,10 +946,9 @@ class EventsTableReader(DeltaTableReader):
 
             return max_ts
         except Exception as e:
-            self._log_exception(
-                e,
+            logger.warning(
                 "Could not get max timestamp",
-                level=logging.WARNING,
+                exc_info=True,
             )
             return None
 
@@ -984,7 +974,6 @@ class EventsTableReader(DeltaTableReader):
         result: pl.DataFrame = self.read_filtered(filter_expr, limit=limit)  # type: ignore[assignment]
         return result
 
-    @logged_operation(operation_name="read_by_status_subtypes")
     def read_by_status_subtypes(
         self,
         status_subtypes: list[str],
@@ -1019,13 +1008,14 @@ class EventsTableReader(DeltaTableReader):
         if watermark is None:
             raise ValueError("Watermark required for this method")
 
-        self._log(
-            logging.DEBUG,
+        logger.debug(
             "Reading events by status subtypes",
-            status_subtypes=status_subtypes,
-            watermark=watermark.isoformat(),
-            columns=columns,
-            require_attachments=require_attachments,
+            extra={
+                "status_subtypes": status_subtypes,
+                "watermark": watermark.isoformat(),
+                "columns": columns,
+                "require_attachments": require_attachments,
+            },
         )
 
         opts = self.storage_options or get_storage_options()
@@ -1077,11 +1067,12 @@ class EventsTableReader(DeltaTableReader):
         # 2. Skipping sort if approximate ordering is acceptable
         # 3. Using a two-phase approach for very large datasets
         if order_by and limit:
-            self._log(
-                logging.DEBUG,
+            logger.debug(
                 "Sort with limit: will materialize all matching rows for sort",
-                order_by=order_by,
-                limit=limit,
+                extra={
+                    "order_by": order_by,
+                    "limit": limit,
+                },
             )
             lf = lf.sort(order_by).head(limit)
         elif order_by:
@@ -1096,13 +1087,14 @@ class EventsTableReader(DeltaTableReader):
         use_streaming = order_by is None
         result = lf.collect(streaming=use_streaming)
 
-        self._log(
-            logging.DEBUG,
+        logger.debug(
             "Read by status subtypes complete",
-            rows_read=len(result),
-            status_subtypes=status_subtypes,
-            watermark_date=str(watermark_date),
-            today=str(today),
+            extra={
+                "rows_read": len(result),
+                "status_subtypes": status_subtypes,
+                "watermark_date": str(watermark_date),
+                "today": str(today),
+            },
         )
 
         return result

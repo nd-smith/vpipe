@@ -7,7 +7,6 @@ from typing import Any
 
 import aiohttp
 
-from core.logging import get_logger
 from core.resilience.circuit_breaker import (
     CLAIMX_API_CIRCUIT_CONFIG,
     get_circuit_breaker,
@@ -17,9 +16,8 @@ from core.resilience.rate_limiter import (
     get_rate_limiter,
 )
 from core.types import ErrorCategory
-from pipeline.common.logging import LoggedClass, logged_operation
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ClaimXApiError(Exception):
@@ -97,10 +95,8 @@ def classify_api_error(status: int, url: str) -> ClaimXApiError:
     )
 
 
-class ClaimXApiClient(LoggedClass):
+class ClaimXApiClient:
     """Async client for ClaimX REST API with circuit breaker and rate limiting."""
-
-    log_component = "claimx_api"
 
     def __init__(
         self,
@@ -137,8 +133,6 @@ class ClaimXApiClient(LoggedClass):
         self._semaphore: asyncio.Semaphore | None = None
         self._circuit = get_circuit_breaker("claimx_api", CLAIMX_API_CIRCUIT_CONFIG)
         self._rate_limiter = get_rate_limiter("claimx_api", CLAIMX_API_RATE_CONFIG)
-
-        super().__init__()
 
         # Log configuration at startup for debugging
         logger.info(
@@ -189,14 +183,15 @@ class ClaimXApiClient(LoggedClass):
 
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
 
-        self._log(
-            logging.DEBUG,
+        logger.debug(
             "API request starting",
-            api_endpoint=endpoint,
-            api_method=method,
-            api_url=url,
-            has_params=params is not None,
-            has_body=json_body is not None,
+            extra={
+                "api_endpoint": endpoint,
+                "api_method": method,
+                "api_url": url,
+                "has_params": params is not None,
+                "has_body": json_body is not None,
+            },
         )
 
         if self._circuit.is_open:
@@ -206,14 +201,15 @@ class ClaimXApiClient(LoggedClass):
                 category=ErrorCategory.CIRCUIT_OPEN,
                 is_retryable=True,
             )
-            self._log(
-                logging.WARNING,
+            logger.warning(
                 "Circuit breaker open - request rejected",
-                api_endpoint=endpoint,
-                api_method=method,
-                api_url=url,
-                circuit_state="open",
-                retry_after_seconds=round(retry_after, 1),
+                extra={
+                    "api_endpoint": endpoint,
+                    "api_method": method,
+                    "api_url": url,
+                    "circuit_state": "open",
+                    "retry_after_seconds": round(retry_after, 1),
+                },
             )
             raise error
 
@@ -254,17 +250,18 @@ class ClaimXApiClient(LoggedClass):
 
                         if error.is_retryable:
                             self._circuit.record_failure(error)
-                        self._log(
-                            logging.WARNING,
+                        logger.warning(
                             "API request failed",
-                            api_endpoint=endpoint,
-                            api_method=method,
-                            api_url=url,
-                            http_status=response.status,
-                            error_category=error.category.value,
-                            is_retryable=error.is_retryable,
-                            response_body=response_body_log,
-                            duration_seconds=round(duration, 3),
+                            extra={
+                                "api_endpoint": endpoint,
+                                "api_method": method,
+                                "api_url": url,
+                                "http_status": response.status,
+                                "error_category": error.category.value,
+                                "is_retryable": error.is_retryable,
+                                "response_body": response_body_log,
+                                "duration_seconds": round(duration, 3),
+                            },
                         )
                         raise error
 
@@ -272,13 +269,14 @@ class ClaimXApiClient(LoggedClass):
 
                     data = await response.json()
 
-                    self._log(
-                        logging.DEBUG,
+                    logger.debug(
                         "API request succeeded",
-                        api_endpoint=endpoint,
-                        api_method=method,
-                        http_status=response.status,
-                        duration_seconds=round(duration, 3),
+                        extra={
+                            "api_endpoint": endpoint,
+                            "api_method": method,
+                            "http_status": response.status,
+                            "duration_seconds": round(duration, 3),
+                        },
                     )
 
                     return data
@@ -291,16 +289,17 @@ class ClaimXApiClient(LoggedClass):
                     is_retryable=True,
                 )
                 self._circuit.record_failure(error)
-                self._log(
-                    logging.WARNING,
+                logger.warning(
                     "API request timeout",
-                    api_endpoint=endpoint,
-                    api_method=method,
-                    api_url=url,
-                    timeout_seconds=self.timeout_seconds,
-                    duration_seconds=round(duration, 3),
-                    error_category="transient",
-                    is_retryable=True,
+                    extra={
+                        "api_endpoint": endpoint,
+                        "api_method": method,
+                        "api_url": url,
+                        "timeout_seconds": self.timeout_seconds,
+                        "duration_seconds": round(duration, 3),
+                        "error_category": "transient",
+                        "is_retryable": True,
+                    },
                 )
                 raise error
 
@@ -312,25 +311,24 @@ class ClaimXApiClient(LoggedClass):
                     is_retryable=True,
                 )
                 self._circuit.record_failure(error)
-                self._log_exception(
-                    e,
+                logger.error(
                     "API connection error",
-                    level=logging.WARNING,
-                    api_endpoint=endpoint,
-                    api_method=method,
-                    api_url=url,
-                    duration_seconds=round(duration, 3),
-                    error_category="transient",
-                    is_retryable=True,
+                    exc_info=True,
+                    extra={
+                        "api_endpoint": endpoint,
+                        "api_method": method,
+                        "api_url": url,
+                        "duration_seconds": round(duration, 3),
+                        "error_category": "transient",
+                        "is_retryable": True,
+                    },
                 )
                 raise error
 
-    @logged_operation(level=logging.DEBUG)
     async def get_project(self, project_id: int) -> dict[str, Any]:
         """Get full project details. Used for PROJECT_CREATED, PROJECT_MFN_ADDED events."""
         return await self._request("GET", f"/export/project/{project_id}")
 
-    @logged_operation(level=logging.DEBUG)
     async def get_project_id_by_claim_number(self, claim_number: str) -> int | None:
         """
         Get ClaimX project ID from claim number.
@@ -357,7 +355,6 @@ class ClaimXApiClient(LoggedClass):
 
         return None
 
-    @logged_operation(level=logging.DEBUG)
     async def get_project_media(
         self,
         project_id: int,
@@ -384,7 +381,6 @@ class ClaimXApiClient(LoggedClass):
             return [response]
         return []
 
-    @logged_operation(level=logging.DEBUG)
     async def get_project_contacts(self, project_id: int) -> list[dict[str, Any]]:
         response = await self._request(
             "GET",
@@ -401,7 +397,6 @@ class ClaimXApiClient(LoggedClass):
             return [response]
         return []
 
-    @logged_operation(level=logging.DEBUG)
     async def get_custom_task(self, assignment_id: int) -> dict[str, Any]:
         """Get custom task assignment. Used for CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED events."""
         return await self._request(
@@ -410,7 +405,6 @@ class ClaimXApiClient(LoggedClass):
             params={"full": "true"},
         )
 
-    @logged_operation(level=logging.DEBUG)
     async def get_project_tasks(self, project_id: int) -> list[dict[str, Any]]:
         body = {
             "reportType": "CUSTOM_TASK_HIGH_LEVEL",
@@ -424,7 +418,6 @@ class ClaimXApiClient(LoggedClass):
             return response["data"]
         return []
 
-    @logged_operation(level=logging.DEBUG)
     async def get_video_collaboration(
         self,
         project_id: str,
@@ -446,7 +439,6 @@ class ClaimXApiClient(LoggedClass):
 
         return await self._request("POST", "/data", json_body=body)
 
-    @logged_operation(level=logging.DEBUG)
     async def get_project_conversations(self, project_id: int) -> list[dict[str, Any]]:
         response = await self._request(
             "GET",

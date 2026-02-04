@@ -11,7 +11,6 @@ from typing import Any
 
 import yaml
 
-from core.logging import log_with_context
 from pipeline.plugins.shared.base import Plugin
 from pipeline.plugins.shared.registry import PluginRegistry
 
@@ -40,20 +39,16 @@ def load_plugins_from_directory(
     exclude_dirs = exclude_dirs or {"connections"}
 
     if not plugins_path.exists():
-        log_with_context(
-            logger,
-            logging.WARNING,
+        logger.warning(
             "Plugins directory not found",
-            plugins_dir=plugins_dir,
+            extra={"plugins_dir": plugins_dir},
         )
         return []
 
     if not plugins_path.is_dir():
-        log_with_context(
-            logger,
-            logging.WARNING,
+        logger.warning(
             "Plugins path is not a directory",
-            plugins_dir=plugins_dir,
+            extra={"plugins_dir": plugins_dir},
         )
         return []
 
@@ -66,11 +61,9 @@ def load_plugins_from_directory(
                 config_files.append(config_file)
 
     if not config_files:
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "No plugin config files found in directory",
-            plugins_dir=plugins_dir,
+            extra={"plugins_dir": plugins_dir},
         )
         return []
 
@@ -83,11 +76,9 @@ def load_plugins_from_directory(
                 plugin_config = yaml.safe_load(f)
 
             if plugin_config is None:
-                log_with_context(
-                    logger,
-                    logging.WARNING,
+                logger.warning(
                     "Empty plugin config file",
-                    config_file=str(config_file),
+                    extra={"config_file": str(config_file)},
                 )
                 continue
 
@@ -95,33 +86,33 @@ def load_plugins_from_directory(
             if plugin:
                 registry.register(plugin)
                 plugins_loaded.append(plugin)
-                log_with_context(
-                    logger,
-                    logging.INFO,
+                logger.info(
                     "Loaded plugin from directory",
-                    plugin_name=plugin.name,
-                    plugin_dir=plugin_dir.name,
-                    config_file=str(config_file),
+                    extra={
+                        "plugin_name": plugin.name,
+                        "plugin_dir": plugin_dir.name,
+                        "config_file": str(config_file),
+                    },
                 )
 
         except Exception as e:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Failed to load plugin from directory",
-                plugin_dir=str(plugin_dir),
-                config_file=str(config_file),
-                error=str(e),
+                extra={
+                    "plugin_dir": str(plugin_dir),
+                    "config_file": str(config_file),
+                    "error": str(e),
+                },
             )
             # Continue loading other plugins
 
-    log_with_context(
-        logger,
-        logging.INFO,
+    logger.info(
         "Loaded plugins from directory",
-        plugins_dir=plugins_dir,
-        plugins_loaded=len(plugins_loaded),
-        plugin_names=[p.name for p in plugins_loaded],
+        extra={
+            "plugins_dir": plugins_dir,
+            "plugins_loaded": len(plugins_loaded),
+            "plugin_names": [p.name for p in plugins_loaded],
+        },
     )
 
     return plugins_loaded
@@ -135,11 +126,9 @@ def load_plugins_from_yaml(
     path = Path(config_path)
 
     if not path.exists():
-        log_with_context(
-            logger,
-            logging.WARNING,
+        logger.warning(
             "Plugin config file not found",
-            config_path=config_path,
+            extra={"config_path": config_path},
         )
         return []
 
@@ -147,11 +136,9 @@ def load_plugins_from_yaml(
         config = yaml.safe_load(f)
 
     if config is None:
-        log_with_context(
-            logger,
-            logging.WARNING,
+        logger.warning(
             "Empty plugin config file",
-            config_path=config_path,
+            extra={"config_path": config_path},
         )
         return []
 
@@ -163,13 +150,13 @@ def load_plugins_from_yaml(
             registry.register(plugin)
             plugins_loaded.append(plugin)
 
-    log_with_context(
-        logger,
-        logging.INFO,
+    logger.info(
         "Loaded plugins from config",
-        config_path=config_path,
-        plugins_loaded=len(plugins_loaded),
-        plugin_names=[p.name for p in plugins_loaded],
+        extra={
+            "config_path": config_path,
+            "plugins_loaded": len(plugins_loaded),
+            "plugin_names": [p.name for p in plugins_loaded],
+        },
     )
 
     return plugins_loaded
@@ -199,11 +186,9 @@ def _create_plugin_from_config(config: dict[str, Any]) -> Plugin | None:
         Plugin instance or None if disabled or error
     """
     if not config.get("enabled", True):
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Plugin disabled in config",
-            plugin_name=config.get("name", "unknown"),
+            extra={"plugin_name": config.get("name", "unknown")},
         )
         return None
 
@@ -213,11 +198,9 @@ def _create_plugin_from_config(config: dict[str, Any]) -> Plugin | None:
         class_name = config.get("class")
 
         if not module_name or not class_name:
-            log_with_context(
-                logger,
-                logging.ERROR,
+            logger.error(
                 "Plugin config missing module or class",
-                plugin_name=config.get("name", "unknown"),
+                extra={"plugin_name": config.get("name", "unknown")},
             )
             return None
 
@@ -235,34 +218,34 @@ def _create_plugin_from_config(config: dict[str, Any]) -> Plugin | None:
         if "priority" in config:
             plugin.priority = config["priority"]
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Created plugin from config",
-            plugin_name=plugin.name,
-            plugin_class=class_name,
-            plugin_module=module_name,
+            extra={
+                "plugin_name": plugin.name,
+                "plugin_class": class_name,
+                "plugin_module": module_name,
+            },
         )
 
         return plugin
 
     except (ImportError, AttributeError) as e:
-        log_with_context(
-            logger,
-            logging.ERROR,
+        logger.error(
             "Failed to import plugin class",
-            plugin_name=config.get("name", "unknown"),
-            module=config.get("module"),
-            class_name=config.get("class"),
-            error=str(e),
+            extra={
+                "plugin_name": config.get("name", "unknown"),
+                "module": config.get("module"),
+                "class_name": config.get("class"),
+                "error": str(e),
+            },
         )
         return None
     except Exception as e:
-        log_with_context(
-            logger,
-            logging.ERROR,
+        logger.error(
             "Failed to create plugin instance",
-            plugin_name=config.get("name", "unknown"),
-            error=str(e),
+            extra={
+                "plugin_name": config.get("name", "unknown"),
+                "error": str(e),
+            },
         )
         return None

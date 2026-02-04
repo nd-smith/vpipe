@@ -17,6 +17,7 @@ Event Hub resolution:
   baking EntityPath into the connection string
 """
 
+import logging
 import os
 from collections.abc import Awaitable, Callable
 from enum import Enum
@@ -25,10 +26,9 @@ from typing import Any
 from aiokafka.structs import ConsumerRecord
 
 from config.config import KafkaConfig
-from core.logging import get_logger
 from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # Event Hub configuration keys

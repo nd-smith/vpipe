@@ -17,9 +17,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from core.logging import get_logger, log_with_context
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Token timing constants
 TOKEN_REFRESH_MINS = 50  # Refresh before expiry
@@ -62,12 +60,10 @@ class TokenCache:
         """Clear one or all cached tokens."""
         if resource:
             self._tokens.pop(resource, None)
-            log_with_context(
-                logger, logging.DEBUG, "Cleared token cache", resource=resource
-            )
+            logger.debug("Cleared token cache", extra={"resource": resource})
         else:
             self._tokens.clear()
-            log_with_context(logger, logging.DEBUG, "Cleared all token caches")
+            logger.debug("Cleared all token caches")
 
 
 class AzureAuthError(Exception):
@@ -127,11 +123,9 @@ class AzureAuth:
             if self._token_file_mtime is None:
                 return True
             if current_mtime > self._token_file_mtime:
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
+                logger.debug(
                     "Token file modified, will re-read",
-                    token_file=self.token_file,
+                    extra={"token_file": self.token_file},
                 )
                 return True
             return False
@@ -170,24 +164,24 @@ class AzureAuth:
 
                     # Try exact match first
                     if lookup_resource in tokens:
-                        log_with_context(
-                            logger,
-                            logging.DEBUG,
+                        logger.debug(
                             "Read token from JSON file",
-                            token_file=self.token_file,
-                            resource=lookup_resource,
+                            extra={
+                                "token_file": self.token_file,
+                                "resource": lookup_resource,
+                            },
                         )
                         return tokens[lookup_resource]
 
                     # Try normalized match (with/without trailing slash)
                     for key in tokens:
                         if lookup_resource.rstrip("/") == key.rstrip("/"):
-                            log_with_context(
-                                logger,
-                                logging.DEBUG,
+                            logger.debug(
                                 "Read token from JSON file (normalized match)",
-                                token_file=self.token_file,
-                                resource=lookup_resource,
+                                extra={
+                                    "token_file": self.token_file,
+                                    "resource": lookup_resource,
+                                },
                             )
                             return tokens[key]
 
@@ -202,11 +196,9 @@ class AzureAuth:
                 pass
 
             # Plain text format: entire file content is the token
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Read token from plain text file",
-                token_file=self.token_file,
+                extra={"token_file": self.token_file},
             )
             return content
 
@@ -249,11 +241,9 @@ class AzureAuth:
             if not token:
                 raise AzureAuthError("Azure CLI returned empty token")
 
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Acquired token from Azure CLI",
-                resource=resource,
+                extra={"resource": resource},
             )
             return token
 
@@ -271,11 +261,9 @@ class AzureAuth:
             if not force_refresh:
                 cached = self._cache.get(self.STORAGE_RESOURCE)
                 if cached:
-                    log_with_context(
-                        logger,
-                        logging.DEBUG,
+                    logger.debug(
                         "Using cached storage token",
-                        resource=self.STORAGE_RESOURCE,
+                        extra={"resource": self.STORAGE_RESOURCE},
                     )
                     return cached
 
@@ -285,12 +273,9 @@ class AzureAuth:
                 self._update_token_file_mtime()
                 return token
             except AzureAuthError as e:
-                log_with_context(
-                    logger,
-                    logging.WARNING,
+                logger.warning(
                     "Token file configured but unavailable",
-                    token_file=self.token_file,
-                    error=str(e),
+                    extra={"token_file": self.token_file, "error": str(e)},
                 )
                 return None
 
@@ -299,11 +284,9 @@ class AzureAuth:
             if not force_refresh:
                 cached = self._cache.get(self.STORAGE_RESOURCE)
                 if cached:
-                    log_with_context(
-                        logger,
-                        logging.DEBUG,
+                    logger.debug(
                         "Using cached CLI token",
-                        resource=self.STORAGE_RESOURCE,
+                        extra={"resource": self.STORAGE_RESOURCE},
                     )
                     return cached
 
@@ -312,11 +295,9 @@ class AzureAuth:
                 self._cache.set(self.STORAGE_RESOURCE, token)
                 return token
             except AzureAuthError as e:
-                log_with_context(
-                    logger,
-                    logging.WARNING,
+                logger.warning(
                     "Azure CLI token acquisition failed",
-                    error=str(e),
+                    extra={"error": str(e)},
                 )
                 return None
 
@@ -338,11 +319,9 @@ class AzureAuth:
                 "azure_tenant_id": self.tenant_id,
             }
 
-        log_with_context(
-            logger,
-            logging.WARNING,
+        logger.warning(
             "No Azure credentials configured",
-            resource=self.STORAGE_RESOURCE,
+            extra={"resource": self.STORAGE_RESOURCE},
         )
         return {}
 
@@ -364,12 +343,12 @@ def get_auth() -> AzureAuth:
     if _auth_instance is None:
         _auth_instance = AzureAuth()
         # Log singleton creation to help diagnose auth issues
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Created AzureAuth singleton",
-            auth_mode=_auth_instance.auth_mode,
-            token_file=_auth_instance.token_file or "not_set",
+            extra={
+                "auth_mode": _auth_instance.auth_mode,
+                "token_file": _auth_instance.token_file or "not_set",
+            },
         )
     return _auth_instance
 
@@ -390,63 +369,50 @@ def get_storage_options(force_refresh: bool = False) -> dict[str, str]:
 
     # Log detailed auth context for debugging 403 errors
     auth_mode = auth.auth_mode
-    log_with_context(
-        logger,
-        logging.INFO,
+    logger.info(
         "Storage auth context",
-        auth_mode=auth_mode,
-        force_refresh=force_refresh,
+        extra={"auth_mode": auth_mode, "force_refresh": force_refresh},
     )
 
     if auth_mode == "spn":
         # Log partial SPN credentials for verification (first 4 chars only)
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "SPN credentials in use",
-            client_id_prefix=_mask_credential(auth.client_id),
-            tenant_id_prefix=_mask_credential(auth.tenant_id),
-            client_secret_set=bool(auth.client_secret),
-            client_secret_prefix=_mask_credential(auth.client_secret),
+            extra={
+                "client_id_prefix": _mask_credential(auth.client_id),
+                "tenant_id_prefix": _mask_credential(auth.tenant_id),
+                "client_secret_set": bool(auth.client_secret),
+                "client_secret_prefix": _mask_credential(auth.client_secret),
+            },
         )
     elif auth_mode == "file":
         token = opts.get("azure_storage_token")
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "Token file auth in use",
-            token_file=auth.token_file,
-            token_prefix=_mask_credential(token),
+            extra={
+                "token_file": auth.token_file,
+                "token_prefix": _mask_credential(token),
+            },
         )
     elif auth_mode == "cli":
         token = opts.get("azure_storage_token")
-        log_with_context(
-            logger,
-            logging.INFO,
+        logger.info(
             "CLI auth in use",
-            token_prefix=_mask_credential(token),
+            extra={"token_prefix": _mask_credential(token)},
         )
     elif auth_mode == "none":
-        log_with_context(
-            logger,
-            logging.WARNING,
-            "No Azure credentials configured - operations will fail with 403",
+        logger.warning(
+            "No Azure credentials configured - operations will fail with 403"
         )
 
     # Also log the option keys being returned
     if opts:
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Storage options returned",
-            option_keys=list(opts.keys()),
+            extra={"option_keys": list(opts.keys())},
         )
     else:
-        log_with_context(
-            logger,
-            logging.WARNING,
-            "Storage options returned empty",
-        )
+        logger.warning("Storage options returned empty")
     return opts
 
 

@@ -6,6 +6,7 @@ Decoupled architecture allows independent scaling of download vs upload.
 
 import asyncio
 import contextlib
+import logging
 import shutil
 import tempfile
 import time
@@ -20,7 +21,6 @@ from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
@@ -37,7 +37,7 @@ from pipeline.common.metrics import (
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

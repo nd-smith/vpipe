@@ -6,10 +6,10 @@ retry topics. Refreshes expired presigned URLs before retry. Routes
 exhausted retries to dead-letter queue (DLQ).
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import KafkaConfig
-from core.logging import get_logger
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.handlers.utils import (
@@ -24,7 +24,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.transport import create_producer
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class DownloadRetryHandler:

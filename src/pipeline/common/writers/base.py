@@ -11,10 +11,10 @@ data transformation methods.
 """
 
 import asyncio
+import logging
 
 import polars as pl
 
-from core.logging.setup import get_logger
 from pipeline.common.storage.delta import DeltaTableWriter
 
 
@@ -65,7 +65,7 @@ class BaseDeltaWriter:
             z_order_columns: Columns for Z-ordering optimization (optional)
         """
         self.table_path = table_path
-        self.logger = get_logger(self.__class__.__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         self._delta_writer = DeltaTableWriter(
             table_path=table_path,

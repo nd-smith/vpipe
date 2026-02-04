@@ -5,13 +5,12 @@ Consolidates type conversion, timestamp handling, and timing utilities
 used across handler modules.
 """
 
+import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from core.logging import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # String truncation limits for logging
 LOG_VALUE_TRUNCATE = 100  # For truncating values in log messages

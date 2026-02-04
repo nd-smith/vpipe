@@ -7,6 +7,7 @@ Routes events by type to specialized handlers.
 import asyncio
 import contextlib
 import json
+import logging
 import time
 import uuid
 from datetime import UTC, datetime
@@ -15,7 +16,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from config.config import KafkaConfig
-from core.logging.setup import get_logger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
@@ -38,7 +38,7 @@ from pipeline.common.storage.delta import DeltaTableReader
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ClaimXEnrichmentWorker:

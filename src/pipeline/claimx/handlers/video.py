@@ -5,26 +5,26 @@ Handles: VIDEO_COLLABORATION_INVITE_SENT, VIDEO_COLLABORATION_COMPLETED
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from core.logging import get_logger, log_with_context
+from core.types import ErrorCategory
+from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers import transformers
 from pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
     register_handler,
-    with_api_error_handling,
 )
 from pipeline.claimx.handlers.utils import (
-    API_CALLS_WITH_VERIFICATION,
+    LOG_ERROR_TRUNCATE_SHORT,
     elapsed_ms,
 )
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.common.logging import extract_log_context
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @register_handler
@@ -40,70 +40,112 @@ class VideoCollabHandler(EventHandler):
     supports_batching = False
     HANDLER_NAME = "video"
 
-    @with_api_error_handling(
-        api_calls=API_CALLS_WITH_VERIFICATION,  # Video + Project verification
-        log_context=lambda e: {"event_id": e.event_id, "project_id": e.project_id},
-    )
-    async def handle_event(
-        self, event: ClaimXEventMessage, start_time: datetime
-    ) -> EnrichmentResult:
+    async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
         """Fetch video collaboration data and transform to entity rows."""
-        # 1. Fetch video collaboration report
-        response = await self.client.get_video_collaboration(event.project_id)
+        start_time = datetime.now(UTC)
+        api_calls = 2  # Video + Project verification
 
-        collab_data = self._extract_collab_data(response, event.project_id)
+        try:
+            # 1. Fetch video collaboration report
+            response = await self.client.get_video_collaboration(event.project_id)
 
-        rows = EntityRowsMessage()
+            collab_data = self._extract_collab_data(response, event.project_id)
 
-        # 2. In-flight Project Verification
-        # We need to ensure the project exists in our warehouse
-        project_rows = await self.ensure_project_exists(
-            int(event.project_id),
-            source_event_id=event.event_id,
-        )
-        rows.merge(project_rows)
+            rows = EntityRowsMessage()
 
-        if not collab_data:
-            log_with_context(
-                logger,
-                logging.WARNING,
-                "No video collaboration data",
-                handler_name=VideoCollabHandler.HANDLER_NAME,
-                event_id=event.event_id,
-                project_id=event.project_id,
+            # 2. In-flight Project Verification
+            # We need to ensure the project exists in our warehouse
+            project_rows = await self.ensure_project_exists(
+                int(event.project_id),
+                source_event_id=event.event_id,
             )
+            rows.merge(project_rows)
+
+            if not collab_data:
+                logger.warning(
+                    "No video collaboration data",
+                    extra={
+                        "handler_name": VideoCollabHandler.HANDLER_NAME,
+                        "event_id": event.event_id,
+                        "project_id": event.project_id,
+                    },
+                )
+                return EnrichmentResult(
+                    event=event,
+                    success=True,
+                    rows=rows,  # Return project rows even if video data missing
+                    api_calls=api_calls,
+                    duration_ms=elapsed_ms(start_time),
+                )
+
+            video_row = transformers.video_collab_to_row(
+                collab_data,
+                event_id=event.event_id,
+            )
+            if video_row.get("video_collaboration_id") is not None:
+                rows.video_collab.append(video_row)
+
+            logger.debug(
+                "Video collab extracted",
+                extra={
+                    "handler_name": VideoCollabHandler.HANDLER_NAME,
+                    "video_collab_count": len(rows.video_collab),
+                    "project_verification": bool(project_rows.projects),
+                    **extract_log_context(event),
+                },
+            )
+
             return EnrichmentResult(
                 event=event,
                 success=True,
-                rows=rows,  # Return project rows even if video data missing
-                api_calls=2,
+                rows=rows,
+                api_calls=api_calls,
                 duration_ms=elapsed_ms(start_time),
             )
 
-        video_row = transformers.video_collab_to_row(
-            collab_data,
-            event_id=event.event_id,
-        )
-        if video_row.get("video_collaboration_id") is not None:
-            rows.video_collab.append(video_row)
+        except ClaimXApiError as e:
+            duration_ms = elapsed_ms(start_time)
+            logger.warning(
+                "API error",
+                extra={
+                    "handler_name": VideoCollabHandler.HANDLER_NAME,
+                    "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
+                    "error_category": e.category.value if e.category else None,
+                    "http_status": e.status_code,
+                    "duration_ms": duration_ms,
+                    **extract_log_context(event),
+                },
+            )
+            return EnrichmentResult(
+                event=event,
+                success=False,
+                error=str(e),
+                error_category=e.category,
+                is_retryable=e.is_retryable,
+                api_calls=api_calls,
+                duration_ms=duration_ms,
+            )
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Video collab extracted",
-            handler_name=VideoCollabHandler.HANDLER_NAME,
-            video_collab_count=len(rows.video_collab),
-            project_verification=bool(project_rows.projects),
-            **extract_log_context(event),
-        )
-
-        return EnrichmentResult(
-            event=event,
-            success=True,
-            rows=rows,
-            api_calls=2,
-            duration_ms=elapsed_ms(start_time),
-        )
+        except Exception as e:
+            duration_ms = elapsed_ms(start_time)
+            logger.error(
+                "Unexpected error",
+                extra={
+                    "handler_name": VideoCollabHandler.HANDLER_NAME,
+                    "duration_ms": duration_ms,
+                    **extract_log_context(event),
+                },
+                exc_info=True,
+            )
+            return EnrichmentResult(
+                event=event,
+                success=False,
+                error=str(e),
+                error_category=ErrorCategory.TRANSIENT,
+                is_retryable=True,
+                api_calls=api_calls,
+                duration_ms=duration_ms,
+            )
 
     def _extract_collab_data(
         self,

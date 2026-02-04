@@ -12,7 +12,6 @@ from typing import (
     TypeVar,
 )
 
-from core.logging import get_logger, log_exception, log_with_context
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from pipeline.claimx.handlers.utils import LOG_ERROR_TRUNCATE_SHORT
@@ -27,7 +26,7 @@ from pipeline.common.metrics import (
 if TYPE_CHECKING:
     from pipeline.claimx.handlers.project_cache import ProjectCache
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class EnrichmentResult:
@@ -133,16 +132,16 @@ def with_api_error_handling(
                 duration_ms = int(
                     (datetime.now(UTC) - start_time).total_seconds() * 1000
                 )
-                log_with_context(
-                    logger,
-                    logging.WARNING,
+                logger.warning(
                     "API error",
-                    handler_name=handler_name,
-                    error_message=str(e)[:LOG_ERROR_TRUNCATE_SHORT],
-                    error_category=e.category.value if e.category else None,
-                    http_status=e.status_code,
-                    duration_ms=duration_ms,
-                    **event_log_context,
+                    extra={
+                        "handler_name": handler_name,
+                        "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
+                        "error_category": e.category.value if e.category else None,
+                        "http_status": e.status_code,
+                        "duration_ms": duration_ms,
+                        **event_log_context,
+                    },
                 )
                 return _make_error_result(
                     event,
@@ -162,13 +161,14 @@ def with_api_error_handling(
                 duration_ms = int(
                     (datetime.now(UTC) - start_time).total_seconds() * 1000
                 )
-                log_exception(
-                    logger,
-                    e,
+                logger.error(
                     "Unexpected error",
-                    handler_name=handler_name,
-                    duration_ms=duration_ms,
-                    **event_log_context,
+                    extra={
+                        "handler_name": handler_name,
+                        "duration_ms": duration_ms,
+                        **event_log_context,
+                    },
+                    exc_info=True,
                 )
                 return _make_error_result(
                     event,
@@ -248,12 +248,12 @@ class EventHandler(ABC):
         if not events:
             return []
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Processing event batch",
-            handler_name=self.name,
-            batch_size=len(events),
+            extra={
+                "handler_name": self.name,
+                "batch_size": len(events),
+            },
         )
 
         start_time = datetime.now(UTC)
@@ -268,12 +268,13 @@ class EventHandler(ABC):
             if isinstance(result, Exception):
                 event = events[i]
                 error_count += 1
-                log_exception(
-                    logger,
-                    result,
+                logger.error(
                     "Handler failed for event",
-                    handler_name=self.name,
-                    **extract_log_context(event),
+                    extra={
+                        "handler_name": self.name,
+                        **extract_log_context(event),
+                    },
+                    exc_info=True,
                 )
                 # Create failure result
                 final_results.append(
@@ -295,26 +296,26 @@ class EventHandler(ABC):
                     error_count += 1
 
         elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Batch complete",
-            handler_name=self.name,
-            batch_size=len(events),
-            records_succeeded=success_count,
-            records_failed=error_count,
-            duration_ms=round(elapsed_ms, 2),
+            extra={
+                "handler_name": self.name,
+                "batch_size": len(events),
+                "records_succeeded": success_count,
+                "records_failed": error_count,
+                "duration_ms": round(elapsed_ms, 2),
+            },
         )
 
         return final_results
 
     async def process(self, events: list[ClaimXEventMessage]) -> HandlerResult:
         if not events:
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "No events to process",
-                handler_name=self.name,
+                extra={
+                    "handler_name": self.name,
+                },
             )
             return HandlerResult(
                 handler_name=self.name,
@@ -338,15 +339,15 @@ class EventHandler(ABC):
                 event_type_counts.get(event.event_type, 0) + 1
             )
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Processing events",
-            handler_name=self.name,
-            total_events=len(events),
-            supports_batching=self.supports_batching,
-            batch_key=self.batch_key,
-            event_type_distribution=event_type_counts,
+            extra={
+                "handler_name": self.name,
+                "total_events": len(events),
+                "supports_batching": self.supports_batching,
+                "batch_key": self.batch_key,
+                "event_type_distribution": event_type_counts,
+            },
         )
 
         if self.supports_batching and self.batch_key:
@@ -356,17 +357,17 @@ class EventHandler(ABC):
 
         handler_result = self._aggregate_results(results, start_time)
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Handler processing complete",
-            handler_name=self.name,
-            records_processed=handler_result.total,
-            records_succeeded=handler_result.succeeded,
-            records_failed=handler_result.failed,
-            records_failed_permanent=handler_result.failed_permanent,
-            api_calls=handler_result.api_calls,
-            duration_seconds=round(handler_result.duration_seconds, 3),
+            extra={
+                "handler_name": self.name,
+                "records_processed": handler_result.total,
+                "records_succeeded": handler_result.succeeded,
+                "records_failed": handler_result.failed,
+                "records_failed_permanent": handler_result.failed_permanent,
+                "api_calls": handler_result.api_calls,
+                "duration_seconds": round(handler_result.duration_seconds, 3),
+            },
         )
 
         return handler_result
@@ -383,15 +384,15 @@ class EventHandler(ABC):
             key = getattr(event, self.batch_key, None)
             groups[key].append(event)
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Processing batched events",
-            handler_name=self.name,
-            total_events=len(events),
-            batch_key=self.batch_key,
-            group_count=len(groups),
-            group_sizes={str(k): len(v) for k, v in groups.items()},
+            extra={
+                "handler_name": self.name,
+                "total_events": len(events),
+                "batch_key": self.batch_key,
+                "group_count": len(groups),
+                "group_sizes": {str(k): len(v) for k, v in groups.items()},
+            },
         )
 
         # Process all groups concurrently
@@ -409,26 +410,27 @@ class EventHandler(ABC):
         for group_result in group_results:
             if isinstance(group_result, Exception):
                 groups_failed += 1
-                log_exception(
-                    logger,
-                    group_result,
+                logger.error(
                     "Batch group processing failed",
-                    handler_name=self.name,
-                    batch_key=self.batch_key,
+                    extra={
+                        "handler_name": self.name,
+                        "batch_key": self.batch_key,
+                    },
+                    exc_info=True,
                 )
                 continue
             key, batch_results = group_result
             groups_succeeded += 1
             results.extend(batch_results)
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Batched processing complete",
-            handler_name=self.name,
-            groups_succeeded=groups_succeeded,
-            groups_failed=groups_failed,
-            total_results=len(results),
+            extra={
+                "handler_name": self.name,
+                "groups_succeeded": groups_succeeded,
+                "groups_failed": groups_failed,
+                "total_results": len(results),
+            },
         )
 
         return results
@@ -450,11 +452,12 @@ class EventHandler(ABC):
 
         for enrichment_result in results:
             if enrichment_result is None:
-                log_exception(
-                    logger,
-                    Exception("Handler returned None result"),
+                logger.error(
                     "Invalid handler result",
-                    handler_name=self.name,
+                    extra={
+                        "handler_name": self.name,
+                    },
+                    exc_info=True,
                 )
                 continue
             total += 1
@@ -483,13 +486,13 @@ class EventHandler(ABC):
         non_zero_counts = {k: v for k, v in row_counts.items() if v > 0}
 
         if non_zero_counts:
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "Aggregated entity rows",
-                handler_name=self.name,
-                entity_counts=non_zero_counts,
-                total_rows=sum(non_zero_counts.values()),
+                extra={
+                    "handler_name": self.name,
+                    "entity_counts": non_zero_counts,
+                    "total_rows": sum(non_zero_counts.values()),
+                },
             )
 
         if succeeded > 0:
@@ -551,14 +554,14 @@ class NoOpHandler(EventHandler):
             }
             non_zero = {k: v for k, v in row_counts.items() if v > 0}
 
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "NoOp handler extracted rows",
-                handler_name=self.name,
-                entity_counts=non_zero if non_zero else None,
-                duration_ms=duration_ms,
-                **extract_log_context(event),
+                extra={
+                    "handler_name": self.name,
+                    "entity_counts": non_zero if non_zero else None,
+                    "duration_ms": duration_ms,
+                    **extract_log_context(event),
+                },
             )
 
             return EnrichmentResult(
@@ -570,12 +573,13 @@ class NoOpHandler(EventHandler):
             )
 
         except Exception as e:
-            log_exception(
-                logger,
-                e,
+            logger.error(
                 "Error extracting rows from event",
-                handler_name=self.name,
-                **extract_log_context(event),
+                extra={
+                    "handler_name": self.name,
+                    **extract_log_context(event),
+                },
+                exc_info=True,
             )
             duration_ms = int(
                 (datetime.now(UTC) - start_time).total_seconds() * 1000
@@ -613,11 +617,11 @@ class HandlerRegistry:
     ) -> EventHandler | None:
         handler_class = _HANDLERS.get(event_type)
         if handler_class is None:
-            log_with_context(
-                logger,
-                logging.DEBUG,
+            logger.debug(
                 "No handler found for event type",
-                event_type=event_type,
+                extra={
+                    "event_type": event_type,
+                },
             )
             return None
         return handler_class(client)
@@ -640,24 +644,24 @@ class HandlerRegistry:
 
         handler_distribution = {cls.__name__: len(evts) for cls, evts in groups.items()}
 
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Grouped events by handler",
-            total_events=len(events),
-            handler_count=len(groups),
-            handler_distribution=handler_distribution,
-            unhandled_event_types=unhandled_types if unhandled_types else None,
+            extra={
+                "total_events": len(events),
+                "handler_count": len(groups),
+                "handler_distribution": handler_distribution,
+                "unhandled_event_types": unhandled_types if unhandled_types else None,
+            },
         )
 
         if unhandled_types:
             for event_type, count in unhandled_types.items():
-                log_with_context(
-                    logger,
-                    logging.WARNING,
+                logger.warning(
                     "No handler for event type",
-                    event_type=event_type,
-                    event_count=count,
+                    extra={
+                        "event_type": event_type,
+                        "event_count": count,
+                    },
                 )
 
         return dict(groups)
@@ -677,22 +681,22 @@ def register_handler(cls: type[EventHandler]) -> type[EventHandler]:
     """Decorator to register a handler class for its event_types."""
     for event_type in cls.event_types:
         if event_type in _HANDLERS:
-            log_with_context(
-                logger,
-                logging.WARNING,
+            logger.warning(
                 "Overwriting handler registration",
-                event_type=event_type,
-                old_handler=_HANDLERS[event_type].__name__,
-                new_handler=cls.__name__,
+                extra={
+                    "event_type": event_type,
+                    "old_handler": _HANDLERS[event_type].__name__,
+                    "new_handler": cls.__name__,
+                },
             )
         _HANDLERS[event_type] = cls
-        log_with_context(
-            logger,
-            logging.DEBUG,
+        logger.debug(
             "Registered handler",
-            handler_name=cls.__name__,
-            event_type=event_type,
-            supports_batching=cls.supports_batching,
-            batch_key=cls.batch_key,
+            extra={
+                "handler_name": cls.__name__,
+                "event_type": event_type,
+                "supports_batching": cls.supports_batching,
+                "batch_key": cls.batch_key,
+            },
         )
     return cls
