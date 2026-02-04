@@ -45,7 +45,16 @@ def get_shutdown_event() -> asyncio.Event:
 
 
 async def run_error_mode(worker_name: str, error_msg: str) -> None:
-    """Run health server in error state until shutdown signal."""
+    """Run health server in error state until shutdown signal.
+
+    This is a fallback for errors that occur before worker health servers exist:
+    - Configuration errors (before worker instantiation)
+    - Worker instantiation errors (before health server created)
+    - Errors from workers without health servers (legacy/plugin workers)
+
+    Workers with integrated health servers handle their own error mode via
+    the runner functions in runners/common.py.
+    """
     shutdown_event = get_shutdown_event()
 
     health_server = HealthCheckServer(
@@ -57,7 +66,7 @@ async def run_error_mode(worker_name: str, error_msg: str) -> None:
 
     await health_server.start()
     logger.info(
-        "Health server running in error mode",
+        "Health server running in error mode (top-level fallback)",
         extra={
             "port": health_server.actual_port,
             "worker": worker_name,
@@ -75,7 +84,13 @@ async def run_error_mode(worker_name: str, error_msg: str) -> None:
 def enter_error_mode(loop: asyncio.AbstractEventLoop, worker_name: str, error_msg: str) -> None:
     """Enter error mode with health server running until shutdown.
 
-    Logs error, runs health endpoint, and exits cleanly without raising.
+    Fallback error mode for cases where worker health server doesn't exist:
+    - Configuration errors (before worker creation)
+    - Worker instantiation errors (before health server initialized)
+    - Workers without health servers (will reach here via runner re-raise)
+
+    Most workers now handle their own error mode via runners/common.py, so
+    this primarily handles pre-worker and configuration errors.
     """
     logger.warning("Entering ERROR MODE - health endpoint will remain alive")
     try:
@@ -591,6 +606,12 @@ def main():
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
+        # Fatal error handling
+        # Note: Workers with health servers handle their own error mode in
+        # runners/common.py and won't reach here. This catches:
+        # - Worker instantiation errors (before health server exists)
+        # - Errors from workers without health servers
+        # - Errors from run_all_workers orchestration
         error_msg = str(e)
         logger.error("Fatal error", extra={"error": error_msg})
         enter_error_mode(loop, args.worker, f"Fatal error: {error_msg}")

@@ -24,6 +24,7 @@ from pipeline.common.eventhouse.sinks import (
     EventSink,
     create_kafka_sink,
 )
+from pipeline.common.health import HealthCheckServer
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ class PollerConfig:
     ingestion_time_column: str | None = None
     # Optional custom sink - if not provided, uses KafkaSink with kafka config
     sink: EventSink | None = None
+    health_port: int = 8080  # Health check server port
 
 
 class KQLEventPoller:
@@ -179,6 +181,12 @@ class KQLEventPoller:
         )
         self._load_checkpoint()
         self._pending_tasks: set[asyncio.Task] = set()
+
+        # Health check server
+        self.health_server = HealthCheckServer(
+            port=config.health_port,
+            worker_name=f"{config.domain}-poller",
+        )
 
     @property
     def _trace_id_col(self) -> str | None:
@@ -233,6 +241,9 @@ class KQLEventPoller:
     async def start(self) -> None:
         """Initialize all components."""
         logger.info("Starting KQLEventPoller components")
+
+        await self.health_server.start()
+
         self._kql_client = KQLClient(self.config.eventhouse)
         await self._kql_client.connect()
 
@@ -252,8 +263,16 @@ class KQLEventPoller:
 
         await self._sink.start()
         self._running = True
+
+        # Mark health server as ready after successful startup
+        self.health_server.set_ready(kafka_connected=True)
+
         logger.info(
-            "KQLEventPoller started", extra={"sink_type": type(self._sink).__name__}
+            "KQLEventPoller started",
+            extra={
+                "sink_type": type(self._sink).__name__,
+                "health_port": self.health_server.actual_port,
+            }
         )
 
     async def _test_eventhouse_connectivity(self) -> None:
@@ -354,6 +373,8 @@ class KQLEventPoller:
             await self._sink.stop()
         if self._kql_client:
             await self._kql_client.close()
+
+        await self.health_server.stop()
 
     async def run(self) -> None:
         """Main polling loop."""

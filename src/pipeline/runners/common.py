@@ -13,6 +13,8 @@ import os
 from collections.abc import Callable
 
 from core.logging.context import set_log_context
+from core.logging.setup import upload_crash_logs
+from pipeline.common.health import HealthCheckServer
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,53 @@ async def _start_with_retry(
             await asyncio.sleep(delay)
 
 
+async def _enter_worker_error_mode(
+    health_server: HealthCheckServer,
+    stage_name: str,
+    error_msg: str,
+    shutdown_event: asyncio.Event,
+) -> None:
+    """Keep worker's health server alive in error state until shutdown.
+
+    Instead of exiting immediately on fatal error, the worker enters error mode where:
+    - Health server continues running for debugging
+    - Liveness probe passes (pod stays alive)
+    - Readiness probe fails with error details (pod not ready for traffic)
+    - Waits for shutdown signal before exiting
+
+    This enables debugging in containerized environments where inspecting
+    pod state after errors is needed.
+
+    Args:
+        health_server: Worker's health check server instance
+        stage_name: Worker stage name for logging
+        error_msg: Error message describing the failure
+        shutdown_event: Event to wait on for graceful shutdown
+    """
+    logger.warning(
+        f"Entering ERROR MODE for {stage_name} - health endpoint will remain alive"
+    )
+
+    # Set error state on existing health server
+    health_server.set_error(error_msg)
+
+    # Upload crash logs in background (non-blocking)
+    asyncio.create_task(asyncio.to_thread(upload_crash_logs, error_msg))
+
+    logger.info(
+        "Health server running in error mode",
+        extra={
+            "stage": stage_name,
+            "health_port": health_server.actual_port,
+            "error": error_msg,
+        },
+    )
+
+    # Wait for shutdown signal
+    await shutdown_event.wait()
+    logger.info(f"Shutdown signal received in error mode for {stage_name}")
+
+
 async def execute_worker_with_shutdown(
     worker_instance,
     stage_name: str,
@@ -84,6 +133,10 @@ async def execute_worker_with_shutdown(
     instance_id: int | None = None,
 ) -> None:
     """Execute a worker with standard shutdown handling.
+
+    On fatal error, if worker has a health_server attribute, enters error mode
+    to keep health endpoint alive for debugging. Otherwise re-raises for
+    top-level error handling.
 
     Args:
         worker_instance: Worker instance with start() and stop() methods
@@ -114,6 +167,21 @@ async def execute_worker_with_shutdown(
 
     try:
         await _start_with_retry(worker_instance.start, stage_name)
+    except Exception as e:
+        # If worker has health server, enter error mode to keep it alive
+        if hasattr(worker_instance, "health_server"):
+            await _cleanup_watcher_task(watcher_task)
+            await _enter_worker_error_mode(
+                worker_instance.health_server,
+                stage_name,
+                f"Fatal error: {e}",
+                shutdown_event,
+            )
+            # After shutdown signal, stop worker normally
+            await worker_instance.stop()
+        else:
+            # No health server - re-raise for top-level error mode
+            raise
     finally:
         await _cleanup_watcher_task(watcher_task)
         await worker_instance.stop()
@@ -131,6 +199,10 @@ async def execute_worker_with_producer(
     instance_id: int | None = None,
 ) -> None:
     """Execute a worker that requires a producer with shutdown handling.
+
+    On fatal error, if worker has a health_server attribute, enters error mode
+    to keep health endpoint alive for debugging. Otherwise re-raises for
+    top-level error handling.
 
     Args:
         worker_class: Worker class to instantiate
@@ -195,6 +267,22 @@ async def execute_worker_with_producer(
 
     try:
         await _start_with_retry(worker.start, stage_name)
+    except Exception as e:
+        # If worker has health server, enter error mode to keep it alive
+        if hasattr(worker, "health_server"):
+            await _cleanup_watcher_task(watcher_task)
+            await _enter_worker_error_mode(
+                worker.health_server,
+                stage_name,
+                f"Fatal error: {e}",
+                shutdown_event,
+            )
+            # After shutdown signal, stop worker and producer normally
+            await worker.stop()
+            await producer.stop()
+        else:
+            # No health server - re-raise for top-level error mode
+            raise
     finally:
         await _cleanup_watcher_task(watcher_task)
         await worker.stop()
@@ -208,6 +296,10 @@ async def execute_poller_with_shutdown(
     shutdown_event: asyncio.Event,
 ) -> None:
     """Execute an Eventhouse poller with shutdown handling.
+
+    On fatal error, if poller has a health_server attribute, enters error mode
+    to keep health endpoint alive for debugging. Otherwise re-raises for
+    top-level error handling.
 
     Args:
         poller_class: Poller class to instantiate
@@ -230,5 +322,19 @@ async def execute_poller_with_shutdown(
 
         try:
             await _start_with_retry(poller.run, stage_name)
+        except Exception as e:
+            # If poller has health server, enter error mode to keep it alive
+            if hasattr(poller, "health_server"):
+                await _cleanup_watcher_task(watcher_task)
+                await _enter_worker_error_mode(
+                    poller.health_server,
+                    stage_name,
+                    f"Fatal error: {e}",
+                    shutdown_event,
+                )
+                # After shutdown signal, context manager will handle cleanup
+            else:
+                # No health server - re-raise for top-level error mode
+                raise
         finally:
             await _cleanup_watcher_task(watcher_task)

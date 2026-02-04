@@ -18,6 +18,7 @@ from typing import Any
 
 from config.config import KafkaConfig
 from pipeline.common.consumer import BaseKafkaConsumer
+from pipeline.common.health import HealthCheckServer
 from pipeline.common.producer import BaseKafkaProducer
 from pipeline.common.types import PipelineMessage
 
@@ -91,6 +92,7 @@ class UnifiedRetryScheduler:
         producer: BaseKafkaProducer,
         domain: str,
         persistence_interval_seconds: int = 10,
+        health_port: int = 8095,
     ):
         """
         Initialize unified retry scheduler.
@@ -100,6 +102,7 @@ class UnifiedRetryScheduler:
             producer: Kafka producer for routing messages
             domain: Domain name ("verisk" or "claimx")
             persistence_interval_seconds: How often to persist queue to disk (default 10s)
+            health_port: Health check server port (default 8095)
         """
         self.config = config
         self.producer = producer
@@ -131,6 +134,12 @@ class UnifiedRetryScheduler:
         self._messages_malformed = 0
         self._messages_exhausted = 0
         self._messages_restored = 0
+
+        # Health check server
+        self.health_server = HealthCheckServer(
+            port=health_port,
+            worker_name=f"{domain}-retry-scheduler",
+        )
 
         logger.info(
             "Initialized UnifiedRetryScheduler",
@@ -166,6 +175,8 @@ class UnifiedRetryScheduler:
             extra={"retry_topic": self.retry_topic},
         )
 
+        await self.health_server.start()
+
         # Restore delayed messages from disk if available
         await self._restore_from_disk()
 
@@ -185,6 +196,17 @@ class UnifiedRetryScheduler:
         )
 
         self._running = True
+
+        # Mark health server as ready after successful initialization
+        self.health_server.set_ready(kafka_connected=True)
+
+        logger.info(
+            "UnifiedRetryScheduler ready",
+            extra={
+                "health_port": self.health_server.actual_port,
+                "restored_messages": self._messages_restored,
+            },
+        )
 
         # Start consumer (this blocks until stopped)
         try:
@@ -240,6 +262,8 @@ class UnifiedRetryScheduler:
         if self._consumer:
             await self._consumer.stop()
             self._consumer = None
+
+        await self.health_server.stop()
 
         logger.info("UnifiedRetryScheduler stopped successfully")
 
