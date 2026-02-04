@@ -87,13 +87,11 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     # Deprecated workers (captured for better error messages)
     "dummy-source": {
         "deprecated": True,
-        "message": "Worker 'dummy-source' moved to pipeline.simulation.dummy_producer. "
-        "Use: python -m pipeline.simulation.dummy_producer --help",
+        "message": "Worker 'dummy-source' has been removed along with simulation mode support.",
     },
     "dummy_source": {
         "deprecated": True,
-        "message": "Worker 'dummy_source' moved to pipeline.simulation.dummy_producer. "
-        "Use: python -m pipeline.simulation.dummy_producer --help",
+        "message": "Worker 'dummy_source' has been removed along with simulation mode support.",
     },
 }
 
@@ -106,7 +104,6 @@ async def run_worker_from_registry(
     eventhub_config=None,
     local_kafka_config=None,
     instance_id: int | None = None,
-    simulation_mode: bool = False,
 ):
     """Run a worker by looking it up in the registry.
 
@@ -118,7 +115,6 @@ async def run_worker_from_registry(
         eventhub_config: Event Hub configuration (optional)
         local_kafka_config: Local Kafka configuration (optional)
         instance_id: Instance identifier for multi-instance deployments (optional)
-        simulation_mode: Enable simulation mode with mock dependencies (optional)
 
     Raises:
         ValueError: If worker not found in registry or requirements not met
@@ -148,7 +144,6 @@ async def run_worker_from_registry(
         "eventhub_config": eventhub_config,
         "local_kafka_config": local_kafka_config,
         "kafka_config": local_kafka_config,
-        "simulation_mode": simulation_mode,
         "domain": pipeline_config.domain,
     }
 
