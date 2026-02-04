@@ -11,10 +11,6 @@ Writes ClaimX entity data to 7 separate Delta tables:
 - claimx_video_collab: Video collaboration sessions
 
 Uses merge (upsert) operations with appropriate primary keys for idempotency.
-
-Simulation Mode:
-When simulation mode is enabled, writes to local filesystem Delta tables
-in /tmp/pcesdopodappv1_simulation/delta/ instead of cloud OneLake storage.
 """
 
 import shutil
@@ -263,11 +259,8 @@ class ClaimXEntityWriter:
         """
         Initialize ClaimX entity writer with table paths.
 
-        In simulation mode, table paths are overridden to use local filesystem.
-
         Args:
-            projects_table_path: Full abfss:// path to claimx_projects table (cloud)
-                                or local path in simulation mode
+            projects_table_path: Full abfss:// path to claimx_projects table
             contacts_table_path: Full abfss:// path to claimx_contacts table
             media_table_path: Full abfss:// path to claimx_attachment_metadata table
             tasks_table_path: Full abfss:// path to claimx_tasks table
@@ -277,93 +270,19 @@ class ClaimXEntityWriter:
         """
         self.logger = get_logger(self.__class__.__name__)
 
-        # Check if simulation mode is enabled and override paths
-        try:
-            from pipeline.simulation import (
-                get_simulation_config,
-                is_simulation_mode,
-            )
-
-            if is_simulation_mode():
-                simulation_config = get_simulation_config()
-                self.use_local_delta = True
-                self.delta_base_path = simulation_config.local_delta_path
-
-                # Ensure base directory exists
-                simulation_config.ensure_directories()
-
-                # Override table paths to use local filesystem
-                table_names = {
-                    "projects": "claimx_projects",
-                    "contacts": "claimx_contacts",
-                    "media": "claimx_attachment_metadata",
-                    "tasks": "claimx_tasks",
-                    "task_templates": "claimx_task_templates",
-                    "external_links": "claimx_external_links",
-                    "video_collab": "claimx_video_collab",
-                }
-
-                # Truncate tables if configured
-                if simulation_config.truncate_tables_on_start:
-                    for table_name in table_names.values():
-                        table_path = self.delta_base_path / table_name
-                        if table_path.exists():
-                            shutil.rmtree(table_path)
-                            self.logger.info(
-                                f"Truncated Delta table: {table_name}",
-                                extra={"table_path": str(table_path)},
-                            )
-
-                # Use local paths
-                projects_table_path = str(
-                    self.delta_base_path / table_names["projects"]
-                )
-                contacts_table_path = str(
-                    self.delta_base_path / table_names["contacts"]
-                )
-                media_table_path = str(self.delta_base_path / table_names["media"])
-                tasks_table_path = str(self.delta_base_path / table_names["tasks"])
-                task_templates_table_path = str(
-                    self.delta_base_path / table_names["task_templates"]
-                )
-                external_links_table_path = str(
-                    self.delta_base_path / table_names["external_links"]
-                )
-                video_collab_table_path = str(
-                    self.delta_base_path / table_names["video_collab"]
-                )
-
-                self.logger.info(
-                    "Simulation mode enabled - writing Delta Lake to local filesystem",
-                    extra={
-                        "delta_path": str(self.delta_base_path),
-                        "truncate_on_start": simulation_config.truncate_tables_on_start,
-                        "tables": list(table_names.values()),
-                    },
-                )
-            else:
-                self.use_local_delta = False
-                self.delta_base_path = None
-        except Exception:
-            # Simulation mode not available or not enabled
-            self.use_local_delta = False
-            self.delta_base_path = None
-
-        # Validate that all required table paths are set (not in simulation mode)
+        # Validate that all required table paths are set
         # This catches configuration errors early with a clear message
-        if not self.use_local_delta:
-            # Update table_paths dict with potentially overridden values (for simulation)
-            table_paths = {
+        table_paths = {
                 "projects": projects_table_path,
                 "contacts": contacts_table_path,
                 "media": media_table_path,
                 "tasks": tasks_table_path,
                 "task_templates": task_templates_table_path,
-                "external_links": external_links_table_path,
-                "video_collab": video_collab_table_path,
-            }
-            empty_paths = [name for name, path in table_paths.items() if not path]
-            if empty_paths:
+            "external_links": external_links_table_path,
+            "video_collab": video_collab_table_path,
+        }
+        empty_paths = [name for name, path in table_paths.items() if not path]
+        if empty_paths:
                 env_var_hints = {
                     "projects": "CLAIMX_DELTA_PROJECTS_TABLE",
                     "contacts": "CLAIMX_DELTA_CONTACTS_TABLE",
@@ -411,12 +330,10 @@ class ClaimXEntityWriter:
             ),
         }
 
-        mode_str = "local" if self.use_local_delta else "cloud"
         self.logger.info(
-            f"Initialized ClaimXEntityWriter ({mode_str} mode)",
+            "Initialized ClaimXEntityWriter",
             extra={
                 "tables": list(self._writers.keys()),
-                "simulation_mode": self.use_local_delta,
             },
         )
 
