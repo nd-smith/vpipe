@@ -216,7 +216,8 @@ class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
         for rotated_file in self.archive_dir.glob(f"{base_name}.*"):
             try:
                 # Build OneLake path: logs/{domain}/{date}/{filename}
-                relative_path = rotated_file.relative_to(log_dir.parent.parent)
+                # Resolve to absolute path to avoid relative/absolute path mismatch
+                relative_path = rotated_file.resolve().relative_to(log_dir.parent.parent)
                 onelake_path = f"logs/{relative_path}"
 
                 # Upload to OneLake
