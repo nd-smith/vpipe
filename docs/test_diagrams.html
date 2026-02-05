@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Diagrams Test</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4A90E2;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 40px;
+            border-bottom: 2px solid #50C878;
+            padding-bottom: 5px;
+        }
+        .diagram-container {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+        .mermaid {
+            text-align: center;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .legend {
+            background: #fff;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .legend h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .legend-item {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Pipeline Architecture Diagrams - Mermaid Rendering Test</h1>
+
+    <div class="legend">
+        <h3>Color Legend</h3>
+        <span class="legend-item" style="background-color: #4A90E2; color: white;">Ingestion</span>
+        <span class="legend-item" style="background-color: #50C878; color: white;">Enrichment</span>
+        <span class="legend-item" style="background-color: #FF8C42; color: white;">Download</span>
+        <span class="legend-item" style="background-color: #9B59B6; color: white;">Upload</span>
+        <span class="legend-item" style="background-color: #95A5A6; color: white;">Storage</span>
+        <span class="legend-item" style="background-color: #E74C3C; color: white;">Error Handling</span>
+        <span class="legend-item" style="background-color: #F39C12; color: white;">API/Source</span>
+        <span class="legend-item" style="background-color: #3498DB; color: white;">Plugins</span>
+    </div>
+
+    <h2>ClaimX Pipeline</h2>
+    <div class="diagram-container">
+        <div class="mermaid">
+flowchart TB
+    %% Event Source
+    Eventhouse[("Eventhouse<br/>ClaimXEvents Table")]
+    KQLPoller[ClaimX KQL Poller<br/>Deduplication]
+
+    %% Main Pipeline Workers
+    Ingester[Event Ingester Worker]
+    Enricher[Enrichment Worker]
+    Downloader[Download Worker]
+    Uploader[Upload Worker]
+    ResultProc[Result Processor]
+
+    %% Delta Writers (Parallel Processing)
+    subgraph DeltaWriters["Delta Writers (Parallel Consumer Group)"]
+        EntityWriter[Entity Delta Writer<br/>7 Entity Tables]
+        EventWriter[Events Delta Writer<br/>1 Events Table]
+    end
+
+    %% Topics
+    EventsTopic("(claimx.events)")
+    EnrichPending("(claimx.enrichment_pending)")
+    Enriched("(claimx.enriched)")
+    DownloadsPending("(claimx.downloads_pending)")
+    DownloadsCached("(claimx.downloads_cached)")
+    DownloadsResults("(claimx.downloads_results)")
+
+    %% Delta Tables
+    EventsTable[("claimx_events")]
+    ProjectsTable[("claimx_projects")]
+    ContactsTable[("claimx_contacts")]
+    MediaTable[("claimx_media")]
+    TasksTable[("claimx_tasks")]
+    TaskTemplatesTable[("claimx_task_templates")]
+    ExternalLinksTable[("claimx_external_links")]
+    VideoCollabTable[("claimx_video_collaboration")]
+    AttachmentsTable[("claimx_attachments")]
+
+    %% Error Handling
+    subgraph ErrorHandling["Error Handling & Retries"]
+        RetryTopics("(claimx.*.retry.{1,2,3,4})<br/>Exponential Backoff")
+        DLQ("(claimx.dlq)<br/>Dead Letter Queue")
+        RetryScheduler[Unified Retry Scheduler]
+    end
+
+    %% ClaimX API
+    API[ClaimX API<br/>Handler Registry<br/>7+ Event Handlers]
+
+    %% Source Flow
+    Eventhouse -->|Poll Every 30s| KQLPoller
+    KQLPoller -->|Delta Dedup| EventsTopic
+
+    %% Main Flow
+    EventsTopic --> Ingester
+    Ingester -->|24h Dedup Cache| EnrichPending
+    EnrichPending --> Enricher
+    Enricher -->|API Enrichment| API
+    API -->|Entity Data| Enricher
+
+    %% Parallel Paths from Enricher
+    Enricher -->|Entity Rows| Enriched
+    Enricher -->|Download Tasks| DownloadsPending
+
+    %% Delta Writers Path (Parallel)
+    Enriched --> EntityWriter
+    Enriched --> EventWriter
+    EntityWriter --> ProjectsTable
+    EntityWriter --> ContactsTable
+    EntityWriter --> MediaTable
+    EntityWriter --> TasksTable
+    EntityWriter --> TaskTemplatesTable
+    EntityWriter --> ExternalLinksTable
+    EntityWriter --> VideoCollabTable
+    EventWriter --> EventsTable
+
+    %% Download/Upload Path
+    DownloadsPending --> Downloader
+    Downloader -->|10 Parallel<br/>Local Cache| DownloadsCached
+    DownloadsCached --> Uploader
+    Uploader -->|10 Parallel<br/>OneLake| DownloadsResults
+    DownloadsResults --> ResultProc
+    ResultProc -->|Batch: 2000 rows<br/>Timeout: 5s| AttachmentsTable
+
+    %% Error Flows
+    Enricher -.->|Transient Error| RetryTopics
+    Enricher -.->|Permanent Error| DLQ
+    Downloader -.->|Error| RetryTopics
+    Uploader -.->|Error| RetryTopics
+    RetryTopics --> RetryScheduler
+    RetryScheduler -.->|Route Back| EnrichPending
+    RetryScheduler -.->|Route Back| DownloadsPending
+
+    %% Styling
+    classDef ingestion fill:#4A90E2,stroke:#333,stroke-width:2px,color:#fff
+    classDef enrichment fill:#50C878,stroke:#333,stroke-width:2px,color:#fff
+    classDef download fill:#FF8C42,stroke:#333,stroke-width:2px,color:#fff
+    classDef upload fill:#9B59B6,stroke:#333,stroke-width:2px,color:#fff
+    classDef storage fill:#95A5A6,stroke:#333,stroke-width:2px,color:#fff
+    classDef error fill:#E74C3C,stroke:#333,stroke-width:2px,color:#fff
+    classDef api fill:#F39C12,stroke:#333,stroke-width:2px,color:#fff
+
+    class KQLPoller,Ingester ingestion
+    class Enricher enrichment
+    class Downloader download
+    class Uploader upload
+    class EntityWriter,EventWriter,ResultProc storage
+    class RetryTopics,DLQ,RetryScheduler error
+    class API api
+        </div>
+    </div>
+
+    <h2>Verisk Pipeline</h2>
+    <div class="diagram-container">
+        <div class="mermaid">
+flowchart TB
+    %% Event Source
+    Eventhouse[("Eventhouse<br/>Kusto Database")]
+    KQLPoller[KQL Event Poller<br/>Deduplication]
+
+    %% Main Pipeline Workers
+    Ingester[Event Ingester Worker]
+    Enricher[Enrichment Worker<br/>Plugin System]
+    Downloader[Download Worker]
+    Uploader[Upload Worker<br/>Multi-Domain Routing]
+    ResultProc[Result Processor]
+
+    %% Delta Writers (Parallel Processing)
+    subgraph DeltaWriters["Delta Events Writer (Parallel Consumer Group)"]
+        DeltaEventsWorker[Delta Events Worker<br/>Transform & Flatten]
+    end
+
+    %% Topics
+    EventsRaw("(events.raw)")
+    EnrichPending("(enrichment.pending)")
+    DownloadsPending("(downloads.pending)")
+    DownloadsCached("(downloads.cached)")
+    DownloadsResults("(downloads.results)")
+
+    %% Delta Tables
+    EventsTable[("xact_events<br/>28 Columns<br/>Partitioned by event_date")]
+    AttachmentsTable[("xact_attachments")]
+
+    %% Plugin System
+    subgraph Plugins["Plugin System (ENRICHMENT_COMPLETE)"]
+        PluginRegistry[Plugin Registry]
+        PluginOrchestrator[Plugin Orchestrator]
+        ActionExecutor[Action Executor]
+    end
+
+    %% Error Handling
+    subgraph ErrorHandling["Error Handling & Retries"]
+        RetryTopics("(downloads.retry.{300s,600s,1200s,2400s})<br/>Timed Delays")
+        DLQ("(downloads.dlq)<br/>Dead Letter Queue")
+        RetryScheduler[Unified Retry Scheduler]
+    end
+
+    %% Source Flow
+    Eventhouse -->|Poll Every 30s| KQLPoller
+    KQLPoller -->|Delta Dedup| EventsRaw
+
+    %% Main Flow
+    EventsRaw --> Ingester
+    Ingester -->|24h Dedup Cache| EnrichPending
+    EnrichPending --> Enricher
+
+    %% Plugin Execution
+    Enricher --> PluginRegistry
+    PluginRegistry --> PluginOrchestrator
+    PluginOrchestrator --> ActionExecutor
+    ActionExecutor -->|Filter/Route/Notify| Enricher
+
+    %% Parallel Delta Events Path
+    EventsRaw -->|Separate Consumer Group| DeltaEventsWorker
+    DeltaEventsWorker -->|Transform & Flatten<br/>28 Columns| EventsTable
+
+    %% Download/Upload Path
+    Enricher -->|URL Validation<br/>Download Tasks| DownloadsPending
+    DownloadsPending --> Downloader
+    Downloader -->|10 Parallel<br/>Local Cache| DownloadsCached
+    DownloadsCached --> Uploader
+    Uploader -->|10 Parallel<br/>Multi-Domain OneLake| DownloadsResults
+    DownloadsResults --> ResultProc
+    ResultProc -->|Batch: 100 rows<br/>Timeout: 5s| AttachmentsTable
+
+    %% Error Flows
+    Enricher -.->|Transient Error| RetryTopics
+    Enricher -.->|Permanent Error| DLQ
+    Downloader -.->|Error| RetryTopics
+    Uploader -.->|Error| RetryTopics
+    RetryTopics --> RetryScheduler
+    RetryScheduler -.->|Route Back| EnrichPending
+    RetryScheduler -.->|Route Back| DownloadsPending
+
+    %% Styling
+    classDef ingestion fill:#4A90E2,stroke:#333,stroke-width:2px,color:#fff
+    classDef enrichment fill:#50C878,stroke:#333,stroke-width:2px,color:#fff
+    classDef download fill:#FF8C42,stroke:#333,stroke-width:2px,color:#fff
+    classDef upload fill:#9B59B6,stroke:#333,stroke-width:2px,color:#fff
+    classDef storage fill:#95A5A6,stroke:#333,stroke-width:2px,color:#fff
+    classDef error fill:#E74C3C,stroke:#333,stroke-width:2px,color:#fff
+    classDef plugin fill:#3498DB,stroke:#333,stroke-width:2px,color:#fff
+    classDef source fill:#F39C12,stroke:#333,stroke-width:2px,color:#fff
+
+    class KQLPoller,Ingester ingestion
+    class Enricher enrichment
+    class Downloader download
+    class Uploader upload
+    class DeltaEventsWorker,ResultProc storage
+    class RetryTopics,DLQ,RetryScheduler error
+    class PluginRegistry,PluginOrchestrator,ActionExecutor plugin
+        </div>
+    </div>
+
+    <div class="status success">
+        ✓ If you can see both diagrams rendered above, the Mermaid syntax is valid!
+    </div>
+
+    <script>
+        // Add error handling
+        window.addEventListener('error', (e) => {
+            const statusDiv = document.querySelector('.status');
+            statusDiv.className = 'status error';
+            statusDiv.innerHTML = `✗ Error rendering diagrams: ${e.message}`;
+        });
+    </script>
+</body>
+</html>
