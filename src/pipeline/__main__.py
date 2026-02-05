@@ -499,6 +499,30 @@ def main():
 
     logger = logging.getLogger(__name__)
 
+    # Create event loop early so we can start health server immediately
+    print("[STARTUP] Creating event loop...")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    setup_signal_handlers(loop)
+
+    # Start health server FIRST, before any other initialization
+    # This ensures the health endpoint is available immediately for Kubernetes probes
+    print("[STARTUP] Initializing health server (first priority)...")
+    early_health_server = HealthCheckServer(
+        port=8080,
+        worker_name=args.worker if args.worker != "all" else "all-workers",
+        enabled=True,
+    )
+    loop.run_until_complete(early_health_server.start())
+    print(
+        f"[STARTUP] Health server started on port {early_health_server.actual_port} "
+        "(available for Kubernetes probes)"
+    )
+    logger.info(
+        "Health server started early (before main initialization)",
+        extra={"port": early_health_server.actual_port, "worker": args.worker},
+    )
+
     _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
     if _debug_token_file:
         _debug_token_exists = Path(_debug_token_file).exists()
@@ -524,11 +548,13 @@ def main():
     from pipeline.common.telemetry import initialize_telemetry
 
     worker_name = args.worker if args.worker != "all" else "all-workers"
+    print("[STARTUP] Initializing telemetry...")
     initialize_telemetry(
         service_name=f"{domain}-{worker_name}",
         environment=os.getenv("ENVIRONMENT", "development"),
     )
 
+    print("[STARTUP] Starting metrics server...")
     actual_port = start_metrics_server(args.metrics_port)
     if actual_port != args.metrics_port:
         logger.info(
@@ -539,6 +565,7 @@ def main():
         logger.info("Metrics server started", extra={"port": actual_port})
 
     # Load configuration based on mode
+    print("[STARTUP] Loading configuration...")
     if args.dev:
         pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
     else:
@@ -551,25 +578,22 @@ def main():
             logger.exception("Configuration error", extra={"error": error_msg})
             logger.error("Use --dev flag for local development without Eventhouse")
 
-            # Enter error mode and exit
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            setup_signal_handlers(loop)
-            enter_error_mode(loop, args.worker, f"Configuration error: {error_msg}")
+            # Set error on early health server and wait for shutdown
+            early_health_server.set_error(f"Configuration error: {error_msg}")
+            logger.info("Health server set to error state, waiting for shutdown...")
+            shutdown_event = get_shutdown_event()
+            loop.run_until_complete(shutdown_event.wait())
+            loop.run_until_complete(early_health_server.stop())
             loop.close()
             logger.info("Error mode shutdown complete")
             return
 
     enable_delta_writes = not args.no_delta
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    setup_signal_handlers(loop)
-
     shutdown_event = get_shutdown_event()
 
     try:
+        print("[STARTUP] Starting worker(s)...")
         if args.worker == "all":
             loop.run_until_complete(
                 run_all_workers(pipeline_config, enable_delta_writes)
@@ -612,8 +636,16 @@ def main():
         # - Errors from run_all_workers orchestration
         error_msg = str(e)
         logger.error("Fatal error", extra={"error": error_msg})
-        enter_error_mode(loop, args.worker, f"Fatal error: {error_msg}")
+
+        # Set error on early health server and wait for shutdown
+        early_health_server.set_error(f"Fatal error: {error_msg}")
+        logger.info("Early health server set to error state, waiting for shutdown...")
+        loop.run_until_complete(asyncio.to_thread(upload_crash_logs, error_msg))
+        loop.run_until_complete(shutdown_event.wait())
     finally:
+        # Stop early health server
+        print("[SHUTDOWN] Stopping early health server...")
+        loop.run_until_complete(early_health_server.stop())
         loop.close()
         logger.info("Pipeline shutdown complete")
 
