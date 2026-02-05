@@ -281,7 +281,7 @@ class ClaimXApiClient:
 
                     return data
 
-            except TimeoutError:
+            except TimeoutError as e:
                 duration = asyncio.get_event_loop().time() - start_time
                 error = ClaimXApiError(
                     f"Timeout after {self.timeout_seconds}s: {url}",
@@ -301,7 +301,7 @@ class ClaimXApiClient:
                         "is_retryable": True,
                     },
                 )
-                raise error
+                raise error from e
 
             except aiohttp.ClientError as e:
                 duration = asyncio.get_event_loop().time() - start_time
@@ -323,7 +323,7 @@ class ClaimXApiClient:
                         "is_retryable": True,
                     },
                 )
-                raise error
+                raise error from e
 
     async def get_project(self, project_id: int) -> dict[str, Any]:
         """Get full project details. Used for PROJECT_CREATED, PROJECT_MFN_ADDED events."""

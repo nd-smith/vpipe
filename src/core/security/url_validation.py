@@ -93,7 +93,7 @@ def validate_download_url(
     try:
         parsed = urlparse(url)
     except Exception as e:
-        raise URLValidationError(f"Invalid URL format: {e}")
+        raise URLValidationError(f"Invalid URL format: {e}") from e
 
     # Extract hostname
     hostname = parsed.hostname
@@ -192,7 +192,9 @@ def _validate_localhost_url(url: str, parsed) -> None:
         or hostname_lower.startswith("pcesdopodappv1_")
     )
     if not is_valid_internal:
-        raise URLValidationError(f"Invalid localhost/internal hostname: {hostname_lower}")
+        raise URLValidationError(
+            f"Invalid localhost/internal hostname: {hostname_lower}"
+        )
 
     # Check for path traversal attempts
     if ".." in parsed.path:

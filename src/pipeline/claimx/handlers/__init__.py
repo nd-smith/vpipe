@@ -33,8 +33,10 @@ from pipeline.claimx.handlers.base import (
     HandlerRegistry,
     HandlerResult,
     NoOpHandler,
-    get_handler_registry as _get_handler_registry_base,
     register_handler,
+)
+from pipeline.claimx.handlers.base import (
+    get_handler_registry as _get_handler_registry_base,
 )
 from pipeline.claimx.handlers.project_cache import ProjectCache
 

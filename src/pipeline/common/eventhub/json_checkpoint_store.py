@@ -32,8 +32,9 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -216,9 +217,7 @@ class JsonCheckpointStore:
         """Sanitize a name for filesystem path safety."""
         return name.replace(".", "_").replace("/", "_").replace(":", "_")
 
-    def _get_dir(
-        self, namespace: str, eventhub_name: str, consumer_group: str
-    ) -> Path:
+    def _get_dir(self, namespace: str, eventhub_name: str, consumer_group: str) -> Path:
         """Get directory path for a namespace/eventhub/group triple."""
         return (
             self._base_path
@@ -230,7 +229,9 @@ class JsonCheckpointStore:
     def _ownership_path(
         self, namespace: str, eventhub_name: str, consumer_group: str
     ) -> Path:
-        return self._get_dir(namespace, eventhub_name, consumer_group) / "ownership.json"
+        return (
+            self._get_dir(namespace, eventhub_name, consumer_group) / "ownership.json"
+        )
 
     def _checkpoint_path(
         self, namespace: str, eventhub_name: str, consumer_group: str
@@ -273,7 +274,7 @@ class JsonCheckpointStore:
                 return
             except PermissionError:
                 if attempt < max_retries - 1:
-                    delay = 0.05 * (2 ** attempt)  # 50ms, 100ms, 200ms, 400ms
+                    delay = 0.05 * (2**attempt)  # 50ms, 100ms, 200ms, 400ms
                     logger.debug(
                         f"os.replace failed for {file_path.name} "
                         f"(attempt {attempt + 1}/{max_retries}), "

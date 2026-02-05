@@ -19,7 +19,6 @@ Concurrent Processing (WP-313):
 """
 
 import asyncio
-import contextlib
 import logging
 import shutil
 import tempfile
@@ -36,6 +35,7 @@ from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.common.decorators import set_log_context_from_message
@@ -46,14 +46,13 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
-from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
@@ -815,13 +814,12 @@ class DownloadWorker:
         try:
 
             def _delete_if_empty() -> None:
-                if dir_path.exists() and dir_path.is_dir():
-                    if not any(dir_path.iterdir()):
-                        dir_path.rmdir()
-                        logger.debug(
-                            "Deleted empty temporary directory after failed download",
-                            extra={"directory": str(dir_path)},
-                        )
+                if dir_path.exists() and dir_path.is_dir() and not any(dir_path.iterdir()):
+                    dir_path.rmdir()
+                    logger.debug(
+                        "Deleted empty temporary directory after failed download",
+                        extra={"directory": str(dir_path)},
+                    )
 
             await asyncio.to_thread(_delete_if_empty)
 

@@ -222,7 +222,7 @@ class XACTStatusTriggerPlugin(Plugin):
                     },
                 )
             )
-            logger.debug("Added webhook action: %s", webhook_config.get('url'))
+            logger.debug("Added webhook action: %s", webhook_config.get("url"))
 
         # 3. Log Action
         if "log" in trigger_config:

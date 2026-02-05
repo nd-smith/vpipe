@@ -15,10 +15,8 @@ Output topic: xact.downloads.pending
 """
 
 import asyncio
-import contextlib
 import json
 import logging
-import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -26,14 +24,15 @@ from typing import Any
 from pydantic import ValidationError
 
 from config.config import KafkaConfig
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.paths.resolver import generate_blob_path
 from core.security.exceptions import URLValidationError
 from core.security.url_validation import sanitize_url, validate_download_url
 from core.types import ErrorCategory
 from pipeline.common.health import HealthCheckServer
-from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.base import (
     Domain,
@@ -51,7 +50,6 @@ from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
 )
-from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)

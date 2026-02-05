@@ -27,8 +27,6 @@ from core.security.url_validation import validate_download_url
 logger = logging.getLogger(__name__)
 
 
-
-
 class AttachmentDownloader:
     """
     Unified downloader orchestrating validation, download, and error handling.
@@ -97,9 +95,7 @@ class AttachmentDownloader:
         # Step 3: Validate file type from URL extension
         if task.validate_file_type:
             try:
-                validate_file_type(
-                    task.url, allowed_extensions=task.allowed_extensions
-                )
+                validate_file_type(task.url, allowed_extensions=task.allowed_extensions)
             except FileValidationError as e:
                 return DownloadOutcome.validation_failure(
                     validation_error=f"File type validation failed: {str(e)}",

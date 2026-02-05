@@ -47,9 +47,7 @@ class PresignedUrlInfo:
         """Check if URL expires within N seconds (for buffer logic)."""
         if not self.expires_at:
             return False
-        return (
-            datetime.now(UTC) + timedelta(seconds=seconds) >= self.expires_at
-        )
+        return datetime.now(UTC) + timedelta(seconds=seconds) >= self.expires_at
 
 
 def check_presigned_url(url: str) -> PresignedUrlInfo:

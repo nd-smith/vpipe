@@ -501,7 +501,7 @@ class DataBuilder:
 
     @staticmethod
     def build_readable_report(
-        api_obj: ApiResponse, event_id: str, media_url_map: dict[int, str] = None
+        api_obj: ApiResponse, _event_id: str, media_url_map: dict[int, str] = None
     ) -> dict:
         """Build readable report with categorized topics."""
         if media_url_map is None:

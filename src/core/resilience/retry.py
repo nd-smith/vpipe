@@ -15,9 +15,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
 
-# Import ErrorCategory from core.types to avoid circular dependency
-from core.types import ErrorCategory
-
 # Import exception handling utilities for retry logic
 from core.errors.exceptions import (
     PipelineError,
@@ -25,6 +22,9 @@ from core.errors.exceptions import (
     classify_exception,
     wrap_exception,
 )
+
+# Import ErrorCategory from core.types to avoid circular dependency
+from core.types import ErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +81,12 @@ class RetryConfig:
             Delay in seconds
         """
         # Check for explicit retry_after (e.g., from 429 response)
-        if self.respect_retry_after and isinstance(error, ThrottlingError):
-            if error.retry_after:
-                return min(error.retry_after, self.max_delay)
+        if (
+            self.respect_retry_after
+            and isinstance(error, ThrottlingError)
+            and error.retry_after
+        ):
+            return min(error.retry_after, self.max_delay)
 
         # Calculate base exponential delay
         base_delay = self.base_delay * (self.exponential_base**attempt)
@@ -277,7 +280,9 @@ def with_retry(
                                     "error_message": str(e)[:200],
                                 },
                             )
-                        raise wrapped if wrap_errors else e
+                        if wrap_errors:
+                            raise wrapped from e
+                        raise
 
                     # Calculate delay (P2.9: Log server-provided retry delays)
                     delay = config.get_delay(attempt, wrapped)

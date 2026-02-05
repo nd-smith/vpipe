@@ -234,7 +234,7 @@ def _create_plugin_from_config(config: dict[str, Any]) -> Plugin | None:
             "Failed to import plugin class",
             extra={
                 "plugin_name": config.get("name", "unknown"),
-                "module": config.get("module"),
+                "plugin_module": config.get("module"),
                 "class_name": config.get("class"),
                 "error": str(e),
             },

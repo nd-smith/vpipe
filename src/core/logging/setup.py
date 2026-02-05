@@ -305,11 +305,7 @@ def get_log_file_path(
         base_name = f"pipeline_{date_str}_{time_str}"
 
     # Generate or use instance ID (ordinal number)
-    if instance_id:
-        phrase = instance_id
-    else:
-        # Generate ordinal instance ID (e.g., "0", "1", "2")
-        phrase = _get_next_instance_id()
+    phrase = instance_id or _get_next_instance_id()
 
     # Append instance ID to filename
     filename = f"{base_name}_{phrase}.log"

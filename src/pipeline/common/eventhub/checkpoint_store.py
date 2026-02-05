@@ -36,7 +36,8 @@ Usage:
 import asyncio
 import logging
 import os
-from typing import Any, Iterable, Protocol
+from collections.abc import Iterable
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 

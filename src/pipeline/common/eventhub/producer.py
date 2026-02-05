@@ -16,8 +16,6 @@ import os
 import time
 from typing import Any
 
-import logging
-
 from azure.eventhub import EventData, EventHubProducerClient, TransportType
 from pydantic import BaseModel
 

@@ -5,7 +5,6 @@ Routes events by type to specialized handlers.
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 import uuid

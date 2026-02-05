@@ -12,11 +12,14 @@ import json
 import logging
 
 from config.config import KafkaConfig
+from pipeline.claimx.schemas.results import (
+    FailedDownloadMessage,
+    FailedEnrichmentMessage,
+)
+from pipeline.claimx.schemas.tasks import ClaimXDownloadTask, ClaimXEnrichmentTask
 from pipeline.common.consumer import BaseKafkaConsumer
 from pipeline.common.producer import BaseKafkaProducer
 from pipeline.common.types import PipelineMessage
-from pipeline.claimx.schemas.results import FailedDownloadMessage, FailedEnrichmentMessage
-from pipeline.claimx.schemas.tasks import ClaimXDownloadTask, ClaimXEnrichmentTask
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +210,9 @@ class ClaimXDLQHandler:
                 return FailedEnrichmentMessage.model_validate(message_dict)
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in DLQ message: {e}")
+            raise ValueError(f"Invalid JSON in DLQ message: {e}") from e
         except Exception as e:
-            raise ValueError(f"Failed to parse DLQ message: {e}")
+            raise ValueError(f"Failed to parse DLQ message: {e}") from e
 
     async def replay_message(self, record: PipelineMessage) -> None:
         """

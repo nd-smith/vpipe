@@ -17,7 +17,6 @@ Environment Variables:
 """
 
 import asyncio
-import json
 import logging
 import os
 import signal
@@ -32,10 +31,6 @@ from config.config import KafkaConfig
 from core.logging import log_worker_startup, setup_logging
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
-
-# Project root directory (where .env file is located)
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
-
 from pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,
@@ -44,6 +39,9 @@ from pipeline.plugins.shared.connections import (
 
 from .delta import ItelCabinetDeltaWriter
 from .pipeline import ItelCabinetPipeline
+
+# Project root directory (where .env file is located)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +144,7 @@ class ItelCabinetTrackingWorker:
         )
 
         # Create minimal KafkaConfig for transport layer
-        config = KafkaConfig(
-            bootstrap_servers=self.kafka_config["bootstrap_servers"]
-        )
+        config = KafkaConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
 
         # Create consumer via transport layer
         self.consumer = await create_consumer(

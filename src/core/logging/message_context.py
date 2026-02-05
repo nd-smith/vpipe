@@ -8,7 +8,11 @@ message_ prefixed keys in core.logging.context.
 
 from core.logging.context import (
     clear_message_context as _clear_message_context,
+)
+from core.logging.context import (
     get_message_context as _get_message_context,
+)
+from core.logging.context import (
     set_message_context as _set_message_context,
 )
 from core.logging.context_managers import MessageLogContext as _MessageLogContext
@@ -42,7 +46,8 @@ def get_message_context() -> dict[str, any]:
         **{
             f"kafka_{k.replace('message_', '')}": v
             for k, v in ctx.items()
-            if k.startswith("message_") and k not in ["message_topic", "message_partition", "message_offset"]
+            if k.startswith("message_")
+            and k not in ["message_topic", "message_partition", "message_offset"]
         },
     }
 

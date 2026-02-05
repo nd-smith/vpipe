@@ -191,7 +191,7 @@ class BaseKafkaConsumer:
         except asyncio.CancelledError:
             logger.info("Consumer loop cancelled, shutting down")
             raise
-        except Exception as e:
+        except Exception:
             logger.error(
                 "Consumer loop terminated with error",
                 exc_info=True,
@@ -218,7 +218,7 @@ class BaseKafkaConsumer:
                     await self._dlq_producer.flush()
                     await self._dlq_producer.stop()
                     logger.info("DLQ producer stopped successfully")
-                except Exception as dlq_error:
+                except Exception:
                     logger.error(
                         "Error stopping DLQ producer",
                         exc_info=True,
@@ -227,7 +227,7 @@ class BaseKafkaConsumer:
                     self._dlq_producer = None
 
             logger.info("Kafka consumer stopped successfully")
-        except Exception as e:
+        except Exception:
             logger.error(
                 "Error stopping Kafka consumer",
                 exc_info=True,
@@ -325,7 +325,7 @@ class BaseKafkaConsumer:
             except asyncio.CancelledError:
                 logger.info("Consumption loop cancelled")
                 raise
-            except Exception as e:
+            except Exception:
                 logger.error(
                     "Error in consumption loop",
                     exc_info=True,
@@ -441,7 +441,7 @@ class BaseKafkaConsumer:
                         },
                     )
 
-            except Exception as dlq_error:
+            except Exception:
                 logger.error(
                     "DLQ routing failed - message will be retried",
                     extra={**common_context},
@@ -641,7 +641,7 @@ class BaseKafkaConsumer:
             # Record DLQ routing metric
             record_dlq_message(self.domain, error_category.value)
 
-        except Exception as dlq_error:
+        except Exception:
             logger.error(
                 "Failed to send message to DLQ - message will be retried",
                 extra={

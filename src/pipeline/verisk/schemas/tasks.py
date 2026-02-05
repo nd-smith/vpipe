@@ -42,7 +42,7 @@ class XACTEnrichmentTask(BaseModel):
         "event_id", "trace_id", "event_type", "status_subtype", "assignment_id"
     )
     @classmethod
-    def validate_non_empty_strings(cls, v: str, info) -> str:
+    def validate_non_empty_strings(cls, v: str, _info) -> str:
         """Strip whitespace from string fields."""
         return v.strip() if isinstance(v, str) else v
 
@@ -200,7 +200,7 @@ class DownloadTaskMessage(BaseModel):
         "event_subtype",
     )
     @classmethod
-    def validate_non_empty_strings(cls, v: str, info) -> str:
+    def validate_non_empty_strings(cls, v: str, _info) -> str:
         """Strip whitespace from string fields."""
         return v.strip() if isinstance(v, str) else v
 

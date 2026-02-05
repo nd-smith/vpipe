@@ -103,14 +103,14 @@ class EnrichmentHandler(ABC):
 
         Override to perform one-time setup (e.g., load lookup tables).
         """
-        pass
+        return
 
     async def cleanup(self) -> None:
         """Cleanup handler resources (called at shutdown).
 
         Override to perform cleanup (e.g., close connections).
         """
-        pass
+        return
 
 
 class TransformHandler(EnrichmentHandler):
@@ -227,11 +227,10 @@ class ValidationHandler(EnrichmentHandler):
 
             if value is None:
                 continue  # Skip validation if field not present (use required_fields for that)
-            if "allowed_values" in rules:
-                if value not in rules["allowed_values"]:
-                    return EnrichmentResult.failed(
-                        f"Field '{field}' value '{value}' not in allowed values: {rules['allowed_values']}"
-                    )
+            if "allowed_values" in rules and value not in rules["allowed_values"]:
+                return EnrichmentResult.failed(
+                    f"Field '{field}' value '{value}' not in allowed values: {rules['allowed_values']}"
+                )
 
             # Check min/max
             if "min" in rules and value < rules["min"]:
@@ -314,9 +313,7 @@ class LookupHandler(EnrichmentHandler):
         config_params = self.config.get("query_params", {})
         for param_name, value_or_field in config_params.items():
             # Check if it's a field reference or literal value
-            if isinstance(value_or_field, str) and value_or_field in context.data:
-                query_params[param_name] = context.data[value_or_field]
-            elif isinstance(value_or_field, str) and value_or_field in context.data:
+            if isinstance(value_or_field, str) and value_or_field in context.data or isinstance(value_or_field, str) and value_or_field in context.data:
                 query_params[param_name] = context.data[value_or_field]
             else:
                 query_params[param_name] = value_or_field
@@ -474,7 +471,7 @@ def create_handler_from_config(config: dict[str, Any]) -> EnrichmentHandler:
             handler_class = getattr(module, class_name)
             return handler_class(config=handler_config)
         except Exception as e:
-            raise ValueError(f"Failed to load handler '{handler_type}': {e}")
+            raise ValueError(f"Failed to load handler '{handler_type}': {e}") from e
 
     raise ValueError(
         f"Unknown handler type '{handler_type}'. "

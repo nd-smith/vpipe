@@ -26,7 +26,6 @@ from azure.eventhub.aio import EventHubConsumerClient
 
 from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 from pipeline.common.eventhub.consumer import EventHubConsumerRecord
-from pipeline.common.eventhub.producer import EventHubProducer
 from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
@@ -129,7 +128,9 @@ class EventHubBatchConsumer:
                 "batch_size": batch_size,
                 "batch_timeout_ms": batch_timeout_ms,
                 "enable_message_commit": enable_message_commit,
-                "checkpoint_persistence": "blob_storage" if checkpoint_store else "in_memory",
+                "checkpoint_persistence": (
+                    "blob_storage" if checkpoint_store else "in_memory"
+                ),
             },
         )
 
@@ -139,7 +140,9 @@ class EventHubBatchConsumer:
         Creates EventHubConsumerClient and begins consuming messages in batches.
         """
         if self._running:
-            logger.warning("Batch consumer already running, ignoring duplicate start call")
+            logger.warning(
+                "Batch consumer already running, ignoring duplicate start call"
+            )
             return
 
         checkpoint_mode = (
@@ -199,7 +202,7 @@ class EventHubBatchConsumer:
         except asyncio.CancelledError:
             logger.info("Batch consumer loop cancelled, shutting down")
             raise
-        except Exception as e:
+        except Exception:
             logger.error("Batch consumer loop terminated with error", exc_info=True)
             raise
         finally:
@@ -232,7 +235,7 @@ class EventHubBatchConsumer:
                 await self._consumer.close()
 
             logger.info("Event Hub batch consumer stopped successfully")
-        except Exception as e:
+        except Exception:
             logger.error("Error stopping Event Hub batch consumer", exc_info=True)
             raise
         finally:
@@ -332,9 +335,7 @@ class EventHubBatchConsumer:
             self._flush_locks.pop(partition_id, None)
 
             # Update metrics
-            update_assigned_partitions(
-                self.consumer_group, len(self._batch_buffers)
-            )
+            update_assigned_partitions(self.consumer_group, len(self._batch_buffers))
 
         async def on_error(partition_context, error):
             """Called when error occurs during consumption."""
@@ -361,7 +362,7 @@ class EventHubBatchConsumer:
                     on_error=on_error,
                     starting_position="-1",  # Start from beginning
                 )
-        except Exception as e:
+        except Exception:
             logger.error("Error in Event Hub batch receive loop", exc_info=True)
             raise
 
@@ -379,7 +380,9 @@ class EventHubBatchConsumer:
                     if partition_id not in self._batch_timers:
                         continue
 
-                    elapsed_ms = (current_time - self._batch_timers[partition_id]) * 1000
+                    elapsed_ms = (
+                        current_time - self._batch_timers[partition_id]
+                    ) * 1000
                     batch_size = len(self._batch_buffers.get(partition_id, []))
 
                     # Flush if timeout exceeded and batch not empty
@@ -397,7 +400,7 @@ class EventHubBatchConsumer:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception:
                 logger.error("Error in timeout flush loop", exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on errors
 
@@ -457,7 +460,7 @@ class EventHubBatchConsumer:
                         await buffered.partition_context.update_checkpoint(
                             buffered.event
                         )
-                    except Exception as checkpoint_error:
+                    except Exception:
                         # Log but continue - message will be redelivered (at-least-once)
                         logger.error(
                             "Failed to checkpoint message - will be redelivered",
@@ -488,7 +491,7 @@ class EventHubBatchConsumer:
                     },
                 )
 
-        except Exception as e:
+        except Exception:
             duration = time.perf_counter() - start_time
 
             # Handler raised exception - don't checkpoint

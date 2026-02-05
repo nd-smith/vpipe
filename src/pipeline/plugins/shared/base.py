@@ -430,8 +430,8 @@ class Plugin(ABC):
 
     async def on_load(self) -> None:
         """Called when plugin is loaded. Override for initialization."""
-        pass
+        return
 
     async def on_unload(self) -> None:
         """Called when plugin is unloaded. Override for cleanup."""
-        pass
+        return

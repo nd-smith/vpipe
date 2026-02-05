@@ -125,9 +125,7 @@ class KafkaConfig:
     onelake_base_path: str = ""
     onelake_domain_paths: dict[str, str] = field(default_factory=dict)
     cache_dir: str = field(
-        default_factory=lambda: str(
-            Path(tempfile.gettempdir()) / "pipeline_cache"
-        )
+        default_factory=lambda: str(Path(tempfile.gettempdir()) / "pipeline_cache")
     )
 
     # =========================================================================
@@ -295,7 +293,6 @@ class KafkaConfig:
         )
 
     def _validate_urls(self) -> None:
-        from urllib.parse import urlparse
 
         if self.claimx_api_url:
             self._validate_url(self.claimx_api_url, "claimx_api_url")
@@ -378,9 +375,7 @@ def load_config(
     claimx_root = yaml_data.get("claimx", {})
     claimx_api = claimx_root.get("api", {})
 
-    claimx_api_token = get_config_value(
-        "CLAIMX_API_TOKEN", claimx_api.get("token", "")
-    )
+    claimx_api_token = get_config_value("CLAIMX_API_TOKEN", claimx_api.get("token", ""))
     if not claimx_api_token:
         logger.warning("ClaimX API token not configured")
     else:

@@ -132,12 +132,14 @@ class MonitoringServer:
     async def fetch_metrics(self) -> str | None:
         """Fetch raw metrics from Prometheus endpoint."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.metrics_url, timeout=5) as resp:
-                    if resp.status == 200:
-                        return await resp.text()
-                    logger.warning("Metrics endpoint returned %s", resp.status)
-                    return None
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(self.metrics_url, timeout=5) as resp,
+            ):
+                if resp.status == 200:
+                    return await resp.text()
+                logger.warning("Metrics endpoint returned %s", resp.status)
+                return None
         except Exception as e:
             logger.warning("Failed to fetch metrics: %s", e)
             return None

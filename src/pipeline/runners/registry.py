@@ -126,7 +126,9 @@ async def run_worker_from_registry(
 
     # Check if deprecated
     if worker_def.get("deprecated"):
-        raise ValueError(worker_def.get("message", f"Worker '{worker_name}' is deprecated"))
+        raise ValueError(
+            worker_def.get("message", f"Worker '{worker_name}' is deprecated")
+        )
 
     # Check requirements
     if worker_def.get("requires_eventhouse"):
@@ -153,7 +155,5 @@ async def run_worker_from_registry(
     # Run the worker, passing only kwargs that match the runner's signature
     runner = worker_def["runner"]
     sig = inspect.signature(runner)
-    filtered_kwargs = {
-        k: v for k, v in kwargs.items() if k in sig.parameters
-    }
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
     await runner(**filtered_kwargs)

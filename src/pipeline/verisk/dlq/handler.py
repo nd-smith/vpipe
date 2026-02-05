@@ -191,9 +191,9 @@ class DLQHandler:
             return FailedDownloadMessage.model_validate(message_dict)
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in DLQ message: {e}")
+            raise ValueError(f"Invalid JSON in DLQ message: {e}") from e
         except Exception as e:
-            raise ValueError(f"Failed to parse DLQ message: {e}")
+            raise ValueError(f"Failed to parse DLQ message: {e}") from e
 
     async def replay_message(self, record: PipelineMessage) -> None:
         """

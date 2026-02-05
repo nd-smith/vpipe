@@ -94,9 +94,7 @@ class DeltaTableReader:
         df = reader.read(columns=["trace_id", "ingested_at"])
     """
 
-    def __init__(
-        self, table_path: str, storage_options: dict[str, str] | None = None
-    ):
+    def __init__(self, table_path: str, storage_options: dict[str, str] | None = None):
         self.table_path = table_path
         self.storage_options = storage_options
         self._delta_table: DeltaTable | None = None
@@ -932,9 +930,7 @@ class EventsTableReader(DeltaTableReader):
     def __init__(self, table_path: str):
         super().__init__(table_path)
 
-    def get_max_timestamp(
-        self, timestamp_col: str = "ingested_at"
-    ) -> datetime | None:
+    def get_max_timestamp(self, timestamp_col: str = "ingested_at") -> datetime | None:
         """Get maximum timestamp from table."""
         try:
             df: pl.DataFrame = self.read(columns=[timestamp_col])  # type: ignore[assignment]
@@ -945,7 +941,7 @@ class EventsTableReader(DeltaTableReader):
             max_ts = df.select(pl.col(timestamp_col).max()).item()
 
             return max_ts
-        except Exception as e:
+        except Exception:
             logger.warning(
                 "Could not get max timestamp",
                 exc_info=True,

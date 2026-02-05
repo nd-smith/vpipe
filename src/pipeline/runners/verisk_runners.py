@@ -264,9 +264,7 @@ async def run_upload_worker(
     """
     from pipeline.verisk.workers.upload_worker import UploadWorker
 
-    worker = UploadWorker(
-        config=kafka_config, domain="verisk", instance_id=instance_id
-    )
+    worker = UploadWorker(config=kafka_config, domain="verisk", instance_id=instance_id)
 
     await execute_worker_with_shutdown(
         worker,

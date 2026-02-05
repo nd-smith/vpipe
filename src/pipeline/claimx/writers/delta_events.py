@@ -98,9 +98,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                     )
                 elif isinstance(ingested_at, datetime):
                     if ingested_at.tzinfo is None:
-                        processed["ingested_at"] = ingested_at.replace(
-                            tzinfo=UTC
-                        )
+                        processed["ingested_at"] = ingested_at.replace(tzinfo=UTC)
                     else:
                         processed["ingested_at"] = ingested_at
                 else:

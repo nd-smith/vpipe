@@ -14,16 +14,16 @@ from pathlib import Path
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
 from dotenv import load_dotenv
 
-# Project root directory (where .env file is located)
-# cli.py is at src/pipeline/claimx/dlq/cli.py, so root is 5 levels up
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
-
 from config.config import KafkaConfig
 from core.auth.kafka_oauth import create_kafka_oauth_callback
 from pipeline.claimx.schemas.results import (
     FailedDownloadMessage,
     FailedEnrichmentMessage,
 )
+
+# Project root directory (where .env file is located)
+# cli.py is at src/pipeline/claimx/dlq/cli.py, so root is 5 levels up
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 # Configure logging
 logging.basicConfig(
@@ -320,7 +320,9 @@ class DLQManager:
                     )
 
                     replayed_count += 1
-                    logger.info("Replayed %s=%s to %s", id_field, message_id, pending_topic)
+                    logger.info(
+                        "Replayed %s=%s to %s", id_field, message_id, pending_topic
+                    )
 
                 except Exception as e:
                     logger.error(

@@ -9,12 +9,12 @@ from datetime import UTC, datetime
 
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
+from pipeline.claimx.handlers import transformers
 from pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
     register_handler,
 )
-from pipeline.claimx.handlers import transformers
 from pipeline.claimx.handlers.utils import (
     LOG_ERROR_TRUNCATE_SHORT,
     elapsed_ms,

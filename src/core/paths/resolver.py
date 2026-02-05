@@ -13,7 +13,6 @@ Filenames are generated based on the event subtype and include sanitized
 names extracted from the download URL.
 """
 
-
 from core.security.url_validation import extract_filename_from_url
 
 

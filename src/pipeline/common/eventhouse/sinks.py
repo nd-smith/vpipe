@@ -9,13 +9,12 @@ tight coupling to any specific implementation.
 import asyncio
 import contextlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
-
-import logging
 
 from pydantic import BaseModel
 

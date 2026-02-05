@@ -28,16 +28,16 @@ from core.logging.context import set_log_context
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.transport import create_consumer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
+from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 from pipeline.verisk.writers.delta_inventory import (
     DeltaFailedAttachmentsWriter,
     DeltaInventoryWriter,
 )
-from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)
 
@@ -641,7 +641,9 @@ class ResultProcessor:
     @property
     def is_running(self) -> bool:
         """Check if result processor is running."""
-        return self._running and self._consumer is not None and self._consumer.is_running
+        return (
+            self._running and self._consumer is not None and self._consumer.is_running
+        )
 
 
 __all__ = [

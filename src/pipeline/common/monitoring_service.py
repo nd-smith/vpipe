@@ -49,13 +49,15 @@ class PrometheusClient:
 
         Raises aiohttp.ClientError if request fails.
         """
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.query_url, params={"query": query}) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                if data.get("status") != "success":
-                    raise Exception(f"Prometheus query failed: {data}")
-                return data["data"]
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(self.query_url, params={"query": query}) as resp,
+        ):
+            resp.raise_for_status()
+            data = await resp.json()
+            if data.get("status") != "success":
+                raise Exception(f"Prometheus query failed: {data}")
+            return data["data"]
 
     async def get_worker_status(self) -> list[dict[str, Any]]:
         """
@@ -111,9 +113,11 @@ class PrometheusClient:
     async def check_prometheus_health(self) -> bool:
         """Check if Prometheus is reachable and healthy."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{self.prometheus_url}/-/healthy") as resp:
-                    return resp.status == 200
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"{self.prometheus_url}/-/healthy") as resp,
+            ):
+                return resp.status == 200
         except Exception as e:
             logger.exception("Failed to check Prometheus health: %s", e)
             return False

@@ -143,9 +143,7 @@ class ItelCabinetPipeline:
             media_url_map,
         )
 
-        readable_report = get_readable_report(
-            task_data, event.event_id, media_url_map
-        )
+        readable_report = get_readable_report(task_data, event.event_id, media_url_map)
 
         logger.info(
             "Task enriched successfully",
@@ -336,7 +334,9 @@ class ItelCabinetPipeline:
         logger.info(
             "Writing to Delta tables", extra={"assignment_id": event.assignment_id}
         )
-        submission_row = submission.to_dict() if submission else self._build_metadata_row(event)
+        submission_row = (
+            submission.to_dict() if submission else self._build_metadata_row(event)
+        )
 
         await self.delta.write_submission(submission_row)
         if attachments:

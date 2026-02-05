@@ -25,6 +25,8 @@ from requests.adapters import HTTPAdapter
 from pipeline.common.auth import clear_token_cache, get_auth
 from pipeline.common.retry import RetryConfig, with_retry
 
+logger = logging.getLogger(__name__)
+
 # Retry config for OneLake operations
 ONELAKE_RETRY_CONFIG = RetryConfig(
     max_attempts=3,
@@ -207,9 +209,7 @@ class FileBackedTokenCredential:
         if self._token_acquired_at:
             expires_on = int((self._token_acquired_at + timedelta(hours=1)).timestamp())
         else:
-            expires_on = int(
-                (datetime.now(UTC) + timedelta(hours=1)).timestamp()
-            )
+            expires_on = int((datetime.now(UTC) + timedelta(hours=1)).timestamp())
 
         return AccessToken(self._cached_token, expires_on)
 
@@ -436,7 +436,7 @@ class OneLakeClient:
             try:
                 self._service_client.close()
                 logger.debug("Closed OneLake client")
-            except Exception as e:
+            except Exception:
                 logger.warning(
                     "Error closing OneLake client",
                     exc_info=True,
@@ -477,7 +477,7 @@ class OneLakeClient:
             try:
                 self._service_client.close()
                 logger.debug("Closed OneLake client for refresh")
-            except Exception as e:
+            except Exception:
                 logger.warning(
                     "Error closing OneLake client during refresh",
                     exc_info=True,

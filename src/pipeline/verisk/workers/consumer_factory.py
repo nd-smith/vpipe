@@ -63,9 +63,7 @@ def create_consumer(
         consumer_config["sasl_mechanism"] = config.sasl_mechanism
 
         if config.sasl_mechanism == "OAUTHBEARER":
-            consumer_config["sasl_oauth_token_provider"] = (
-                create_kafka_oauth_callback()
-            )
+            consumer_config["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
         elif config.sasl_mechanism == "PLAIN":
             consumer_config["sasl_plain_username"] = config.sasl_plain_username
             consumer_config["sasl_plain_password"] = config.sasl_plain_password

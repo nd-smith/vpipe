@@ -9,7 +9,6 @@ for each plugin integration.
 """
 
 import asyncio
-import json
 import logging
 import signal
 from dataclasses import dataclass
@@ -208,9 +207,7 @@ class PluginActionWorker:
 
             # Handle enrichment result
             if not result.success:
-                logger.error(
-                    f"Enrichment failed for message: {result.error}"
-                )
+                logger.error(f"Enrichment failed for message: {result.error}")
                 await self._handle_error(message_data, result.error)
                 self.messages_failed += 1
                 return
@@ -224,9 +221,7 @@ class PluginActionWorker:
             await self._send_to_api(result.data, message_data)
 
         except Exception as e:
-            logger.exception(
-                f"Unexpected error processing message: {e}"
-            )
+            logger.exception(f"Unexpected error processing message: {e}")
             await self._handle_error(message.value, str(e))
             self.messages_failed += 1
             # Re-raise to let transport layer handle error
@@ -235,9 +230,7 @@ class PluginActionWorker:
     async def _create_consumer(self) -> None:
         """Create and configure consumer via transport layer."""
         # Create minimal KafkaConfig for transport layer
-        config = KafkaConfig(
-            bootstrap_servers=self.kafka_config["bootstrap_servers"]
-        )
+        config = KafkaConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
 
         try:
             # Create consumer via transport layer
@@ -287,11 +280,9 @@ class PluginActionWorker:
             while self.running and not self.shutdown_event.is_set():
                 # Periodically check for batch timeout flushes
                 try:
-                    await asyncio.wait_for(
-                        self.shutdown_event.wait(), timeout=1.0
-                    )
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=1.0)
                     break  # Shutdown signaled
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Check if batching handlers need flushing
                     await self._flush_batching_handlers()
 
@@ -378,7 +369,9 @@ class PluginActionWorker:
             error: Error description
         """
         if not self.config.error_topic or not self.producer:
-            logger.error("No error topic configured, dropping failed message: %s", error)
+            logger.error(
+                "No error topic configured, dropping failed message: %s", error
+            )
             return
 
         error_message = {

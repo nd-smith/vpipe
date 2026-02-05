@@ -5,7 +5,6 @@ Decoupled architecture allows independent scaling of download vs upload.
 """
 
 import asyncio
-import contextlib
 import logging
 import shutil
 import tempfile
@@ -13,9 +12,13 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
+
+if TYPE_CHECKING:
+    from aiokafka import AIOKafkaConsumer
+
 from config.config import KafkaConfig
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
@@ -762,13 +765,12 @@ class ClaimXDownloadWorker:
         try:
 
             def _delete_if_empty():
-                if dir_path.exists() and dir_path.is_dir():
-                    if not any(dir_path.iterdir()):
-                        dir_path.rmdir()
-                        logger.debug(
-                            "Deleted empty temporary directory after failed download",
-                            extra={"directory": str(dir_path)},
-                        )
+                if dir_path.exists() and dir_path.is_dir() and not any(dir_path.iterdir()):
+                    dir_path.rmdir()
+                    logger.debug(
+                        "Deleted empty temporary directory after failed download",
+                        extra={"directory": str(dir_path)},
+                    )
 
             await asyncio.to_thread(_delete_if_empty)
 

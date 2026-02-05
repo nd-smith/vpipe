@@ -26,6 +26,7 @@ from typing import Any
 
 from config.config import KafkaConfig
 from core.logging.context import set_log_context
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
@@ -35,13 +36,12 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.storage import OneLakeClient
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 
 logger = logging.getLogger(__name__)

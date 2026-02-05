@@ -178,7 +178,9 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
     # Combine all columns
     result = pl.concat([base_df, extracted_df, raw_json_col], how="horizontal")
 
-    logger.info("Events flattened: %s rows, %s columns", len(result), len(result.columns))
+    logger.info(
+        "Events flattened: %s rows, %s columns", len(result), len(result.columns)
+    )
     return result
 
 

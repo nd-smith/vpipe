@@ -7,8 +7,8 @@ for backward compatibility with tests.
 
 from config.pipeline_config import (
     DEFAULT_CONFIG_FILE,
-    EventHubConfig,
     EventhouseSourceConfig,
+    EventHubConfig,
     EventSourceType,
     PipelineConfig,
     get_event_source_type,

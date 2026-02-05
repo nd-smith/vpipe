@@ -173,9 +173,7 @@ def project_to_contacts(
             }
             contacts.append(inject_metadata(row, event_id))
 
-    policyholder_count = sum(
-        1 for c in contacts if c["contact_type"] == "POLICYHOLDER"
-    )
+    policyholder_count = sum(1 for c in contacts if c["contact_type"] == "POLICYHOLDER")
     claim_rep_count = sum(1 for c in contacts if c["contact_type"] == "CLAIM_REP")
 
     logger.debug(

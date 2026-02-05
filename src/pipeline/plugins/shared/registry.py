@@ -65,8 +65,12 @@ class PluginRegistry:
             extra={
                 "plugin_name": plugin.name,
                 "plugin_version": plugin.version,
-                "domains": [d.value for d in plugin.domains] if plugin.domains else ["all"],
-                "stages": [s.value for s in plugin.stages] if plugin.stages else ["all"],
+                "domains": (
+                    [d.value for d in plugin.domains] if plugin.domains else ["all"]
+                ),
+                "stages": (
+                    [s.value for s in plugin.stages] if plugin.stages else ["all"]
+                ),
                 "event_types": plugin.event_types or ["all"],
                 "priority": plugin.priority,
             },
@@ -332,7 +336,9 @@ class ActionExecutor:
                 "topic": topic,
                 "event_id": context.event_id,
                 "project_id": context.project_id,
-                "payload_keys": list(payload.keys()) if isinstance(payload, dict) else None,
+                "payload_keys": (
+                    list(payload.keys()) if isinstance(payload, dict) else None
+                ),
             },
         )
 
@@ -360,7 +366,9 @@ class ActionExecutor:
                     "event_id": context.event_id,
                     "event_type": context.event_type,
                     "project_id": context.project_id,
-                    "payload_keys": list(payload.keys()) if isinstance(payload, dict) else None,
+                    "payload_keys": (
+                        list(payload.keys()) if isinstance(payload, dict) else None
+                    ),
                 },
             )
 
@@ -896,5 +904,3 @@ def reset_plugin_registry() -> None:
     """Reset the global plugin registry (for testing)."""
     global _global_registry
     _global_registry = None
-
-

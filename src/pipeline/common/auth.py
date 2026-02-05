@@ -52,9 +52,7 @@ class TokenCache:
 
     def set(self, resource: str, token: str) -> None:
         """Cache a token."""
-        self._tokens[resource] = CachedToken(
-            value=token, acquired_at=datetime.now(UTC)
-        )
+        self._tokens[resource] = CachedToken(value=token, acquired_at=datetime.now(UTC))
 
     def clear(self, resource: str | None = None) -> None:
         """Clear one or all cached tokens."""
@@ -247,8 +245,8 @@ class AzureAuth:
             )
             return token
 
-        except subprocess.TimeoutExpired:
-            raise AzureAuthError(f"Azure CLI token request timed out for {resource}")
+        except subprocess.TimeoutExpired as e:
+            raise AzureAuthError(f"Azure CLI token request timed out for {resource}") from e
 
     def get_storage_token(self, force_refresh: bool = False) -> str | None:
         """Get token for OneLake/ADLS storage operations."""

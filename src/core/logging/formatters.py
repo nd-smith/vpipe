@@ -192,8 +192,7 @@ class JSONFormatter(logging.Formatter):
         being converted to strings, enabling efficient ADX aggregations.
         """
         log_entry: dict[str, Any] = {
-            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
-            + "Z",
+            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),

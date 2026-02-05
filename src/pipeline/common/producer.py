@@ -158,7 +158,9 @@ class BaseKafkaProducer:
             extra={
                 "bootstrap_servers": self.config.bootstrap_servers,
                 "acks": self.producer_config.get("acks", "all"),
-                "compression_type": self.producer_config.get("compression_type", "none"),
+                "compression_type": self.producer_config.get(
+                    "compression_type", "none"
+                ),
                 "enable_idempotence": enable_idempotence,
             },
         )

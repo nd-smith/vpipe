@@ -37,16 +37,15 @@ from config.config import KafkaConfig
 from core.logging import setup_logging
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
-
-# Project root directory (where .env file is located)
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
-
 from pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,
     ConnectionManager,
     is_http_error,
 )
+
+# Project root directory (where .env file is located)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +180,7 @@ class ItelCabinetApiWorker:
         )
 
         # Create minimal KafkaConfig for transport layer
-        config = KafkaConfig(
-            bootstrap_servers=self.kafka_config["bootstrap_servers"]
-        )
+        config = KafkaConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
 
         # Create consumer via transport layer
         self.consumer = await create_consumer(
@@ -545,8 +542,8 @@ async def main():
     }
 
     logger.info("Kafka bootstrap servers: %s", kafka_servers)
-    logger.info("Input topic: %s", kafka_config['input_topic'])
-    logger.info("Consumer group: %s", kafka_config['consumer_group'])
+    logger.info("Input topic: %s", kafka_config["input_topic"])
+    logger.info("Consumer group: %s", kafka_config["consumer_group"])
 
     # Check for simulation mode
     simulation_config = None

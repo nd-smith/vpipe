@@ -5,7 +5,6 @@ Provides consistent error handling across Kusto, Delta, and OneLake clients.
 Wraps service-specific exceptions into typed PipelineError hierarchy.
 """
 
-
 import contextlib
 
 from core.errors.exceptions import (
@@ -132,7 +131,9 @@ class StorageErrorClassifier:
         Returns PipelineError if pattern matches, None if service-specific handling needed.
         """
         # Auth errors
-        if any(m in error_str for m in ("401", "unauthorized", "authentication", "token")):
+        if any(
+            m in error_str for m in ("401", "unauthorized", "authentication", "token")
+        ):
             return AuthError(
                 f"{service} authentication failed: {error}",
                 cause=error,
@@ -224,13 +225,14 @@ class StorageErrorClassifier:
 
         # Kusto-specific: Query errors (syntax/semantic errors)
         error_type = type(error).__name__
-        if "KustoServiceError" in error_type:
-            if "semantic error" in error_str or "syntax error" in error_str:
-                return KustoQueryError(
-                    f"Kusto query error: {error}",
-                    cause=error,
-                    context=error_context,
-                )
+        if "KustoServiceError" in error_type and (
+            "semantic error" in error_str or "syntax error" in error_str
+        ):
+            return KustoQueryError(
+                f"Kusto query error: {error}",
+                cause=error,
+                context=error_context,
+            )
 
         # Check common patterns
         common_error = StorageErrorClassifier._classify_common_patterns(

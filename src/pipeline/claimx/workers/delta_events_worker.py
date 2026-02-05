@@ -17,8 +17,8 @@ from core.types import ErrorCategory
 from pipeline.claimx.writers import ClaimXEventsDeltaWriter
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.transport import create_consumer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
+from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)

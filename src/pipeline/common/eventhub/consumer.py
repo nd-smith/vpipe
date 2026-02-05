@@ -28,11 +28,10 @@ from collections.abc import Awaitable, Callable
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
-from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
-
 from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
 from core.logging import MessageLogContext
+from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 from pipeline.common.eventhub.producer import EventHubProducer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -202,7 +201,9 @@ class EventHubConsumer:
                 "entity": eventhub_name,
                 "consumer_group": consumer_group,
                 "enable_message_commit": enable_message_commit,
-                "checkpoint_persistence": "blob_storage" if checkpoint_store else "in_memory",
+                "checkpoint_persistence": (
+                    "blob_storage" if checkpoint_store else "in_memory"
+                ),
             },
         )
 
@@ -278,7 +279,7 @@ class EventHubConsumer:
         except asyncio.CancelledError:
             logger.info("Consumer loop cancelled, shutting down")
             raise
-        except Exception as e:
+        except Exception:
             logger.error("Consumer loop terminated with error", exc_info=True)
             raise
         finally:
@@ -301,13 +302,13 @@ class EventHubConsumer:
                     await self._dlq_producer.flush()
                     await self._dlq_producer.stop()
                     logger.info("DLQ producer stopped successfully")
-                except Exception as dlq_error:
+                except Exception:
                     logger.error("Error stopping DLQ producer", exc_info=True)
                 finally:
                     self._dlq_producer = None
 
             logger.info("Event Hub consumer stopped successfully")
-        except Exception as e:
+        except Exception:
             logger.error("Error stopping Event Hub consumer", exc_info=True)
             raise
         finally:
@@ -367,7 +368,7 @@ class EventHubConsumer:
                 if self._enable_message_commit:
                     await partition_context.update_checkpoint(event)
 
-            except Exception as processing_error:
+            except Exception:
                 # If processing failed and we couldn't send to DLQ,
                 # do not checkpoint - let Event Hub redeliver the message
                 logger.error(
@@ -442,7 +443,7 @@ class EventHubConsumer:
                     on_error=on_error,
                     starting_position="-1",  # Start from beginning (like earliest)
                 )
-        except Exception as e:
+        except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
             raise
 
@@ -594,7 +595,7 @@ class EventHubConsumer:
         # Ensure DLQ producer is initialized
         try:
             await self._ensure_dlq_producer(dlq_entity_name)
-        except Exception as init_error:
+        except Exception:
             logger.error(
                 "Failed to initialize DLQ producer",
                 extra={"dlq_entity": dlq_entity_name},
@@ -668,7 +669,7 @@ class EventHubConsumer:
 
             return True
 
-        except Exception as dlq_error:
+        except Exception:
             logger.error(
                 "Failed to send message to DLQ - message will be retried",
                 extra={

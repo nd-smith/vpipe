@@ -4,7 +4,6 @@ Writes entity data to 7 Delta tables using merge operations for idempotency.
 """
 
 import logging
-import shutil
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -256,9 +255,7 @@ class ClaimXEntityWriter:
                 "external_links": "CLAIMX_DELTA_EXTERNAL_LINKS_TABLE",
                 "video_collab": "CLAIMX_DELTA_VIDEO_COLLAB_TABLE",
             }
-            missing_info = [
-                f"{name} ({env_var_hints[name]})" for name in empty_paths
-            ]
+            missing_info = [f"{name} ({env_var_hints[name]})" for name in empty_paths]
             raise ValueError(
                 f"ClaimXEntityWriter requires table paths for all entity types. "
                 f"Missing paths for: {', '.join(missing_info)}. "

@@ -7,13 +7,12 @@ and writes events to a configurable sink (Kafka, JSON file, etc.).
 
 import asyncio
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
-
-import logging
 
 from config.config import KafkaConfig
 from pipeline.common.eventhouse.kql_client import (
@@ -272,7 +271,7 @@ class KQLEventPoller:
             extra={
                 "sink_type": type(self._sink).__name__,
                 "health_port": self.health_server.actual_port,
-            }
+            },
         )
 
     async def _test_eventhouse_connectivity(self) -> None:

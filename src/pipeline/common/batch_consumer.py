@@ -109,7 +109,9 @@ class KafkaBatchConsumer:
     async def start(self) -> None:
         """Start the Kafka batch consumer."""
         if self._running:
-            logger.warning("Batch consumer already running, ignoring duplicate start call")
+            logger.warning(
+                "Batch consumer already running, ignoring duplicate start call"
+            )
             return
 
         logger.info(
@@ -338,10 +340,9 @@ class KafkaBatchConsumer:
                 # Flatten to single list of PipelineMessages
                 messages: list[PipelineMessage] = []
                 for partition_messages in data.values():
-                    messages.extend([
-                        from_consumer_record(record)
-                        for record in partition_messages
-                    ])
+                    messages.extend(
+                        [from_consumer_record(record) for record in partition_messages]
+                    )
 
                 if not messages:
                     continue

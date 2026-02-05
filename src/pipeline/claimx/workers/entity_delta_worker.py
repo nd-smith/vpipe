@@ -15,8 +15,8 @@ from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)

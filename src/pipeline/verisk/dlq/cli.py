@@ -12,11 +12,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
-
 from config.config import KafkaConfig
 from pipeline.common.types import PipelineMessage, from_consumer_record
 from pipeline.verisk.dlq.handler import DLQHandler
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 logging.basicConfig(
     level=logging.INFO,

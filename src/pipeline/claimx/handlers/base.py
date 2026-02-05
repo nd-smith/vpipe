@@ -542,9 +542,7 @@ class NoOpHandler(EventHandler):
 
         try:
             rows = self.extract_rows(event)
-            duration_ms = int(
-                (datetime.now(UTC) - start_time).total_seconds() * 1000
-            )
+            duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
             row_counts = {
                 "projects": len(rows.projects),
@@ -581,9 +579,7 @@ class NoOpHandler(EventHandler):
                 },
                 exc_info=True,
             )
-            duration_ms = int(
-                (datetime.now(UTC) - start_time).total_seconds() * 1000
-            )
+            duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
             return EnrichmentResult(
                 event=event,

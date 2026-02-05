@@ -305,10 +305,10 @@ class DownloadRetryHandler:
             # Add metadata about URL refresh
             if updated_task.metadata is None:
                 updated_task.metadata = {}
-            updated_task.metadata["url_refreshed_at"] = datetime.now(
-                UTC
-            ).isoformat()
-            updated_task.metadata["original_url"] = task.download_url[:LOG_ERROR_TRUNCATE_SHORT]  # Truncate
+            updated_task.metadata["url_refreshed_at"] = datetime.now(UTC).isoformat()
+            updated_task.metadata["original_url"] = task.download_url[
+                :LOG_ERROR_TRUNCATE_SHORT
+            ]  # Truncate
 
             return updated_task
 
@@ -438,7 +438,9 @@ class DownloadRetryHandler:
 
         # Record DLQ routing metric
         # Determine reason: permanent error or exhausted retries
-        reason = "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
+        reason = (
+            "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
+        )
         record_dlq_message(domain="claimx", reason=reason)
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics

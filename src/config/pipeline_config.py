@@ -16,12 +16,12 @@ Event Source Configuration:
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any
 
-from config.config import ClaimXDomainConfig, KafkaConfig, VeriskDomainConfig
+from config.config import KafkaConfig
 
 # Default config file: config/config.yaml in src/ directory
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -225,9 +225,7 @@ class EventhouseSourceConfig:
     kql_start_stamp: str | None = None
 
     @classmethod
-    def load_config(
-        cls, config_path: Path | None = None
-    ) -> "EventhouseSourceConfig":
+    def load_config(cls, config_path: Path | None = None) -> "EventhouseSourceConfig":
         """Load Eventhouse configuration from config directory and environment variables.
 
         Configuration priority (highest to lowest):
@@ -281,7 +279,8 @@ class EventhouseSourceConfig:
             cluster_url=cluster_url,
             database=database,
             source_table=_get_config_value(
-                "VERISK_EVENTHOUSE_SOURCE_TABLE", poller_data.get("source_table", "Events")
+                "VERISK_EVENTHOUSE_SOURCE_TABLE",
+                poller_data.get("source_table", "Events"),
             ),
             poll_interval_seconds=int(
                 os.getenv(
@@ -559,7 +558,7 @@ class PipelineConfig:
         except ValueError:
             raise ValueError(
                 f"Invalid event_source '{source_str}'. Must be 'eventhub' or 'eventhouse'"
-            )
+            ) from None
 
         eventhub_config = None
         eventhouse_config = None

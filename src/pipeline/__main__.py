@@ -81,7 +81,9 @@ async def run_error_mode(worker_name: str, error_msg: str) -> None:
     await health_server.stop()
 
 
-def enter_error_mode(loop: asyncio.AbstractEventLoop, worker_name: str, error_msg: str) -> None:
+def enter_error_mode(
+    loop: asyncio.AbstractEventLoop, worker_name: str, error_msg: str
+) -> None:
     """Enter error mode with health server running until shutdown.
 
     Fallback error mode for cases where worker health server doesn't exist:
@@ -337,9 +339,7 @@ async def run_all_workers(
 
         tasks.append(
             asyncio.create_task(
-                verisk_runners.run_xact_retry_scheduler(
-                    kafka_config, shutdown_event
-                ),
+                verisk_runners.run_xact_retry_scheduler(kafka_config, shutdown_event),
                 name="xact-retry-scheduler",
             )
         )
@@ -549,9 +549,7 @@ def main():
         except ValueError as e:
             error_msg = str(e)
             logger.exception("Configuration error", extra={"error": error_msg})
-            logger.error(
-                "Use --dev flag for local development without Eventhouse"
-            )
+            logger.error("Use --dev flag for local development without Eventhouse")
 
             # Enter error mode and exit
             loop = asyncio.new_event_loop()

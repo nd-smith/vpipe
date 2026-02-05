@@ -25,21 +25,20 @@ import asyncio
 import contextlib
 import json
 import logging
-import time
 import uuid
 from typing import Any
 
 from config.config import KafkaConfig
 from core.logging.context import set_log_context
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
-from pipeline.common.transport import create_consumer
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
+from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
-from pipeline.verisk.writers import DeltaEventsWriter
-from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
+from pipeline.verisk.writers import DeltaEventsWriter
 
 logger = logging.getLogger(__name__)
 

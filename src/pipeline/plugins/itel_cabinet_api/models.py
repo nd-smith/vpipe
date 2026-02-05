@@ -60,7 +60,7 @@ class TaskEvent:
                 task_completed_at=raw.get("task", {}).get("completed_at"),
             )
         except KeyError as e:
-            raise ValueError(f"Missing required field in Kafka message: {e}")
+            raise ValueError(f"Missing required field in Kafka message: {e}") from e
 
 
 @dataclass

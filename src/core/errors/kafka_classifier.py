@@ -5,7 +5,6 @@ Provides consistent error handling for aiokafka exceptions,
 mapping them to typed PipelineError hierarchy with retry decisions.
 """
 
-
 from core.errors.exceptions import (
     AuthError,
     KafkaError,

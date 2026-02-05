@@ -283,7 +283,7 @@ class DummyDataSource:
 
             event = EventMessage(**event_data)
             key = event_data["traceId"]
-            topic = self.config.kafka.get_topic(domain, "events")
+            _topic = self.config.kafka.get_topic(domain, "events")
 
         elif domain == "claimx":
             # Check if we're using a plugin profile
@@ -320,7 +320,7 @@ class DummyDataSource:
 
             event = ClaimXEventMessage(**event_data)
             key = event_data["event_id"]
-            topic = self.config.kafka.get_topic(domain, "events")
+            _topic = self.config.kafka.get_topic(domain, "events")
 
         else:
             logger.warning("Unknown domain: %s", domain)
