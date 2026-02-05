@@ -445,10 +445,21 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
-    if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
+    disable_ssl = os.getenv("DISABLE_SSL_VERIFY", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    if disable_ssl:
+        print("[SSL] DISABLE_SSL_VERIFY is set - applying SSL bypass patches...")
         from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
 
         apply_ssl_dev_bypass()
+        print("[SSL] SSL verification disabled for all HTTP clients (urllib3, requests, Kusto SDK)")
+    else:
+        print(
+            "[SSL] SSL verification ENABLED (set DISABLE_SSL_VERIFY=true to disable)"
+        )
 
     global logger
     args = parse_args()
