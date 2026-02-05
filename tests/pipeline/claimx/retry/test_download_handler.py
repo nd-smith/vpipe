@@ -81,9 +81,12 @@ class TestDownloadRetryHandlerErrorCategoryRouting:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture
@@ -194,9 +197,12 @@ class TestDownloadRetryHandlerURLExpirationDetection:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture
@@ -299,9 +305,12 @@ class TestDownloadRetryHandlerURLRefresh:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture
@@ -464,9 +473,12 @@ class TestDownloadRetryHandlerURLRefreshIntegration:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture
@@ -553,9 +565,12 @@ class TestDownloadRetryHandlerRetryExhaustion:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture
@@ -627,9 +642,12 @@ class TestDownloadRetryHandlerMessageKeys:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture
@@ -714,9 +732,12 @@ class TestDownloadRetryHandlerTaskImmutability:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "claimx.enrichment.retry"
+        config.get_dlq_topic.return_value = "claimx.enrichment.dlq"
+        config.get_topic.return_value = "enrichment_pending"
         return config
 
     @pytest.fixture

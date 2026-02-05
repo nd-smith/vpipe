@@ -270,41 +270,44 @@ class TestEventIngesterWorkerMessageProcessing:
 class TestEventIngesterWorkerDeduplication:
     """Test event deduplication logic."""
 
-    def test_is_duplicate_returns_false_for_new_event(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_is_duplicate_returns_false_for_new_event(self, mock_config):
         """First occurrence of trace_id is not a duplicate."""
         worker = EventIngesterWorker(config=mock_config)
 
-        is_dup, cached_id = worker._is_duplicate("trace-123")
+        is_dup, cached_id = await worker._is_duplicate("trace-123")
 
         assert is_dup is False
         assert cached_id is None
 
-    def test_is_duplicate_returns_true_for_cached_event(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_is_duplicate_returns_true_for_cached_event(self, mock_config):
         """Cached trace_id within TTL is a duplicate."""
         worker = EventIngesterWorker(config=mock_config)
 
         # Mark as processed
-        worker._mark_processed("trace-123", "evt-456")
+        await worker._mark_processed("trace-123", "evt-456")
 
         # Check for duplicate
-        is_dup, cached_id = worker._is_duplicate("trace-123")
+        is_dup, cached_id = await worker._is_duplicate("trace-123")
 
         assert is_dup is True
         assert cached_id == "evt-456"
 
-    def test_is_duplicate_returns_false_for_expired_entry(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_is_duplicate_returns_false_for_expired_entry(self, mock_config):
         """Expired cache entry is not a duplicate."""
         worker = EventIngesterWorker(config=mock_config)
         worker._dedup_cache_ttl_seconds = 1  # 1 second TTL
 
         # Mark as processed
-        worker._mark_processed("trace-123", "evt-456")
+        await worker._mark_processed("trace-123", "evt-456")
 
         # Wait for expiry
         time.sleep(1.1)
 
         # Check for duplicate - should be expired
-        is_dup, cached_id = worker._is_duplicate("trace-123")
+        is_dup, cached_id = await worker._is_duplicate("trace-123")
 
         assert is_dup is False
         assert cached_id is None
@@ -334,27 +337,29 @@ class TestEventIngesterWorkerDeduplication:
         assert worker._records_deduplicated == 1
         assert worker.producer.send.call_count == 1  # Only called once
 
-    def test_mark_processed_adds_to_cache(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_mark_processed_adds_to_cache(self, mock_config):
         """mark_processed adds entry to dedup cache."""
         worker = EventIngesterWorker(config=mock_config)
 
-        worker._mark_processed("trace-123", "evt-456")
+        await worker._mark_processed("trace-123", "evt-456")
 
         assert "trace-123" in worker._dedup_cache
         assert worker._dedup_cache["trace-123"] == "evt-456"
         assert "trace-123" in worker._dedup_cache_timestamps
 
-    def test_mark_processed_evicts_old_entries_when_full(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_mark_processed_evicts_old_entries_when_full(self, mock_config):
         """mark_processed evicts oldest 10% when cache is full."""
         worker = EventIngesterWorker(config=mock_config)
         worker._dedup_cache_max_size = 10  # Small cache for testing
 
         # Fill cache to capacity
         for i in range(10):
-            worker._mark_processed(f"trace-{i}", f"evt-{i}")
+            await worker._mark_processed(f"trace-{i}", f"evt-{i}")
 
         # Add one more - should trigger eviction
-        worker._mark_processed("trace-new", "evt-new")
+        await worker._mark_processed("trace-new", "evt-new")
 
         # Verify cache size is maintained
         assert len(worker._dedup_cache) <= 10
@@ -363,20 +368,21 @@ class TestEventIngesterWorkerDeduplication:
         # Verify new entry was added
         assert "trace-new" in worker._dedup_cache
 
-    def test_cleanup_dedup_cache_removes_expired_entries(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_cleanup_dedup_cache_removes_expired_entries(self, mock_config):
         """cleanup removes expired entries from cache."""
         worker = EventIngesterWorker(config=mock_config)
         worker._dedup_cache_ttl_seconds = 1  # 1 second TTL
 
         # Add entries
-        worker._mark_processed("trace-1", "evt-1")
-        worker._mark_processed("trace-2", "evt-2")
+        await worker._mark_processed("trace-1", "evt-1")
+        await worker._mark_processed("trace-2", "evt-2")
 
         # Wait for expiry
         time.sleep(1.1)
 
         # Add fresh entry
-        worker._mark_processed("trace-3", "evt-3")
+        await worker._mark_processed("trace-3", "evt-3")
 
         # Cleanup
         worker._cleanup_dedup_cache()

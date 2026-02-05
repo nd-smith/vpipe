@@ -193,6 +193,20 @@ eventhub:
     # JSON file storage path (used when type=json)
     storage_path: ${EVENTHUB_CHECKPOINT_JSON_PATH:-./data/eventhub-checkpoints}
 
+  # Deduplication cache store (persistent across worker restarts)
+  # Complements in-memory caching by providing blob storage persistence
+  dedup_store:
+    # Store type: "blob" or "json"
+    type: ${EVENTHUB_DEDUP_STORE_TYPE:-blob}
+    # Blob storage settings (reuses same storage account as checkpoint store)
+    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+    # Different container in same storage account
+    container_name: ${EVENTHUB_DEDUP_CONTAINER_NAME:-eventhub-dedup-cache}
+    # TTL for dedup entries (seconds) - matches Verisk's in-memory cache default
+    ttl_seconds: ${EVENTHUB_DEDUP_TTL_SECONDS:-86400}
+    # JSON file storage path for local dev (used when type=json)
+    storage_path: ${EVENTHUB_DEDUP_JSON_PATH:-./data/eventhub-dedup-cache}
+
   # ---------------------------------------------------------------------------
   # Verisk Domain (formerly XACT)
   # ---------------------------------------------------------------------------

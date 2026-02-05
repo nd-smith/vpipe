@@ -296,10 +296,13 @@ class TestExecuteWorkerWithShutdown:
         """Worker is stopped even if start() raises."""
         worker = AsyncMock()
         worker.start = AsyncMock(side_effect=RuntimeError("Start failed"))
-        worker.stop = AsyncMock()
+        worker.stop = AsyncMock(return_value=None)
+        # Delete health_server so worker doesn't enter error mode
+        del worker.health_server
         shutdown_event = asyncio.Event()
 
-        with pytest.raises(RuntimeError, match="Start failed"):
+        with patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock), \
+             pytest.raises(RuntimeError, match="Start failed"):
             await execute_worker_with_shutdown(worker, "test-worker", shutdown_event)
 
         # Stop should still be called in finally block

@@ -83,9 +83,12 @@ class TestRetryHandlerErrorCategoryRouting:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture
@@ -218,9 +221,12 @@ class TestRetryHandlerRetryExhaustion:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture
@@ -310,9 +316,12 @@ class TestRetryHandlerMetadataAndTimestamp:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture
@@ -452,9 +461,12 @@ class TestRetryHandlerRetryHeaders:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture
@@ -555,9 +567,12 @@ class TestRetryHandlerDLQMessage:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture
@@ -718,9 +733,12 @@ class TestRetryHandlerTaskImmutability:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture
@@ -791,9 +809,12 @@ class TestRetryHandlerDLQErrorTruncation:
     @pytest.fixture
     def mock_config(self):
         """Mock KafkaConfig with standard retry configuration."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
+        config.get_retry_topic.return_value = "verisk.events.retry"
+        config.get_dlq_topic.return_value = "verisk.events.dlq"
+        config.get_topic.return_value = "downloads_pending"
         return config
 
     @pytest.fixture

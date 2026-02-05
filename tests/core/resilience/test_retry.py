@@ -156,7 +156,7 @@ class TestRetryConfig:
 
         assert config.should_retry(error, 0) is False
 
-    @patch("core.errors.exceptions.classify_exception")
+    @patch("core.resilience.retry.classify_exception")
     def test_should_retry_respects_classification(self, mock_classify):
         """Respects exception classification for non-PipelineError exceptions."""
         # Even with respect_permanent=False, PERMANENT isn't in the retryable set
@@ -187,7 +187,7 @@ class TestRetryConfig:
 
         assert config.should_retry(error, 0) is True
 
-    @patch("core.errors.exceptions.classify_exception")
+    @patch("core.resilience.retry.classify_exception")
     def test_should_retry_unknown_exception(self, mock_classify):
         """Retries unknown exceptions by default."""
         mock_classify.return_value = ErrorCategory.UNKNOWN
@@ -346,7 +346,7 @@ class TestWithRetryDecorator:
         result = func()
         assert result == "success"
 
-    @patch("core.errors.exceptions.wrap_exception")
+    @patch("core.resilience.retry.wrap_exception")
     @patch("core.resilience.retry.time.sleep")
     def test_wrap_errors_enabled(self, mock_sleep, mock_wrap):
         """Wraps unknown exceptions when wrap_errors=True."""

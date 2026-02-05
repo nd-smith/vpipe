@@ -114,11 +114,12 @@ class TestEventIngesterInitialization:
         assert worker.enrichment_topic == "custom.enrichment"
 
     def test_deduplication_set_initialized_empty(self, mock_config):
-        """Worker initializes with empty deduplication set."""
+        """Worker initializes with empty deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        assert isinstance(worker._recent_events, set)
-        assert len(worker._recent_events) == 0
+        assert isinstance(worker._dedup_cache, dict)
+        assert len(worker._dedup_cache) == 0
+        assert worker._dedup_store is None
 
     def test_counters_initialized_to_zero(self, mock_config):
         """Worker initializes counters to zero."""
@@ -228,8 +229,8 @@ class TestEventIngesterMessageProcessing:
         """Worker parses valid event message."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker._create_enrichment_task = AsyncMock()
-        worker._is_duplicate = Mock(return_value=False)
-        worker._mark_processed = Mock()
+        worker._is_duplicate = AsyncMock(return_value=False)
+        worker._mark_processed = AsyncMock()
 
         await worker._handle_event_message(sample_message)
 
@@ -288,8 +289,9 @@ class TestEventIngesterDeduplication:
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker._create_enrichment_task = AsyncMock()
 
-        # Mark event as already processed
-        worker._recent_events.add("evt-123")
+        # Mark event as already processed (in cache with recent timestamp)
+        import time
+        worker._dedup_cache["evt-123"] = time.time()
 
         await worker._handle_event_message(sample_message)
 
@@ -304,8 +306,8 @@ class TestEventIngesterDeduplication:
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker._create_enrichment_task = AsyncMock()
 
-        # Event not in recent set
-        assert "evt-123" not in worker._recent_events
+        # Event not in cache
+        assert "evt-123" not in worker._dedup_cache
 
         await worker._handle_event_message(sample_message)
 
@@ -318,35 +320,39 @@ class TestEventIngesterDeduplication:
     async def test_processed_event_marked_in_dedup_set(
         self, mock_config, sample_message
     ):
-        """Worker marks processed events in deduplication set."""
+        """Worker marks processed events in deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker._create_enrichment_task = AsyncMock()
 
         await worker._handle_event_message(sample_message)
 
-        # Verify event was marked
-        assert "evt-123" in worker._recent_events
+        # Verify event was marked in cache
+        assert "evt-123" in worker._dedup_cache
 
-    def test_is_duplicate_returns_true_for_seen_event(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_is_duplicate_returns_true_for_seen_event(self, mock_config):
         """_is_duplicate returns True for seen events."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker._recent_events.add("evt-123")
+        import time
+        worker._dedup_cache["evt-123"] = time.time()
 
-        assert worker._is_duplicate("evt-123") is True
+        assert await worker._is_duplicate("evt-123") is True
 
-    def test_is_duplicate_returns_false_for_new_event(self, mock_config):
+    @pytest.mark.asyncio
+    async def test_is_duplicate_returns_false_for_new_event(self, mock_config):
         """_is_duplicate returns False for new events."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        assert worker._is_duplicate("evt-456") is False
+        assert await worker._is_duplicate("evt-456") is False
 
-    def test_mark_processed_adds_to_dedup_set(self, mock_config):
-        """_mark_processed adds event to deduplication set."""
+    @pytest.mark.asyncio
+    async def test_mark_processed_adds_to_dedup_set(self, mock_config):
+        """_mark_processed adds event to deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        worker._mark_processed("evt-789")
+        await worker._mark_processed("evt-789")
 
-        assert "evt-789" in worker._recent_events
+        assert "evt-789" in worker._dedup_cache
 
 
 class TestEventIngesterEnrichmentTaskCreation:
