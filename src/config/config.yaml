@@ -50,10 +50,10 @@ pipeline:
 # =============================================================================
 verisk_eventhouse:
   cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
-  database: ${XACT_EVENTHOUSE_DATABASE:-VERISK_XACTANALYSIS_DB}
+  database: ${XACT_EVENTHOUSE_DATABASE}
   query_timeout_seconds: 120
   poller:
-    source_table: ${XACT_EVENTHOUSE_SOURCE_TABLE:-tbl_VERISK_XACTANALYSIS_STATUS_EXPORT}
+    source_table: ${XACT_EVENTHOUSE_SOURCE_TABLE}
     poll_interval_seconds: 30
     batch_size: 1000
   dedup:
@@ -66,10 +66,10 @@ verisk_eventhouse:
 # =============================================================================
 claimx_eventhouse:
   cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
-  database: ${CLAIMX_EVENTHOUSE_DATABASE:-VERISK_CLAIMXPERIENCE_DB}
+  database: ${CLAIMX_EVENTHOUSE_DATABASE}
   query_timeout_seconds: 120
   poller:
-    source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE:-tbl_CLAIMXPERIENCE_EVENTS}
+    source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE}
     poll_interval_seconds: 30
     batch_size: 1000
   dedup:
@@ -98,22 +98,22 @@ delta:
 
   # XACT domain
   verisk:
-    events_table_path: ${XACT_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/verisk_events}
-    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/verisk_attachments}
+    events_table_path: ${XACT_DELTA_EVENTS_TABLE}
+    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE}
     failed_table_path: ""
 
   # ClaimX domain
   claimx:
-    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_events}
-    inventory_table_path: ${CLAIMX_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_attachments}
+    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE}
+    inventory_table_path: ${CLAIMX_DELTA_INVENTORY_TABLE}
     failed_table_path: ""
-    projects_table_path: ${CLAIMX_DELTA_PROJECTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_projects}
-    contacts_table_path: ${CLAIMX_DELTA_CONTACTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_contacts}
-    media_table_path: ${CLAIMX_DELTA_MEDIA_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_attachments_metadata}
-    tasks_table_path: ${CLAIMX_DELTA_TASKS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_tasks}
-    task_templates_table_path: ${CLAIMX_DELTA_TASK_TEMPLATES_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_task_templates}
-    external_links_table_path: ${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_external_link}
-    video_collab_table_path: ${CLAIMX_DELTA_VIDEO_COLLAB_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_video_collab}
+    projects_table_path: ${CLAIMX_DELTA_PROJECTS_TABLE}
+    contacts_table_path: ${CLAIMX_DELTA_CONTACTS_TABLE}
+    media_table_path: ${CLAIMX_DELTA_MEDIA_TABLE}
+    tasks_table_path: ${CLAIMX_DELTA_TASKS_TABLE}
+    task_templates_table_path: ${CLAIMX_DELTA_TASK_TEMPLATES_TABLE}
+    external_links_table_path: ${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE}
+    video_collab_table_path: ${CLAIMX_DELTA_VIDEO_COLLAB_TABLE}
 
 # =============================================================================
 # CLAIMX API
@@ -131,9 +131,9 @@ claimx:
 itel_cabinet:
   api_base_url: ${ITEL_CABINET_API_BASE_URL}
   api_token: ${ITEL_CABINET_API_TOKEN}
-  delta_forms_table: ${ITEL_DELTA_FORMS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_itel_forms}
-  delta_attachments_table: ${ITEL_DELTA_ATTACHMENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Tables/dbo/claimx_itel_attachments}
-  attachments_path: ${ITEL_ATTACHMENTS_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/itel_cabinet_form/attachments}
+  delta_forms_table: ${ITEL_DELTA_FORMS_TABLE}
+  delta_attachments_table: ${ITEL_DELTA_ATTACHMENTS_TABLE}
+  attachments_path: ${ITEL_ATTACHMENTS_PATH}
 
 # =============================================================================
 # TRANSPORT LAYER CONFIGURATION
