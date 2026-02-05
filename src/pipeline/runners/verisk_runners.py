@@ -54,17 +54,36 @@ async def run_eventhouse_poller(
     from pipeline.common.eventhouse.kql_client import EventhouseConfig
     from pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
 
+    print("\n[XACT-POLLER] Initializing Eventhouse poller configuration")
+
     eventhouse_source = pipeline_config.verisk_eventhouse
     if not eventhouse_source:
         raise ValueError(
             "Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse"
         )
 
+    print(f"[XACT-POLLER] Eventhouse configuration:")
+    print(f"[XACT-POLLER]   - Cluster URL: {eventhouse_source.cluster_url}")
+    print(f"[XACT-POLLER]   - Database: {eventhouse_source.database}")
+    print(f"[XACT-POLLER]   - Source table: {eventhouse_source.source_table}")
+    print(f"[XACT-POLLER]   - Query timeout: {eventhouse_source.query_timeout_seconds}s")
+    print(f"[XACT-POLLER]   - Poll interval: {eventhouse_source.poll_interval_seconds}s")
+    print(f"[XACT-POLLER]   - Batch size: {eventhouse_source.batch_size}")
+    print(f"[XACT-POLLER]   - Bulk backfill: {eventhouse_source.bulk_backfill}")
+    if eventhouse_source.backfill_start_stamp:
+        print(f"[XACT-POLLER]   - Backfill start: {eventhouse_source.backfill_start_stamp}")
+    if eventhouse_source.backfill_stop_stamp:
+        print(f"[XACT-POLLER]   - Backfill stop: {eventhouse_source.backfill_stop_stamp}")
+
     eventhouse_config = EventhouseConfig(
         cluster_url=eventhouse_source.cluster_url,
         database=eventhouse_source.database,
         query_timeout_seconds=eventhouse_source.query_timeout_seconds,
     )
+
+    print(f"[XACT-POLLER] Kafka output configuration:")
+    print(f"[XACT-POLLER]   - Bootstrap servers: {local_kafka_config.bootstrap_servers}")
+    print(f"[XACT-POLLER]   - Output topic: events.raw")
 
     poller_config = PollerConfig(
         eventhouse=eventhouse_config,
@@ -77,6 +96,8 @@ async def run_eventhouse_poller(
         backfill_stop_stamp=eventhouse_source.backfill_stop_stamp,
         bulk_backfill=eventhouse_source.bulk_backfill,
     )
+
+    print("[XACT-POLLER] Configuration complete, starting poller...\n")
 
     await execute_poller_with_shutdown(
         KQLEventPoller,
