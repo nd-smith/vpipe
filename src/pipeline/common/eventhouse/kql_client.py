@@ -179,6 +179,10 @@ class KQLClient:
         if self._client is not None:
             return  # Already connected
 
+        print("[DEBUG] Starting Eventhouse connection process")
+        print(f"[DEBUG] Cluster URL: {self.config.cluster_url}")
+        print(f"[DEBUG] Database: {self.config.database}")
+
         logger.info(
             "Connecting to Eventhouse",
             extra={
@@ -195,11 +199,19 @@ class KQLClient:
             tenant_id = os.getenv("AZURE_TENANT_ID")
             has_spn = client_id and client_secret and tenant_id
 
+            print(f"[DEBUG] Authentication detection:")
+            print(f"[DEBUG]   - AZURE_TOKEN_FILE set: {bool(token_file)}")
+            print(f"[DEBUG]   - SPN credentials available: {has_spn}")
+            if has_spn:
+                print(f"[DEBUG]   - Client ID: {client_id[:8]}...")
+                print(f"[DEBUG]   - Tenant ID: {tenant_id}")
+
             auth_mode = "default"
             kcsb = None
 
             # Prioritize SPN with direct AAD app key auth (avoids token refresh warnings)
             if has_spn:
+                print("[DEBUG] Creating connection string builder with SPN authentication")
                 kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
                     self.config.cluster_url,
                     client_id,
@@ -207,53 +219,79 @@ class KQLClient:
                     tenant_id,
                 )
                 auth_mode = "spn"
+                print("[DEBUG] SPN connection string builder created successfully")
                 logger.info(
                     "Using SPN credentials for Eventhouse authentication",
                     extra={"client_id": client_id[:8] + "..."},
                 )
             # Use token file only if SPN is not available
             elif token_file:
+                print(f"[DEBUG] Checking token file: {token_file}")
                 token_path = Path(token_file)
                 if token_path.exists():
+                    print("[DEBUG] Token file exists, creating FileBackedTokenCredential")
                     try:
                         self._credential = FileBackedTokenCredential(
                             resource=KUSTO_RESOURCE,
                         )
                         auth_mode = "token_file"
+                        print("[DEBUG] Creating connection string builder with token credential")
                         kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
                             self.config.cluster_url,
                             self._credential,
                         )
+                        print("[DEBUG] Token file connection string builder created successfully")
                         logger.info(
                             "Using token file for Eventhouse authentication via unified auth",
                             extra={"token_file": token_file},
                         )
                     except Exception as e:
+                        print(f"[DEBUG] Token file auth failed: {e}")
                         logger.warning(
                             "Token file auth failed, falling back to default",
                             extra={"error": str(e)[:200]},
                         )
+                else:
+                    print(f"[DEBUG] Token file does not exist: {token_file}")
 
             # Fall back to DefaultAzureCredential
             if kcsb is None:
+                print("[DEBUG] Using DefaultAzureCredential for authentication")
                 self._credential = DefaultAzureCredential()
                 kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
                     self.config.cluster_url,
                     self._credential,
                 )
                 auth_mode = "default"
+                print("[DEBUG] DefaultAzureCredential connection string builder created")
+
+            # Check for proxy configuration
+            proxy_from_env = (
+                os.getenv("EVENTHOUSE_PROXY_URL")
+                or os.getenv("HTTPS_PROXY")
+                or os.getenv("HTTP_PROXY")
+            )
+            if proxy_from_env or self.config.proxy_url:
+                print(f"[DEBUG] Proxy configuration detected:")
+                print(f"[DEBUG]   - Config proxy: {self.config.proxy_url}")
+                print(f"[DEBUG]   - Environment proxy: {proxy_from_env}")
 
             # Create client (sync client, will execute in thread pool)
+            print("[DEBUG] Creating KustoClient instance")
             self._client = KustoClient(kcsb)
+            print("[DEBUG] KustoClient instance created successfully")
+            print("[DEBUG] NOTE: Actual connection will be established on first query")
 
             # Configure proxy if specified
             if self.config.proxy_url:
+                print(f"[DEBUG] Setting proxy on KustoClient: {self.config.proxy_url}")
                 self._client.set_proxy(self.config.proxy_url)
                 logger.info(
                     "Configured proxy for Eventhouse",
                     extra={"proxy_url": self.config.proxy_url},
                 )
 
+            print(f"[DEBUG] Eventhouse client initialization complete (auth_mode={auth_mode})")
             logger.info(
                 "Connected to Eventhouse",
                 extra={
@@ -309,9 +347,16 @@ class KQLClient:
         timeout = timeout_seconds or self.config.query_timeout_seconds
         last_error: Exception | None = None
 
+        print(f"[DEBUG] Executing KQL query on database: {db}")
+        print(f"[DEBUG] Query: {query[:200]}{'...' if len(query) > 200 else ''}")
+        print(f"[DEBUG] Max retries: {self.config.max_retries}, timeout: {timeout}s")
+
         for attempt in range(self.config.max_retries):
+            print(f"[DEBUG] Query attempt {attempt + 1}/{self.config.max_retries}")
             try:
+                print("[DEBUG] Calling _execute_query_impl...")
                 result = await self._execute_query_impl(query, db, timeout)
+                print(f"[DEBUG] Query succeeded, returned {result.row_count} rows")
 
                 # Log success after retries
                 if attempt > 0:
@@ -328,16 +373,24 @@ class KQLClient:
 
             except KustoQueryError:
                 # Query errors are not retryable (syntax/semantic errors)
+                print("[DEBUG] Query error (not retryable) - re-raising")
                 raise
 
             except Exception as e:
                 last_error = e
+                print(f"[DEBUG] Query attempt {attempt + 1} failed: {type(e).__name__}")
+                print(f"[DEBUG] Error message: {str(e)[:500]}")
+
                 classified = StorageErrorClassifier.classify_kusto_error(
                     e, {"operation": "execute_query", "attempt": attempt + 1}
                 )
+                print(f"[DEBUG] Error classified as: {type(classified).__name__}")
+                print(f"[DEBUG] Is retryable: {classified.is_retryable}")
+                print(f"[DEBUG] Should refresh auth: {classified.should_refresh_auth}")
 
                 # Clear all credential caches on auth errors to force token re-read
                 if classified.should_refresh_auth:
+                    print("[DEBUG] Refreshing credentials due to auth error")
                     logger.info(
                         "Auth error detected, refreshing all credentials",
                         extra={
@@ -349,10 +402,12 @@ class KQLClient:
 
                 # Check if error is retryable
                 if not classified.is_retryable:
+                    print("[DEBUG] Error is not retryable - raising classified error")
                     raise classified from e
 
                 # Check if we have more retries
                 if attempt + 1 >= self.config.max_retries:
+                    print(f"[DEBUG] Max retries ({self.config.max_retries}) exhausted")
                     logger.error(
                         "Max retries exhausted for query",
                         extra={
@@ -369,6 +424,7 @@ class KQLClient:
                     self.config.retry_max_delay_seconds,
                 )
 
+                print(f"[DEBUG] Will retry after {delay}s delay")
                 logger.warning(
                     "Retrying query after error",
                     extra={
@@ -398,14 +454,22 @@ class KQLClient:
         """Execute query implementation (runs in thread pool)."""
         start_time = time.perf_counter()
 
+        print("[DEBUG] _execute_query_impl: Starting query execution")
+        print(f"[DEBUG] Database: {database}")
+        print(f"[DEBUG] Timeout: {timeout_seconds}s")
+
         try:
             # Execute in thread pool since KustoClient is sync
+            print("[DEBUG] Making network request to Kusto endpoint...")
+            print("[DEBUG] This will trigger authentication if not already done")
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self._client.execute(database, query),
             )
+            print("[DEBUG] Network request completed successfully")
 
             query_duration_ms = (time.perf_counter() - start_time) * 1000
+            print(f"[DEBUG] Query executed in {query_duration_ms:.0f}ms")
 
             # Get primary results table
             if not response.primary_results:
@@ -456,6 +520,10 @@ class KQLClient:
         except KustoServiceError as e:
             query_duration_ms = (time.perf_counter() - start_time) * 1000
 
+            print(f"[DEBUG] KustoServiceError occurred after {query_duration_ms:.0f}ms")
+            print(f"[DEBUG] Error type: {type(e).__name__}")
+            print(f"[DEBUG] Error string: {str(e)[:1000]}")
+
             # Extract detailed error info from KustoServiceError
             error_details = {}
             try:
@@ -464,12 +532,21 @@ class KQLClient:
                     api_errors = e.get_api_errors()
                     if api_errors:
                         error_details["api_errors"] = str(api_errors)[:500]
+                        print(f"[DEBUG] API errors: {str(api_errors)[:500]}")
                 if hasattr(e, "http_response") and e.http_response:
                     error_details["http_status"] = getattr(
                         e.http_response, "status_code", None
                     ) or getattr(e.http_response, "status", None)
-            except Exception:
-                pass  # Don't fail on error introspection
+                    print(f"[DEBUG] HTTP status: {error_details.get('http_status')}")
+
+                # Try to extract more details from the exception
+                if hasattr(e, "args") and e.args:
+                    print(f"[DEBUG] Exception args: {e.args}")
+                if hasattr(e, "__cause__") and e.__cause__:
+                    print(f"[DEBUG] Caused by: {type(e.__cause__).__name__}: {str(e.__cause__)[:500]}")
+
+            except Exception as introspection_error:
+                print(f"[DEBUG] Error during exception introspection: {introspection_error}")
 
             logger.error(
                 "KQL query failed",
@@ -487,16 +564,28 @@ class KQLClient:
             # Check if it's a query error (syntax/semantic)
             error_str = str(e).lower()
             if "semantic error" in error_str or "syntax error" in error_str:
+                print("[DEBUG] Classified as query syntax/semantic error")
                 raise KustoQueryError(
                     f"KQL query error: {e}",
                     cause=e,
                     context={"database": database, "query_length": len(query)},
                 ) from e
 
+            print("[DEBUG] Re-raising KustoServiceError")
             raise
 
         except Exception as e:
             query_duration_ms = (time.perf_counter() - start_time) * 1000
+
+            print(f"[DEBUG] Exception occurred after {query_duration_ms:.0f}ms")
+            print(f"[DEBUG] Exception type: {type(e).__name__}")
+            print(f"[DEBUG] Exception string: {str(e)[:1000]}")
+
+            # Try to get more details
+            if hasattr(e, "__cause__") and e.__cause__:
+                print(f"[DEBUG] Caused by: {type(e.__cause__).__name__}: {str(e.__cause__)[:500]}")
+            if hasattr(e, "args") and e.args:
+                print(f"[DEBUG] Exception args: {e.args}")
 
             logger.error(
                 "Query execution failed",
@@ -510,4 +599,5 @@ class KQLClient:
                 },
             )
 
+            print("[DEBUG] Re-raising exception")
             raise

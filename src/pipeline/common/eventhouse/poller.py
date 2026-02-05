@@ -239,15 +239,23 @@ class KQLEventPoller:
 
     async def start(self) -> None:
         """Initialize all components."""
+        print("\n[POLLER] Starting KQLEventPoller components")
         logger.info("Starting KQLEventPoller components")
 
+        print("[POLLER] Starting health check server...")
         await self.health_server.start()
+        print(f"[POLLER] Health check server started on port {self.health_server.actual_port}")
 
+        print("[POLLER] Creating KQLClient...")
         self._kql_client = KQLClient(self.config.eventhouse)
+        print("[POLLER] Connecting to Eventhouse...")
         await self._kql_client.connect()
+        print("[POLLER] KQLClient connection initialized")
 
         # Test eventhouse connectivity before initializing Kafka sink
+        print("[POLLER] Running connectivity test...")
         await self._test_eventhouse_connectivity()
+        print("[POLLER] Connectivity test passed")
 
         # Use provided sink or create default KafkaSink
         if self._sink is None:
@@ -285,6 +293,13 @@ class KQLEventPoller:
         table = self.config.source_table
         query = f"{table} | take {test_limit}"
 
+        print("\n[CONNECTIVITY TEST] Starting Eventhouse connectivity test")
+        print(f"[CONNECTIVITY TEST] Domain: {self.config.domain}")
+        print(f"[CONNECTIVITY TEST] Source table: {table}")
+        print(f"[CONNECTIVITY TEST] Cluster URL: {self.config.eventhouse.cluster_url}")
+        print(f"[CONNECTIVITY TEST] Database: {self.config.eventhouse.database}")
+        print(f"[CONNECTIVITY TEST] Test query: {query}")
+
         logger.info(
             "=== Eventhouse Connectivity Test ===",
             extra={
@@ -297,7 +312,9 @@ class KQLEventPoller:
         )
 
         try:
+            print("[CONNECTIVITY TEST] Executing test query...")
             result = await self._kql_client.execute_query(query)
+            print(f"[CONNECTIVITY TEST] Test query completed successfully")
 
             if not result.rows:
                 logger.warning(
