@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Total Test Coverage: 357 tests passing ✓**
+**Total Test Coverage: 415 tests passing ✓**
 
 ### Phase 1: Core Pipeline Workers (224 tests) ✓
 - Event Ingesters: 97 tests
@@ -18,44 +18,17 @@
 - HealthCheckServer: 29 tests
 - DeltaRetryHandler: 25 tests
 
+### Phase 4: Metrics and Writers Infrastructure (58 tests) ✓
+- Metrics Module: 33 tests
+- Delta Writers: 25 tests
+
 ---
 
 ## Remaining Test Opportunities
 
-### High Priority Infrastructure
-
-#### 1. Metrics Module (`pipeline/common/metrics.py`)
-**Complexity:** Low | **Value:** High | **Est. Tests:** 15-20
-
-Simple metrics recording functions with graceful degradation when prometheus-client unavailable.
-
-**Test Coverage Needed:**
-- NoOpMetric class behavior (accepts any method call, returns self for chaining)
-- Lazy initialization of prometheus_client
-- Registry integration via telemetry module
-- Metric creation (Counter, Gauge, Histogram)
-- Duplicate metric handling (ValueError on re-registration)
-- Convenience functions:
-  - `record_message_produced/consumed()`
-  - `record_processing_error()`, `record_producer_error()`
-  - `update_consumer_lag/offset()`
-  - `update_connection_status()`
-  - `update_assigned_partitions()`
-  - `record_delta_write()`
-  - `record_dlq_message()`
-
-**Testing Approach:**
-- Mock prometheus_client import (both available and unavailable)
-- Mock telemetry registry
-- Verify NoOpMetric accepts arbitrary method chains
-- Verify label creation and value setting
-- Test counter increments, gauge sets, histogram observations
-
----
-
 ### Medium Priority Infrastructure
 
-#### 2. OneLake Storage Client (`pipeline/common/storage/onelake.py`)
+#### 1. OneLake Storage Client (`pipeline/common/storage/onelake.py`)
 **Complexity:** Medium | **Value:** Medium | **Est. Tests:** 25-30
 
 Azure OneLake/ADLS Gen2 storage operations.
@@ -76,30 +49,7 @@ Azure OneLake/ADLS Gen2 storage operations.
 - Verify retry on transient errors
 - Test credential handling
 
-#### 3. Delta Writers (`pipeline/common/writers/delta_writer.py`)
-**Complexity:** Medium-High | **Value:** High | **Est. Tests:** 30-35
-
-Delta Lake write implementations for various table types.
-
-**Test Coverage Needed:**
-- DeltaEventsWriter (raw event writes)
-- ClaimXEventsDeltaWriter (ClaimX events)
-- ClaimXEntityWriter (multi-table entity writes)
-- Schema validation and evolution
-- Merge operations (upsert logic)
-- Partition handling
-- Transaction commit/rollback
-- Error classification (schema vs transient)
-- Write performance tracking
-
-**Testing Approach:**
-- Mock Delta Lake operations
-- Test batch accumulation and flushing
-- Verify merge keys and update logic
-- Test schema mismatch detection
-- Verify partition column handling
-
-#### 4. Transport Layer (`pipeline/common/transport.py`)
+#### 2. Transport Layer (`pipeline/common/transport.py`)
 **Complexity:** Medium | **Value:** Medium | **Est. Tests:** 20-25
 
 EventHub producer/consumer factory and configuration.
@@ -124,7 +74,7 @@ EventHub producer/consumer factory and configuration.
 
 ### Lower Priority (Optional)
 
-#### 5. Enrichment Pipeline (`pipeline/plugins/shared/enrichment.py`)
+#### 3. Enrichment Pipeline (`pipeline/plugins/shared/enrichment.py`)
 **Complexity:** Medium | **Value:** Low | **Est. Tests:** 15-20
 
 Generic enrichment pipeline framework used by plugins.
@@ -137,7 +87,7 @@ Generic enrichment pipeline framework used by plugins.
 - Stage skip logic
 - Result aggregation
 
-#### 6. Connection Manager (`pipeline/plugins/shared/connections.py`)
+#### 4. Connection Manager (`pipeline/plugins/shared/connections.py`)
 **Complexity:** Medium | **Value:** Low | **Est. Tests:** 20-25
 
 HTTP connection pooling and retry for API calls.
@@ -150,7 +100,7 @@ HTTP connection pooling and retry for API calls.
 - Connection cleanup
 - Health check integration
 
-#### 7. DLQ Handler (EventHub-based) (`pipeline/common/dlq/handler.py`)
+#### 5. DLQ Handler (EventHub-based) (`pipeline/common/dlq/handler.py`)
 **Complexity:** Low | **Value:** Low | **Est. Tests:** 10-15
 
 **Note:** Less critical now that DeltaRetryHandler is tested. This is the generic EventHub DLQ handler.
@@ -198,27 +148,27 @@ HTTP connection pooling and retry for API calls.
 
 ### If Continuing Testing:
 
-**Next Module:** Metrics (`pipeline/common/metrics.py`)
-- Quick win (simple, straightforward)
-- High value (used everywhere)
-- Good warm-up before complex modules
+**Next Module:** OneLake Storage Client (`pipeline/common/storage/onelake.py`)
+- Medium complexity
+- Azure OneLake/ADLS Gen2 storage operations
+- Used by Delta writers and workers
 
-**Then Consider:** Delta Writers
-- Critical for data integrity
-- Complex logic worth testing
-- Build on DeltaRetryHandler tests
+**Then Consider:** Transport Layer
+- Medium complexity
+- EventHub producer/consumer factory
+- Used by all workers
 
 ### If Stopping Here:
 
-Current coverage (357 tests) provides:
+Current coverage (415 tests) provides:
 - ✓ All core pipeline workers tested
 - ✓ All delta and result processing tested
-- ✓ Critical infrastructure (health checks, retry) tested
+- ✓ Critical infrastructure (health checks, retry, metrics, writers) tested
 - ✓ Solid foundation for production confidence
 
 Remaining modules are either:
-- Lower risk (metrics gracefully degrade)
-- Lower complexity (can test as bugs arise)
+- Medium complexity (can test as needed)
+- Lower risk (graceful degradation)
 - Plugin-specific (less critical for core pipeline)
 
 ---
@@ -245,6 +195,10 @@ pytest tests/pipeline/claimx/workers/test_entity_delta_worker.py tests/pipeline/
 # Phase 3
 pytest tests/pipeline/common/test_health.py -v
 pytest tests/pipeline/common/retry/test_delta_handler.py -v
+
+# Phase 4
+pytest tests/pipeline/common/test_metrics.py -v
+pytest tests/pipeline/common/writers/test_delta_writer.py -v
 ```
 
 ---
@@ -264,4 +218,4 @@ pytest tests/pipeline/common/retry/test_delta_handler.py -v
 ---
 
 *Last Updated: 2026-02-05*
-*Current Test Count: 357 passing*
+*Current Test Count: 415 passing*
