@@ -272,7 +272,6 @@ class KQLEventPoller:
             if self.config.kafka is None:
                 raise ValueError("Either sink or kafka config must be provided")
             print(f"[POLLER STARTUP]   - Creating Kafka sink")
-            print(f"[POLLER STARTUP]   - Bootstrap servers: {self.config.kafka.bootstrap_servers}")
             print(f"[POLLER STARTUP]   - Domain: {self.config.domain}")
             self._sink = create_kafka_sink(
                 kafka_config=self.config.kafka,
