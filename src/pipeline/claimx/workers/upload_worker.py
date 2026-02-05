@@ -181,12 +181,12 @@ class ClaimXUploadWorker:
             },
         )
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "upload-worker")
-
-        # Start health check server first
-        await self.health_server.start()
 
         # Initialize concurrency control
         self._semaphore = asyncio.Semaphore(self.concurrency)

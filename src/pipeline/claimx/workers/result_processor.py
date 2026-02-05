@@ -177,12 +177,12 @@ class ClaimXResultProcessor:
         logger.info("Starting ClaimXResultProcessor")
         self._running = True
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "result-processor")
-
-        # Start health check server first
-        await self.health_server.start()
 
         # Create and start consumer with message handler
         # Disable auto-commit to allow manual commit after batch write

@@ -194,11 +194,12 @@ class ClaimXDownloadWorker:
             },
         )
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "download-worker")
-
-        await self.health_server.start()
 
         self._semaphore = asyncio.Semaphore(self.concurrency)
         self._shutdown_event = asyncio.Event()

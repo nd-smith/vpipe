@@ -183,12 +183,12 @@ class ClaimXDeltaEventsWorker:
         logger.info("Starting ClaimXDeltaEventsWorker")
         self._running = True
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "delta-events-worker")
-
-        # Start health check server first
-        await self.health_server.start()
 
         # Start retry handler producers
         await self.retry_handler.start()

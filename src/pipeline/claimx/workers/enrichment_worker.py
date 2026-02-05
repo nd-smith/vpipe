@@ -215,6 +215,9 @@ class ClaimXEnrichmentWorker:
         logger.info("Starting ClaimXEnrichmentWorker")
         self._running = True
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "enrichment-worker")
@@ -226,8 +229,6 @@ class ClaimXEnrichmentWorker:
             worker_id=self.worker_id,
         )
         self._stats_logger.start()
-
-        await self.health_server.start()
 
         # Use injected API client if provided, otherwise create production client
         if self._injected_api_client is not None:

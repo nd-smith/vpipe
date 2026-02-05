@@ -219,9 +219,10 @@ class DownloadWorker:
             },
         )
 
-        initialize_worker_telemetry(self.domain, "download-worker")
-
+        # Start health server first for immediate liveness probe response
         await self.health_server.start()
+
+        initialize_worker_telemetry(self.domain, "download-worker")
 
         self._semaphore = asyncio.Semaphore(self.concurrency)
         self._shutdown_event = asyncio.Event()

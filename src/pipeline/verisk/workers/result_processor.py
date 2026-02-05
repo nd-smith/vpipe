@@ -218,10 +218,10 @@ class ResultProcessor:
         logger.info("Starting result processor")
         self._running = True
 
-        initialize_worker_telemetry(self.domain, "result-processor")
-
-        # Start health check server first
+        # Start health server first for immediate liveness probe response
         await self.health_server.start()
+
+        initialize_worker_telemetry(self.domain, "result-processor")
 
         # Start retry handler producers
         await self._retry_handler.start()

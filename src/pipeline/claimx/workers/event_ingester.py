@@ -19,6 +19,11 @@ from core.logging.context import set_log_context
 from core.logging.utilities import format_cycle_output
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
+from pipeline.common.eventhub.dedup_store import (
+    DedupStoreProtocol,
+    close_dedup_store,
+    get_dedup_store,
+)
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -77,9 +82,15 @@ class ClaimXEventIngesterWorker:
         self._last_cycle_processed = 0
         self._last_cycle_deduped = 0
 
-        # Simple dedup set for recent events
-        # Kafka offset management + idempotent producer handles most duplicates
-        self._recent_events: set[str] = set()
+        # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
+        # In-memory cache: event_id -> timestamp
+        self._dedup_cache: dict[str, float] = {}
+        self._dedup_cache_ttl_seconds = 86400  # 24 hours (matches Verisk)
+        self._dedup_cache_max_size = 100_000  # ~2MB memory for 100k entries
+
+        # Persistent blob storage (survives worker restarts)
+        self._dedup_store: DedupStoreProtocol | None = None
+        self._dedup_worker_name = "claimx-event-ingester"
         processing_config = config.get_worker_config(
             domain, "event_ingester", "processing"
         )
@@ -124,12 +135,22 @@ class ClaimXEventIngesterWorker:
             await self.producer.stop()
             self.producer = None
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "event-ingester")
 
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
-        await self.health_server.start()
+
+        # Initialize persistent dedup store (blob storage)
+        self._dedup_store = await get_dedup_store()
+        if self._dedup_store:
+            logger.info("Persistent dedup store enabled")
+        else:
+            logger.info("Persistent dedup store not configured - using memory-only deduplication")
+
         self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
@@ -165,6 +186,10 @@ class ClaimXEventIngesterWorker:
             await self.consumer.stop()
         if self.producer:
             await self.producer.stop()
+
+        # Close persistent dedup store
+        await close_dedup_store()
+
         await self.health_server.stop()
 
         logger.info("ClaimXEventIngesterWorker stopped successfully")
@@ -310,7 +335,9 @@ class ClaimXEventIngesterWorker:
         # Do NOT regenerate to ensure consistency across duplicate polls
         event_id = event.event_id
         set_log_context(trace_id=event.event_id)
-        if self._is_duplicate(event_id):
+
+        # Check for duplicates (hybrid: memory + blob storage)
+        if await self._is_duplicate(event_id):
             self._records_deduplicated += 1
             logger.debug(
                 "Skipping duplicate ClaimX event",
@@ -335,7 +362,12 @@ class ClaimXEventIngesterWorker:
         )
         await self._create_enrichment_task(event)
 
-        self._mark_processed(event_id)
+        # Mark event as processed in both memory and blob storage
+        await self._mark_processed(event_id)
+
+        # Periodic cleanup of expired cache entries
+        self._cleanup_dedup_cache()
+
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
             topic=self.consumer_config.get_topic(self.domain, "events"),
@@ -384,11 +416,108 @@ class ClaimXEventIngesterWorker:
             )
             raise
 
-    def _is_duplicate(self, event_id: str) -> bool:
-        return event_id in self._recent_events
+    async def _is_duplicate(self, event_id: str) -> bool:
+        """Check if event_id was processed recently (hybrid: memory + blob storage).
 
-    def _mark_processed(self, event_id: str) -> None:
-        self._recent_events.add(event_id)
+        Fast path: Check in-memory cache first
+        Slow path: On miss, check blob storage and update memory cache
+        """
+        now = time.time()
+
+        # Fast path: Check in-memory cache
+        if event_id in self._dedup_cache:
+            cached_time = self._dedup_cache.get(event_id, 0)
+            if now - cached_time < self._dedup_cache_ttl_seconds:
+                return True
+            # Expired - remove from memory cache
+            del self._dedup_cache[event_id]
+
+        # Slow path: Check blob storage (persistent across restarts)
+        if self._dedup_store:
+            try:
+                is_dup, metadata = await self._dedup_store.check_duplicate(
+                    self._dedup_worker_name,
+                    event_id,
+                    self._dedup_cache_ttl_seconds,
+                )
+                if is_dup and metadata:
+                    # Found in blob - update memory cache for faster subsequent lookups
+                    timestamp = metadata.get("timestamp", now)
+                    self._dedup_cache[event_id] = timestamp
+                    logger.debug(
+                        "Found duplicate in blob storage (restored to memory cache)",
+                        extra={"event_id": event_id},
+                    )
+                    return True
+            except Exception as e:
+                logger.warning(
+                    "Error checking blob storage for duplicate (falling back to memory-only)",
+                    extra={"event_id": event_id, "error": str(e)},
+                    exc_info=False,
+                )
+
+        return False
+
+    async def _mark_processed(self, event_id: str) -> None:
+        """Add event_id to both memory and blob storage with TTL+LRU eviction."""
+        now = time.time()
+
+        # If memory cache is full, evict oldest entries (LRU)
+        if len(self._dedup_cache) >= self._dedup_cache_max_size:
+            # Sort by timestamp and remove oldest 10%
+            sorted_items = sorted(
+                self._dedup_cache.items(), key=lambda x: x[1]
+            )
+            evict_count = self._dedup_cache_max_size // 10
+            for event_id_to_evict, _ in sorted_items[:evict_count]:
+                self._dedup_cache.pop(event_id_to_evict, None)
+
+            logger.debug(
+                "Evicted old entries from memory dedup cache",
+                extra={
+                    "evicted_count": evict_count,
+                    "cache_size": len(self._dedup_cache),
+                },
+            )
+
+        # Add to memory cache
+        self._dedup_cache[event_id] = now
+
+        # Persist to blob storage (fire-and-forget - don't block on this)
+        if self._dedup_store:
+            try:
+                await self._dedup_store.mark_processed(
+                    self._dedup_worker_name,
+                    event_id,
+                    {"timestamp": now},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Error persisting to blob storage (memory cache still updated)",
+                    extra={"event_id": event_id, "error": str(e)},
+                    exc_info=False,
+                )
+
+    def _cleanup_dedup_cache(self) -> None:
+        """Remove expired entries from memory cache (periodic maintenance)."""
+        now = time.time()
+        expired_keys = [
+            event_id
+            for event_id, cached_time in self._dedup_cache.items()
+            if now - cached_time >= self._dedup_cache_ttl_seconds
+        ]
+
+        for event_id in expired_keys:
+            self._dedup_cache.pop(event_id, None)
+
+        if expired_keys:
+            logger.debug(
+                "Cleaned up expired event dedup cache entries",
+                extra={
+                    "expired_count": len(expired_keys),
+                    "cache_size": len(self._dedup_cache),
+                },
+            )
 
     async def _periodic_cycle_output(self) -> None:
         logger.info(

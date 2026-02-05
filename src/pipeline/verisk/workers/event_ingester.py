@@ -28,6 +28,11 @@ from config.config import KafkaConfig
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
+from pipeline.common.eventhub.dedup_store import (
+    DedupStoreProtocol,
+    close_dedup_store,
+    get_dedup_store,
+)
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -91,15 +96,16 @@ class EventIngesterWorker:
         self._stats_logger: PeriodicStatsLogger | None = None
         self._running = False
 
-        # In-memory dedup cache: trace_id -> event_id
-        # Prevents duplicate event processing when Eventhouse sends duplicates
-        # WARNING: Cache is cleared on worker restart - duplicates may be reprocessed
-        # after restart if events arrive within the 24h TTL window.
-        # For persistent deduplication across restarts, consider Redis or similar.
+        # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
+        # In-memory cache: trace_id -> event_id
         self._dedup_cache: dict[str, str] = {}
         self._dedup_cache_ttl_seconds = 86400  # 24 hours
         self._dedup_cache_max_size = 100_000  # ~2MB memory for 100k entries
         self._dedup_cache_timestamps: dict[str, float] = {}  # trace_id -> timestamp
+
+        # Persistent blob storage (survives worker restarts)
+        self._dedup_store: DedupStoreProtocol | None = None
+        self._dedup_worker_name = "verisk-event-ingester"
 
         # Health check server - use worker-specific port from config
         processing_config = config.get_worker_config(
@@ -142,12 +148,19 @@ class EventIngesterWorker:
             await self.producer.stop()
             self.producer = None
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "event-ingester")
 
-        # Start health check server first
-        await self.health_server.start()
+        # Initialize persistent dedup store (blob storage)
+        self._dedup_store = await get_dedup_store()
+        if self._dedup_store:
+            logger.info("Persistent dedup store enabled")
+        else:
+            logger.info("Persistent dedup store not configured - using memory-only deduplication")
 
         # Start producer first (uses transport factory for Event Hub support)
         self.producer = create_producer(
@@ -206,6 +219,9 @@ class EventIngesterWorker:
         if self.producer:
             await self.producer.stop()
 
+        # Close persistent dedup store
+        await close_dedup_store()
+
         # Stop health check server
         await self.health_server.stop()
 
@@ -243,8 +259,8 @@ class EventIngesterWorker:
         # Set logging context for this request
         set_log_context(trace_id=event.trace_id)
 
-        # Check for duplicates (same trace_id processed recently)
-        is_duplicate, cached_event_id = self._is_duplicate(event.trace_id)
+        # Check for duplicates (hybrid: memory + blob storage)
+        is_duplicate, cached_event_id = await self._is_duplicate(event.trace_id)
         if is_duplicate:
             self._records_deduplicated += 1
             logger.debug(
@@ -286,8 +302,8 @@ class EventIngesterWorker:
         # Note: Even events without attachments are sent to enrichment for plugin execution
         await self._create_enrichment_task(event, event_id, assignment_id)
 
-        # Mark event as processed in dedup cache
-        self._mark_processed(event.trace_id, event_id)
+        # Mark event as processed in both memory and blob storage
+        await self._mark_processed(event.trace_id, event_id)
 
         # Periodic cleanup of expired cache entries
         self._cleanup_dedup_cache()
@@ -389,25 +405,56 @@ class EventIngesterWorker:
         }
         return msg, extra
 
-    def _is_duplicate(self, trace_id: str) -> tuple[bool, str | None]:
+    async def _is_duplicate(self, trace_id: str) -> tuple[bool, str | None]:
+        """Check if trace_id was processed recently (hybrid: memory + blob storage).
+
+        Fast path: Check in-memory cache first
+        Slow path: On miss, check blob storage and update memory cache
+        """
         now = time.time()
 
-        # Check if in cache and not expired
+        # Fast path: Check in-memory cache
         if trace_id in self._dedup_cache:
             cached_time = self._dedup_cache_timestamps.get(trace_id, 0)
             if now - cached_time < self._dedup_cache_ttl_seconds:
                 return True, self._dedup_cache[trace_id]
-            # Expired - remove from both caches
+            # Expired - remove from memory cache
             del self._dedup_cache[trace_id]
             self._dedup_cache_timestamps.pop(trace_id, None)
 
+        # Slow path: Check blob storage (persistent across restarts)
+        if self._dedup_store:
+            try:
+                is_dup, metadata = await self._dedup_store.check_duplicate(
+                    self._dedup_worker_name,
+                    trace_id,
+                    self._dedup_cache_ttl_seconds,
+                )
+                if is_dup and metadata:
+                    # Found in blob - update memory cache for faster subsequent lookups
+                    event_id = metadata.get("event_id")
+                    timestamp = metadata.get("timestamp", now)
+                    self._dedup_cache[trace_id] = event_id
+                    self._dedup_cache_timestamps[trace_id] = timestamp
+                    logger.debug(
+                        "Found duplicate in blob storage (restored to memory cache)",
+                        extra={"trace_id": trace_id, "event_id": event_id},
+                    )
+                    return True, event_id
+            except Exception as e:
+                logger.warning(
+                    "Error checking blob storage for duplicate (falling back to memory-only)",
+                    extra={"trace_id": trace_id, "error": str(e)},
+                    exc_info=False,
+                )
+
         return False, None
 
-    def _mark_processed(self, trace_id: str, event_id: str) -> None:
-        """Add trace_id -> event_id mapping to dedup cache (LRU eviction)."""
+    async def _mark_processed(self, trace_id: str, event_id: str) -> None:
+        """Add trace_id -> event_id mapping to both memory and blob storage."""
         now = time.time()
 
-        # If cache is full, evict oldest entries (simple LRU)
+        # If memory cache is full, evict oldest entries (LRU)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
             # Sort by timestamp and remove oldest 10%
             sorted_items = sorted(
@@ -419,16 +466,31 @@ class EventIngesterWorker:
                 self._dedup_cache_timestamps.pop(trace_id_to_evict, None)
 
             logger.debug(
-                "Evicted old entries from event dedup cache",
+                "Evicted old entries from memory dedup cache",
                 extra={
                     "evicted_count": evict_count,
                     "cache_size": len(self._dedup_cache),
                 },
             )
 
-        # Add to caches
+        # Add to memory cache
         self._dedup_cache[trace_id] = event_id
         self._dedup_cache_timestamps[trace_id] = now
+
+        # Persist to blob storage (fire-and-forget - don't block on this)
+        if self._dedup_store:
+            try:
+                await self._dedup_store.mark_processed(
+                    self._dedup_worker_name,
+                    trace_id,
+                    {"event_id": event_id, "timestamp": now},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Error persisting to blob storage (memory cache still updated)",
+                    extra={"trace_id": trace_id, "error": str(e)},
+                    exc_info=False,
+                )
 
     def _cleanup_dedup_cache(self) -> None:
         now = time.time()

@@ -171,6 +171,9 @@ class XACTEnrichmentWorker:
         logger.info("Starting XACTEnrichmentWorker")
         self._running = True
 
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         initialize_worker_telemetry(self.domain, "enrichment-worker")
 
         self._stats_logger = PeriodicStatsLogger(
@@ -180,8 +183,6 @@ class XACTEnrichmentWorker:
             worker_id=self.worker_id,
         )
         self._stats_logger.start()
-
-        await self.health_server.start()
 
         self.producer = create_producer(
             config=self.producer_config,

@@ -210,10 +210,10 @@ class UploadWorker:
             },
         )
 
-        initialize_worker_telemetry(self.domain, "upload-worker")
-
-        # Start health check server first
+        # Start health server first for immediate liveness probe response
         await self.health_server.start()
+
+        initialize_worker_telemetry(self.domain, "upload-worker")
 
         # Initialize concurrency control
         self._semaphore = asyncio.Semaphore(self.concurrency)

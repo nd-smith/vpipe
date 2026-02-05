@@ -147,12 +147,12 @@ class ClaimXEntityDeltaWorker:
 
     async def start(self) -> None:
         """Start the worker."""
+        # Start health server first for immediate liveness probe response
+        await self.health_server.start()
+
         from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "entity-delta-worker")
-
-        # Start health check server first
-        await self.health_server.start()
 
         # Start producer for retries
         self.producer = create_producer(
