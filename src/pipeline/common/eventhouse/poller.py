@@ -239,28 +239,41 @@ class KQLEventPoller:
 
     async def start(self) -> None:
         """Initialize all components."""
-        print("\n[POLLER] Starting KQLEventPoller components")
+        print("\n" + "="*80)
+        print("[POLLER STARTUP] Starting KQLEventPoller components")
+        print("="*80)
         logger.info("Starting KQLEventPoller components")
 
-        print("[POLLER] Starting health check server...")
+        print("[POLLER STARTUP] Step 1/5: Starting health check server...")
         await self.health_server.start()
-        print(f"[POLLER] Health check server started on port {self.health_server.actual_port}")
+        print(f"[POLLER STARTUP] Health check server started on port {self.health_server.actual_port}")
 
-        print("[POLLER] Creating KQLClient...")
+        print(f"\n[POLLER STARTUP] Step 2/5: Creating KQLClient for Eventhouse")
+        print(f"[POLLER STARTUP]   - Cluster: {self.config.eventhouse.cluster_url}")
+        print(f"[POLLER STARTUP]   - Database: {self.config.eventhouse.database}")
+        print(f"[POLLER STARTUP]   - Source table: {self.config.source_table}")
         self._kql_client = KQLClient(self.config.eventhouse)
-        print("[POLLER] Connecting to Eventhouse...")
+
+        print(f"\n[POLLER STARTUP] Step 3/5: Connecting to Eventhouse...")
         await self._kql_client.connect()
-        print("[POLLER] KQLClient connection initialized")
+        print("[POLLER STARTUP] KQLClient connection initialized (client created)")
 
         # Test eventhouse connectivity before initializing Kafka sink
-        print("[POLLER] Running connectivity test...")
+        print(f"\n[POLLER STARTUP] Step 4/5: Testing Eventhouse connectivity")
+        print(f"[POLLER STARTUP]   - Will query: {self.config.source_table} | take 10")
+        print(f"[POLLER STARTUP]   - This is the FIRST ACTUAL NETWORK REQUEST")
+        print("[POLLER STARTUP]   - This will authenticate and establish TCP connection")
         await self._test_eventhouse_connectivity()
-        print("[POLLER] Connectivity test passed")
+        print("[POLLER STARTUP] Connectivity test passed! Eventhouse connection confirmed.")
 
         # Use provided sink or create default KafkaSink
+        print(f"\n[POLLER STARTUP] Step 5/5: Initializing output sink")
         if self._sink is None:
             if self.config.kafka is None:
                 raise ValueError("Either sink or kafka config must be provided")
+            print(f"[POLLER STARTUP]   - Creating Kafka sink")
+            print(f"[POLLER STARTUP]   - Bootstrap servers: {self.config.kafka.bootstrap_servers}")
+            print(f"[POLLER STARTUP]   - Domain: {self.config.domain}")
             self._sink = create_kafka_sink(
                 kafka_config=self.config.kafka,
                 domain=self.config.domain,
@@ -268,11 +281,22 @@ class KQLEventPoller:
             )
             self._owns_sink = True
 
+        print(f"[POLLER STARTUP] Starting sink ({type(self._sink).__name__})...")
         await self._sink.start()
+        print(f"[POLLER STARTUP] Sink started successfully")
+
         self._running = True
 
         # Mark health server as ready after successful startup
         self.health_server.set_ready(kafka_connected=True)
+
+        print("\n" + "="*80)
+        print("[POLLER STARTUP] All components started successfully!")
+        print(f"[POLLER STARTUP]   - Health server: port {self.health_server.actual_port}")
+        print(f"[POLLER STARTUP]   - Eventhouse: {self.config.eventhouse.cluster_url}/{self.config.eventhouse.database}")
+        print(f"[POLLER STARTUP]   - Source table: {self.config.source_table}")
+        print(f"[POLLER STARTUP]   - Output sink: {type(self._sink).__name__}")
+        print("="*80 + "\n")
 
         logger.info(
             "KQLEventPoller started",
@@ -293,12 +317,16 @@ class KQLEventPoller:
         table = self.config.source_table
         query = f"{table} | take {test_limit}"
 
-        print("\n[CONNECTIVITY TEST] Starting Eventhouse connectivity test")
+        print("\n" + "#"*80)
+        print("[CONNECTIVITY TEST] Starting Eventhouse connectivity test")
+        print("#"*80)
         print(f"[CONNECTIVITY TEST] Domain: {self.config.domain}")
-        print(f"[CONNECTIVITY TEST] Source table: {table}")
-        print(f"[CONNECTIVITY TEST] Cluster URL: {self.config.eventhouse.cluster_url}")
+        print(f"[CONNECTIVITY TEST] Cluster: {self.config.eventhouse.cluster_url}")
         print(f"[CONNECTIVITY TEST] Database: {self.config.eventhouse.database}")
+        print(f"[CONNECTIVITY TEST] Source table: {table}")
         print(f"[CONNECTIVITY TEST] Test query: {query}")
+        print(f"[CONNECTIVITY TEST] Sample size: {test_limit} rows")
+        print("#"*80)
 
         logger.info(
             "=== Eventhouse Connectivity Test ===",
@@ -312,9 +340,10 @@ class KQLEventPoller:
         )
 
         try:
-            print("[CONNECTIVITY TEST] Executing test query...")
+            print("\n[CONNECTIVITY TEST] Executing test query...")
+            print("[CONNECTIVITY TEST] This will trigger the first real connection to Eventhouse")
             result = await self._kql_client.execute_query(query)
-            print(f"[CONNECTIVITY TEST] Test query completed successfully")
+            print(f"\n[CONNECTIVITY TEST] ✓ Test query completed successfully!")
 
             if not result.rows:
                 logger.warning(
@@ -325,10 +354,11 @@ class KQLEventPoller:
                         "query_duration_ms": round(result.query_duration_ms, 2),
                     },
                 )
-                print(
-                    f"[CONNECTIVITY TEST] Connected to eventhouse successfully. "
-                    f"Table '{table}' returned 0 rows (may be empty)."
-                )
+                print("\n" + "#"*80)
+                print(f"[CONNECTIVITY TEST] ✓ Connected to Eventhouse successfully!")
+                print(f"[CONNECTIVITY TEST] Table '{table}' returned 0 rows (may be empty)")
+                print(f"[CONNECTIVITY TEST] Query duration: {result.query_duration_ms:.0f}ms")
+                print("#"*80 + "\n")
                 return
 
             logger.info(
@@ -339,20 +369,24 @@ class KQLEventPoller:
                     "source_table": table,
                 },
             )
-            print(
-                f"[CONNECTIVITY TEST] SUCCESS - Read {len(result.rows)} records "
-                f"from '{table}' in {result.query_duration_ms:.0f}ms"
-            )
+            print("\n" + "#"*80)
+            print(f"[CONNECTIVITY TEST] ✓ SUCCESS!")
+            print(f"[CONNECTIVITY TEST] Read {len(result.rows)} records from '{table}'")
+            print(f"[CONNECTIVITY TEST] Query duration: {result.query_duration_ms:.0f}ms")
             print(f"[CONNECTIVITY TEST] Columns: {list(result.rows[0].keys())}")
+            print("#"*80)
 
+            print("\n[CONNECTIVITY TEST] Sample records:")
             for i, row in enumerate(result.rows):
                 logger.info(
                     f"Eventhouse sample record {i + 1}/{len(result.rows)}",
                     extra={"record": row},
                 )
-                print(
-                    f"[CONNECTIVITY TEST] Record {i + 1}: {json.dumps(row, default=str)}"
-                )
+                print(f"[CONNECTIVITY TEST]   Record {i + 1}: {json.dumps(row, default=str)}")
+
+            print("\n" + "#"*80)
+            print("[CONNECTIVITY TEST] Eventhouse connectivity test COMPLETE ✓")
+            print("#"*80 + "\n")
 
             logger.info("=== Eventhouse Connectivity Test Complete ===")
 
@@ -365,7 +399,12 @@ class KQLEventPoller:
                     "error_type": type(e).__name__,
                 },
             )
-            print(f"[CONNECTIVITY TEST] FAILED - Could not read from '{table}': {e}")
+            print("\n" + "#"*80)
+            print(f"[CONNECTIVITY TEST] ✗ FAILED")
+            print(f"[CONNECTIVITY TEST] Could not read from table '{table}'")
+            print(f"[CONNECTIVITY TEST] Error type: {type(e).__name__}")
+            print(f"[CONNECTIVITY TEST] Error message: {str(e)[:500]}")
+            print("#"*80 + "\n")
             raise
 
     # FIXED: Restored Asynchronous Context Manager Protocol
