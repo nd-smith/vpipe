@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_STARTUP_RETRIES = 5
 DEFAULT_STARTUP_BACKOFF_BASE = 5  # seconds
 
+# Poller-specific defaults (for Kusto/Eventhouse connectivity)
+DEFAULT_POLLER_RETRIES = 10
+DEFAULT_POLLER_BACKOFF_BASE = 60  # seconds (constant delays)
+
 
 async def _cleanup_watcher_task(task: asyncio.Task) -> None:
     """Cancel and await watcher task, suppressing expected exceptions.
@@ -40,6 +44,7 @@ async def _start_with_retry(
     label: str,
     max_retries: int | None = None,
     backoff_base: int | None = None,
+    use_constant_backoff: bool = False,
 ) -> None:
     """Retry an async start function with exponential backoff.
 
@@ -51,6 +56,7 @@ async def _start_with_retry(
         label: Human-readable label for log messages
         max_retries: Number of retry attempts (default: 5, env: STARTUP_MAX_RETRIES)
         backoff_base: Base seconds for backoff (default: 5, env: STARTUP_BACKOFF_SECONDS)
+        use_constant_backoff: If True, use constant delays instead of linear (default: False)
     """
     max_retries = max_retries or int(
         os.getenv("STARTUP_MAX_RETRIES", str(DEFAULT_STARTUP_RETRIES))
@@ -70,7 +76,7 @@ async def _start_with_retry(
                     extra={"error": str(e), "attempts": max_retries},
                 )
                 raise
-            delay = backoff_base * attempt
+            delay = backoff_base if use_constant_backoff else backoff_base * attempt
             logger.warning(
                 f"Failed to start {label} (attempt {attempt}/{max_retries}), "
                 f"retrying in {delay}s",
@@ -321,7 +327,21 @@ async def execute_poller_with_shutdown(
         watcher_task = asyncio.create_task(shutdown_watcher(poller))
 
         try:
-            await _start_with_retry(poller.run, stage_name)
+            poller_max_retries = int(
+                os.getenv("POLLER_STARTUP_MAX_RETRIES", str(DEFAULT_POLLER_RETRIES))
+            )
+            poller_backoff = int(
+                os.getenv(
+                    "POLLER_STARTUP_BACKOFF_SECONDS", str(DEFAULT_POLLER_BACKOFF_BASE)
+                )
+            )
+            await _start_with_retry(
+                poller.run,
+                stage_name,
+                max_retries=poller_max_retries,
+                backoff_base=poller_backoff,
+                use_constant_backoff=True,
+            )
         except Exception as e:
             # If poller has health server, enter error mode to keep it alive
             if hasattr(poller, "health_server"):
