@@ -90,6 +90,7 @@ addopts = [
     "--tb=short",
 ]
 markers = [
+    "asyncio: Async tests using pytest-asyncio",
     "integration: Integration tests requiring Docker and Kafka testcontainers",
     "performance: Performance/load tests (may be long-running)",
     "slow: Slow tests that may take several minutes",
