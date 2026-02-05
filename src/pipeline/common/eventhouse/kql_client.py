@@ -383,16 +383,9 @@ class KQLClient:
         timeout = timeout_seconds or self.config.query_timeout_seconds
         last_error: Exception | None = None
 
-        print(f"[DEBUG] Executing KQL query on database: {db}")
-        print(f"[DEBUG] Query: {query[:200]}{'...' if len(query) > 200 else ''}")
-        print(f"[DEBUG] Max retries: {self.config.max_retries}, timeout: {timeout}s")
-
         for attempt in range(self.config.max_retries):
-            print(f"[DEBUG] Query attempt {attempt + 1}/{self.config.max_retries}")
             try:
-                print("[DEBUG] Calling _execute_query_impl...")
                 result = await self._execute_query_impl(query, db, timeout)
-                print(f"[DEBUG] Query succeeded, returned {result.row_count} rows")
 
                 # Log success after retries
                 if attempt > 0:
@@ -409,24 +402,17 @@ class KQLClient:
 
             except KustoQueryError:
                 # Query errors are not retryable (syntax/semantic errors)
-                print("[DEBUG] Query error (not retryable) - re-raising")
                 raise
 
             except Exception as e:
                 last_error = e
-                print(f"[DEBUG] Query attempt {attempt + 1} failed: {type(e).__name__}")
-                print(f"[DEBUG] Error message: {str(e)[:500]}")
 
                 classified = StorageErrorClassifier.classify_kusto_error(
                     e, {"operation": "execute_query", "attempt": attempt + 1}
                 )
-                print(f"[DEBUG] Error classified as: {type(classified).__name__}")
-                print(f"[DEBUG] Is retryable: {classified.is_retryable}")
-                print(f"[DEBUG] Should refresh auth: {classified.should_refresh_auth}")
 
                 # Clear all credential caches on auth errors to force token re-read
                 if classified.should_refresh_auth:
-                    print("[DEBUG] Refreshing credentials due to auth error")
                     logger.info(
                         "Auth error detected, refreshing all credentials",
                         extra={
@@ -438,12 +424,10 @@ class KQLClient:
 
                 # Check if error is retryable
                 if not classified.is_retryable:
-                    print("[DEBUG] Error is not retryable - raising classified error")
                     raise classified from e
 
                 # Check if we have more retries
                 if attempt + 1 >= self.config.max_retries:
-                    print(f"[DEBUG] Max retries ({self.config.max_retries}) exhausted")
                     logger.error(
                         "Max retries exhausted for query",
                         extra={
@@ -460,7 +444,6 @@ class KQLClient:
                     self.config.retry_max_delay_seconds,
                 )
 
-                print(f"[DEBUG] Will retry after {delay}s delay")
                 logger.warning(
                     "Retrying query after error",
                     extra={
@@ -490,28 +473,12 @@ class KQLClient:
         """Execute query implementation (runs in thread pool)."""
         start_time = time.perf_counter()
 
-        print("\n" + "-"*80)
-        print("[QUERY EXECUTION] Starting KQL query execution")
-        print("-"*80)
-        print(f"[QUERY EXECUTION] Cluster: {self.config.cluster_url}")
-        print(f"[QUERY EXECUTION] Database: {database}")
-        print(f"[QUERY EXECUTION] Query: {query[:200]}{'...' if len(query) > 200 else ''}")
-        print(f"[QUERY EXECUTION] Timeout: {timeout_seconds}s")
-        print("-"*80)
-
         try:
             # Execute in thread pool since KustoClient is sync
-            print("[QUERY EXECUTION] Making network request to Kusto endpoint...")
-            print("[QUERY EXECUTION] This will:")
-            print("[QUERY EXECUTION]   1. Authenticate using configured credentials")
-            print("[QUERY EXECUTION]   2. Establish TCP connection to cluster")
-            print("[QUERY EXECUTION]   3. Execute the query")
-            print("[QUERY EXECUTION] Waiting for response...")
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self._client.execute(database, query),
             )
-            print("[QUERY EXECUTION] Network request completed successfully!")
 
             query_duration_ms = (time.perf_counter() - start_time) * 1000
             print(f"[DEBUG] Query executed in {query_duration_ms:.0f}ms")
@@ -565,14 +532,6 @@ class KQLClient:
         except KustoServiceError as e:
             query_duration_ms = (time.perf_counter() - start_time) * 1000
 
-            print("\n" + "!"*80)
-            print(f"[QUERY EXECUTION] KustoServiceError after {query_duration_ms:.0f}ms")
-            print("!"*80)
-            print(f"[QUERY EXECUTION] Error type: {type(e).__name__}")
-            print(f"[QUERY EXECUTION] Error message: {str(e)[:1000]}")
-            print(f"[QUERY EXECUTION] Cluster: {self.config.cluster_url}")
-            print(f"[QUERY EXECUTION] Database: {database}")
-
             # Extract detailed error info from KustoServiceError
             error_details = {}
             try:
@@ -581,21 +540,12 @@ class KQLClient:
                     api_errors = e.get_api_errors()
                     if api_errors:
                         error_details["api_errors"] = str(api_errors)[:500]
-                        print(f"[DEBUG] API errors: {str(api_errors)[:500]}")
                 if hasattr(e, "http_response") and e.http_response:
                     error_details["http_status"] = getattr(
                         e.http_response, "status_code", None
                     ) or getattr(e.http_response, "status", None)
-                    print(f"[DEBUG] HTTP status: {error_details.get('http_status')}")
-
-                # Try to extract more details from the exception
-                if hasattr(e, "args") and e.args:
-                    print(f"[DEBUG] Exception args: {e.args}")
-                if hasattr(e, "__cause__") and e.__cause__:
-                    print(f"[DEBUG] Caused by: {type(e.__cause__).__name__}: {str(e.__cause__)[:500]}")
-
-            except Exception as introspection_error:
-                print(f"[DEBUG] Error during exception introspection: {introspection_error}")
+            except Exception:
+                pass
 
             logger.error(
                 "KQL query failed",
@@ -613,28 +563,16 @@ class KQLClient:
             # Check if it's a query error (syntax/semantic)
             error_str = str(e).lower()
             if "semantic error" in error_str or "syntax error" in error_str:
-                print("[DEBUG] Classified as query syntax/semantic error")
                 raise KustoQueryError(
                     f"KQL query error: {e}",
                     cause=e,
                     context={"database": database, "query_length": len(query)},
                 ) from e
 
-            print("[DEBUG] Re-raising KustoServiceError")
             raise
 
         except Exception as e:
             query_duration_ms = (time.perf_counter() - start_time) * 1000
-
-            print(f"[DEBUG] Exception occurred after {query_duration_ms:.0f}ms")
-            print(f"[DEBUG] Exception type: {type(e).__name__}")
-            print(f"[DEBUG] Exception string: {str(e)[:1000]}")
-
-            # Try to get more details
-            if hasattr(e, "__cause__") and e.__cause__:
-                print(f"[DEBUG] Caused by: {type(e.__cause__).__name__}: {str(e.__cause__)[:500]}")
-            if hasattr(e, "args") and e.args:
-                print(f"[DEBUG] Exception args: {e.args}")
 
             logger.error(
                 "Query execution failed",
@@ -648,5 +586,4 @@ class KQLClient:
                 },
             )
 
-            print("[DEBUG] Re-raising exception")
             raise

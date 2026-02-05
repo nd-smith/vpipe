@@ -341,8 +341,15 @@ class KQLEventPoller:
         try:
             print("\n[CONNECTIVITY TEST] Executing test query...")
             print("[CONNECTIVITY TEST] This will trigger the first real connection to Eventhouse")
+            print("[CONNECTIVITY TEST] >>> Making network request to Kusto endpoint...")
+            print("[CONNECTIVITY TEST] >>> This will:")
+            print("[CONNECTIVITY TEST] >>>   1. Authenticate using configured credentials")
+            print("[CONNECTIVITY TEST] >>>   2. Establish TCP connection to cluster")
+            print("[CONNECTIVITY TEST] >>>   3. Execute the test query")
+            print("[CONNECTIVITY TEST] >>> Waiting for response...\n")
             result = await self._kql_client.execute_query(query)
             print(f"\n[CONNECTIVITY TEST] ✓ Test query completed successfully!")
+            print(f"[CONNECTIVITY TEST] ✓ Network connection established and working!")
 
             if not result.rows:
                 logger.warning(
