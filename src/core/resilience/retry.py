@@ -8,10 +8,11 @@ Uses the exception hierarchy to make itelligent retry decisions:
 - Circuit open: fail immediately with retry_after hint
 """
 
+import asyncio
 import logging
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import wraps
 
@@ -307,7 +308,10 @@ def with_retry(
                     if using_server_delay:
                         log_extras["server_retry_after"] = wrapped.retry_after
                         log_extras["delay_source"] = "server"
-                        log_message = "Retryable error for %s, will retry (using server-provided delay)"
+                        log_message = (
+                            "Retryable error for %s, will retry "
+                            "(using server-provided delay)"
+                        )
                     else:
                         log_extras["delay_source"] = "exponential_backoff"
                         log_message = "Retryable error for %s, will retry"
@@ -344,10 +348,187 @@ def with_retry(
     return decorator
 
 
+def with_retry_async(
+    config: RetryConfig | None = None,
+    on_auth_error: Callable[[], None] | Callable[[], Awaitable[None]] | None = None,
+    on_retry: Callable[[Exception, int, float], None] | None = None,
+    wrap_errors: bool = True,
+):
+    """
+    Decorator for retrying async functions with intelligent backoff.
+
+    Async version of with_retry. Uses asyncio.sleep() and supports async callbacks.
+    Reuses all error classification logic from sync version.
+    """
+    if config is None:
+        config = DEFAULT_RETRY
+
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_error: Exception | None = None
+
+            for attempt in range(config.max_attempts):
+                try:
+                    result = await func(*args, **kwargs)
+
+                    if attempt > 0:
+                        logger.info(
+                            "Retry succeeded for %s after %d attempts",
+                            func.__name__,
+                            attempt + 1,
+                            extra={
+                                "operation": func.__name__,
+                                "attempt": attempt + 1,
+                                "total_attempts": config.max_attempts,
+                            },
+                        )
+
+                    return result
+
+                except Exception as e:
+                    last_error = e
+
+                    # Wrap for classification if needed
+                    if wrap_errors and not isinstance(e, PipelineError):
+                        wrapped = wrap_exception(e)
+                    else:
+                        wrapped = e
+
+                    # Extract error category for logging
+                    if isinstance(wrapped, PipelineError):
+                        error_category = (
+                            wrapped.category.value
+                            if hasattr(wrapped.category, "value")
+                            else str(wrapped.category)
+                        )
+                    else:
+                        cat = classify_exception(wrapped)
+                        error_category = (
+                            cat.value if hasattr(cat, "value") else str(cat)
+                        )
+
+                    # Handle auth errors - refresh before retry decision
+                    if (
+                        isinstance(wrapped, PipelineError)
+                        and wrapped.should_refresh_auth
+                    ):
+                        logger.info(
+                            "Auth error detected for %s, refreshing credentials",
+                            func.__name__,
+                            extra={
+                                "operation": func.__name__,
+                                "error_category": error_category,
+                            },
+                        )
+                        if on_auth_error:
+                            # Support async auth callbacks
+                            if asyncio.iscoroutinefunction(on_auth_error):
+                                await on_auth_error()
+                            else:
+                                on_auth_error()
+
+                    # Check if should retry
+                    if not config.should_retry(wrapped, attempt):
+                        error_type = type(wrapped).__name__
+                        if (
+                            isinstance(wrapped, PipelineError)
+                            and not wrapped.is_retryable
+                        ):
+                            logger.warning(
+                                "Permanent error for %s, not retrying: %s",
+                                func.__name__,
+                                str(e)[:200],
+                                extra={
+                                    "operation": func.__name__,
+                                    "error_type": error_type,
+                                    "error_category": error_category,
+                                    "error_message": str(e)[:200],
+                                },
+                            )
+                        else:
+                            logger.error(
+                                "Max retries exhausted for %s: %s",
+                                func.__name__,
+                                str(e)[:200],
+                                extra={
+                                    "operation": func.__name__,
+                                    "error_type": error_type,
+                                    "error_category": error_category,
+                                    "max_attempts": config.max_attempts,
+                                    "error_message": str(e)[:200],
+                                },
+                            )
+                        if wrap_errors:
+                            raise wrapped from e
+                        raise
+
+                    # Calculate delay
+                    delay = config.get_delay(attempt, wrapped)
+
+                    # Check if using server-provided retry_after
+                    using_server_delay = (
+                        config.respect_retry_after
+                        and isinstance(wrapped, ThrottlingError)
+                        and wrapped.retry_after is not None
+                    )
+
+                    log_extras = {
+                        "operation": func.__name__,
+                        "attempt": attempt + 1,
+                        "max_attempts": config.max_attempts,
+                        "error_category": error_category,
+                        "delay_seconds": round(delay, 2),
+                        "error_message": str(e)[:200],
+                    }
+
+                    if using_server_delay:
+                        log_extras["server_retry_after"] = wrapped.retry_after
+                        log_extras["delay_source"] = "server"
+                        log_message = (
+                            "Retryable error for %s, will retry "
+                            "(using server-provided delay)"
+                        )
+                    else:
+                        log_extras["delay_source"] = "exponential_backoff"
+                        log_message = "Retryable error for %s, will retry"
+
+                    logger.warning(
+                        log_message,
+                        func.__name__,
+                        extra=log_extras,
+                    )
+
+                    # Callback before retry
+                    if on_retry:
+                        try:
+                            on_retry(wrapped, attempt, delay)
+                        except Exception as cb_err:
+                            logger.warning(
+                                "Error in on_retry callback for %s: %s",
+                                func.__name__,
+                                str(cb_err)[:100],
+                                extra={
+                                    "operation": func.__name__,
+                                    "callback_error": str(cb_err)[:100],
+                                },
+                            )
+
+                    await asyncio.sleep(delay)
+
+            if last_error:
+                raise last_error
+
+        return wrapper
+
+    return decorator
+
+
 __all__ = [
     "RetryConfig",
     "RetryStats",
     "with_retry",
+    "with_retry_async",
     "DEFAULT_RETRY",
     "AUTH_RETRY",
 ]

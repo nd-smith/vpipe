@@ -13,12 +13,9 @@ from enum import Enum
 from typing import Any
 
 import aiohttp
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+
+from core.errors.exceptions import TransientError
+from core.resilience.retry import RetryConfig, with_retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +164,49 @@ class ConnectionManager:
             )
         return self._connections[name]
 
+    async def _execute_request(
+        self,
+        method: str,
+        url: str,
+        request_headers: dict[str, str],
+        timeout: int,
+        json: dict[str, Any] | None,
+        data: Any | None,
+        params: dict[str, Any] | None,
+    ) -> aiohttp.ClientResponse:
+        """
+        Execute single HTTP request with error classification.
+
+        This method is decorated with retry logic. On 5xx error, raises
+        TransientError to trigger retry.
+        """
+        async with self._session.request(
+            method=method,
+            url=url,
+            json=json,
+            data=data,
+            params=params,
+            headers=request_headers,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as response:
+            logger.debug(f"Response {response.status} from {method} {url}")
+
+            # Classify 5xx errors as transient for retry
+            if response.status >= 500:
+                body = await response.text()
+                logger.warning(
+                    f"Server error {response.status} from {url}, will retry. "
+                    f"Body: {body[:200]}"
+                )
+                raise TransientError(
+                    f"HTTP {response.status}: {body[:200]}",
+                    context={"status_code": response.status, "url": url},
+                )
+
+            # Read body before context manager closes
+            await response.read()
+            return response
+
     async def start(self) -> None:
         """Initialize HTTP client session.
 
@@ -269,58 +309,33 @@ class ConnectionManager:
             retry_override if retry_override is not None else config.max_retries
         )
 
-        # Execute with retry logic
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(max_retries),
-            wait=wait_exponential(
-                multiplier=config.retry_backoff_base,
-                max=config.retry_backoff_max,
-            ),
-            retry=retry_if_exception_type(
-                (
-                    aiohttp.ClientConnectionError,
-                    aiohttp.ServerTimeoutError,
-                    asyncio.TimeoutError,
-                )
-            ),
-            reraise=True,
-        ):
-            with attempt:
-                logger.debug(
-                    f"Request {method} {url} (attempt {attempt.retry_state.attempt_number})"
-                )
+        # Create retry configuration
+        retry_config = RetryConfig(
+            max_attempts=max_retries,
+            base_delay=config.retry_backoff_base,
+            max_delay=config.retry_backoff_max,
+            exponential_base=2.0,
+            respect_permanent=True,
+            respect_retry_after=True,
+        )
 
-                async with self._session.request(
-                    method=method,
-                    url=url,
-                    json=json,
-                    data=data,
-                    params=params,
-                    headers=request_headers,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
-                ) as response:
-                    # Log response
-                    logger.debug(
-                        f"Response {response.status} from {method} {url} "
-                        f"in {response.request_info.headers.get('X-Request-Duration', 'N/A')}"
-                    )
+        # Apply retry decorator to helper
+        retryable_request = with_retry_async(
+            config=retry_config,
+            wrap_errors=True,
+        )(self._execute_request)
 
-                    # For 5xx errors, retry if we have attempts left
-                    if (
-                        response.status >= 500
-                        and attempt.retry_state.attempt_number < max_retries
-                    ):
-                        body = await response.text()
-                        logger.warning(
-                            f"Server error {response.status} from {url}, will retry. "
-                            f"Body: {body[:200]}"
-                        )
-                        raise aiohttp.ServerTimeoutError()
-
-                    # Read body inside context manager before connection closes
-                    # This is required because the context manager closes the connection on exit
-                    await response.read()
-                    return response
+        # Execute request with retry
+        logger.debug(f"Request {method} {url}")
+        return await retryable_request(
+            method=method,
+            url=url,
+            request_headers=request_headers,
+            timeout=timeout,
+            json=json,
+            data=data,
+            params=params,
+        )
 
     async def request_json(
         self,

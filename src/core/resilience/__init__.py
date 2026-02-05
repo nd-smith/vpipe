@@ -38,6 +38,7 @@ from .retry import (
     RetryConfig,
     RetryStats,
     with_retry,
+    with_retry_async,
 )
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "RetryConfig",
     "RetryStats",
     "with_retry",
+    "with_retry_async",
     "DEFAULT_RETRY",
     "AUTH_RETRY",
     # Circuit Breaker Configs
