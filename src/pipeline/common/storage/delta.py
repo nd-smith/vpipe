@@ -612,7 +612,8 @@ class DeltaTableWriter:
 
         # Align source schema with target to ensure column order matches
         # (alignment also handles null-typed columns)
-        if self._table_exists(opts):
+        table_existed_before = self._table_exists(opts)
+        if table_existed_before:
             df = self._align_schema_with_target(df, opts)
         else:
             # Table doesn't exist - cast null-typed columns to avoid Delta Lake errors
@@ -622,7 +623,7 @@ class DeltaTableWriter:
         # otherwise use configured partition column. This prevents partition mismatch
         # errors when appending to tables with different/no partitioning.
         partition_by = None
-        if self._table_exists(opts):
+        if table_existed_before:
             try:
                 dt = DeltaTable(self.table_path, storage_options=opts)
                 existing_partitions = dt.metadata().partition_columns
@@ -635,6 +636,22 @@ class DeltaTableWriter:
         else:
             partition_by = [self.partition_column] if self.partition_column else None
 
+        # DIAGNOSTIC: Log comprehensive write details
+        logger.info(
+            "Delta write details",
+            extra={
+                "batch_id": batch_id,
+                "table_path": self.table_path,
+                "table_existed_before": table_existed_before,
+                "partition_by": partition_by,
+                "partition_column_config": self.partition_column,
+                "df_columns": df.columns,
+                "df_schema": {col: str(dtype) for col, dtype in zip(df.columns, df.dtypes)},
+                "rows_to_write": len(df),
+                "first_row_sample": df.head(1).to_dicts()[0] if not df.is_empty() else {},
+            },
+        )
+
         write_deltalake(
             self.table_path,
             df.to_arrow(),
@@ -643,6 +660,40 @@ class DeltaTableWriter:
             storage_options=opts,
             partition_by=partition_by,
         )  # type: ignore[call-overload]
+
+        # DIAGNOSTIC: Verify write completed by checking table
+        logger.info(
+            "Delta write completed, verifying",
+            extra={
+                "batch_id": batch_id,
+                "rows_written": len(df),
+            },
+        )
+
+        # Verify table now exists and log details
+        try:
+            dt = DeltaTable(self.table_path, storage_options=opts)
+            version = dt.version()
+            metadata = dt.metadata()
+            logger.info(
+                "Delta table verified after write",
+                extra={
+                    "batch_id": batch_id,
+                    "table_path": self.table_path,
+                    "table_version": version,
+                    "partition_columns": metadata.partition_columns,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to verify Delta table after write",
+                extra={
+                    "batch_id": batch_id,
+                    "table_path": self.table_path,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
 
         return len(df)
 
