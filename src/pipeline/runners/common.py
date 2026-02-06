@@ -252,6 +252,7 @@ async def execute_worker_with_producer(
         config=kafka_config,
         domain=domain,
         worker_name=producer_worker_name,
+        topic_key="retry",
     )
     await _start_with_retry(producer.start, f"{stage_name}-producer")
 
