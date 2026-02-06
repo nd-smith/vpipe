@@ -147,7 +147,6 @@ class ClaimXDeltaEventsWorker:
 
         self.retry_handler = DeltaRetryHandler(
             config=config,
-            producer=producer,
             table_path=events_table_path,
             retry_delays=self._retry_delays,
             retry_topic_prefix=self._retry_topic_prefix,
