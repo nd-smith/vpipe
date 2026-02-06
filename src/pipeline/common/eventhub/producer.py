@@ -20,6 +20,11 @@ from azure.eventhub import EventData, EventHubProducerClient, TransportType
 from pydantic import BaseModel
 
 from core.utils.json_serializers import json_serializer
+from pipeline.common.eventhub.diagnostics import (
+    log_connection_attempt_details,
+    log_connection_diagnostics,
+    mask_connection_string,
+)
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_message_produced,
@@ -124,6 +129,9 @@ class EventHubProducer:
         logger.info("Starting Event Hub producer")
 
         try:
+            # Log comprehensive connection diagnostics
+            log_connection_diagnostics(self.connection_string, self.eventhub_name)
+
             # Apply SSL configuration for production CA bundle
             # Check for custom CA bundle (production TLS-intercepting proxy)
             ssl_kwargs = {}
@@ -134,17 +142,15 @@ class EventHubProducer:
             )
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
-                logger.info(
-                    f"[DEBUG] Using custom CA bundle for Event Hub: {ca_bundle}"
-                )
             else:
                 logger.info("[DEBUG] Using system default CA certificates")
 
-            logger.info(
-                f"[DEBUG] Creating Event Hub producer client for: {self.eventhub_name}"
+            # Log connection attempt details
+            log_connection_attempt_details(
+                eventhub_name=self.eventhub_name,
+                transport_type="AmqpOverWebsocket",
+                ssl_kwargs=ssl_kwargs,
             )
-            logger.info(f"[DEBUG] Transport type: AmqpOverWebsocket (port 443)")
-            logger.info(f"[DEBUG] SSL kwargs: {ssl_kwargs}")
 
             # Create producer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
@@ -179,6 +185,9 @@ class EventHubProducer:
             )
 
         except Exception as e:
+            # Log masked connection string for troubleshooting
+            masked_conn = mask_connection_string(self.connection_string)
+
             logger.error(
                 "[DEBUG] Failed to start Event Hub producer",
                 extra={
@@ -186,10 +195,12 @@ class EventHubProducer:
                     "error_type": type(e).__name__,
                     "eventhub_name": self.eventhub_name,
                     "ca_bundle": ca_bundle if ca_bundle else "system default",
+                    "connection_string_masked": masked_conn,
                 },
                 exc_info=True,
             )
             logger.error(f"[DEBUG] Exception details: {repr(e)}")
+            logger.error(f"[DEBUG] Connection string (masked): {masked_conn}")
             raise
 
     async def stop(self) -> None:
