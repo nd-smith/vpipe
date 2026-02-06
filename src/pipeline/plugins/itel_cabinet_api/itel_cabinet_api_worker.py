@@ -49,6 +49,27 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 logger = logging.getLogger(__name__)
 
+# Image type mapping: question_key -> vendor image_type
+IMAGE_TYPE_MAP = {
+    "overview_photos": "overview",
+    # Lower Cabinet
+    "lower_cabinet_box": "low_overview",
+    "lower_face_frames_doors_drawers": "low_face",
+    "lower_cabinet_end_panels": "low_end",
+    # Upper Cabinet
+    "upper_cabinet_box": "upp_overview",
+    "upper_face_frames_doors_drawers": "upp_face",
+    "upper_cabinet_end_panels": "upp_end",
+    # Full Height Cabinet
+    "full_height_cabinet_box": "fh_overview",
+    "full_height_face_frames_doors_drawers": "fh_face",
+    "full_height_end_panels": "fh_end",
+    # Island Cabinet
+    "island_cabinet_box": "isl_overview",
+    "island_face_frames_doors_drawers": "isl_face",
+    "island_cabinet_end_panels": "isl_end",
+}
+
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
 WORKERS_CONFIG_PATH = (
@@ -225,63 +246,259 @@ class ItelCabinetApiWorker:
 
     def _transform_to_api_format(self, payload: dict) -> dict:
         """
-        Transform tracking worker payload into iTel API format.
+        Transform tracking worker payload into iTel vendor API format.
 
-        Now uses the readable_report format which organizes data by topic
-        for easier consumption.
+        Transforms our internal format to match the vendor's required schema.
 
         Args:
             payload: Message from tracking worker with submission, attachments, and readable_report
 
         Returns:
-            iTel API formatted payload
+            iTel API formatted payload matching vendor schema
         """
         submission = payload.get("submission", {})
-        payload.get("attachments", [])
+        attachments = payload.get("attachments", [])
         readable_report = payload.get("readable_report", {})
+        meta = readable_report.get("meta", {})
 
         logger.info(
-            "Processing payload with readable_report",
+            "Transforming payload to vendor format",
             extra={
                 "assignment_id": submission.get("assignment_id"),
-                "topics_count": len(readable_report.get("topics", {})),
+                "attachment_count": len(attachments),
             },
         )
 
-        # Build iTel API payload using readable_report
-        # The readable_report already has all form data organized by topic
+        # Build images array from attachments
+        images = self._build_images_array(attachments)
+
+        # Build cabinet repair specs from submission
+        cabinet_specs = self._build_cabinet_repair_specs(submission)
+
+        # Build opinion replacement value specs (linear feet)
+        linear_feet_specs = self._build_linear_feet_specs(submission)
+
+        # Build iTel vendor API payload
         api_payload = {
-            # Traceability
-            "traceId": payload.get("event_id"),  # For end-to-end tracing
-            # Metadata from readable_report.meta
-            "meta": readable_report.get("meta", {}),
-            # Topic-organized data from readable_report.topics
-            "data": readable_report.get("topics", {}),
-            # Customer info from submission
-            "customer": {
-                "firstName": submission.get("customer_first_name"),
-                "lastName": submission.get("customer_last_name"),
-                "email": submission.get("customer_email"),
-                "phone": submission.get("customer_phone"),
+            # Integration & Claim IDs
+            "integration_test_id": str(submission.get("assignment_id", "")),
+            "claim_number": submission.get("project_id", ""),
+            "external_claim_id": submission.get("project_id", ""),
+            # Claim metadata
+            "cat_code": "",
+            "claim_type": "Other",
+            "claim_type_other_description": submission.get("damage_description", ""),
+            "loss_type": None,
+            "loss_date": meta.get("dates", {}).get(
+                "assigned", submission.get("date_assigned")
+            ),
+            "service_level": "one_hour",
+            # Insured information
+            "insured": {
+                "name": self._build_full_name(
+                    submission.get("customer_first_name"),
+                    submission.get("customer_last_name"),
+                ),
+                "street_number": "",
+                "street_name": "",
+                "city": "",
+                "state": "",
+                "zip_code": "",
+                "country": None,
             },
+            # Adjuster information
+            "adjuster": {
+                "carrier_id": "",  # TODO: Configure iTel carrier GUID
+                "adjuster_id": "",
+                "first_name": "",
+                "last_name": "",
+                "phone": "",
+                "email": submission.get("assignor_email", ""),
+            },
+            # Images
+            "images": images,
+            # Cabinet damage specifications
+            "cabinet_repair_specs": cabinet_specs,
+            # Linear feet measurements
+            "opinion_replacement_value_specs": linear_feet_specs,
         }
 
         return api_payload
 
+    def _build_full_name(self, first_name: str | None, last_name: str | None) -> str:
+        """Build full name from first and last name."""
+        parts = []
+        if first_name:
+            parts.append(first_name)
+        if last_name:
+            parts.append(last_name)
+        return " ".join(parts) if parts else ""
+
+    def _build_images_array(self, attachments: list) -> list[dict]:
+        """
+        Build images array from attachments.
+
+        Maps our question_key to vendor's image_type values.
+
+        Args:
+            attachments: List of attachment dicts with question_key and url
+
+        Returns:
+            List of image objects with image_type and url
+        """
+        images = []
+        for attachment in attachments:
+            question_key = attachment.get("question_key", "")
+            url = attachment.get("url")
+
+            # Map question_key to vendor image_type
+            image_type = IMAGE_TYPE_MAP.get(question_key)
+
+            if image_type and url:
+                images.append({"image_type": image_type, "url": url})
+            elif url:
+                # Log unmapped image types for debugging
+                logger.warning(
+                    "Unmapped question_key for image",
+                    extra={
+                        "question_key": question_key,
+                        "question_text": attachment.get("question_text"),
+                    },
+                )
+
+        logger.debug("Built images array", extra={"image_count": len(images)})
+        return images
+
+    def _build_cabinet_repair_specs(self, submission: dict) -> dict:
+        """
+        Build cabinet_repair_specs from submission data.
+
+        Maps our field names to vendor's field names.
+
+        Args:
+            submission: Submission dict with cabinet damage data
+
+        Returns:
+            Cabinet repair specs dict matching vendor schema
+        """
+        return {
+            "damage_description": submission.get("damage_description", ""),
+            # Upper cabinets
+            "upper_cabinets_damaged": submission.get("upper_cabinets_damaged", False),
+            "upper_cabinets_damaged_count": submission.get("num_damaged_upper_boxes", 0),
+            "upper_cabinets_detached": submission.get("upper_cabinets_detached", False),
+            "upper_faces_frames_doors_drawers_available": self._normalize_yes_no(
+                submission.get("upper_face_frames_doors_drawers_available")
+            ),
+            "upper_faces_frames_doors_drawers_damaged": submission.get(
+                "upper_face_frames_doors_drawers_damaged", False
+            ),
+            "upper_end_panels_damaged": submission.get(
+                "upper_finished_end_panels_damaged", False
+            ),
+            # Lower cabinets
+            "lower_cabinets_damaged": submission.get("lower_cabinets_damaged", False),
+            "lower_cabinets_damaged_count": submission.get("num_damaged_lower_boxes", 0),
+            "lower_cabinets_detached": submission.get("lower_cabinets_detached", False),
+            "lower_faces_frames_doors_drawers_available": self._normalize_yes_no(
+                submission.get("lower_face_frames_doors_drawers_available")
+            ),
+            "lower_faces_frames_doors_drawers_damaged": submission.get(
+                "lower_face_frames_doors_drawers_damaged", False
+            ),
+            "lower_end_panels_damaged": submission.get(
+                "lower_finished_end_panels_damaged", False
+            ),
+            "lower_cabinets_counter_top_type": submission.get("lower_counter_type", ""),
+            # Full height cabinets
+            "full_height_cabinets_damaged": submission.get(
+                "full_height_cabinets_damaged", False
+            ),
+            "full_height_pantry_cabinets_damaged_count": submission.get(
+                "num_damaged_full_height_boxes", 0
+            ),
+            "full_height_pantry_cabinets_detached": submission.get(
+                "full_height_cabinets_detached", False
+            ),
+            "full_height_frames_doors_drawers_available": self._normalize_yes_no(
+                submission.get("full_height_face_frames_doors_drawers_available")
+            ),
+            "full_height_frames_doors_drawers_damaged": submission.get(
+                "full_height_face_frames_doors_drawers_damaged", False
+            ),
+            "full_height_end_panels_damaged": submission.get(
+                "full_height_finished_end_panels_damaged", False
+            ),
+            # Island cabinets
+            "island_cabinets_damaged": submission.get("island_cabinets_damaged", False),
+            "island_cabinets_damaged_count": submission.get(
+                "num_damaged_island_boxes", 0
+            ),
+            "island_cabinets_detached": submission.get("island_cabinets_detached", False),
+            "island_frames_doors_drawers_available": self._normalize_yes_no(
+                submission.get("island_face_frames_doors_drawers_available")
+            ),
+            "island_frames_doors_drawers_damaged": submission.get(
+                "island_face_frames_doors_drawers_damaged", False
+            ),
+            "island_end_panels_damaged": submission.get(
+                "island_finished_end_panels_damaged", False
+            ),
+            "island_cabinets_counter_top_type": submission.get("island_counter_type", ""),
+            # Other details
+            "other_details_and_instructions": submission.get("additional_notes", ""),
+        }
+
+    def _build_linear_feet_specs(self, submission: dict) -> dict:
+        """
+        Build opinion_replacement_value_specs with linear feet measurements.
+
+        Args:
+            submission: Submission dict with linear feet data
+
+        Returns:
+            Linear feet specs dict matching vendor schema
+        """
+        return {
+            "upper_cabinets_linear_ft": submission.get("upper_cabinets_lf"),
+            "lower_cabinets_linear_ft": submission.get("lower_cabinets_lf"),
+            "full_height_cabinets_linear_ft": submission.get("full_height_cabinets_lf"),
+            "island_cabinets_linear_ft": submission.get("island_cabinets_lf"),
+            "counter_top_linear_ft": submission.get("countertops_lf"),
+        }
+
+    def _normalize_yes_no(self, value: str | bool | None) -> str:
+        """
+        Normalize yes/no values to lowercase string.
+
+        Args:
+            value: Boolean or string value
+
+        Returns:
+            "yes", "no", or "No" (default)
+        """
+        if value is None:
+            return "No"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            if cleaned in ("yes", "true", "1"):
+                return "yes"
+            return "no"
+        return "No"
+
     async def _send_to_api(self, api_payload: dict):
         """Send payload to iTel Cabinet API."""
+        assignment_id = api_payload.get("integration_test_id", "unknown")
+
         logger.info(
             "Sending to iTel API",
             extra={
                 "endpoint": self.api_config["endpoint"],
-                "assignment_id": api_payload.get("assignmentId"),
+                "assignment_id": assignment_id,
             },
         )
-
-        # Send to API
-        assignment_id = api_payload.get("meta", {}).get(
-            "assignmentId"
-        ) or api_payload.get("assignmentId")
 
         status, response = await self.connections.request_json(
             connection_name=self.api_config["connection"],
@@ -306,7 +523,7 @@ class ItelCabinetApiWorker:
         output_dir = Path(self.api_config.get("test_output_dir", "test_output"))
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        assignment_id = api_payload.get("assignmentId", "unknown")
+        assignment_id = api_payload.get("integration_test_id", "unknown")
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
         # Write the transformed API payload
@@ -323,24 +540,16 @@ class ItelCabinetApiWorker:
         with open(original_output_path, "w") as f:
             json.dump(original_payload, f, indent=2, default=str)
 
-        # Log details about attachments for debugging
-        attachments = original_payload.get("attachments", [])
-        if attachments:
-            sample_att = attachments[0]
-            logger.info(
-                f"[TEST MODE] Sample attachment keys: {list(sample_att.keys()) if isinstance(sample_att, dict) else 'not a dict'}",
-                extra={
-                    "sample_attachment": sample_att,
-                    "total_attachments": len(attachments),
-                },
-            )
-
+        # Log details about images for debugging
+        images = api_payload.get("images", [])
         logger.info(
-            "[TEST MODE] Payloads written to files",
+            "[TEST MODE] Vendor schema payload written",
             extra={
                 "assignment_id": assignment_id,
                 "api_payload_file": str(api_output_path),
                 "original_payload_file": str(original_output_path),
+                "image_count": len(images),
+                "image_types": [img.get("image_type") for img in images],
             },
         )
 
@@ -354,35 +563,21 @@ class ItelCabinetApiWorker:
         without external dependencies.
 
         Args:
-            api_payload: Transformed payload for iTel API
+            api_payload: Transformed payload for iTel API (vendor schema format)
             original_payload: Original Kafka message payload
         """
-        # Extract assignment_id from meta or fall back to submission
-        meta = api_payload.get("meta", {})
-        assignment_id = meta.get("assignmentId") or original_payload.get(
-            "submission", {}
-        ).get("assignment_id", "unknown")
+        # Extract assignment_id from new vendor schema
+        assignment_id = api_payload.get("integration_test_id", "unknown")
 
         # Create filename with timestamp for uniqueness
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"itel_submission_{assignment_id}_{timestamp}.json"
         filepath = self.output_dir / filename
 
-        # Build submission data matching API payload format
+        # Build submission data in vendor format with simulation metadata
         submission_data = {
-            "assignment_id": assignment_id,
-            "project_id": meta.get("projectId"),
-            "task_id": meta.get("taskId"),
-            "task_name": meta.get("taskName"),
-            "status": meta.get("status"),
-            "trace_id": api_payload.get("traceId"),
-            # Customer information
-            "customer": api_payload.get("customer", {}),
-            # Cabinet damage data (organized by topic from readable_report)
-            "data": api_payload.get("data", {}),
-            # Metadata
-            "meta": meta,
-            # Submission metadata
+            **api_payload,  # Include full vendor payload
+            # Add simulation metadata
             "submitted_at": datetime.utcnow().isoformat(),
             "simulation_mode": True,
             "source": "itel_cabinet_api_worker",
@@ -392,13 +587,12 @@ class ItelCabinetApiWorker:
         filepath.write_text(json.dumps(submission_data, indent=2, default=str))
 
         logger.info(
-            "[SIMULATION MODE] iTel submission written to file",
+            "[SIMULATION MODE] iTel submission written to file (vendor schema)",
             extra={
                 "assignment_id": assignment_id,
                 "filepath": str(filepath),
-                "project_id": meta.get("projectId"),
-                "task_id": meta.get("taskId"),
-                "data_topics": list(api_payload.get("data", {}).keys()),
+                "claim_number": api_payload.get("claim_number"),
+                "image_count": len(api_payload.get("images", [])),
                 "simulation_mode": True,
             },
         )
