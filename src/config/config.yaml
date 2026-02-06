@@ -72,6 +72,7 @@ claimx_eventhouse:
     source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE}
     poll_interval_seconds: 30
     batch_size: 1000
+    events_table_path: ${CLAIMX_EVENTS_TABLE_PATH}
   dedup:
     claimx_events_window_hours: 24
     eventhouse_query_window_hours: 1
