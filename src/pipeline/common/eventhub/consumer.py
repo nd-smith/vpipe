@@ -32,6 +32,11 @@ from core.errors.exceptions import ErrorCategory
 from core.errors.kafka_classifier import KafkaErrorClassifier
 from core.logging import MessageLogContext
 from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
+from pipeline.common.eventhub.diagnostics import (
+    log_connection_attempt_details,
+    log_connection_diagnostics,
+    mask_connection_string,
+)
 from pipeline.common.eventhub.producer import EventHubProducer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -238,6 +243,9 @@ class EventHubConsumer:
         )
 
         try:
+            # Log comprehensive connection diagnostics
+            log_connection_diagnostics(self.connection_string, self.eventhub_name)
+
             # Apply SSL configuration for production CA bundle
             # Check for custom CA bundle (production TLS-intercepting proxy)
             ssl_kwargs = {}
@@ -248,17 +256,18 @@ class EventHubConsumer:
             )
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
-                logger.info(
-                    f"[DEBUG] Consumer using custom CA bundle: {ca_bundle}"
-                )
             else:
                 logger.info("[DEBUG] Consumer using system default CA certificates")
 
-            logger.info(
-                f"[DEBUG] Creating Event Hub consumer for: {self.eventhub_name}, group: {self.consumer_group}"
+            # Log connection attempt details
+            log_connection_attempt_details(
+                eventhub_name=self.eventhub_name,
+                transport_type="AmqpOverWebsocket",
+                ssl_kwargs=ssl_kwargs,
             )
-            logger.info(f"[DEBUG] Transport type: AmqpOverWebsocket (port 443)")
-            logger.info(f"[DEBUG] SSL kwargs: {ssl_kwargs}")
+            logger.info(
+                f"[DEBUG] Consumer group: {self.consumer_group}"
+            )
 
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
@@ -295,6 +304,9 @@ class EventHubConsumer:
             logger.info("Consumer loop cancelled, shutting down")
             raise
         except Exception as e:
+            # Log masked connection string for troubleshooting
+            masked_conn = mask_connection_string(self.connection_string)
+
             logger.error(
                 "[DEBUG] Consumer loop terminated with error",
                 extra={
@@ -303,10 +315,12 @@ class EventHubConsumer:
                     "eventhub_name": self.eventhub_name,
                     "consumer_group": self.consumer_group,
                     "ca_bundle": ca_bundle if ca_bundle else "system default",
+                    "connection_string_masked": masked_conn,
                 },
                 exc_info=True,
             )
             logger.error(f"[DEBUG] Exception details: {repr(e)}")
+            logger.error(f"[DEBUG] Connection string (masked): {masked_conn}")
             raise
         finally:
             self._running = False
