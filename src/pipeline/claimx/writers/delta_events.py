@@ -131,6 +131,19 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                 return True
 
             df = pl.DataFrame(valid_events, schema=EVENTS_SCHEMA)
+
+            # DIAGNOSTIC: Log details before write
+            self.logger.info(
+                "ClaimX events prepared for write",
+                extra={
+                    "event_count": len(events),
+                    "valid_count": len(valid_events),
+                    "table_path": self.table_path,
+                    "columns": df.columns,
+                    "sample_event": valid_events[0] if valid_events else {},
+                },
+            )
+
             success = await self._async_append(df)
 
             if success:
@@ -138,7 +151,17 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                     "Successfully wrote ClaimX events to Delta",
                     extra={
                         "event_count": len(events),
+                        "valid_count": len(valid_events),
                         "columns": len(df.columns),
+                        "table_path": self.table_path,
+                    },
+                )
+            else:
+                self.logger.error(
+                    "Failed to write ClaimX events to Delta",
+                    extra={
+                        "event_count": len(events),
+                        "valid_count": len(valid_events),
                         "table_path": self.table_path,
                     },
                 )

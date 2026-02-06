@@ -134,6 +134,16 @@ class ClaimXDeltaEventsWorker:
                 "events_table_path is required for ClaimXDeltaEventsWorker"
             )
 
+        # DIAGNOSTIC: Log the exact table path being used
+        logger.info(
+            "Initializing ClaimX Delta writer",
+            extra={
+                "events_table_path": events_table_path,
+                "table_path_length": len(events_table_path),
+                "table_path_prefix": events_table_path[:50] if len(events_table_path) > 50 else events_table_path,
+            },
+        )
+
         self.delta_writer = ClaimXEventsDeltaWriter(
             table_path=events_table_path,
         )
