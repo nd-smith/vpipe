@@ -248,10 +248,22 @@ class EventHubConsumer:
             )
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
+                logger.info(
+                    f"[DEBUG] Consumer using custom CA bundle: {ca_bundle}"
+                )
+            else:
+                logger.info("[DEBUG] Consumer using system default CA certificates")
+
+            logger.info(
+                f"[DEBUG] Creating Event Hub consumer for: {self.eventhub_name}, group: {self.consumer_group}"
+            )
+            logger.info(f"[DEBUG] Transport type: AmqpOverWebsocket (port 443)")
+            logger.info(f"[DEBUG] SSL kwargs: {ssl_kwargs}")
 
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # Pass checkpoint_store if provided for durable offset persistence
+            logger.info("[DEBUG] Calling EventHubConsumerClient.from_connection_string...")
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
@@ -260,6 +272,7 @@ class EventHubConsumer:
                 checkpoint_store=self.checkpoint_store,
                 **ssl_kwargs,
             )
+            logger.info("[DEBUG] Consumer client object created successfully")
 
             self._running = True
             update_connection_status("consumer", connected=True)
@@ -281,8 +294,19 @@ class EventHubConsumer:
         except asyncio.CancelledError:
             logger.info("Consumer loop cancelled, shutting down")
             raise
-        except Exception:
-            logger.error("Consumer loop terminated with error", exc_info=True)
+        except Exception as e:
+            logger.error(
+                "[DEBUG] Consumer loop terminated with error",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "eventhub_name": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "ca_bundle": ca_bundle if ca_bundle else "system default",
+                },
+                exc_info=True,
+            )
+            logger.error(f"[DEBUG] Exception details: {repr(e)}")
             raise
         finally:
             self._running = False

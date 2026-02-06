@@ -134,19 +134,34 @@ class EventHubProducer:
             )
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
+                logger.info(
+                    f"[DEBUG] Using custom CA bundle for Event Hub: {ca_bundle}"
+                )
+            else:
+                logger.info("[DEBUG] Using system default CA certificates")
+
+            logger.info(
+                f"[DEBUG] Creating Event Hub producer client for: {self.eventhub_name}"
+            )
+            logger.info(f"[DEBUG] Transport type: AmqpOverWebsocket (port 443)")
+            logger.info(f"[DEBUG] SSL kwargs: {ssl_kwargs}")
 
             # Create producer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # This is required for Azure Private Link endpoints
+            logger.info("[DEBUG] Calling EventHubProducerClient.from_connection_string...")
             self._producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
                 **ssl_kwargs,
             )
+            logger.info("[DEBUG] Producer client object created successfully")
 
             # Test connection by getting properties
+            logger.info("[DEBUG] Attempting to get Event Hub properties (triggers actual connection)...")
             props = self._producer.get_eventhub_properties()
+            logger.info(f"[DEBUG] Successfully retrieved Event Hub properties: {props}")
             logger.info(
                 f"Connected to Event Hub: {props.get('name', 'unknown')}, "
                 f"partitions: {len(props.get('partition_ids', []))}"
@@ -165,10 +180,16 @@ class EventHubProducer:
 
         except Exception as e:
             logger.error(
-                "Failed to start Event Hub producer",
-                extra={"error": str(e)},
+                "[DEBUG] Failed to start Event Hub producer",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "eventhub_name": self.eventhub_name,
+                    "ca_bundle": ca_bundle if ca_bundle else "system default",
+                },
                 exc_info=True,
             )
+            logger.error(f"[DEBUG] Exception details: {repr(e)}")
             raise
 
     async def stop(self) -> None:
