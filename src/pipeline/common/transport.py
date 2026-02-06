@@ -98,12 +98,18 @@ def _get_namespace_connection_string() -> str:
         Namespace connection string with EntityPath removed (if present).
 
     Raises:
-        ValueError: If no connection string is configured.
+        ValueError: If no connection string is configured or if it's empty/invalid.
     """
     # 1. New env var (preferred)
     conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING")
     if conn:
-        return _strip_entity_path(conn)
+        stripped = _strip_entity_path(conn)
+        if not stripped or not stripped.strip():
+            raise ValueError(
+                "EVENTHUB_NAMESPACE_CONNECTION_STRING is set but empty or contains only whitespace. "
+                "Ensure the environment variable contains a valid Event Hub connection string."
+            )
+        return stripped
 
     # 2. Legacy env var (backward compat)
     conn = os.getenv("EVENTHUB_CONNECTION_STRING")
@@ -112,13 +118,25 @@ def _get_namespace_connection_string() -> str:
             "Using legacy EVENTHUB_CONNECTION_STRING. "
             "Consider migrating to EVENTHUB_NAMESPACE_CONNECTION_STRING."
         )
-        return _strip_entity_path(conn)
+        stripped = _strip_entity_path(conn)
+        if not stripped or not stripped.strip():
+            raise ValueError(
+                "EVENTHUB_CONNECTION_STRING is set but empty or contains only whitespace. "
+                "Ensure the environment variable contains a valid Event Hub connection string."
+            )
+        return stripped
 
     # 3. Config file
     config = _load_eventhub_config()
     conn = config.get(NAMESPACE_CONNECTION_STRING_KEY, "")
     if conn:
-        return _strip_entity_path(conn)
+        stripped = _strip_entity_path(conn)
+        if not stripped or not stripped.strip():
+            raise ValueError(
+                "eventhub.namespace_connection_string in config.yaml is set but empty or contains only whitespace. "
+                "Ensure the configuration contains a valid Event Hub connection string."
+            )
+        return stripped
 
     raise ValueError(
         "Event Hub namespace connection string is required. "
@@ -285,10 +303,21 @@ def create_producer(
     """
     transport = transport_type or get_transport_type()
 
+    logger.debug(
+        f"Creating producer: transport={transport.value}, domain={domain}, worker={worker_name}"
+    )
+
     if transport == TransportType.EVENTHUB:
         from pipeline.common.eventhub.producer import EventHubProducer
 
         # Get namespace connection string
+        logger.debug(
+            "Attempting to load Event Hub namespace connection string",
+            extra={
+                "EVENTHUB_NAMESPACE_CONNECTION_STRING": "***SET***" if os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING") else "NOT SET",
+                "EVENTHUB_CONNECTION_STRING": "***SET***" if os.getenv("EVENTHUB_CONNECTION_STRING") else "NOT SET",
+            }
+        )
         namespace_connection_string = _get_namespace_connection_string()
 
         # Determine Event Hub name
