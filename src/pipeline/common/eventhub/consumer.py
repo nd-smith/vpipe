@@ -249,6 +249,11 @@ class EventHubConsumer:
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
 
+            # Apply proxy configuration if needed
+            proxy_url = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+            if proxy_url:
+                ssl_kwargs["http_proxy"] = {"proxy_hostname": proxy_url}
+
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # Pass checkpoint_store if provided for durable offset persistence
