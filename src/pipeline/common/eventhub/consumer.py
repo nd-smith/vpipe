@@ -238,14 +238,16 @@ class EventHubConsumer:
         )
 
         try:
-            # Apply SSL dev bypass if configured
-            # This must be done before creating the client
+            # Apply SSL configuration for production CA bundle
+            # Check for custom CA bundle (production TLS-intercepting proxy)
             ssl_kwargs = {}
-            if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
-                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass, get_eventhub_ssl_kwargs
-
-                apply_ssl_dev_bypass()
-                ssl_kwargs = get_eventhub_ssl_kwargs()
+            ca_bundle = (
+                os.getenv("SSL_CERT_FILE")
+                or os.getenv("REQUESTS_CA_BUNDLE")
+                or os.getenv("CURL_CA_BUNDLE")
+            )
+            if ca_bundle:
+                ssl_kwargs = {"connection_verify": ca_bundle}
 
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
