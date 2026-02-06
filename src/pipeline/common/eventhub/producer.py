@@ -126,21 +126,21 @@ class EventHubProducer:
         try:
             # Apply SSL dev bypass if configured
             # This must be done before creating the client
+            ssl_kwargs = {}
             if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
-                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass, get_eventhub_ssl_kwargs
 
                 apply_ssl_dev_bypass()
+                ssl_kwargs = get_eventhub_ssl_kwargs()
 
             # Create producer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # This is required for Azure Private Link endpoints
-            from core.security.ssl_dev_bypass import get_eventhub_ssl_kwargs
-
             self._producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
-                **get_eventhub_ssl_kwargs(),
+                **ssl_kwargs,
             )
 
             # Test connection by getting properties

@@ -165,21 +165,21 @@ class EventHubBatchConsumer:
 
         try:
             # Apply SSL dev bypass if configured
+            ssl_kwargs = {}
             if os.getenv("DISABLE_SSL_VERIFY", "false").lower() in ("true", "1", "yes"):
-                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+                from core.security.ssl_dev_bypass import apply_ssl_dev_bypass, get_eventhub_ssl_kwargs
 
                 apply_ssl_dev_bypass()
+                ssl_kwargs = get_eventhub_ssl_kwargs()
 
             # Create consumer with AMQP over WebSocket transport
-            from core.security.ssl_dev_bypass import get_eventhub_ssl_kwargs
-
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
                 checkpoint_store=self.checkpoint_store,
-                **get_eventhub_ssl_kwargs(),
+                **ssl_kwargs,
             )
 
             self._running = True
