@@ -31,10 +31,6 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
         "runner": verisk_runners.run_eventhouse_poller,
         "requires_eventhouse": True,
     },
-    "xact-json-poller": {
-        "runner": verisk_runners.run_eventhouse_json_poller,
-        "requires_eventhouse": True,
-    },
     "xact-event-ingester": {
         "runner": _run_event_ingester_router,
     },

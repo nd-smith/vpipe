@@ -106,7 +106,6 @@ Processes XACT assignment events from Eventhouse through enrichment, download, a
 | Worker | Purpose | Launch Command |
 |--------|---------|----------------|
 | **xact-poller** | Poll Eventhouse for XACT events | `python -m pipeline --worker xact-poller` |
-| **xact-json-poller** | JSON variant of Eventhouse poller | `python -m pipeline --worker xact-json-poller` |
 | **xact-event-ingester** | Route Event Hub → local Kafka | `python -m pipeline --worker xact-event-ingester` |
 | **xact-delta-writer** | Write events to Delta Lake | `python -m pipeline --worker xact-delta-writer` |
 | **xact-retry-scheduler** | Handle retry logic for failed events | `python -m pipeline --worker xact-retry-scheduler` |
@@ -672,7 +671,6 @@ python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
 
 **Verisk (XACT):**
 - `xact-poller`
-- `xact-json-poller`
 - `xact-event-ingester`
 - `xact-delta-writer`
 - `xact-retry-scheduler`
