@@ -75,6 +75,8 @@ class EventHubLogHandler(logging.Handler):
         self._sender_thread: threading.Thread | None = None
         self._shutdown = threading.Event()
         self._circuit_open = False
+        self._circuit_opened_at = 0.0
+        self._circuit_reset_interval = 60.0  # Try to reset circuit every 60 seconds
         self._failure_count = 0
         self._total_sent = 0
         self._total_dropped = 0
@@ -172,6 +174,12 @@ class EventHubLogHandler(logging.Handler):
 
                     now = asyncio.get_event_loop().time()
 
+                    # Auto-reset circuit breaker after cooldown period
+                    if self._circuit_open and (now - self._circuit_opened_at) >= self._circuit_reset_interval:
+                        print(f"[EVENTHUB_LOGS] Circuit breaker cooldown expired - attempting to reconnect")
+                        self._circuit_open = False
+                        self._failure_count = 0
+
                     # Send batch if:
                     # 1. Reached batch size, OR
                     # 2. Timeout reached and we have logs
@@ -245,13 +253,14 @@ class EventHubLogHandler(logging.Handler):
                 print("[EVENTHUB_LOGS] Circuit breaker closed - resuming log uploads")
 
         except Exception as e:
-            self._handle_send_error(e)
+            loop_time = asyncio.get_event_loop().time()
+            self._handle_send_error(e, loop_time)
             # Print error to stderr so it's visible
             import sys
             print(f"[EVENTHUB_LOGS] ERROR sending batch to EventHub: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             raise
 
-    def _handle_send_error(self, error: Exception) -> None:
+    def _handle_send_error(self, error: Exception, loop_time: float) -> None:
         """
         Handle errors with circuit breaker pattern.
 
@@ -260,13 +269,16 @@ class EventHubLogHandler(logging.Handler):
 
         Args:
             error: Exception that occurred during send
+            loop_time: Current event loop time for circuit breaker timing
         """
         self._failure_count += 1
 
         # Open circuit after threshold failures
-        if self._failure_count >= self.circuit_breaker_threshold:
+        if self._failure_count >= self.circuit_breaker_threshold and not self._circuit_open:
             self._circuit_open = True
-            # Circuit will auto-reset on next successful send
+            self._circuit_opened_at = loop_time
+            print(f"[EVENTHUB_LOGS] Circuit breaker OPENED after {self._failure_count} failures - will retry in {self._circuit_reset_interval}s")
+            # Circuit will auto-reset after cooldown period
 
     def get_stats(self) -> dict:
         """
