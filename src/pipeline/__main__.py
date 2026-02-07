@@ -474,7 +474,7 @@ def main():
     log_dir = Path(log_dir_str)
 
     log_to_stdout = args.log_to_stdout or os.getenv(
-        "LOG_TO_STDOUT", "false"
+        "LOG_TO_STDOUT", "true"
     ).lower() in (
         "true",
         "1",
@@ -560,22 +560,37 @@ def main():
     print(f"[STARTUP] Log output mode: {log_output_mode}")
     print(f"[STARTUP] Worker ID: {worker_id}")
 
-    # Display EventHub log destination if EventHub logging is enabled
-    if eventhub_config and eventhub_enabled:
-        # Parse EventHub namespace from connection string
-        conn_str = eventhub_config.get("connection_string", "")
-        eventhub_name = eventhub_config.get("eventhub_name", "unknown")
+    # Display EventHub log configuration and handler status
+    if eventhub_enabled:
+        if eventhub_config:
+            # Parse EventHub namespace from connection string
+            conn_str = eventhub_config.get("connection_string", "")
+            eventhub_name = eventhub_config.get("eventhub_name", "unknown")
 
-        # Extract endpoint from connection string (format: Endpoint=sb://namespace.servicebus.windows.net/;...)
-        eventhub_namespace = "unknown"
-        if "Endpoint=sb://" in conn_str:
-            try:
-                endpoint_part = conn_str.split("Endpoint=sb://")[1].split("/")[0]
-                eventhub_namespace = endpoint_part
-            except (IndexError, AttributeError):
-                pass
+            # Extract endpoint from connection string (format: Endpoint=sb://namespace.servicebus.windows.net/;...)
+            eventhub_namespace = "unknown"
+            if "Endpoint=sb://" in conn_str:
+                try:
+                    endpoint_part = conn_str.split("Endpoint=sb://")[1].split("/")[0]
+                    eventhub_namespace = endpoint_part
+                except (IndexError, AttributeError):
+                    pass
 
-        print(f"[STARTUP] EventHub logs destination: {eventhub_namespace}/{eventhub_name}")
+            print(f"[STARTUP] EventHub logs configured: {eventhub_namespace}/{eventhub_name}")
+
+            # Check if handler was actually created by inspecting root logger handlers
+            root_logger = logging.getLogger()
+            has_eventhub_handler = any(
+                "EventHub" in type(h).__name__ for h in root_logger.handlers
+            )
+            if has_eventhub_handler:
+                print("[STARTUP] EventHub log handler: ✓ ACTIVE")
+            else:
+                print("[STARTUP] EventHub log handler: ✗ FAILED TO CREATE (check logs for errors)")
+        else:
+            print("[STARTUP] EventHub logging: ✗ NOT CONFIGURED (missing EVENTHUB_NAMESPACE_CONNECTION_STRING)")
+    else:
+        print("[STARTUP] EventHub logging: DISABLED")
 
     # Create event loop early so we can start health server immediately
     print("[STARTUP] Creating event loop...")
