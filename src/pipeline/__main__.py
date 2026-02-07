@@ -474,7 +474,7 @@ def main():
     log_dir = Path(log_dir_str)
 
     log_to_stdout = args.log_to_stdout or os.getenv(
-        "LOG_TO_STDOUT", "true"
+        "LOG_TO_STDOUT", "false"
     ).lower() in (
         "true",
         "1",
