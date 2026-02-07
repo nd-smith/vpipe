@@ -25,19 +25,11 @@ DEFAULT_BACKUP_COUNT = 24  # Keep 24 hours of logs by default
 DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
 
-# Instance ID counter for multi-worker deployments
-# Use ordinal numbers (0, 1, 2, ...) instead of random names for production monitoring
-_instance_counter = 0
-_instance_counter_lock = threading.Lock()
-
-
 def _get_next_instance_id() -> str:
-    """Get next instance ID as ordinal number (thread-safe)."""
-    global _instance_counter
-    with _instance_counter_lock:
-        instance_id = str(_instance_counter)
-        _instance_counter += 1
-        return instance_id
+    """Generate unique human-readable instance ID using coolname."""
+    from coolname import generate_slug
+
+    return generate_slug(2)
 
 
 # Noisy loggers to suppress
@@ -788,6 +780,31 @@ def _do_crash_log_upload(reason: str) -> None:
     """Internal implementation for crash log upload."""
     root_logger = logging.getLogger()
     crash_logger = logging.getLogger("core.logging.crash_upload")
+
+    # Phase 0: Flush EventHub handlers first (send pending logs)
+    # Import here to avoid circular dependency
+    try:
+        from core.logging.eventhub_handler import EventHubLogHandler
+
+        for handler in root_logger.handlers:
+            if isinstance(handler, EventHubLogHandler):
+                try:
+                    crash_logger.debug(
+                        "Flushing EventHub handler during crash",
+                        extra={"queue_size": handler.log_queue.qsize()},
+                    )
+                    # close() waits up to 5 seconds for sender thread to flush
+                    handler.close()
+                    crash_logger.debug("EventHub handler flushed successfully")
+                except Exception as e:
+                    # Don't let EventHub flush failures block file upload
+                    crash_logger.warning(
+                        "Failed to flush EventHub handler during crash",
+                        extra={"error": str(e)},
+                    )
+    except ImportError:
+        # EventHub handler not available (expected in some configurations)
+        pass
 
     # Phase 1: Flush all file handlers and collect their file paths
     log_files: list[Path] = []
