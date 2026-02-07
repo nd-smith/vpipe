@@ -159,6 +159,7 @@ class ClaimXEntityDeltaWorker:
             config=self.producer_config,
             domain=self.domain,
             worker_name="entity_delta_writer",
+            topic_key="retry",
         )
         await self.producer.start()
 
