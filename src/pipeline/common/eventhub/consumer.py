@@ -25,7 +25,7 @@ import socket
 import time
 from collections.abc import Awaitable, Callable
 
-from azure.eventhub import EventData, EventPosition, TransportType
+from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
 from core.errors.exceptions import ErrorCategory
@@ -523,7 +523,7 @@ class EventHubConsumer:
             logger.info("[DIAGNOSTIC] No checkpoint store configured (checkpoint_store is None)")
 
         logger.info(
-            "[DIAGNOSTIC] Starting receive with starting_position=EventPosition.earliest()",
+            '[DIAGNOSTIC] Starting receive with starting_position="@earliest"',
             extra={
                 "eventhub_name": self.eventhub_name,
                 "consumer_group": self.consumer_group,
@@ -537,7 +537,7 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    starting_position=EventPosition.earliest(),  # Start from beginning
+                    starting_position="@earliest",  # Start from earliest available message
                 )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
