@@ -474,10 +474,20 @@ class KQLEventPoller:
             rows = self._filter_checkpoint_rows(result.rows)
             if not rows:
                 return
-            await self._process_filtered_results(rows)
+            msg_count = await self._process_filtered_results(rows)
             last = result.rows[-1]
             l_time = self._parse_row_time(last)
             l_tid = str(last.get(self._trace_id_col, ""))
+            logger.info(
+                "Poll cycle",
+                extra={
+                    "query_rows": len(result.rows),
+                    "processing": len(rows),
+                    "messages_sent": msg_count,
+                    "checkpoint_time": l_time.isoformat(),
+                    "prev_checkpoint": poll_from.isoformat(),
+                },
+            )
             await self._save_checkpoint(l_time, l_tid)
         else:
             # Timestamp-only path: handle batch boundary
@@ -487,16 +497,17 @@ class KQLEventPoller:
                 stuck = self._parse_row_time(result.rows[0])
                 rows = await self._drain_timestamp(stuck, now)
                 cp_time = stuck
+            msg_count = await self._process_filtered_results(rows)
             logger.info(
                 "Poll cycle",
                 extra={
                     "query_rows": len(result.rows),
                     "processing": len(rows),
+                    "messages_sent": msg_count,
                     "checkpoint_time": cp_time.isoformat(),
                     "prev_checkpoint": poll_from.isoformat(),
                 },
             )
-            await self._process_filtered_results(rows)
             await self._save_checkpoint(cp_time, "")
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
