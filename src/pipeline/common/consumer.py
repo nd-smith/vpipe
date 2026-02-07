@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import socket
 import time
 from collections.abc import Awaitable, Callable
 
@@ -15,6 +14,7 @@ from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from core.errors.exceptions import ErrorCategory
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
+from core.utils import generate_worker_id
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_dlq_message,
@@ -57,6 +57,12 @@ class MessageConsumer:
         self._dlq_producer: AIOKafkaProducer | None = (
             None  # Lazy-initialized for DLQ routing (WP-211)
         )
+
+        # Generate unique worker ID using coolnames for easier tracing in logs
+        prefix = f"{domain}-{worker_name}"
+        if instance_id:
+            prefix = f"{prefix}-{instance_id}"
+        self.worker_id = generate_worker_id(prefix)
 
         self.consumer_config = config.get_worker_config(domain, worker_name, "consumer")
         self.group_id = config.get_consumer_group(domain, worker_name)
@@ -575,11 +581,6 @@ class MessageConsumer:
 
         dlq_topic = f"{pipeline_message.topic}.dlq"
 
-        try:
-            worker_id = socket.gethostname()
-        except Exception:
-            worker_id = "unknown"
-
         dlq_message = {
             "original_topic": pipeline_message.topic,
             "original_partition": pipeline_message.partition,
@@ -601,7 +602,7 @@ class MessageConsumer:
             "error_message": str(error),
             "error_category": error_category.value,
             "consumer_group": self.group_id,
-            "worker_id": worker_id,
+            "worker_id": self.worker_id,
             "domain": self.domain,
             "worker_name": self.worker_name,
             "dlq_timestamp": time.time(),

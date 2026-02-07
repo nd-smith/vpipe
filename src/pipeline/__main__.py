@@ -481,10 +481,10 @@ def main():
         "yes",
     )
 
-    # Generate unique worker ID with hostname/pod info
-    import socket
-    hostname = socket.gethostname()
-    worker_id = os.getenv("WORKER_ID", f"{args.worker}@{hostname}")
+    # Generate unique worker ID using coolnames for easier tracing
+    from core.utils import generate_worker_id
+
+    worker_id = os.getenv("WORKER_ID") or generate_worker_id(args.worker)
 
     domain = "kafka"
     if args.worker != "all" and "-" in args.worker:

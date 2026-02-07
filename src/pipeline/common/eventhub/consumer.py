@@ -21,7 +21,6 @@ import asyncio
 import json
 import logging
 import os
-import socket
 import time
 from collections.abc import Awaitable, Callable
 
@@ -31,6 +30,7 @@ from azure.eventhub.aio import EventHubConsumerClient
 from core.errors.exceptions import ErrorCategory
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
+from core.utils import generate_worker_id
 from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 from pipeline.common.eventhub.diagnostics import (
     log_connection_attempt_details,
@@ -194,6 +194,12 @@ class EventHubConsumer:
         self._current_partition_context = (
             {}
         )  # Track partition contexts for checkpointing
+
+        # Generate unique worker ID using coolnames for easier tracing in logs
+        prefix = f"{domain}-{worker_name}"
+        if instance_id:
+            prefix = f"{prefix}-{instance_id}"
+        self.worker_id = generate_worker_id(prefix)
 
         # DLQ configuration mapping
         self._dlq_entity_map = self._build_dlq_entity_map()
@@ -643,12 +649,6 @@ class EventHubConsumer:
             )
             return False
 
-        # Get worker ID for context
-        try:
-            worker_id = socket.gethostname()
-        except Exception:
-            worker_id = "unknown"
-
         # Construct DLQ message with full context
         dlq_message = {
             "original_topic": message.topic,
@@ -665,7 +665,7 @@ class EventHubConsumer:
             "error_message": str(error),
             "error_category": error_category.value,
             "consumer_group": self.consumer_group,
-            "worker_id": worker_id,
+            "worker_id": self.worker_id,
             "domain": self.domain,
             "worker_name": self.worker_name,
             "dlq_timestamp": time.time(),
