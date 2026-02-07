@@ -331,7 +331,7 @@ logging:
   eventhub_logging:
     enabled: ${EVENTHUB_LOGGING_ENABLED:-true}
     level: ${EVENTHUB_LOG_LEVEL:-INFO}
-    eventhub_name: ${EVENTHUB_LOGS_NAME:-application-logs}
+    eventhub_name: ${EVENTHUB_LOGS_NAME:-pcesdopodappv1-application-logs}
     batch_size: ${EVENTHUB_LOG_BATCH_SIZE:-100}
     batch_timeout_seconds: ${EVENTHUB_LOG_BATCH_TIMEOUT:-1.0}
     max_queue_size: ${EVENTHUB_LOG_QUEUE_SIZE:-10000}
