@@ -479,7 +479,7 @@ class KQLEventPoller:
             l_time = self._parse_row_time(last)
             l_tid = str(last.get(self._trace_id_col, ""))
             logger.info(
-                "Poll cycle",
+                f"Poll cycle: query_rows={len(result.rows)}, messages_sent={msg_count}, processing={len(rows)}",
                 extra={
                     "query_rows": len(result.rows),
                     "processing": len(rows),
@@ -499,7 +499,7 @@ class KQLEventPoller:
                 cp_time = stuck
             msg_count = await self._process_filtered_results(rows)
             logger.info(
-                "Poll cycle",
+                f"Poll cycle: query_rows={len(result.rows)}, messages_sent={msg_count}, processing={len(rows)}",
                 extra={
                     "query_rows": len(result.rows),
                     "processing": len(rows),
