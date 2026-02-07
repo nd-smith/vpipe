@@ -15,7 +15,11 @@ from pydantic import ValidationError
 
 from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
-from core.logging.utilities import format_cycle_output, log_worker_error
+from core.logging.utilities import (
+    format_cycle_output,
+    log_startup_banner,
+    log_worker_error,
+)
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from pipeline.claimx.handlers import HandlerRegistry, get_handler_registry
@@ -217,6 +221,17 @@ class ClaimXEnrichmentWorker:
 
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
+
+        # Log startup banner
+        log_startup_banner(
+            logger,
+            worker_name="ClaimX Enrichment Worker",
+            instance_id=self.worker_id,
+            domain=self.domain,
+            input_topic=self.enrichment_topic,
+            output_topic=self.download_topic,
+            health_port=self.health_server.port,
+        )
 
         from pipeline.common.telemetry import initialize_worker_telemetry
 
@@ -572,21 +587,19 @@ class ClaimXEnrichmentWorker:
             await self._handle_enrichment_failure(task, e, error_category)
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
-        msg = format_cycle_output(
-            cycle_count=cycle_count,
-            succeeded=self._records_succeeded,
-            failed=self._records_failed,
-            skipped=self._records_skipped,
-            deduplicated=0,
-        )
+        # PeriodicStatsLogger will format the message with deltas
+        # We just need to return the extra fields with cumulative counts
         extra = {
             "records_processed": self._records_processed,
             "records_succeeded": self._records_succeeded,
             "records_failed": self._records_failed,
             "records_skipped": self._records_skipped,
+            "records_deduplicated": 0,
             "project_cache_size": self.project_cache.size(),
         }
-        return msg, extra
+
+        # Message will be replaced by PeriodicStatsLogger
+        return "", extra
 
     async def _ensure_projects_exist(
         self,

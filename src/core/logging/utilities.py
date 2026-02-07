@@ -1,7 +1,7 @@
 """Logging utility functions."""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 # Reserved LogRecord attribute names that cannot be used in extra dict
 _RESERVED_LOG_KEYS = frozenset(
@@ -118,9 +118,11 @@ def format_cycle_output(
     failed: int,
     skipped: int = 0,
     deduplicated: int = 0,
+    since_last: dict[str, int] | None = None,
+    interval_seconds: int = 30,
 ) -> str:
     """
-    Format standardized cycle output for workers.
+    Format standardized cycle output for workers with delta tracking.
 
     Args:
         cycle_count: Current cycle number
@@ -128,6 +130,8 @@ def format_cycle_output(
         failed: Total count of failed records
         skipped: Total count of skipped records (default: 0)
         deduplicated: Total count of deduplicated records (default: 0)
+        since_last: Optional delta counts since last cycle (keys: succeeded, failed, skipped, deduplicated)
+        interval_seconds: Cycle interval in seconds (default: 30)
 
     Returns:
         Formatted cycle output string
@@ -135,8 +139,38 @@ def format_cycle_output(
     Example:
         >>> format_cycle_output(1, 1200, 34, 50, 100)
         'Cycle 1: processed=1200 (succeeded=1200, failed=34, skipped=50, deduped=100)'
+        >>> format_cycle_output(5, 1200, 34, 50, 0, {"succeeded": 240, "failed": 0, "skipped": 0}, 30)
+        'Cycle 5: +240 this cycle | total: 1200 succeeded, 34 failed, 50 skipped | 8.0 msg/s'
     """
-    parts = [f"processed={succeeded + failed + skipped}"]
+    total_processed = succeeded + failed + skipped
+
+    # If deltas are provided, format with delta and rate
+    if since_last is not None:
+        delta_total = (
+            since_last.get("succeeded", 0)
+            + since_last.get("failed", 0)
+            + since_last.get("skipped", 0)
+        )
+        rate = delta_total / interval_seconds if interval_seconds > 0 else 0
+
+        parts = [f"+{delta_total} this cycle"]
+
+        # Total section
+        total_parts = [f"{succeeded} succeeded"]
+        if failed > 0:
+            total_parts.append(f"{failed} failed")
+        if skipped > 0:
+            total_parts.append(f"{skipped} skipped")
+        if deduplicated > 0:
+            total_parts.append(f"{deduplicated} deduped")
+
+        parts.append(f"total: {', '.join(total_parts)}")
+        parts.append(f"{rate:.1f} msg/s")
+
+        return f"Cycle {cycle_count}: {' | '.join(parts)}"
+
+    # Legacy format without deltas
+    parts = [f"processed={total_processed}"]
     parts.append(f"succeeded={succeeded}")
     parts.append(f"failed={failed}")
 
@@ -147,6 +181,71 @@ def format_cycle_output(
         parts.append(f"deduped={deduplicated}")
 
     return f"Cycle {cycle_count}: {', '.join(parts)}"
+
+
+def log_startup_banner(
+    logger: logging.Logger,
+    worker_name: str,
+    instance_id: Optional[str] = None,
+    domain: Optional[str] = None,
+    input_topic: Optional[str] = None,
+    output_topic: Optional[str] = None,
+    health_port: Optional[int] = None,
+    version: Optional[str] = None,
+) -> None:
+    """
+    Log startup banner with worker configuration.
+
+    Args:
+        logger: Logger instance
+        worker_name: Worker name (e.g., "ClaimX Enrichment Worker")
+        instance_id: Instance identifier (e.g., "enrichment_worker-0")
+        domain: Domain (e.g., "claimx")
+        input_topic: Input topic name
+        output_topic: Output topic name
+        health_port: Health check server port
+        version: Optional version string
+
+    Example:
+        log_startup_banner(
+            logger,
+            worker_name="ClaimX Enrichment Worker",
+            instance_id="enrichment_worker-0",
+            domain="claimx",
+            input_topic="claimx.enrichment.pending",
+            output_topic="claimx.downloads.pending",
+            health_port=8081,
+        )
+    """
+    separator = "=" * 50
+
+    lines = [
+        "",
+        separator,
+        worker_name,
+    ]
+
+    if version:
+        lines.append(f"Version: {version}")
+
+    lines.append(separator)
+
+    if instance_id:
+        lines.append(f"Instance:     {instance_id}")
+    if domain:
+        lines.append(f"Domain:       {domain}")
+    if input_topic:
+        lines.append(f"Input Topic:  {input_topic}")
+    if output_topic:
+        lines.append(f"Output Topic: {output_topic}")
+    if health_port:
+        lines.append(f"Health:       http://localhost:{health_port}")
+
+    lines.append(separator)
+    lines.append("")
+
+    banner = "\n".join(lines)
+    logger.info(banner)
 
 
 def log_worker_error(
