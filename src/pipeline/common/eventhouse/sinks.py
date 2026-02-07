@@ -2,8 +2,8 @@
 Event sink abstractions for decoupling event output from the poller.
 
 Provides a Protocol-based interface for event sinks, allowing the KQLEventPoller
-to write events to different destinations (Kafka, JSON files, etc.) without
-tight coupling to any specific implementation.
+to write events to different destinations (message transports, JSON files, etc.)
+without tight coupling to any specific implementation.
 """
 
 import asyncio
@@ -57,22 +57,23 @@ class EventSink(Protocol):
 
 
 @dataclass
-class KafkaSinkConfig:
-    """Configuration for Kafka sink."""
+class MessageSinkConfig:
+    """Configuration for message sink."""
 
-    kafka_config: Any  # MessageConfig
+    message_config: Any  # MessageConfig
     domain: str
     worker_name: str = "eventhouse_poller"
 
 
-class KafkaSink:
+class MessageSink:
     """
-    Event sink that writes to Kafka topics.
+    Event sink that writes to message transport destinations.
 
     Wraps MessageProducer to provide the EventSink interface.
+    Supports both Kafka and EventHub transports.
     """
 
-    def __init__(self, config: KafkaSinkConfig):
+    def __init__(self, config: MessageSinkConfig):
         self.config = config
         self._producer = None
         self._topic: str | None = None
@@ -86,10 +87,10 @@ class KafkaSink:
         from pipeline.common.transport import create_producer
 
         # Resolve topic first so Event Hub producer gets the correct entity name
-        self._topic = self.config.kafka_config.get_topic(self.config.domain, "events")
+        self._topic = self.config.message_config.get_topic(self.config.domain, "events")
 
         self._producer = create_producer(
-            config=self.config.kafka_config,
+            config=self.config.message_config,
             domain=self.config.domain,
             worker_name=self.config.worker_name,
             topic=self._topic,
@@ -103,22 +104,22 @@ class KafkaSink:
             self._topic = self._producer.eventhub_name
 
         logger.info(
-            "KafkaSink started",
+            "MessageSink started",
             extra={"domain": self.config.domain, "topic": self._topic},
         )
 
     async def stop(self) -> None:
-        """Shutdown Kafka producer."""
+        """Shutdown message producer."""
         if self._producer:
             await self._producer.stop()
-            logger.info("KafkaSink stopped")
+            logger.info("MessageSink stopped")
 
     async def write(
         self, key: str, event: BaseModel, headers: dict[str, str] | None = None
     ) -> None:
-        """Write event to Kafka topic."""
+        """Write event to message transport."""
         if not self._producer or not self._topic:
-            raise RuntimeError("KafkaSink not started. Call start() first.")
+            raise RuntimeError("MessageSink not started. Call start() first.")
 
         await self._producer.send(
             value=event,
@@ -127,7 +128,7 @@ class KafkaSink:
         )
 
     async def flush(self) -> None:
-        """Flush Kafka producer buffers."""
+        """Flush message producer buffers."""
         if self._producer:
             await self._producer.flush()
 
@@ -346,16 +347,16 @@ class JsonFileSink:
         }
 
 
-def create_kafka_sink(
-    kafka_config: Any, domain: str, worker_name: str = "eventhouse_poller"
-) -> KafkaSink:
-    """Factory function to create a KafkaSink."""
-    config = KafkaSinkConfig(
-        kafka_config=kafka_config,
+def create_message_sink(
+    message_config: Any, domain: str, worker_name: str = "eventhouse_poller"
+) -> MessageSink:
+    """Factory function to create a MessageSink."""
+    config = MessageSinkConfig(
+        message_config=message_config,
         domain=domain,
         worker_name=worker_name,
     )
-    return KafkaSink(config)
+    return MessageSink(config)
 
 
 def create_json_sink(
@@ -387,10 +388,10 @@ def create_json_sink(
 
 __all__ = [
     "EventSink",
-    "KafkaSink",
-    "KafkaSinkConfig",
+    "MessageSink",
+    "MessageSinkConfig",
     "JsonFileSink",
     "JsonFileSinkConfig",
-    "create_kafka_sink",
+    "create_message_sink",
     "create_json_sink",
 ]

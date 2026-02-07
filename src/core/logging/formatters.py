@@ -84,10 +84,10 @@ class JSONFormatter(logging.Formatter):
         "api_endpoint",
         "api_method",
         "api_calls",
-        # Kafka (to be expanded in WP-109)
-        "kafka_topic",
-        "kafka_partition",
-        "kafka_offset",
+        # Message transport metadata
+        "message_topic",
+        "message_partition",
+        "message_offset",
         # KQL/Kusto
         "database",
         "query",
@@ -105,7 +105,7 @@ class JSONFormatter(logging.Formatter):
         "retry_count": int,
         "http_status": int,
         "status_code": int,
-        "kafka_partition": int,
+        "message_partition": int,
         "df_cols": int,
         "api_calls": int,
         # Large count fields (as int, ADX can handle large ints)
@@ -126,7 +126,7 @@ class JSONFormatter(logging.Formatter):
         "blob_size": int,
         "bytes_uploaded": int,
         "bytes_downloaded": int,
-        "kafka_offset": int,
+        "message_offset": int,
     }
 
     # Fields that contain URLs and should be sanitized

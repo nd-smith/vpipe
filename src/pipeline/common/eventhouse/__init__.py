@@ -13,10 +13,10 @@ from pipeline.common.eventhouse.sinks import (
     EventSink,
     JsonFileSink,
     JsonFileSinkConfig,
-    KafkaSink,
-    KafkaSinkConfig,
+    MessageSink,
+    MessageSinkConfig,
     create_json_sink,
-    create_kafka_sink,
+    create_message_sink,
 )
 
 __all__ = [
@@ -29,10 +29,10 @@ __all__ = [
     "PollerConfig",
     # Sinks
     "EventSink",
-    "KafkaSink",
-    "KafkaSinkConfig",
+    "MessageSink",
+    "MessageSinkConfig",
     "JsonFileSink",
     "JsonFileSinkConfig",
-    "create_kafka_sink",
+    "create_message_sink",
     "create_json_sink",
 ]

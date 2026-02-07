@@ -81,7 +81,7 @@ async def run_eventhouse_poller(
         query_timeout_seconds=eventhouse_source.query_timeout_seconds,
     )
 
-    print(f"[XACT-POLLER] Local Kafka configuration: Loaded")
+    print(f"[XACT-POLLER] Message configuration: Loaded")
     print(f"[XACT-POLLER]   - Output topic: events.raw")
 
     poller_config = PollerConfig(

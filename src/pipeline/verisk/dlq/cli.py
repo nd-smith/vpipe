@@ -194,7 +194,7 @@ class DLQCLIManager:
             print(f"DLQ Message Details: {trace_id}")
             print(f"{'='*80}\n")
 
-            print("Kafka Metadata:")
+            print("Message Metadata:")
             print(f"  Topic:     {record.topic}")
             print(f"  Partition: {record.partition}")
             print(f"  Offset:    {record.offset}")

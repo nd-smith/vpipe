@@ -183,6 +183,69 @@ def format_cycle_output(
     return f"Cycle {cycle_count}: {', '.join(parts)}"
 
 
+def get_log_output_mode(
+    log_to_stdout: bool,
+    enable_file_logging: bool,
+    enable_eventhub_logging: bool,
+) -> str:
+    """
+    Determine log output mode based on configuration flags.
+
+    Returns:
+        String describing where logs are being sent: "stdout", "file",
+        "eventhub", "file+eventhub", etc.
+    """
+    if log_to_stdout:
+        return "stdout"
+
+    modes = []
+    if enable_file_logging:
+        modes.append("file")
+    if enable_eventhub_logging:
+        modes.append("eventhub")
+
+    return "+".join(modes) if modes else "none"
+
+
+def detect_log_output_mode() -> str:
+    """
+    Detect current log output mode by inspecting active logging handlers.
+
+    Returns:
+        String describing where logs are being sent: "stdout", "file",
+        "eventhub", "file+eventhub", etc.
+    """
+    import logging
+    import sys
+
+    root_logger = logging.getLogger()
+    modes = []
+
+    has_file = False
+    has_eventhub = False
+    has_console_only = False
+
+    for handler in root_logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            has_file = True
+        elif hasattr(handler, "__class__") and "EventHub" in handler.__class__.__name__:
+            has_eventhub = True
+        elif isinstance(handler, logging.StreamHandler):
+            # Check if this is the only handler (stdout-only mode)
+            if len(root_logger.handlers) == 1:
+                has_console_only = True
+
+    if has_console_only:
+        return "stdout"
+
+    if has_file:
+        modes.append("file")
+    if has_eventhub:
+        modes.append("eventhub")
+
+    return "+".join(modes) if modes else "console"
+
+
 def log_startup_banner(
     logger: logging.Logger,
     worker_name: str,
@@ -192,6 +255,7 @@ def log_startup_banner(
     output_topic: Optional[str] = None,
     health_port: Optional[int] = None,
     version: Optional[str] = None,
+    log_output_mode: Optional[str] = None,
 ) -> None:
     """
     Log startup banner with worker configuration.
@@ -205,6 +269,7 @@ def log_startup_banner(
         output_topic: Output topic name
         health_port: Health check server port
         version: Optional version string
+        log_output_mode: Log output mode (e.g., "file+eventhub", "stdout")
 
     Example:
         log_startup_banner(
@@ -240,6 +305,8 @@ def log_startup_banner(
         lines.append(f"Output Topic: {output_topic}")
     if health_port:
         lines.append(f"Health:       http://localhost:{health_port}")
+    if log_output_mode:
+        lines.append(f"Log Output:   {log_output_mode}")
 
     lines.append(separator)
     lines.append("")

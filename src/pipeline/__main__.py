@@ -19,6 +19,7 @@ from core.logging.setup import (
     setup_multi_worker_logging,
     upload_crash_logs,
 )
+from core.logging.utilities import get_log_output_mode
 from pipeline.common.health import HealthCheckServer
 from pipeline.runners.registry import WORKER_REGISTRY, run_worker_from_registry
 
@@ -544,6 +545,17 @@ def main():
         )
 
     logger = logging.getLogger(__name__)
+
+    # Determine log output mode and print startup info
+    log_output_mode = get_log_output_mode(
+        log_to_stdout=log_to_stdout,
+        enable_file_logging=file_enabled,
+        enable_eventhub_logging=eventhub_enabled,
+    )
+
+    # Print to stdout for immediate visibility
+    print(f"[STARTUP] Log output mode: {log_output_mode}")
+    print(f"[STARTUP] Worker ID: {worker_id}")
 
     # Create event loop early so we can start health server immediately
     print("[STARTUP] Creating event loop...")

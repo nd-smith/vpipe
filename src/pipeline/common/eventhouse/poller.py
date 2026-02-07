@@ -23,7 +23,7 @@ from pipeline.common.eventhouse.poller_checkpoint_store import (
 )
 from pipeline.common.eventhouse.sinks import (
     EventSink,
-    create_kafka_sink,
+    create_message_sink,
 )
 from pipeline.common.health import HealthCheckServer
 
@@ -51,7 +51,7 @@ class PollerConfig:
     # If set, use this column name instead of ingestion_time() function
     # e.g., "IngestionTime" for claimx which has an actual column
     ingestion_time_column: str | None = None
-    # Optional custom sink - if not provided, uses KafkaSink with kafka config
+    # Optional custom sink - if not provided, uses MessageSink with kafka config
     sink: EventSink | None = None
     health_port: int = 8080  # Health check server port
     # Optional custom checkpoint store - if not provided, creates from config
@@ -63,7 +63,7 @@ class KQLEventPoller:
     Polls Eventhouse for new events and writes them to a configurable sink.
 
     Supports multiple output sinks via dependency injection:
-    - KafkaSink: Write to Kafka topics (default, for pipeline integration)
+    - MessageSink: Write to message transports (default, for pipeline integration)
     - JsonFileSink: Write to JSON Lines files (for debugging/testing)
     - Custom sinks: Implement the EventSink protocol
     """
@@ -213,15 +213,15 @@ class KQLEventPoller:
         await self._test_eventhouse_connectivity()
         print("[POLLER STARTUP] Connectivity test passed! Eventhouse connection confirmed.")
 
-        # Use provided sink or create default KafkaSink
+        # Use provided sink or create default MessageSink
         print(f"\n[POLLER STARTUP] Step 6/6: Initializing output sink")
         if self._sink is None:
             if self.config.kafka is None:
                 raise ValueError("Either sink or kafka config must be provided")
-            print(f"[POLLER STARTUP]   - Creating Kafka sink")
+            print(f"[POLLER STARTUP]   - Creating message sink")
             print(f"[POLLER STARTUP]   - Domain: {self.config.domain}")
-            self._sink = create_kafka_sink(
-                kafka_config=self.config.kafka,
+            self._sink = create_message_sink(
+                message_config=self.config.kafka,
                 domain=self.config.domain,
                 worker_name="eventhouse_poller",
             )

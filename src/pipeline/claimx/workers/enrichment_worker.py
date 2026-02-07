@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import (
+    detect_log_output_mode,
     format_cycle_output,
     log_startup_banner,
     log_worker_error,
@@ -223,6 +224,7 @@ class ClaimXEnrichmentWorker:
         await self.health_server.start()
 
         # Log startup banner
+        log_output_mode = detect_log_output_mode()
         log_startup_banner(
             logger,
             worker_name="ClaimX Enrichment Worker",
@@ -231,6 +233,7 @@ class ClaimXEnrichmentWorker:
             input_topic=self.enrichment_topic,
             output_topic=self.download_topic,
             health_port=self.health_server.port,
+            log_output_mode=log_output_mode,
         )
 
         from pipeline.common.telemetry import initialize_worker_telemetry
