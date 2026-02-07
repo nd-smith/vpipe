@@ -72,7 +72,6 @@ class ClaimXEntityDeltaWorker:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:
             self.worker_id = self.WORKER_NAME
-        self.producer = None
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
 
@@ -154,15 +153,6 @@ class ClaimXEntityDeltaWorker:
 
         initialize_worker_telemetry(self.domain, "entity-delta-worker")
 
-        # Start producer for retries
-        self.producer = create_producer(
-            config=self.producer_config,
-            domain=self.domain,
-            worker_name="entity_delta_writer",
-            topic_key="retry",
-        )
-        await self.producer.start()
-
         # Create consumer via transport factory
         self._consumer = await create_consumer(
             config=self._consumer_config,
@@ -214,9 +204,6 @@ class ClaimXEntityDeltaWorker:
         # Stop the consumer
         if self._consumer:
             await self._consumer.stop()
-
-        if self.producer:
-            await self.producer.stop()
 
         # Stop retry handler producers
         if self.retry_handler:
