@@ -28,11 +28,35 @@ DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
 
 
 def _get_config_value(env_var: str, yaml_value: str, default: str = "") -> str:
-    """Get config value from env var or yaml or default."""
+    """
+    Get config value from env var or yaml or default.
+
+    Expands environment variables in yaml_value if present (e.g., ${VAR_NAME}).
+    If expansion fails (env var not set), the literal ${VAR} string remains.
+    """
     value = os.getenv(env_var)
     if value:
         return value
-    return yaml_value or default
+
+    # Expand environment variables in yaml_value
+    # This handles cases like "events_table_path: ${CLAIMX_EVENTS_TABLE_PATH}"
+    result = yaml_value or default
+    if result:
+        expanded = os.path.expandvars(result)
+
+        # Warn if expansion failed (still contains ${...})
+        if "${" in expanded and "}" in expanded:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Config value contains unexpanded environment variable: {expanded}. "
+                f"Ensure the environment variable is set before starting the worker."
+            )
+
+        result = expanded
+
+    return result
 
 
 def _get_storage_config(kafka_data: dict) -> dict:
