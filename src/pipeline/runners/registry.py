@@ -156,12 +156,16 @@ async def run_worker_from_registry(
     if worker_name == "xact-delta-writer":
         kwargs["events_table_path"] = pipeline_config.events_table_path
     elif worker_name == "claimx-delta-writer":
-        if pipeline_config.claimx_eventhouse:
-            kwargs["events_table_path"] = (
+        # Use delta config path (CLAIMX_DELTA_EVENTS_TABLE env var)
+        # Falls back to eventhouse poller path if delta path not configured
+        kwargs["events_table_path"] = (
+            pipeline_config.claimx_events_table_path
+            or (
                 pipeline_config.claimx_eventhouse.claimx_events_table_path
+                if pipeline_config.claimx_eventhouse
+                else ""
             )
-        else:
-            kwargs["events_table_path"] = ""
+        )
     elif worker_name == "claimx-entity-writer":
         kwargs["projects_table_path"] = pipeline_config.claimx_projects_table_path
         kwargs["contacts_table_path"] = pipeline_config.claimx_contacts_table_path

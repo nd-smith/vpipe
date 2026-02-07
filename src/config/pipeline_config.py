@@ -542,7 +542,8 @@ class PipelineConfig:
     inventory_table_path: str = ""
     failed_table_path: str = ""  # Optional: for tracking permanent failures
 
-    # ClaimX entity table paths
+    # ClaimX Delta table paths
+    claimx_events_table_path: str = ""  # ClaimX events Delta table
     claimx_projects_table_path: str = ""
     claimx_contacts_table_path: str = ""
     claimx_inventory_table_path: str = ""
@@ -642,6 +643,10 @@ class PipelineConfig:
             failed_table_path=_get_config_value(
                 "VERISK_FAILED_TABLE_PATH",
                 domain_delta_config.get("failed_table_path", ""),
+            ),
+            claimx_events_table_path=_get_config_value(
+                "CLAIMX_DELTA_EVENTS_TABLE",
+                delta_config.get("claimx", {}).get("events_table_path", ""),
             ),
             claimx_projects_table_path=_get_config_value(
                 "CLAIMX_PROJECTS_TABLE_PATH",
