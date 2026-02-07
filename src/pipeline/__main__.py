@@ -557,8 +557,8 @@ def main():
     )
 
     # Print to stdout for immediate visibility
-    print(f"[STARTUP] Log output mode: {log_output_mode}")
-    print(f"[STARTUP] Worker ID: {worker_id}")
+    print(f"[STARTUP] Log output mode: {log_output_mode}", flush=True)
+    print(f"[STARTUP] Worker ID: {worker_id}", flush=True)
 
     # Display EventHub log configuration and handler status
     if eventhub_enabled:
@@ -593,14 +593,14 @@ def main():
         print("[STARTUP] EventHub logging: DISABLED")
 
     # Create event loop early so we can start health server immediately
-    print("[STARTUP] Creating event loop...")
+    print("[STARTUP] Creating event loop...", flush=True)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     setup_signal_handlers(loop)
 
     # Start health server FIRST, before any other initialization
     # This ensures the health endpoint is available immediately for Kubernetes probes
-    print("[STARTUP] Initializing health server (first priority)...")
+    print("[STARTUP] Initializing health server (first priority)...", flush=True)
     early_health_server = HealthCheckServer(
         port=8080,
         worker_name=args.worker if args.worker != "all" else "all-workers",
@@ -609,7 +609,8 @@ def main():
     loop.run_until_complete(early_health_server.start())
     print(
         f"[STARTUP] Health server started on port {early_health_server.actual_port} "
-        "(available for Kubernetes probes)"
+        "(available for Kubernetes probes)",
+        flush=True
     )
     logger.info(
         "Health server started early (before main initialization)",
@@ -641,13 +642,13 @@ def main():
     from pipeline.common.telemetry import initialize_telemetry
 
     worker_name = args.worker if args.worker != "all" else "all-workers"
-    print("[STARTUP] Initializing telemetry...")
+    print("[STARTUP] Initializing telemetry...", flush=True)
     initialize_telemetry(
         service_name=f"{domain}-{worker_name}",
         environment=os.getenv("ENVIRONMENT", "development"),
     )
 
-    print("[STARTUP] Starting metrics server...")
+    print("[STARTUP] Starting metrics server...", flush=True)
     actual_port = start_metrics_server(args.metrics_port)
     if actual_port != args.metrics_port:
         logger.info(
@@ -658,7 +659,7 @@ def main():
         logger.info("Metrics server started", extra={"port": actual_port})
 
     # Load configuration based on mode
-    print("[STARTUP] Loading configuration...")
+    print("[STARTUP] Loading configuration...", flush=True)
     if args.dev:
         pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
     else:
@@ -686,7 +687,7 @@ def main():
     shutdown_event = get_shutdown_event()
 
     try:
-        print("[STARTUP] Starting worker(s)...")
+        print("[STARTUP] Starting worker(s)...", flush=True)
         if args.worker == "all":
             loop.run_until_complete(
                 run_all_workers(pipeline_config, enable_delta_writes)
@@ -737,7 +738,7 @@ def main():
         loop.run_until_complete(shutdown_event.wait())
     finally:
         # Stop early health server
-        print("[SHUTDOWN] Stopping early health server...")
+        print("[SHUTDOWN] Stopping early health server...", flush=True)
         loop.run_until_complete(early_health_server.stop())
         loop.close()
         logger.info("Pipeline shutdown complete")
