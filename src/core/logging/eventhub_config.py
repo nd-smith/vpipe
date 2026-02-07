@@ -32,10 +32,10 @@ def prepare_eventhub_logging_config(logging_config: dict) -> dict | None:
         "connection_string": connection_string,
         "eventhub_name": eventhub_logging.get("eventhub_name", "application-logs"),
         "level": level,
-        "batch_size": eventhub_logging.get("batch_size", 100),
-        "batch_timeout_seconds": eventhub_logging.get("batch_timeout_seconds", 1.0),
-        "max_queue_size": eventhub_logging.get("max_queue_size", 10000),
-        "circuit_breaker_threshold": eventhub_logging.get(
+        "batch_size": int(eventhub_logging.get("batch_size", 100)),
+        "batch_timeout_seconds": float(eventhub_logging.get("batch_timeout_seconds", 1.0)),
+        "max_queue_size": int(eventhub_logging.get("max_queue_size", 10000)),
+        "circuit_breaker_threshold": int(eventhub_logging.get(
             "circuit_breaker_threshold", 5
-        ),
+        )),
     }
