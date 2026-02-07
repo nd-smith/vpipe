@@ -25,7 +25,7 @@ import socket
 import time
 from collections.abc import Awaitable, Callable
 
-from azure.eventhub import EventData, TransportType
+from azure.eventhub import EventData, EventPosition, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
 from core.errors.exceptions import ErrorCategory
@@ -515,7 +515,7 @@ class EventHubConsumer:
                 )
 
         logger.info(
-            "[DIAGNOSTIC] Starting receive with starting_position=-1",
+            "[DIAGNOSTIC] Starting receive with starting_position=EventPosition.earliest()",
             extra={
                 "eventhub_name": self.eventhub_name,
                 "consumer_group": self.consumer_group,
@@ -529,7 +529,7 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    starting_position="-1",  # Start from beginning (like earliest)
+                    starting_position=EventPosition.earliest(),  # Start from beginning
                 )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
