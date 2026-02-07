@@ -445,6 +445,7 @@ def setup_logging(
 
     # Add EventHub handler if enabled and configured
     if enable_eventhub_logging and eventhub_config:
+        print(f"[STARTUP] Creating EventHub log handler for: {eventhub_config['eventhub_name']}")
         eventhub_handler = _create_eventhub_handler(
             connection_string=eventhub_config["connection_string"],
             eventhub_name=eventhub_config["eventhub_name"],
@@ -456,6 +457,9 @@ def setup_logging(
         )
         if eventhub_handler:
             root_logger.addHandler(eventhub_handler)
+            print("[STARTUP] EventHub log handler created and attached successfully")
+        else:
+            print("[STARTUP] EventHub log handler creation FAILED - check error logs")
 
     if log_to_stdout:
         # Stdout-only mode: all log output goes to stdout, no file handlers
@@ -647,6 +651,7 @@ def setup_multi_worker_logging(
 
     # Add EventHub handler if enabled and configured
     if enable_eventhub_logging and eventhub_config:
+        print(f"[STARTUP] Creating EventHub log handler for: {eventhub_config['eventhub_name']}")
         eventhub_handler = _create_eventhub_handler(
             connection_string=eventhub_config["connection_string"],
             eventhub_name=eventhub_config["eventhub_name"],
@@ -658,6 +663,9 @@ def setup_multi_worker_logging(
         )
         if eventhub_handler:
             root_logger.addHandler(eventhub_handler)
+            print("[STARTUP] EventHub log handler created and attached successfully")
+        else:
+            print("[STARTUP] EventHub log handler creation FAILED - check error logs")
 
     # Add console handler (receives all logs)
     if sys.platform == "win32":
