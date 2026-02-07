@@ -261,7 +261,7 @@ eventhub:
   claimx:
     events:
       eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
-      # Consumer group removed - each worker uses its own group (e.g., claimx-event_ingester, claimx-delta_events_writer)
+      consumer_group: ${EVENTHUB_CLAIMX_EVENTS_CONSUMER_GROUP:-$Default}
     enrichment_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_NAME:-claimx-enrichment-pending}
       consumer_group: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CONSUMER_GROUP:-claimx-enrichment-pipeline}
