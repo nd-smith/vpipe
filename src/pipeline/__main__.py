@@ -481,7 +481,10 @@ def main():
         "yes",
     )
 
-    worker_id = os.getenv("WORKER_ID", f"kafka-{args.worker}")
+    # Generate unique worker ID with hostname/pod info
+    import socket
+    hostname = socket.gethostname()
+    worker_id = os.getenv("WORKER_ID", f"{args.worker}@{hostname}")
 
     domain = "kafka"
     if args.worker != "all" and "-" in args.worker:
@@ -556,6 +559,23 @@ def main():
     # Print to stdout for immediate visibility
     print(f"[STARTUP] Log output mode: {log_output_mode}")
     print(f"[STARTUP] Worker ID: {worker_id}")
+
+    # Display EventHub log destination if EventHub logging is enabled
+    if eventhub_config and eventhub_enabled:
+        # Parse EventHub namespace from connection string
+        conn_str = eventhub_config.get("connection_string", "")
+        eventhub_name = eventhub_config.get("eventhub_name", "unknown")
+
+        # Extract endpoint from connection string (format: Endpoint=sb://namespace.servicebus.windows.net/;...)
+        eventhub_namespace = "unknown"
+        if "Endpoint=sb://" in conn_str:
+            try:
+                endpoint_part = conn_str.split("Endpoint=sb://")[1].split("/")[0]
+                eventhub_namespace = endpoint_part
+            except (IndexError, AttributeError):
+                pass
+
+        print(f"[STARTUP] EventHub logs destination: {eventhub_namespace}/{eventhub_name}")
 
     # Create event loop early so we can start health server immediately
     print("[STARTUP] Creating event loop...")
