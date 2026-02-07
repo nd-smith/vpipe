@@ -84,7 +84,9 @@ class JsonCheckpointStore:
         lock = self._get_lock(str(file_path))
         async with lock:
             data = self._read_json(file_path)
-        return list(data["partitions"].values())
+        result = list(data["partitions"].values())
+        logger.info(f"[CHECKPOINT] list_ownership called: eventhub={eventhub_name}, group={consumer_group}, returned {len(result)} ownerships")
+        return result
 
     async def claim_ownership(
         self,
@@ -111,6 +113,8 @@ class JsonCheckpointStore:
         eh = first["eventhub_name"]
         cg = first["consumer_group"]
 
+        logger.info(f"[CHECKPOINT] claim_ownership called: eventhub={eh}, group={cg}, requesting {len(ownership_items)} partitions")
+
         file_path = self._ownership_path(ns, eh, cg)
         lock = self._get_lock(str(file_path))
         claimed: list[dict[str, Any]] = []
@@ -120,6 +124,7 @@ class JsonCheckpointStore:
 
             for ownership in ownership_items:
                 partition_id = ownership["partition_id"]
+                owner_id = ownership.get("owner_id", "UNKNOWN")
                 existing = data["partitions"].get(partition_id)
 
                 # Claim succeeds if no existing owner or etag matches
@@ -136,15 +141,17 @@ class JsonCheckpointStore:
                     }
                     data["partitions"][partition_id] = claimed_record
                     claimed.append(claimed_record)
+                    logger.info(f"[CHECKPOINT] Claimed partition {partition_id} for owner_id={owner_id}")
                 else:
-                    logger.debug(
-                        f"Ownership claim rejected for partition {partition_id}: "
+                    logger.warning(
+                        f"[CHECKPOINT] Ownership claim REJECTED for partition {partition_id}: "
                         f"etag mismatch (stored={existing.get('etag')}, "
                         f"provided={incoming_etag})"
                     )
 
             self._write_json(file_path, data)
 
+        logger.info(f"[CHECKPOINT] claim_ownership result: successfully claimed {len(claimed)}/{len(ownership_items)} partitions")
         return claimed
 
     async def update_checkpoint(
@@ -196,7 +203,12 @@ class JsonCheckpointStore:
         lock = self._get_lock(str(file_path))
         async with lock:
             data = self._read_json(file_path)
-        return list(data["partitions"].values())
+        result = list(data["partitions"].values())
+        logger.info(f"[CHECKPOINT] list_checkpoints called: eventhub={eventhub_name}, group={consumer_group}, returned {len(result)} checkpoints")
+        if result:
+            for cp in result:
+                logger.info(f"[CHECKPOINT]   Partition {cp.get('partition_id')}: offset={cp.get('offset')}, seq={cp.get('sequence_number')}")
+        return result
 
     async def close(self) -> None:
         """No-op close for protocol compatibility."""
