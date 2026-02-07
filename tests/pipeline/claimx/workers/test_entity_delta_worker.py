@@ -209,7 +209,7 @@ class TestEntityDeltaWorkerLifecycle:
                 pass
 
             # Verify components were initialized
-            assert worker.producer is not None
+            assert worker.retry_handler is not None
             assert worker._consumer is not None
 
     @pytest.mark.asyncio
@@ -229,8 +229,6 @@ class TestEntityDeltaWorkerLifecycle:
         # Setup mocked components
         worker._consumer = AsyncMock()
         worker._consumer.stop = AsyncMock()
-        worker.producer = AsyncMock()
-        worker.producer.stop = AsyncMock()
         worker.retry_handler = AsyncMock()
         worker.retry_handler.stop = AsyncMock()
 
@@ -262,7 +260,7 @@ class TestEntityDeltaWorkerLifecycle:
 
         # All components are None
         assert worker._consumer is None
-        assert worker.producer is None
+        assert worker.retry_handler is None
 
         # Should not raise
         await worker.stop()

@@ -296,8 +296,10 @@ class TestOAuth2TokenManagerConcurrency:
         assert mock_provider.acquire_count == 1
 
     @pytest.mark.asyncio
-    async def test_concurrent_refresh(self, manager):
+    async def test_concurrent_refresh(self):
         """Concurrent refresh requests should not duplicate refresh."""
+        # Use manager with small refresh buffer for short-lived test tokens
+        manager = OAuth2TokenManager(refresh_buffer_seconds=0)
         provider = MockOAuth2Provider("test_provider", token_lifetime_seconds=1)
         manager.add_provider(provider)
 

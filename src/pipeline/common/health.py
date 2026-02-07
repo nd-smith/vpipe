@@ -99,6 +99,7 @@ class HealthCheckServer:
         self._thread: threading.Thread | None = None
         self._thread_loop: asyncio.AbstractEventLoop | None = None
         self._thread_ready = threading.Event()
+        self._server_started = threading.Event()  # Signals when server is listening
         self._shutdown_event = threading.Event()
         self._state_lock = threading.Lock()  # Protects state variables
 
@@ -334,6 +335,8 @@ class HealthCheckServer:
                         "readiness_endpoint": f"http://localhost:{self._actual_port}/health/ready",
                     },
                 )
+                # Signal that server is now listening
+                self._server_started.set()
             elif self.port != 0 and await self._try_start_on_port(0):
                 logger.warning(
                     f"Port {self.port} in use, falling back to dynamic port assignment",
@@ -348,11 +351,15 @@ class HealthCheckServer:
                         "readiness_endpoint": f"http://localhost:{self._actual_port}/health/ready",
                     },
                 )
+                # Signal that server is now listening
+                self._server_started.set()
             else:
                 logger.warning(
                     "Could not start health check server",
                     extra={"worker_name": self.worker_name},
                 )
+                # Signal startup complete even on failure (prevents deadlock)
+                self._server_started.set()
                 return
 
             # Wait for shutdown signal
@@ -430,6 +437,16 @@ class HealthCheckServer:
                     extra={"worker_name": self.worker_name},
                 )
                 self._enabled = False
+                return
+
+            # Wait for server to actually start listening (with timeout)
+            if not self._server_started.wait(timeout=5.0):
+                logger.error(
+                    "Health server failed to start listening",
+                    extra={"worker_name": self.worker_name},
+                )
+                self._enabled = False
+                return
 
         except Exception as e:
             logger.error(
@@ -470,6 +487,12 @@ class HealthCheckServer:
                     "Health check server stopped",
                     extra={"worker_name": self.worker_name},
                 )
+
+            # Reset state for potential restart
+            self._actual_port = None
+            self._thread_ready.clear()
+            self._server_started.clear()
+            self._shutdown_event.clear()
 
         except Exception as e:
             logger.error(
