@@ -187,15 +187,27 @@ class EventHubLogHandler(logging.Handler):
                         batch and (now - last_send) >= self.batch_timeout_seconds
                     )
 
-                    if should_send and not self._circuit_open:
-                        await self._send_batch(producer, batch)
-                        batch = []
-                        last_send = now
+                    if should_send:
+                        if self._circuit_open:
+                            # Circuit is open - drop the batch and wait for cooldown
+                            dropped_count = len(batch)
+                            self._total_dropped += dropped_count
+                            batch = []
+                            last_send = now
+                            # Only print occasionally to avoid spam
+                            if self._total_dropped % 100 == dropped_count:
+                                print(f"[EVENTHUB_LOGS] Circuit breaker is OPEN - dropping logs (total dropped: {self._total_dropped})")
+                        else:
+                            await self._send_batch(producer, batch)
+                            batch = []
+                            last_send = now
 
                 except asyncio.CancelledError:
                     break
-                except Exception:
+                except Exception as e:
                     # Handle errors but keep running
+                    import sys
+                    print(f"[EVENTHUB_LOGS] ERROR in send loop: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
                     await asyncio.sleep(1)
 
             # Final flush on shutdown
