@@ -384,11 +384,24 @@ class EventHubConsumer:
         # Define event handler for each partition
         async def on_event(partition_context, event):
             """Process single event from Event Hub partition."""
+            partition_id = partition_context.partition_id
+            logger.info(
+                "[DEBUG] on_event called",
+                extra={
+                    "partition_id": partition_id,
+                    "running": self._running,
+                    "offset": event.offset if hasattr(event, 'offset') else 'unknown',
+                },
+            )
+
             if not self._running:
+                logger.warning(
+                    "[DEBUG] Skipping event - consumer not running",
+                    extra={"partition_id": partition_id},
+                )
                 return
 
             # Store partition context for checkpointing
-            partition_id = partition_context.partition_id
             self._current_partition_context[partition_id] = partition_context
 
             # Convert EventData to transport-agnostic PipelineMessage
