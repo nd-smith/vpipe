@@ -20,6 +20,9 @@ import threading
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubProducerClient
 
+from core.errors.transport_classifier import TransportErrorClassifier
+from core.resilience.retry import RetryConfig
+
 
 class EventHubLogHandler(logging.Handler):
     """
@@ -81,6 +84,13 @@ class EventHubLogHandler(logging.Handler):
         self._total_sent = 0
         self._total_dropped = 0
 
+        # Retry configuration for auth and transient errors
+        self._retry_config = RetryConfig(
+            max_attempts=3,
+            base_delay=1.0,
+            respect_permanent=True,
+        )
+
         # Start background sender
         print(f"[EVENTHUB_LOGS] Initializing EventHub log handler for: {eventhub_name}")
         print(f"[EVENTHUB_LOGS] Batch size: {batch_size}, Timeout: {batch_timeout_seconds}s")
@@ -140,18 +150,20 @@ class EventHubLogHandler(logging.Handler):
         finally:
             loop.close()
 
+    def _create_producer(self) -> EventHubProducerClient:
+        """Create EventHub producer client with AMQP over WebSocket."""
+        return EventHubProducerClient.from_connection_string(
+            conn_str=self.connection_string,
+            eventhub_name=self.eventhub_name,
+            transport_type=TransportType.AmqpOverWebsocket,
+        )
+
     async def _send_loop(self) -> None:
         """Main loop for sending batches to Event Hub."""
         print(f"[EVENTHUB_LOGS] Background sender thread started for: {self.eventhub_name}")
 
         try:
-            # Use AMQP over WebSocket (port 443) instead of AMQP over TCP (port 5671)
-            # This works better in corporate networks where 5671 may be blocked
-            producer = EventHubProducerClient.from_connection_string(
-                conn_str=self.connection_string,
-                eventhub_name=self.eventhub_name,
-                transport_type=TransportType.AmqpOverWebsocket,
-            )
+            producer = self._create_producer()
             print(f"[EVENTHUB_LOGS] EventHub producer client created successfully (using AMQP over WebSocket on port 443)")
         except Exception as e:
             import sys
@@ -188,26 +200,114 @@ class EventHubLogHandler(logging.Handler):
                     )
 
                     if should_send and not self._circuit_open:
-                        await self._send_batch(producer, batch)
-                        batch = []
-                        last_send = now
+                        try:
+                            await self._send_batch_with_retry(producer, batch)
+                            batch = []
+                            last_send = now
+                        except Exception as e:
+                            # Check if auth error - recreate producer
+                            classified = TransportErrorClassifier.classify_producer_error(e)
+                            if classified.should_refresh_auth:
+                                print("[EVENTHUB_LOGS] Auth error - closing and recreating producer")
+                                try:
+                                    await producer.close()
+                                except Exception:
+                                    pass
+                                # Exit context manager and recreate producer
+                                raise
 
                 except asyncio.CancelledError:
                     break
                 except Exception:
                     # Handle errors but keep running
+                    # For auth errors, recreate the producer
                     await asyncio.sleep(1)
+                    try:
+                        await producer.close()
+                        producer = self._create_producer()
+                        await producer.__aenter__()
+                        print("[EVENTHUB_LOGS] Producer recreated after error")
+                    except Exception as recreate_error:
+                        import sys
+                        print(f"[EVENTHUB_LOGS] ERROR recreating producer: {recreate_error}", file=sys.stderr)
 
             # Final flush on shutdown
             if batch and not self._circuit_open:
                 with contextlib.suppress(Exception):
-                    await self._send_batch(producer, batch)
+                    await self._send_batch_with_retry(producer, batch)
 
-    async def _send_batch(
+    async def _send_batch_with_retry(
         self, producer: EventHubProducerClient, batch: list[str]
     ) -> None:
         """
-        Send a batch of logs to Event Hub.
+        Send a batch with retry logic for transient and auth errors.
+
+        Args:
+            producer: Event Hub producer client
+            batch: List of JSON log strings to send
+
+        Raises:
+            Exception: If sending fails after retries
+        """
+        if not batch:
+            return
+
+        last_error = None
+        for attempt in range(self._retry_config.max_attempts):
+            try:
+                await self._send_batch_once(producer, batch)
+                return
+            except Exception as e:
+                last_error = e
+
+                # Classify the error
+                classified = TransportErrorClassifier.classify_producer_error(e)
+
+                # Check if should retry
+                if not self._retry_config.should_retry(classified, attempt):
+                    # Not retryable or max attempts reached
+                    loop_time = asyncio.get_event_loop().time()
+                    self._handle_send_error(e, loop_time)
+                    import sys
+                    print(
+                        f"[EVENTHUB_LOGS] ERROR sending batch to EventHub (not retryable): "
+                        f"{type(e).__name__}: {str(e)[:200]}",
+                        file=sys.stderr
+                    )
+                    raise
+
+                # Calculate delay
+                delay = self._retry_config.get_delay(attempt, classified)
+
+                # Log retry attempt
+                import sys
+                print(
+                    f"[EVENTHUB_LOGS] Retryable error ({classified.category.value}), "
+                    f"attempt {attempt + 1}/{self._retry_config.max_attempts}, "
+                    f"retrying in {delay:.1f}s: {type(e).__name__}",
+                    file=sys.stderr
+                )
+
+                # Wait before retry
+                await asyncio.sleep(delay)
+
+        # All retries exhausted
+        if last_error:
+            loop_time = asyncio.get_event_loop().time()
+            self._handle_send_error(last_error, loop_time)
+            import sys
+            print(
+                f"[EVENTHUB_LOGS] ERROR sending batch to EventHub (retries exhausted): "
+                f"{type(last_error).__name__}: {str(last_error)[:200]}",
+                file=sys.stderr
+            )
+            raise last_error
+
+    async def _send_batch_once(
+        self, producer: EventHubProducerClient, batch: list[str]
+    ) -> None:
+        """
+        Send a batch of logs to Event Hub (single attempt).
 
         Args:
             producer: Event Hub producer client
@@ -216,49 +316,37 @@ class EventHubLogHandler(logging.Handler):
         Raises:
             Exception: If sending fails
         """
-        if not batch:
-            return
+        # Create Event Hub batch
+        event_batch = await producer.create_batch()
 
-        try:
-            # Create Event Hub batch
-            event_batch = await producer.create_batch()
-
-            for log_entry in batch:
-                event_data = EventData(log_entry)
-                try:
-                    event_batch.add(event_data)
-                except ValueError:
-                    # Batch is full, send it and create new batch
-                    await producer.send_batch(event_batch)
-                    event_batch = await producer.create_batch()
-                    event_batch.add(event_data)
-
-            # Send final batch
-            if len(event_batch) > 0:
+        for log_entry in batch:
+            event_data = EventData(log_entry)
+            try:
+                event_batch.add(event_data)
+            except ValueError:
+                # Batch is full, send it and create new batch
                 await producer.send_batch(event_batch)
-                self._total_sent += len(batch)
+                event_batch = await producer.create_batch()
+                event_batch.add(event_data)
 
-                # Print success for visibility (only occasionally to avoid spam)
-                if self._total_sent % 100 == 0:
-                    print(f"[EVENTHUB_LOGS] Successfully sent {self._total_sent} logs to EventHub")
+        # Send final batch
+        if len(event_batch) > 0:
+            await producer.send_batch(event_batch)
+            self._total_sent += len(batch)
 
-            # Reset failure count on success
-            if self._failure_count > 0:
-                self._failure_count = 0
-                print("[EVENTHUB_LOGS] Circuit breaker reset after successful send")
+            # Print success for visibility (only occasionally to avoid spam)
+            if self._total_sent % 100 == 0:
+                print(f"[EVENTHUB_LOGS] Successfully sent {self._total_sent} logs to EventHub")
 
-            # Close circuit if it was open
-            if self._circuit_open:
-                self._circuit_open = False
-                print("[EVENTHUB_LOGS] Circuit breaker closed - resuming log uploads")
+        # Reset failure count on success
+        if self._failure_count > 0:
+            self._failure_count = 0
+            print("[EVENTHUB_LOGS] Circuit breaker reset after successful send")
 
-        except Exception as e:
-            loop_time = asyncio.get_event_loop().time()
-            self._handle_send_error(e, loop_time)
-            # Print error to stderr so it's visible
-            import sys
-            print(f"[EVENTHUB_LOGS] ERROR sending batch to EventHub: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
-            raise
+        # Close circuit if it was open
+        if self._circuit_open:
+            self._circuit_open = False
+            print("[EVENTHUB_LOGS] Circuit breaker closed - resuming log uploads")
 
     def _handle_send_error(self, error: Exception, loop_time: float) -> None:
         """
