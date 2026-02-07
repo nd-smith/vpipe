@@ -24,7 +24,7 @@ event_source: ${EVENT_SOURCE:-eventhouse}
 # =============================================================================
 pipeline:
   # ---------------------------------------------------------------------------
-  # Verisk Domain (formerly XACT)
+  # Verisk Domain
   # ---------------------------------------------------------------------------
   verisk:
     retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
@@ -90,6 +90,25 @@ azure:
   client_secret: ${AZURE_CLIENT_SECRET}
   workspace_id: ${AZURE_WORKSPACE_ID:-7729c159-0674-42ba-abf7-a6756723c62f}
   lakehouse_id: ${AZURE_LAKEHOUSE_ID:-584315ee-2f41-4943-949f-901d438bcd36}
+
+# =============================================================================
+# EVENTHOUSE - SHARED CONFIGURATION
+# =============================================================================
+eventhouse:
+  # Poller checkpoint store configuration for progress tracking across restarts.
+  # Pollers use checkpoints to remember their last processed record position.
+  # Supported types:
+  #   "blob" - Azure Blob Storage (production, persists across pod restarts)
+  #   "json" - Local filesystem JSON files (development only)
+  poller_checkpoint_store:
+    # Store type: "blob" or "json"
+    type: ${POLLER_CHECKPOINT_STORE_TYPE:-blob}
+    # Blob storage settings (used when type=blob)
+    # Reuses same storage account and container as Event Hub checkpoint store
+    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+    container_name: ${POLLER_CHECKPOINT_CONTAINER_NAME:-eventhub-checkpoints}
+    # JSON file storage path (used when type=json)
+    storage_path: ${POLLER_CHECKPOINT_JSON_PATH:-./.checkpoints}
 
 # =============================================================================
 # DELTA LAKE TABLE PATHS

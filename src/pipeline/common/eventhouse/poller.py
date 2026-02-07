@@ -8,16 +8,18 @@ and writes events to a configurable sink (Kafka, JSON file, etc.).
 import asyncio
 import json
 import logging
-import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Optional
 
 from config.config import MessageConfig
 from pipeline.common.eventhouse.kql_client import (
     EventhouseConfig,
     KQLClient,
+)
+from pipeline.common.eventhouse.poller_checkpoint_store import (
+    PollerCheckpoint,
+    PollerCheckpointStore,
+    create_poller_checkpoint_store,
 )
 from pipeline.common.eventhouse.sinks import (
     EventSink,
@@ -26,81 +28,6 @@ from pipeline.common.eventhouse.sinks import (
 from pipeline.common.health import HealthCheckServer
 
 logger = logging.getLogger(__name__)
-
-
-# Default checkpoint directory
-DEFAULT_CHECKPOINT_DIR = Path(".checkpoints")
-
-
-@dataclass
-class PollerCheckpoint:
-    """
-    Checkpoint state for resuming the poller after restart.
-
-    Stores the composite key (ingestion_time, trace_id) of the last processed
-    record to enable exact resume without duplicates or gaps.
-    """
-
-    last_ingestion_time: str  # ISO format UTC timestamp
-    last_trace_id: str  # trace_id of the last processed record
-    updated_at: str  # When checkpoint was written (for debugging)
-
-    @classmethod
-    def from_file(cls, path: Path) -> Optional["PollerCheckpoint"]:
-        """
-        Load checkpoint from JSON file.
-        """
-        if not path.exists():
-            logger.info("No checkpoint file found", extra={"path": str(path)})
-            return None
-
-        try:
-            with open(path) as f:
-                data = json.load(f)
-
-            checkpoint = cls(
-                last_ingestion_time=data["last_ingestion_time"],
-                last_trace_id=data["last_trace_id"],
-                updated_at=data.get("updated_at", ""),
-            )
-            return checkpoint
-
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.warning(
-                "Failed to load checkpoint, starting fresh",
-                extra={"path": str(path), "error": str(e)},
-            )
-            return None
-
-    def save(self, path: Path) -> bool:
-        """
-        Save checkpoint to JSON file.
-
-        Uses atomic write pattern: write to temp file, then os.replace().
-        """
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self.updated_at = datetime.now(UTC).isoformat()
-
-            temp_path = path.with_suffix(".tmp")
-
-            with open(temp_path, "w") as f:
-                json.dump(asdict(self), f, indent=2)
-
-            # Atomic replace (works on POSIX and modern Windows)
-            os.replace(temp_path, path)
-            return True
-
-        except OSError as e:
-            logger.error("Failed to save checkpoint", extra={"error": str(e)})
-            return False
-
-    def to_datetime(self) -> datetime:
-        """Parse last_ingestion_time to offset-aware UTC datetime."""
-        dt = datetime.fromisoformat(self.last_ingestion_time.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return dt
 
 
 @dataclass
@@ -121,13 +48,14 @@ class PollerConfig:
     backfill_start_stamp: str | None = None
     backfill_stop_stamp: str | None = None
     bulk_backfill: bool = False
-    checkpoint_path: Path | None = None
     # If set, use this column name instead of ingestion_time() function
     # e.g., "IngestionTime" for claimx which has an actual column
     ingestion_time_column: str | None = None
     # Optional custom sink - if not provided, uses KafkaSink with kafka config
     sink: EventSink | None = None
     health_port: int = 8080  # Health check server port
+    # Optional custom checkpoint store - if not provided, creates from config
+    checkpoint_store: PollerCheckpointStore | None = None
 
 
 class KQLEventPoller:
@@ -175,10 +103,8 @@ class KQLEventPoller:
 
         self._last_ingestion_time: datetime | None = None
         self._last_trace_id: str | None = None
-        self._checkpoint_path = config.checkpoint_path or (
-            DEFAULT_CHECKPOINT_DIR / f"poller_{config.domain}.json"
-        )
-        self._load_checkpoint()
+        self._checkpoint_store: PollerCheckpointStore | None = config.checkpoint_store
+        self._owns_checkpoint_store = config.checkpoint_store is None
         self._pending_tasks: set[asyncio.Task] = set()
 
         # Health check server
@@ -214,17 +140,23 @@ class KQLEventPoller:
             t = t.replace(tzinfo=UTC)
         return t
 
-    def _load_checkpoint(self) -> None:
+    async def _load_checkpoint(self) -> None:
         """Load checkpoint and initialize state."""
-        self._checkpoint = PollerCheckpoint.from_file(self._checkpoint_path)
-        if self._checkpoint:
-            self._last_ingestion_time = self._checkpoint.to_datetime()
-            self._last_trace_id = self._checkpoint.last_trace_id
+        if self._checkpoint_store is None:
+            return
+
+        checkpoint = await self._checkpoint_store.load()
+        if checkpoint:
+            self._last_ingestion_time = checkpoint.to_datetime()
+            self._last_trace_id = checkpoint.last_trace_id
             if self._backfill_start_time is None:
                 self._backfill_start_time = self._last_ingestion_time
 
-    def _save_checkpoint(self, ingestion_time: datetime, trace_id: str) -> None:
-        """Saves current progress to disk."""
+    async def _save_checkpoint(self, ingestion_time: datetime, trace_id: str) -> None:
+        """Saves current progress to checkpoint store."""
+        if self._checkpoint_store is None:
+            return
+
         if ingestion_time.tzinfo is None:
             ingestion_time = ingestion_time.replace(tzinfo=UTC)
 
@@ -233,7 +165,7 @@ class KQLEventPoller:
             last_trace_id=trace_id,
             updated_at="",
         )
-        checkpoint.save(self._checkpoint_path)
+        await self._checkpoint_store.save(checkpoint)
         self._last_ingestion_time = ingestion_time
         self._last_trace_id = trace_id
 
@@ -244,22 +176,37 @@ class KQLEventPoller:
         print("="*80)
         logger.info("Starting KQLEventPoller components")
 
-        print("[POLLER STARTUP] Step 1/5: Starting health check server...")
+        print("[POLLER STARTUP] Step 1/6: Starting health check server...")
         await self.health_server.start()
         print(f"[POLLER STARTUP] Health check server started on port {self.health_server.actual_port}")
 
-        print(f"\n[POLLER STARTUP] Step 2/5: Creating KQLClient for Eventhouse")
+        print(f"\n[POLLER STARTUP] Step 2/6: Initializing checkpoint store")
+        if self._checkpoint_store is None:
+            self._checkpoint_store = await create_poller_checkpoint_store(
+                domain=self.config.domain
+            )
+            self._owns_checkpoint_store = True
+        print(f"[POLLER STARTUP]   - Type: {type(self._checkpoint_store).__name__}")
+
+        print(f"[POLLER STARTUP] Loading checkpoint...")
+        await self._load_checkpoint()
+        if self._last_ingestion_time:
+            print(f"[POLLER STARTUP]   - Resuming from: {self._last_ingestion_time.isoformat()}")
+        else:
+            print(f"[POLLER STARTUP]   - No checkpoint found, starting fresh")
+
+        print(f"\n[POLLER STARTUP] Step 3/6: Creating KQLClient for Eventhouse")
         print(f"[POLLER STARTUP]   - Cluster: {self.config.eventhouse.cluster_url}")
         print(f"[POLLER STARTUP]   - Database: {self.config.eventhouse.database}")
         print(f"[POLLER STARTUP]   - Source table: {self.config.source_table}")
         self._kql_client = KQLClient(self.config.eventhouse)
 
-        print(f"\n[POLLER STARTUP] Step 3/5: Connecting to Eventhouse...")
+        print(f"\n[POLLER STARTUP] Step 4/6: Connecting to Eventhouse...")
         await self._kql_client.connect()
         print("[POLLER STARTUP] KQLClient connection initialized (client created)")
 
         # Test eventhouse connectivity before initializing Kafka sink
-        print(f"\n[POLLER STARTUP] Step 4/5: Testing Eventhouse connectivity")
+        print(f"\n[POLLER STARTUP] Step 5/6: Testing Eventhouse connectivity")
         print(f"[POLLER STARTUP]   - Will query: {self.config.source_table} | take 10")
         print(f"[POLLER STARTUP]   - This is the FIRST ACTUAL NETWORK REQUEST")
         print("[POLLER STARTUP]   - This will authenticate and establish TCP connection")
@@ -267,7 +214,7 @@ class KQLEventPoller:
         print("[POLLER STARTUP] Connectivity test passed! Eventhouse connection confirmed.")
 
         # Use provided sink or create default KafkaSink
-        print(f"\n[POLLER STARTUP] Step 5/5: Initializing output sink")
+        print(f"\n[POLLER STARTUP] Step 6/6: Initializing output sink")
         if self._sink is None:
             if self.config.kafka is None:
                 raise ValueError("Either sink or kafka config must be provided")
@@ -292,6 +239,7 @@ class KQLEventPoller:
         print("\n" + "="*80)
         print("[POLLER STARTUP] All components started successfully!")
         print(f"[POLLER STARTUP]   - Health server: port {self.health_server.actual_port}")
+        print(f"[POLLER STARTUP]   - Checkpoint store: {type(self._checkpoint_store).__name__}")
         print(f"[POLLER STARTUP]   - Eventhouse: {self.config.eventhouse.cluster_url}/{self.config.eventhouse.database}")
         print(f"[POLLER STARTUP]   - Source table: {self.config.source_table}")
         print(f"[POLLER STARTUP]   - Output sink: {type(self._sink).__name__}")
@@ -300,6 +248,7 @@ class KQLEventPoller:
         logger.info(
             "KQLEventPoller started",
             extra={
+                "checkpoint_store_type": type(self._checkpoint_store).__name__,
                 "sink_type": type(self._sink).__name__,
                 "health_port": self.health_server.actual_port,
             },
@@ -435,6 +384,10 @@ class KQLEventPoller:
         if self._kql_client:
             await self._kql_client.close()
 
+        # Only close checkpoint store if we created it
+        if self._checkpoint_store and self._owns_checkpoint_store:
+            await self._checkpoint_store.close()
+
         await self.health_server.stop()
 
     async def run(self) -> None:
@@ -480,7 +433,7 @@ class KQLEventPoller:
                 last = result.rows[-1]
                 l_time = self._parse_row_time(last)
                 l_tid = str(last.get(self._trace_id_col, ""))
-                self._save_checkpoint(l_time, l_tid)
+                await self._save_checkpoint(l_time, l_tid)
                 start = l_time
             else:
                 # Timestamp-only path with boundary handling
@@ -490,7 +443,7 @@ class KQLEventPoller:
                     rows = await self._drain_timestamp(stuck, stop)
                     cp_time = stuck
                 await self._process_filtered_results(rows)
-                self._save_checkpoint(cp_time, "")
+                await self._save_checkpoint(cp_time, "")
                 start = cp_time
 
             if len(result.rows) < self.config.batch_size:
@@ -525,7 +478,7 @@ class KQLEventPoller:
             last = result.rows[-1]
             l_time = self._parse_row_time(last)
             l_tid = str(last.get(self._trace_id_col, ""))
-            self._save_checkpoint(l_time, l_tid)
+            await self._save_checkpoint(l_time, l_tid)
         else:
             # Timestamp-only path: handle batch boundary
             rows, cp_time = self._resolve_batch_boundary(result.rows)
@@ -544,7 +497,7 @@ class KQLEventPoller:
                 },
             )
             await self._process_filtered_results(rows)
-            self._save_checkpoint(cp_time, "")
+            await self._save_checkpoint(cp_time, "")
 
     def _filter_checkpoint_rows(self, rows: list[dict]) -> list[dict]:
         """Filter out rows already covered by the current checkpoint.

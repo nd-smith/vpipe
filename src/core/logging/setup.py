@@ -43,10 +43,13 @@ def _get_next_instance_id() -> str:
 # Noisy loggers to suppress
 NOISY_LOGGERS = [
     "azure.core.pipeline.policies.http_logging_policy",
+    "azure.eventhub",
+    "azure.eventhub._pyamqp",
     "azure.identity",
     "azure.kusto",
     "azure.kusto.data",
     "azure.kusto.data.security",
+    "uamqp",
     "urllib3",
     "aiohttp",
     "aiokafka",

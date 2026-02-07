@@ -286,6 +286,17 @@ claimx:
 # EVENTHOUSE INTEGRATION (for pipeline event source)
 # =============================================================================
 eventhouse:
+  # Poller checkpoint store configuration for progress tracking across restarts.
+  # Pollers use checkpoints to remember their last processed record position.
+  # Supported types:
+  #   "blob" - Azure Blob Storage (production, persists across pod restarts)
+  #   "json" - Local filesystem JSON files (development only)
+  poller_checkpoint_store:
+    type: "blob"
+    blob_storage_connection_string: ""  # Set via environment variable
+    container_name: "eventhub-checkpoints"  # Shares container with Event Hub checkpoints
+    storage_path: "./.checkpoints"  # Used when type="json"
+
   # ---------------------------------------------------------------------------
   # Connection Settings
   # ---------------------------------------------------------------------------
