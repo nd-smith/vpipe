@@ -80,6 +80,8 @@ class EventHubLogHandler(logging.Handler):
         self._total_dropped = 0
 
         # Start background sender
+        print(f"[EVENTHUB_LOGS] Initializing EventHub log handler for: {eventhub_name}")
+        print(f"[EVENTHUB_LOGS] Batch size: {batch_size}, Timeout: {batch_timeout_seconds}s")
         self._start_sender()
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -102,10 +104,15 @@ class EventHubLogHandler(logging.Handler):
             # Queue for async sending (don't block the worker)
             try:
                 self.log_queue.put_nowait(log_entry)
+                # Print first few queued logs for visibility
+                queue_size = self.log_queue.qsize()
+                if queue_size <= 3:
+                    print(f"[EVENTHUB_LOGS] Log queued (queue size: {queue_size})")
             except queue.Full:
                 # Queue is full - drop this log to avoid blocking
                 # This is acceptable for real-time streaming
                 self._total_dropped += 1
+                print(f"[EVENTHUB_LOGS] WARNING: Queue full, dropping logs (dropped: {self._total_dropped})")
 
         except Exception:
             # Never let logging break the application
@@ -133,11 +140,20 @@ class EventHubLogHandler(logging.Handler):
 
     async def _send_loop(self) -> None:
         """Main loop for sending batches to Event Hub."""
-        producer = EventHubProducerClient.from_connection_string(
-            conn_str=self.connection_string, eventhub_name=self.eventhub_name
-        )
+        print(f"[EVENTHUB_LOGS] Background sender thread started for: {self.eventhub_name}")
+
+        try:
+            producer = EventHubProducerClient.from_connection_string(
+                conn_str=self.connection_string, eventhub_name=self.eventhub_name
+            )
+            print(f"[EVENTHUB_LOGS] EventHub producer client created successfully")
+        except Exception as e:
+            import sys
+            print(f"[EVENTHUB_LOGS] ERROR creating EventHub producer: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+            return
 
         async with producer:
+            print(f"[EVENTHUB_LOGS] Connected to EventHub - ready to send logs")
             batch = []
             last_send = asyncio.get_event_loop().time()
 
@@ -210,16 +226,25 @@ class EventHubLogHandler(logging.Handler):
                 await producer.send_batch(event_batch)
                 self._total_sent += len(batch)
 
+                # Print success for visibility (only occasionally to avoid spam)
+                if self._total_sent % 100 == 0:
+                    print(f"[EVENTHUB_LOGS] Successfully sent {self._total_sent} logs to EventHub")
+
             # Reset failure count on success
             if self._failure_count > 0:
                 self._failure_count = 0
+                print("[EVENTHUB_LOGS] Circuit breaker reset after successful send")
 
             # Close circuit if it was open
             if self._circuit_open:
                 self._circuit_open = False
+                print("[EVENTHUB_LOGS] Circuit breaker closed - resuming log uploads")
 
         except Exception as e:
             self._handle_send_error(e)
+            # Print error to stderr so it's visible
+            import sys
+            print(f"[EVENTHUB_LOGS] ERROR sending batch to EventHub: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
             raise
 
     def _handle_send_error(self, error: Exception) -> None:
