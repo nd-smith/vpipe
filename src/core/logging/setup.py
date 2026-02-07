@@ -338,6 +338,7 @@ def _create_eventhub_handler(
     Returns None if handler creation fails (logs error, does not raise).
     This prevents EventHub connectivity issues from blocking application startup.
     """
+    logger = logging.getLogger(__name__)
     try:
         from core.logging.eventhub_handler import EventHubLogHandler
 
