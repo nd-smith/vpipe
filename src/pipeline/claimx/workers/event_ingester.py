@@ -71,6 +71,7 @@ class ClaimXEventIngesterWorker:
         # Background task tracking for graceful shutdown
         self._pending_tasks: set[asyncio.Task] = set()
         self._task_counter = 0
+        self._records_received_from_eventhub = 0  # DIAGNOSTIC: Track messages from EventHub
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_deduplicated = 0
@@ -315,6 +316,10 @@ class ClaimXEventIngesterWorker:
 
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         start_time = time.perf_counter()
+
+        # DIAGNOSTIC: Track that message was received from EventHub (before any filtering)
+        self._records_received_from_eventhub += 1
+
         try:
             message_data = json.loads(record.value.decode("utf-8"))
             event = ClaimXEventMessage.from_eventhouse_row(message_data)
@@ -527,6 +532,7 @@ class ClaimXEventIngesterWorker:
                 failed=0,
                 skipped=0,
                 deduplicated=0,
+                received=0,  # DIAGNOSTIC
             ),
             extra={
                 "worker_id": self.worker_id,
@@ -554,12 +560,14 @@ class ClaimXEventIngesterWorker:
                             failed=0,
                             skipped=0,
                             deduplicated=self._records_deduplicated,
+                            received=self._records_received_from_eventhub,  # DIAGNOSTIC
                         ),
                         extra={
                             "worker_id": self.worker_id,
                             "stage": "ingestion",
                             "cycle": self._cycle_count,
                             "cycle_id": f"cycle-{self._cycle_count}",
+                            "records_received_from_eventhub": self._records_received_from_eventhub,  # DIAGNOSTIC
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_deduplicated": self._records_deduplicated,

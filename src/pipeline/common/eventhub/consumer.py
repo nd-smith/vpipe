@@ -391,6 +391,17 @@ class EventHubConsumer:
             partition_id = partition_context.partition_id
             self._current_partition_context[partition_id] = partition_context
 
+            # DIAGNOSTIC: Log that event was received from EventHub
+            logger.debug(
+                "[DIAGNOSTIC] Received event from EventHub",
+                extra={
+                    "partition_id": partition_id,
+                    "offset": event.offset,
+                    "sequence_number": event.sequence_number,
+                    "enqueued_time": event.enqueued_time,
+                },
+            )
+
             # Convert EventData to transport-agnostic PipelineMessage
             # This adapter handles all conversion from EventHub-specific types
             record_adapter = EventHubConsumerRecord(
@@ -474,6 +485,43 @@ class EventHubConsumer:
 
         # Start receiving events
         # This runs until stop() is called
+
+        # DIAGNOSTIC: Log checkpoint store state before starting consume loop
+        if self._checkpoint_store:
+            try:
+                checkpoints = await self._checkpoint_store.list_checkpoints(
+                    self._consumer._address.hostname,
+                    self.eventhub_name,
+                    self.consumer_group,
+                )
+                logger.info(
+                    "[DIAGNOSTIC] Checkpoint store state before consume",
+                    extra={
+                        "checkpoint_count": len(checkpoints),
+                        "checkpoints": [
+                            {
+                                "partition": cp["partition_id"],
+                                "offset": cp.get("offset"),
+                                "sequence_number": cp.get("sequence_number"),
+                            }
+                            for cp in checkpoints
+                        ],
+                    },
+                )
+            except Exception as e:
+                logger.warning(
+                    "[DIAGNOSTIC] Failed to query checkpoint store",
+                    extra={"error": str(e)},
+                )
+
+        logger.info(
+            "[DIAGNOSTIC] Starting receive with starting_position=-1",
+            extra={
+                "eventhub_name": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+            },
+        )
+
         try:
             async with self._consumer:
                 await self._consumer.receive(

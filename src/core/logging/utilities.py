@@ -120,6 +120,7 @@ def format_cycle_output(
     deduplicated: int = 0,
     since_last: dict[str, int] | None = None,
     interval_seconds: int = 30,
+    received: int | None = None,  # DIAGNOSTIC: Optional received count from EventHub
 ) -> str:
     """
     Format standardized cycle output for workers with delta tracking.
@@ -132,6 +133,7 @@ def format_cycle_output(
         deduplicated: Total count of deduplicated records (default: 0)
         since_last: Optional delta counts since last cycle (keys: succeeded, failed, skipped, deduplicated)
         interval_seconds: Cycle interval in seconds (default: 30)
+        received: Optional count of messages received from EventHub (for diagnostics)
 
     Returns:
         Formatted cycle output string
@@ -170,7 +172,13 @@ def format_cycle_output(
         return f"Cycle {cycle_count}: {' | '.join(parts)}"
 
     # Legacy format without deltas
-    parts = [f"processed={total_processed}"]
+    parts = []
+
+    # DIAGNOSTIC: Show received count if provided (helps diagnose EventHub delivery issues)
+    if received is not None:
+        parts.append(f"received={received}")
+
+    parts.append(f"processed={total_processed}")
     parts.append(f"succeeded={succeeded}")
     parts.append(f"failed={failed}")
 
