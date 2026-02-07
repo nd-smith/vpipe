@@ -23,7 +23,9 @@ Usage:
     await self.health_server.stop()
 """
 
+import asyncio
 import logging
+import threading
 from datetime import UTC, datetime
 
 from aiohttp import web
@@ -93,6 +95,13 @@ class HealthCheckServer:
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
 
+        # Thread management for isolated event loop
+        self._thread: threading.Thread | None = None
+        self._thread_loop: asyncio.AbstractEventLoop | None = None
+        self._thread_ready = threading.Event()
+        self._shutdown_event = threading.Event()
+        self._state_lock = threading.Lock()  # Protects state variables
+
         if self._enabled:
             logger.info(
                 f"Initialized HealthCheckServer for {worker_name}",
@@ -121,29 +130,30 @@ class HealthCheckServer:
             api_reachable: Whether external API is reachable (None = not applicable)
             circuit_open: Whether circuit breaker is open
         """
-        self._kafka_connected = kafka_connected
+        with self._state_lock:
+            self._kafka_connected = kafka_connected
 
-        if api_reachable is not None:
-            self._api_reachable = api_reachable
+            if api_reachable is not None:
+                self._api_reachable = api_reachable
 
-        self._circuit_open = circuit_open
+            self._circuit_open = circuit_open
 
-        # Ready if all dependencies are healthy and circuit is closed
-        old_ready = self._ready
-        self._ready = (
-            self._kafka_connected and self._api_reachable and not self._circuit_open
-        )
-
-        if old_ready != self._ready:
-            logger.info(
-                f"Readiness status changed: {old_ready} -> {self._ready}",
-                extra={
-                    "worker_name": self.worker_name,
-                    "kafka_connected": kafka_connected,
-                    "api_reachable": self._api_reachable,
-                    "circuit_open": circuit_open,
-                },
+            # Ready if all dependencies are healthy and circuit is closed
+            old_ready = self._ready
+            self._ready = (
+                self._kafka_connected and self._api_reachable and not self._circuit_open
             )
+
+            if old_ready != self._ready:
+                logger.info(
+                    f"Readiness status changed: {old_ready} -> {self._ready}",
+                    extra={
+                        "worker_name": self.worker_name,
+                        "kafka_connected": kafka_connected,
+                        "api_reachable": self._api_reachable,
+                        "circuit_open": circuit_open,
+                    },
+                )
 
     def set_error(self, error_message: str) -> None:
         """
@@ -156,29 +166,32 @@ class HealthCheckServer:
         Args:
             error_message: Human-readable description of the error
         """
-        self._error_message = error_message
-        self._ready = False
-        logger.error(
-            f"Health check error state set: {error_message}",
-            extra={
-                "worker_name": self.worker_name,
-                "error": error_message,
-            },
-        )
+        with self._state_lock:
+            self._error_message = error_message
+            self._ready = False
+            logger.error(
+                f"Health check error state set: {error_message}",
+                extra={
+                    "worker_name": self.worker_name,
+                    "error": error_message,
+                },
+            )
 
     def clear_error(self) -> None:
         """Clear the error state."""
-        if self._error_message:
-            logger.info(
-                "Health check error state cleared",
-                extra={"worker_name": self.worker_name},
-            )
-        self._error_message = None
+        with self._state_lock:
+            if self._error_message:
+                logger.info(
+                    "Health check error state cleared",
+                    extra={"worker_name": self.worker_name},
+                )
+            self._error_message = None
 
     @property
     def error_message(self) -> str | None:
         """Get the current error message, if any."""
-        return self._error_message
+        with self._state_lock:
+            return self._error_message
 
     async def handle_liveness(self, request: web.Request) -> web.Response:
         """
@@ -190,7 +203,10 @@ class HealthCheckServer:
         Returns:
             200 OK with status and uptime
         """
-        uptime_seconds = (datetime.now(UTC) - self._started_at).total_seconds()
+        with self._state_lock:
+            started_at = self._started_at
+
+        uptime_seconds = (datetime.now(UTC) - started_at).total_seconds()
 
         return web.json_response(
             {
@@ -212,29 +228,37 @@ class HealthCheckServer:
         Returns:
             200 OK if ready, 503 Service Unavailable if not ready
         """
+        # Read state with lock to ensure consistency
+        with self._state_lock:
+            error_message = self._error_message
+            ready = self._ready
+            kafka_connected = self._kafka_connected
+            api_reachable = self._api_reachable
+            circuit_open = self._circuit_open
+
         # Check for error state first - return 200 to allow deployment to complete
         # The error details are visible in the response body for debugging
-        if self._error_message:
+        if error_message:
             return web.json_response(
                 {
                     "status": "error",
                     "worker": self.worker_name,
-                    "error": self._error_message,
+                    "error": error_message,
                     "reasons": ["configuration_error"],
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
                 status=200,  # Return 200 so K8s deployment completes
             )
 
-        if self._ready:
+        if ready:
             return web.json_response(
                 {
                     "status": "ready",
                     "worker": self.worker_name,
                     "checks": {
-                        "kafka_connected": self._kafka_connected,
-                        "api_reachable": self._api_reachable,
-                        "circuit_closed": not self._circuit_open,
+                        "kafka_connected": kafka_connected,
+                        "api_reachable": api_reachable,
+                        "circuit_closed": not circuit_open,
                     },
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
@@ -243,11 +267,11 @@ class HealthCheckServer:
         else:
             # Determine reason for not being ready
             reasons = []
-            if not self._kafka_connected:
+            if not kafka_connected:
                 reasons.append("kafka_disconnected")
-            if not self._api_reachable:
+            if not api_reachable:
                 reasons.append("api_unreachable")
-            if self._circuit_open:
+            if circuit_open:
                 reasons.append("circuit_open")
 
             return web.json_response(
@@ -256,9 +280,9 @@ class HealthCheckServer:
                     "worker": self.worker_name,
                     "reasons": reasons,
                     "checks": {
-                        "kafka_connected": self._kafka_connected,
-                        "api_reachable": self._api_reachable,
-                        "circuit_closed": not self._circuit_open,
+                        "kafka_connected": kafka_connected,
+                        "api_reachable": api_reachable,
+                        "circuit_closed": not circuit_open,
                     },
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
@@ -271,6 +295,73 @@ class HealthCheckServer:
         app.router.add_get("/health/live", self.handle_liveness)
         app.router.add_get("/health/ready", self.handle_readiness)
         return app
+
+    def _run_server_thread(self) -> None:
+        """Entry point for health server thread."""
+        try:
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._thread_loop = loop
+
+            # Signal that thread is ready
+            self._thread_ready.set()
+
+            # Run the server until shutdown
+            loop.run_until_complete(self._start_server_async())
+
+        except Exception as e:
+            logger.error(
+                f"Health server thread error: {e}",
+                extra={"worker_name": self.worker_name},
+                exc_info=True,
+            )
+        finally:
+            if self._thread_loop:
+                self._thread_loop.close()
+
+    async def _start_server_async(self) -> None:
+        """Start aiohttp server in thread's event loop."""
+        try:
+            # Try configured port
+            if await self._try_start_on_port(self.port):
+                logger.info(
+                    "Health check server started",
+                    extra={
+                        "worker_name": self.worker_name,
+                        "port": self._actual_port,
+                        "liveness_endpoint": f"http://localhost:{self._actual_port}/health/live",
+                        "readiness_endpoint": f"http://localhost:{self._actual_port}/health/ready",
+                    },
+                )
+            elif self.port != 0 and await self._try_start_on_port(0):
+                logger.warning(
+                    f"Port {self.port} in use, falling back to dynamic port assignment",
+                    extra={"worker_name": self.worker_name, "original_port": self.port},
+                )
+                logger.info(
+                    "Health check server started on dynamic port",
+                    extra={
+                        "worker_name": self.worker_name,
+                        "port": self._actual_port,
+                        "liveness_endpoint": f"http://localhost:{self._actual_port}/health/live",
+                        "readiness_endpoint": f"http://localhost:{self._actual_port}/health/ready",
+                    },
+                )
+            else:
+                logger.warning(
+                    "Could not start health check server",
+                    extra={"worker_name": self.worker_name},
+                )
+                return
+
+            # Wait for shutdown signal
+            while not self._shutdown_event.is_set():
+                await asyncio.sleep(0.5)
+
+        finally:
+            if self._runner:
+                await self._runner.cleanup()
 
     async def _try_start_on_port(self, port: int) -> bool:
         """Try to start the health server on a specific port.
@@ -285,7 +376,7 @@ class HealthCheckServer:
             self._app = self.create_app()
             self._runner = web.AppRunner(self._app)
             await self._runner.setup()
-            self._site = web.TCPSite(self._runner, "0.0.0.0", port)
+            self._site = web.TCPSite(self._runner, "0.0.0.0", port, reuse_address=True)
             await self._site.start()
 
             # Capture actual port (important when using port=0 for dynamic assignment)
@@ -311,7 +402,7 @@ class HealthCheckServer:
         """
         Start the health check HTTP server.
 
-        Starts listening on the configured port for health check requests.
+        Starts listening on the configured port for health check requests in a dedicated thread.
         If port is 0, an available port will be dynamically assigned.
         If the configured port is in use, falls back to dynamic port assignment.
         If all attempts fail, logs a warning and continues without health checks.
@@ -324,43 +415,21 @@ class HealthCheckServer:
             return
 
         try:
-            # Try the configured port first
-            if await self._try_start_on_port(self.port):
-                logger.info(
-                    "Health check server started",
-                    extra={
-                        "worker_name": self.worker_name,
-                        "port": self._actual_port,
-                        "liveness_endpoint": f"http://localhost:{self._actual_port}/health/live",
-                        "readiness_endpoint": f"http://localhost:{self._actual_port}/health/ready",
-                    },
-                )
-                return
-
-            # Port was in use - try dynamic port if we weren't already using it
-            if self.port != 0:
-                logger.warning(
-                    f"Port {self.port} in use, falling back to dynamic port assignment",
-                    extra={"worker_name": self.worker_name, "original_port": self.port},
-                )
-                if await self._try_start_on_port(0):
-                    logger.info(
-                        "Health check server started on dynamic port",
-                        extra={
-                            "worker_name": self.worker_name,
-                            "port": self._actual_port,
-                            "liveness_endpoint": f"http://localhost:{self._actual_port}/health/live",
-                            "readiness_endpoint": f"http://localhost:{self._actual_port}/health/ready",
-                        },
-                    )
-                    return
-
-            # All attempts failed - disable health checks but don't crash
-            logger.warning(
-                "Could not start health check server, continuing without health checks",
-                extra={"worker_name": self.worker_name},
+            # Start health server in dedicated thread
+            self._thread = threading.Thread(
+                target=self._run_server_thread,
+                name=f"health-server-{self.worker_name}",
+                daemon=True,  # Don't prevent process exit
             )
-            self._enabled = False
+            self._thread.start()
+
+            # Wait for thread to be ready (with timeout)
+            if not self._thread_ready.wait(timeout=5.0):
+                logger.error(
+                    "Health server thread failed to start",
+                    extra={"worker_name": self.worker_name},
+                )
+                self._enabled = False
 
         except Exception as e:
             logger.error(
@@ -381,32 +450,39 @@ class HealthCheckServer:
 
         Cleans up resources and stops listening for requests.
         """
-        if not self._enabled:
+        if not self._enabled or not self._thread:
             return
 
-        if self._runner:
-            try:
-                await self._runner.cleanup()
+        try:
+            # Signal thread to shutdown
+            self._shutdown_event.set()
+
+            # Wait for thread to finish (with timeout)
+            self._thread.join(timeout=5.0)
+
+            if self._thread.is_alive():
+                logger.warning(
+                    "Health server thread did not stop cleanly",
+                    extra={"worker_name": self.worker_name},
+                )
+            else:
                 logger.info(
                     "Health check server stopped",
                     extra={"worker_name": self.worker_name},
                 )
-            except Exception as e:
-                logger.error(
-                    f"Error stopping health check server: {e}",
-                    extra={"worker_name": self.worker_name},
-                    exc_info=True,
-                )
-            finally:
-                self._runner = None
-                self._site = None
-                self._app = None
-                self._actual_port = None
+
+        except Exception as e:
+            logger.error(
+                f"Error stopping health check server: {e}",
+                extra={"worker_name": self.worker_name},
+                exc_info=True,
+            )
 
     @property
     def is_ready(self) -> bool:
         """Check if worker is currently ready."""
-        return self._ready
+        with self._state_lock:
+            return self._ready
 
     @property
     def actual_port(self) -> int | None:

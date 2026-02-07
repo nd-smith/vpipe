@@ -52,6 +52,29 @@ class StorageConfig(TypedDict, total=False):
     cache_dir: str
 
 
+class FileLoggingConfig(TypedDict, total=False):
+    enabled: bool
+    level: str
+
+
+class EventHubLoggingConfig(TypedDict, total=False):
+    enabled: bool
+    level: str
+    eventhub_name: str
+    batch_size: int
+    batch_timeout_seconds: float
+    max_queue_size: int
+    circuit_breaker_threshold: int
+
+
+class LoggingConfig(TypedDict, total=False):
+    level: str
+    log_to_stdout: bool
+    log_dir: str
+    file_logging: FileLoggingConfig
+    eventhub_logging: EventHubLoggingConfig
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -133,6 +156,11 @@ class MessageConfig:
     claimx_api_token: str = ""
     claimx_api_timeout_seconds: int = 30
     claimx_api_concurrency: int = 20
+
+    # =========================================================================
+    # LOGGING CONFIGURATION
+    # =========================================================================
+    logging_config: LoggingConfig = field(default_factory=dict)
 
     @property
     def xact(self) -> VeriskDomainConfig:
@@ -379,6 +407,8 @@ def load_config(
     else:
         logger.info("ClaimX API authentication configured")
 
+    logging_config = yaml_data.get("logging", {})
+
     config = MessageConfig(
         verisk=verisk_config,
         claimx=claimx_config,
@@ -400,6 +430,7 @@ def load_config(
                 "CLAIMX_API_CONCURRENCY", str(claimx_api.get("max_concurrent", 20))
             )
         ),
+        logging_config=logging_config,
     )
 
     logger.debug("Configuration loaded successfully:")

@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import sys
 from datetime import UTC, datetime
 from typing import Any
 
@@ -195,7 +196,7 @@ class JSONFormatter(logging.Formatter):
             "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "level": record.levelname,
             "logger": record.name,
-            "msg": record.getMessage(),
+            "message": record.getMessage(),
         }
 
         # Inject context variables
@@ -244,19 +245,40 @@ class JSONFormatter(logging.Formatter):
 
 class ConsoleFormatter(logging.Formatter):
     """
-    Human-readable console formatter.
+    Human-readable console formatter with color-coded log levels.
 
-    Includes context when available.
+    Colors are auto-disabled when output is not a TTY (pipes, files).
     """
 
+    # ANSI color codes
+    COLORS = {
+        logging.DEBUG: "\033[36m",  # Cyan
+        logging.INFO: "\033[32m",  # Green
+        logging.WARNING: "\033[33m",  # Yellow
+        logging.ERROR: "\033[31m",  # Red
+        logging.CRITICAL: "\033[35m",  # Magenta
+    }
+    RESET = "\033[0m"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._use_colors = sys.stdout.isatty()
+
     def format(self, record: logging.LogRecord) -> str:
-        """Format log record for console output."""
+        """Format log record for console output with optional color coding."""
         log_context = get_log_context()
+
+        # Color the level name if colors are enabled
+        level_name = record.levelname
+        if self._use_colors:
+            color = self.COLORS.get(record.levelno, "")
+            if color:
+                level_name = f"{color}{level_name}{self.RESET}"
 
         # Build prefix
         parts = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            record.levelname,
+            level_name,
         ]
 
         if log_context["domain"]:

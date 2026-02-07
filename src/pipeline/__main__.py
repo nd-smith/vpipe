@@ -13,6 +13,7 @@ from typing import Any
 from dotenv import load_dotenv
 from prometheus_client import REGISTRY, start_http_server
 
+from core.logging.eventhub_config import prepare_eventhub_logging_config
 from core.logging.setup import (
     setup_logging,
     setup_multi_worker_logging,
@@ -487,6 +488,34 @@ def main():
         if domain_prefix in ("xact", "claimx"):
             domain = domain_prefix
 
+    # Load config early to get logging configuration
+    from config import load_config
+
+    try:
+        config = load_config()
+    except Exception as e:
+        # If config loading fails, setup basic logging without EventHub
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Failed to load config for logging setup, continuing without EventHub logging",
+            extra={"error": str(e)},
+        )
+        config = None
+
+    # Prepare EventHub logging config
+    eventhub_config = (
+        prepare_eventhub_logging_config(config.logging_config) if config else None
+    )
+
+    # Get toggle flags
+    file_enabled = True
+    eventhub_enabled = True
+    if config:
+        file_enabled = config.logging_config.get("file_logging", {}).get("enabled", True)
+        eventhub_enabled = config.logging_config.get("eventhub_logging", {}).get(
+            "enabled", True
+        )
+
     if args.worker == "all":
         setup_multi_worker_logging(
             workers=WORKER_STAGES,
@@ -495,6 +524,9 @@ def main():
             json_format=json_logs,
             console_level=log_level,
             log_to_stdout=log_to_stdout,
+            eventhub_config=eventhub_config,
+            enable_file_logging=file_enabled,
+            enable_eventhub_logging=eventhub_enabled,
         )
     else:
         setup_logging(
@@ -506,6 +538,9 @@ def main():
             console_level=log_level,
             worker_id=worker_id,
             log_to_stdout=log_to_stdout,
+            eventhub_config=eventhub_config,
+            enable_file_logging=file_enabled,
+            enable_eventhub_logging=eventhub_enabled,
         )
 
     logger = logging.getLogger(__name__)

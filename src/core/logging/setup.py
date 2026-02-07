@@ -323,6 +323,54 @@ def get_log_file_path(
     return log_path
 
 
+def _create_eventhub_handler(
+    connection_string: str,
+    eventhub_name: str,
+    level: int,
+    batch_size: int,
+    batch_timeout_seconds: float,
+    max_queue_size: int,
+    circuit_breaker_threshold: int,
+) -> logging.Handler | None:
+    """
+    Create EventHub log handler with configuration.
+
+    Returns None if handler creation fails (logs error, does not raise).
+    This prevents EventHub connectivity issues from blocking application startup.
+    """
+    try:
+        from core.logging.eventhub_handler import EventHubLogHandler
+
+        handler = EventHubLogHandler(
+            connection_string=connection_string,
+            eventhub_name=eventhub_name,
+            batch_size=batch_size,
+            batch_timeout_seconds=batch_timeout_seconds,
+            max_queue_size=max_queue_size,
+            circuit_breaker_threshold=circuit_breaker_threshold,
+        )
+        handler.setLevel(level)
+        handler.setFormatter(JSONFormatter())
+
+        logger.info(
+            "EventHub log handler created",
+            extra={
+                "eventhub_name": eventhub_name,
+                "level": logging.getLevelName(level),
+                "batch_size": batch_size,
+            },
+        )
+        return handler
+
+    except Exception as e:
+        logger.error(
+            "Failed to create EventHub log handler - continuing with file logging only",
+            extra={"error": str(e), "eventhub_name": eventhub_name},
+            exc_info=True,
+        )
+        return None
+
+
 def setup_logging(
     name: str = "pipeline",
     stage: str | None = None,
@@ -338,6 +386,9 @@ def setup_logging(
     worker_id: str | None = None,
     use_instance_id: bool = True,
     log_to_stdout: bool = False,
+    eventhub_config: dict | None = None,
+    enable_file_logging: bool = True,
+    enable_eventhub_logging: bool = True,
 ) -> logging.Logger:
     """
     Configure logging with console and auto-archiving time-based rotating file handlers.
@@ -399,15 +450,35 @@ def setup_logging(
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
     root_logger.handlers.clear()
 
+    # Add EventHub handler if enabled and configured
+    if enable_eventhub_logging and eventhub_config:
+        eventhub_handler = _create_eventhub_handler(
+            connection_string=eventhub_config["connection_string"],
+            eventhub_name=eventhub_config["eventhub_name"],
+            level=eventhub_config["level"],
+            batch_size=eventhub_config["batch_size"],
+            batch_timeout_seconds=eventhub_config["batch_timeout_seconds"],
+            max_queue_size=eventhub_config["max_queue_size"],
+            circuit_breaker_threshold=eventhub_config["circuit_breaker_threshold"],
+        )
+        if eventhub_handler:
+            root_logger.addHandler(eventhub_handler)
+
     if log_to_stdout:
         # Stdout-only mode: all log output goes to stdout, no file handlers
         console_handler.setLevel(file_level)
+        console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
+    elif not enable_file_logging:
+        # EventHub-only mode: console + EventHub handlers
+        console_handler.setLevel(console_level)
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
     else:
         # Normal mode: console + file handlers
         console_handler.setLevel(console_level)
         console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
 
         # Generate ordinal instance ID for multi-worker isolation
         # Uses ordinal numbers (0, 1, 2, ...) for clear identification in production
@@ -532,6 +603,9 @@ def setup_multi_worker_logging(
     suppress_noisy: bool = True,
     use_instance_id: bool = True,
     log_to_stdout: bool = False,
+    eventhub_config: dict | None = None,
+    enable_file_logging: bool = True,
+    enable_eventhub_logging: bool = True,
 ) -> logging.Logger:
     """
     Configure logging with per-worker auto-archiving time-based file handlers.
@@ -578,6 +652,20 @@ def setup_multi_worker_logging(
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
     root_logger.handlers.clear()
 
+    # Add EventHub handler if enabled and configured
+    if enable_eventhub_logging and eventhub_config:
+        eventhub_handler = _create_eventhub_handler(
+            connection_string=eventhub_config["connection_string"],
+            eventhub_name=eventhub_config["eventhub_name"],
+            level=eventhub_config["level"],
+            batch_size=eventhub_config["batch_size"],
+            batch_timeout_seconds=eventhub_config["batch_timeout_seconds"],
+            max_queue_size=eventhub_config["max_queue_size"],
+            circuit_breaker_threshold=eventhub_config["circuit_breaker_threshold"],
+        )
+        if eventhub_handler:
+            root_logger.addHandler(eventhub_handler)
+
     # Add console handler (receives all logs)
     if sys.platform == "win32":
         safe_stdout = io.TextIOWrapper(
@@ -592,12 +680,16 @@ def setup_multi_worker_logging(
         # Stdout-only mode: all log output goes to stdout, no file handlers
         console_handler.setLevel(file_level)
         root_logger.addHandler(console_handler)
+    elif not enable_file_logging:
+        # EventHub-only mode: console + EventHub handlers
+        console_handler.setLevel(console_level)
+        root_logger.addHandler(console_handler)
     else:
         # Normal mode: console + per-worker file handlers
         console_handler.setLevel(console_level)
         root_logger.addHandler(console_handler)
 
-        # Generate ordinal instance ID for multi-instance isolation
+        # Generate ordinal instance ID for multi-instance isolation (only if file logging enabled)
         instance_id = _get_next_instance_id() if use_instance_id else None
 
         # Create formatters

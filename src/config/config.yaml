@@ -322,6 +322,21 @@ logging:
   log_to_stdout: ${LOG_TO_STDOUT:-true}
   log_dir: "logs"
 
+  # File logging configuration
+  file_logging:
+    enabled: ${FILE_LOGGING_ENABLED:-true}
+    level: ${FILE_LOG_LEVEL:-DEBUG}
+
+  # EventHub logging configuration (real-time streaming to ADX)
+  eventhub_logging:
+    enabled: ${EVENTHUB_LOGGING_ENABLED:-true}
+    level: ${EVENTHUB_LOG_LEVEL:-INFO}
+    eventhub_name: ${EVENTHUB_LOGS_NAME:-application-logs}
+    batch_size: ${EVENTHUB_LOG_BATCH_SIZE:-100}
+    batch_timeout_seconds: ${EVENTHUB_LOG_BATCH_TIMEOUT:-1.0}
+    max_queue_size: ${EVENTHUB_LOG_QUEUE_SIZE:-10000}
+    circuit_breaker_threshold: ${EVENTHUB_LOG_CIRCUIT_THRESHOLD:-5}
+
 observability:
   json_logs: true
   log_upload_enabled: ${LOG_UPLOAD_ENABLED:-true}
