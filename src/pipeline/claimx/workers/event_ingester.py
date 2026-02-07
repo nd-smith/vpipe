@@ -563,7 +563,6 @@ class ClaimXEventIngesterWorker:
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_deduplicated": self._records_deduplicated,
-                            "recent_events_size": len(self._recent_events),
                             "cycle_interval_seconds": 30,
                         },
                     )
