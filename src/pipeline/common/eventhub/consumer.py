@@ -487,9 +487,9 @@ class EventHubConsumer:
         # This runs until stop() is called
 
         # DIAGNOSTIC: Log checkpoint store state before starting consume loop
-        if self._checkpoint_store:
+        if self.checkpoint_store:
             try:
-                checkpoints = await self._checkpoint_store.list_checkpoints(
+                checkpoints = await self.checkpoint_store.list_checkpoints(
                     self._consumer._address.hostname,
                     self.eventhub_name,
                     self.consumer_group,
