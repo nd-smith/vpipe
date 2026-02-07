@@ -17,7 +17,7 @@ import logging
 import queue
 import threading
 
-from azure.eventhub import EventData
+from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubProducerClient
 
 
@@ -143,10 +143,14 @@ class EventHubLogHandler(logging.Handler):
         print(f"[EVENTHUB_LOGS] Background sender thread started for: {self.eventhub_name}")
 
         try:
+            # Use AMQP over WebSocket (port 443) instead of AMQP over TCP (port 5671)
+            # This works better in corporate networks where 5671 may be blocked
             producer = EventHubProducerClient.from_connection_string(
-                conn_str=self.connection_string, eventhub_name=self.eventhub_name
+                conn_str=self.connection_string,
+                eventhub_name=self.eventhub_name,
+                transport_type=TransportType.AmqpOverWebsocket,
             )
-            print(f"[EVENTHUB_LOGS] EventHub producer client created successfully")
+            print(f"[EVENTHUB_LOGS] EventHub producer client created successfully (using AMQP over WebSocket on port 443)")
         except Exception as e:
             import sys
             print(f"[EVENTHUB_LOGS] ERROR creating EventHub producer: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
