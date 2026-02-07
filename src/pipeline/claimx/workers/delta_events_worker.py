@@ -97,15 +97,10 @@ class ClaimXDeltaEventsWorker:
         )
 
         # Retry configuration from worker processing settings
+        # Note: retry_topic_prefix and dlq_topic removed - DeltaRetryHandler
+        # uses EventHub names from config.yaml (claimx.retry and claimx.dlq)
         self._retry_delays = processing_config.get(
             "retry_delays", [300, 600, 1200, 2400]
-        )
-        self._retry_topic_prefix = processing_config.get(
-            "retry_topic_prefix",
-            "com.allstate.pcesdopodappv1.claimx-delta-events.retry",
-        )
-        self._dlq_topic = processing_config.get(
-            "dlq_topic", "com.allstate.pcesdopodappv1.claimx-delta-events.dlq"
         )
 
         # Batch state
@@ -159,9 +154,8 @@ class ClaimXDeltaEventsWorker:
             config=config,
             table_path=events_table_path,
             retry_delays=self._retry_delays,
-            retry_topic_prefix=self._retry_topic_prefix,
-            dlq_topic=self._dlq_topic,
             domain=self.domain,
+            # retry_topic_prefix and dlq_topic removed - uses EventHub names from config
         )
 
         logger.info(
@@ -178,8 +172,7 @@ class ClaimXDeltaEventsWorker:
                 "events_table_path": events_table_path,
                 "batch_size": self.batch_size,
                 "retry_delays": self._retry_delays,
-                "retry_topic_prefix": self._retry_topic_prefix,
-                "dlq_topic": self._dlq_topic,
+                # retry/dlq topics logged by DeltaRetryHandler using EventHub names from config
             },
         )
 
