@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
@@ -64,13 +64,13 @@ class ClaimXEnrichmentWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         entity_writer: Any = None,
         domain: str = "claimx",
         enable_delta_writes: bool = True,
         enrichment_topic: str = "",
         download_topic: str = "",
-        producer_config: KafkaConfig | None = None,
+        producer_config: MessageConfig | None = None,
         projects_table_path: str = "",
         instance_id: str | None = None,
         api_client: Any | None = None,

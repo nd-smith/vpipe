@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from pipeline.config import KafkaConfig
+from pipeline.config import MessageConfig
 
 
 # Set environment variables for all worker tests
@@ -41,7 +41,7 @@ if "CLAIMX_API_TOKEN" not in os.environ:
 @pytest.fixture
 def base_kafka_config():
     """Create base Kafka configuration for ClaimX workers."""
-    return KafkaConfig(
+    return MessageConfig(
         bootstrap_servers="localhost:9092",
         security_protocol="PLAINTEXT",
         claimx={

@@ -11,7 +11,7 @@ import time
 import uuid
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.writers import ClaimXEventsDeltaWriter
@@ -41,8 +41,8 @@ class ClaimXDeltaEventsWorker:
     - Failed batches route to Kafka retry topics
 
     Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> producer = BaseKafkaProducer(config)
+        >>> config = MessageConfig.from_env()
+        >>> producer = MessageProducer(config)
         >>> await producer.start()
         >>> worker = ClaimXDeltaEventsWorker(
         ...     config=config,
@@ -59,7 +59,7 @@ class ClaimXDeltaEventsWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         producer: Any,
         events_table_path: str,
         domain: str = "claimx",

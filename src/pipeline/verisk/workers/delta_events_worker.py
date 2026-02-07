@@ -12,13 +12,13 @@ Features:
 - Batch accumulation for efficient Delta writes
 - Configurable batch size via delta_events_batch_size
 - Optional batch limit for testing via delta_events_max_batches
-- Retry via Kafka topics with exponential backoff
+- Retry via Event Hub topics with exponential backoff
 
 Consumer group: {prefix}-delta-events
-Input topic: com.allstate.pcesdopodappv1.xact.events.raw
-Output: Delta table xact_events (no Kafka output)
-Retry topics: com.allstate.pcesdopodappv1.delta-events.retry.{delay}m
-DLQ topic: com.allstate.pcesdopodappv1.delta-events.dlq
+Input topic: verisk_events
+Output: Delta table xact_events (no Event Hub output)
+Retry topics: verisk-retry
+DLQ topic: verisk-dlq
 """
 
 import asyncio
@@ -28,7 +28,7 @@ import logging
 import uuid
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
@@ -65,8 +65,8 @@ class DeltaEventsWorker:
     - Deduplication handled by daily Fabric maintenance job
 
     Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> producer = BaseKafkaProducer(config)
+        >>> config = MessageConfig.from_env()
+        >>> producer = MessageProducer(config)
         >>> await producer.start()
         >>> worker = DeltaEventsWorker(
         ...     config=config,
@@ -83,7 +83,7 @@ class DeltaEventsWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         producer: Any,
         events_table_path: str,
         domain: str = "verisk",
@@ -93,9 +93,9 @@ class DeltaEventsWorker:
         Initialize Delta events worker.
 
         Args:
-            config: Kafka configuration for consumer (topic names, connection settings).
+            config: Message broker configuration for consumer (topic names, connection settings).
                     Also provides delta_events_batch_size and delta_events_max_batches.
-            producer: Kafka producer for retry topic routing (required).
+            producer: Message producer for retry topic routing (required).
             events_table_path: Full abfss:// path to xact_events Delta table
             domain: Domain identifier (default: "xact")
         """
@@ -129,10 +129,10 @@ class DeltaEventsWorker:
             "retry_delays", [300, 600, 1200, 2400]
         )
         self._retry_topic_prefix = processing_config.get(
-            "retry_topic_prefix", "com.allstate.pcesdopodappv1.delta-events.retry"
+            "retry_topic_prefix", "verisk-retry"
         )
         self._dlq_topic = processing_config.get(
-            "dlq_topic", "com.allstate.pcesdopodappv1.delta-events.dlq"
+            "dlq_topic", "verisk-dlq"
         )
 
         # Batch state
@@ -305,7 +305,7 @@ class DeltaEventsWorker:
 
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         """
-        Process a single event message from Kafka.
+        Process a single event message from Event Hub.
 
         Adds the event to the batch and flushes when batch is full.
         """

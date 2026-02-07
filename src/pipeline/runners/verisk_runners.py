@@ -179,12 +179,12 @@ async def run_delta_events_worker(
 ):
     """Consumes events from events.raw and writes to xact_events Delta table.
     Runs independently of EventIngesterWorker with its own consumer group."""
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.producer import MessageProducer
     from pipeline.verisk.workers.delta_events_worker import DeltaEventsWorker
 
     await execute_worker_with_producer(
         worker_class=DeltaEventsWorker,
-        producer_class=BaseKafkaProducer,
+        producer_class=MessageProducer,
         kafka_config=kafka_config,
         domain="verisk",
         stage_name="xact-delta-writer",
@@ -202,12 +202,12 @@ async def run_xact_retry_scheduler(
 ):
     """Unified retry scheduler for all XACT retry types.
     Routes messages from xact.retry topic to target topics based on headers."""
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.producer import MessageProducer
     from pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 
     await execute_worker_with_producer(
         worker_class=UnifiedRetryScheduler,
-        producer_class=BaseKafkaProducer,
+        producer_class=MessageProducer,
         kafka_config=kafka_config,
         domain="verisk",
         stage_name="xact-retry-scheduler",
@@ -305,7 +305,7 @@ async def run_result_processor(
     """Reads download results and writes to Delta Lake tables.
     On Delta write failure, batches are routed to retry topics."""
     from core.logging.context import set_log_context
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.producer import MessageProducer
     from pipeline.verisk.workers.result_processor import ResultProcessor
 
     set_log_context(stage="xact-result-processor")
@@ -323,7 +323,7 @@ async def run_result_processor(
 
     await execute_worker_with_producer(
         worker_class=ResultProcessor,
-        producer_class=BaseKafkaProducer,
+        producer_class=MessageProducer,
         kafka_config=kafka_config,
         domain="verisk",
         stage_name="xact-result-processor",

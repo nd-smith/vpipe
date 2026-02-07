@@ -5,7 +5,7 @@
 # to a Kafka topic for asynchronous processing and enrichment.
 #
 # Architecture:
-#   ClaimX Event → Plugin (filter task_id=25367|24454, status=COMPLETED) → Kafka Topic → Worker → Success Topic
+#   ClaimX Event → Plugin (filter task_id=25367|24454, status=COMPLETED) → Event Hub Topic → Worker → Success Topic
 #
 # Related Files:
 #   - plugins/config/connections.yaml - ClaimX API connection config
@@ -79,10 +79,10 @@ config:
 #   - on_completed: Captures ONLY CUSTOM_TASK_COMPLETED events
 #   - Alternative: Use on_any to capture all status changes
 #
-# Kafka Topic:
-#   - com.allstate.pcesdopodappv1.claimx.mitigation.task.tracking: Single topic for all mitigation task completions
+# Event Hub Topic:
+#   - pcesdopodappv1-ghrn-mitigation-pending: Single topic for all mitigation task completions
 #   - Worker consumes from this topic for processing
-#   - Retention: 7 days (configured in Kafka)
+#   - Retention: 7 days (configured in Event Hub)
 #
 # Payload Structure:
 #   Published messages include:

@@ -20,7 +20,7 @@ import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.claimx.workers.result_processor import ClaimXResultProcessor
 from pipeline.common.types import PipelineMessage
@@ -28,8 +28,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.downloads.results"
     config.get_consumer_group.return_value = "claimx-result-processor"
 

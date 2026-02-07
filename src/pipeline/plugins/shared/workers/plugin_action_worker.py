@@ -14,8 +14,8 @@ import signal
 from dataclasses import dataclass
 from typing import Any
 
-from config.config import KafkaConfig
-from pipeline.common.producer import BaseKafkaProducer
+from config.config import MessageConfig
+from pipeline.common.producer import MessageProducer
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.connections import (
@@ -109,7 +109,7 @@ class PluginActionWorker:
         config: WorkerConfig,
         kafka_config: dict[str, Any],
         connection_manager: ConnectionManager,
-        producer: BaseKafkaProducer | None = None,
+        producer: MessageProducer | None = None,
     ):
         """Initialize worker.
 
@@ -230,7 +230,7 @@ class PluginActionWorker:
     async def _create_consumer(self) -> None:
         """Create and configure consumer via transport layer."""
         # Create minimal KafkaConfig for transport layer
-        config = KafkaConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
+        config = MessageConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
 
         try:
             # Create consumer via transport layer

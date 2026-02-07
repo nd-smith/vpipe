@@ -4,12 +4,12 @@ from typing import Any
 
 from aiokafka import AIOKafkaConsumer
 
-from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
+from config.config import MessageConfig
+from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 
 
 def create_consumer(
-    config: KafkaConfig,
+    config: MessageConfig,
     domain: str,
     worker_name: str,
     topics: list[str] | str,
@@ -63,7 +63,7 @@ def create_consumer(
         consumer_config["sasl_mechanism"] = config.sasl_mechanism
 
         if config.sasl_mechanism == "OAUTHBEARER":
-            consumer_config["sasl_oauth_token_provider"] = create_kafka_oauth_callback()
+            consumer_config["sasl_oauth_token_provider"] = create_eventhub_oauth_callback()
         elif config.sasl_mechanism == "PLAIN":
             consumer_config["sasl_plain_username"] = config.sasl_plain_username
             consumer_config["sasl_plain_password"] = config.sasl_plain_password

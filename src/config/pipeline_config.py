@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 
 # Default config file: config/config.yaml in src/ directory
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -131,7 +131,7 @@ class EventHubConfig:
     sasl_password: str = ""  # Full connection string for Kafka protocol
 
     # Consumer settings (defaults, can be overridden per-topic in config.yaml)
-    events_topic: str = "com.allstate.pcesdopodappv1.xact.events.raw"
+    events_topic: str = "verisk_events"
     consumer_group: str = "xact-event-ingester"
     auto_offset_reset: str = "earliest"
 
@@ -165,16 +165,16 @@ class EventHubConfig:
             bootstrap_servers=bootstrap_servers,
             sasl_password=legacy_conn or namespace_conn,
             events_topic=os.getenv(
-                "EVENTHUB_EVENTS_TOPIC", "com.allstate.pcesdopodappv1.xact.events.raw"
+                "EVENTHUB_EVENTS_TOPIC", "verisk_events"
             ),
             consumer_group=os.getenv("EVENTHUB_CONSUMER_GROUP", "xact-event-ingester"),
             auto_offset_reset=os.getenv("EVENTHUB_AUTO_OFFSET_RESET", "earliest"),
         )
 
-    def to_kafka_config(self) -> KafkaConfig:
-        """Convert to KafkaConfig for use with BaseKafkaConsumer.
+    def to_message_config(self) -> MessageConfig:
+        """Convert to MessageConfig for use with MessageConsumer.
 
-        Creates a hierarchical KafkaConfig matching the new config.yaml structure.
+        Creates a hierarchical MessageConfig matching the new config.yaml structure.
         Used only when Kafka protocol is needed (not AMQP transport).
         """
         # Build verisk domain config for Event Hub source
@@ -194,7 +194,7 @@ class EventHubConfig:
             },
         }
 
-        return KafkaConfig(
+        return MessageConfig(
             bootstrap_servers=self.bootstrap_servers,
             security_protocol=self.security_protocol,
             sasl_mechanism=self.sasl_mechanism,
@@ -208,11 +208,11 @@ class EventHubConfig:
 
 
 # =============================================================================
-# LocalKafkaConfig REMOVED - Kafka replaced with EventHub
+# Local Kafka transport removed - EventHub is primary
 # =============================================================================
-# Internal pipeline communication now uses EventHub instead of local Kafka.
-# EventHub configuration is defined per-domain in EventHubConfig (if needed).
-# Domain-specific settings (topics, retry, storage) remain in KafkaConfig.
+# Internal pipeline communication uses EventHub (primary) via AMQP transport.
+# Kafka protocol support remains available for local development via MessageConfig.
+# Domain-specific settings (topics, retry, storage) remain in MessageConfig.
 # =============================================================================
 
 
@@ -382,7 +382,7 @@ class ClaimXEventhouseSourceConfig:
     overlap_minutes: int = 5
 
     # Kafka topic
-    events_topic: str = "com.allstate.pcesdopodappv1.claimx.events.raw"
+    events_topic: str = "claimx_events"
 
     # Backfill configuration
     backfill_start_stamp: str | None = None
@@ -411,7 +411,7 @@ class ClaimXEventhouseSourceConfig:
             CLAIMX_POLL_BATCH_SIZE: Max events per poll (default: 1000)
             CLAIMX_EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
             CLAIMX_EVENTS_TABLE_PATH: Path to claimx_events Delta table
-            CLAIMX_EVENTS_TOPIC: Kafka topic (default: com.allstate.pcesdopodappv1.claimx.events.raw)
+            CLAIMX_EVENTS_TOPIC: Event Hub topic (default: claimx_events)
         """
         # Use default config directory if not specified
         resolved_path = config_path or DEFAULT_CONFIG_FILE
@@ -493,7 +493,7 @@ class ClaimXEventhouseSourceConfig:
             events_topic=os.getenv(
                 "CLAIMX_EVENTS_TOPIC",
                 poller_data.get(
-                    "events_topic", "com.allstate.pcesdopodappv1.claimx.events.raw"
+                    "events_topic", "claimx_events"
                 ),
             ),
             # Backfill configuration

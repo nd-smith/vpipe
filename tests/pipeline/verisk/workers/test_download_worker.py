@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.download.models import DownloadOutcome
 from core.types import ErrorCategory
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
@@ -33,8 +33,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.downloads.pending"
     config.get_consumer_group.return_value = "verisk-download-worker"
 

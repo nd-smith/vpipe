@@ -60,7 +60,7 @@ class EventSink(Protocol):
 class KafkaSinkConfig:
     """Configuration for Kafka sink."""
 
-    kafka_config: Any  # KafkaConfig
+    kafka_config: Any  # MessageConfig
     domain: str
     worker_name: str = "eventhouse_poller"
 
@@ -69,7 +69,7 @@ class KafkaSink:
     """
     Event sink that writes to Kafka topics.
 
-    Wraps BaseKafkaProducer to provide the EventSink interface.
+    Wraps MessageProducer to provide the EventSink interface.
     """
 
     def __init__(self, config: KafkaSinkConfig):

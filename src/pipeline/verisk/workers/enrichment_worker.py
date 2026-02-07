@@ -23,7 +23,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.paths.resolver import generate_blob_path
@@ -80,11 +80,11 @@ class XACTEnrichmentWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "verisk",
         enrichment_topic: str = "",
         download_topic: str = "",
-        producer_config: KafkaConfig | None = None,
+        producer_config: MessageConfig | None = None,
         instance_id: str | None = None,
     ):
         self.consumer_config = config

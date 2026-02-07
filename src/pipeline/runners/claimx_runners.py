@@ -242,11 +242,11 @@ async def run_claimx_delta_events_worker(
     from pipeline.claimx.workers.delta_events_worker import (
         ClaimXDeltaEventsWorker,
     )
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.producer import MessageProducer
 
     await execute_worker_with_producer(
         worker_class=ClaimXDeltaEventsWorker,
-        producer_class=BaseKafkaProducer,
+        producer_class=MessageProducer,
         kafka_config=kafka_config,
         domain="claimx",
         stage_name="claimx-delta-writer",
@@ -264,12 +264,12 @@ async def run_claimx_retry_scheduler(
 ):
     """Unified retry scheduler for all ClaimX retry types.
     Routes messages from claimx.retry topic to target topics based on headers."""
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.producer import MessageProducer
     from pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 
     await execute_worker_with_producer(
         worker_class=UnifiedRetryScheduler,
-        producer_class=BaseKafkaProducer,
+        producer_class=MessageProducer,
         kafka_config=kafka_config,
         domain="claimx",
         stage_name="claimx-retry-scheduler",

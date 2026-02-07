@@ -6,7 +6,7 @@ Tests expect to import from pipeline.config but the actual
 implementations live in config.config and config.pipeline_config.
 """
 
-from config.config import KafkaConfig, load_config, reset_config
+from config.config import MessageConfig, load_config, reset_config
 from config.pipeline_config import (
     DEFAULT_CONFIG_FILE,
     EventHubConfig,
@@ -15,7 +15,7 @@ from config.pipeline_config import (
 )
 
 __all__ = [
-    "KafkaConfig",
+    "MessageConfig",
     "EventHubConfig",
     "EventSourceType",
     "PipelineConfig",

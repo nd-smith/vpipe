@@ -1,7 +1,7 @@
-"""Kafka batch consumer for high-throughput concurrent processing.
+"""Message batch consumer for high-throughput concurrent processing.
 
 Wrapper around AIOKafkaConsumer that provides batch-concurrent message processing.
-Unlike BaseKafkaConsumer (which processes messages one-at-a-time), this consumer
+Unlike MessageConsumer (which processes messages one-at-a-time), this consumer
 fetches batches and delegates to a batch_handler for concurrent processing.
 
 Designed for I/O-bound workers (downloads, uploads) that benefit from processing
@@ -15,8 +15,8 @@ from collections.abc import Awaitable, Callable
 
 from aiokafka import AIOKafkaConsumer
 
-from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
+from config.config import MessageConfig
+from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
@@ -26,8 +26,8 @@ from pipeline.common.types import PipelineMessage, from_consumer_record
 logger = logging.getLogger(__name__)
 
 
-class KafkaBatchConsumer:
-    """Kafka batch consumer for concurrent message processing.
+class MessageBatchConsumer:
+    """Message batch consumer for concurrent message processing.
 
     Fetches batches of messages using getmany() and processes them concurrently
     for high-throughput I/O operations.
@@ -46,7 +46,7 @@ class KafkaBatchConsumer:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str,
         worker_name: str,
         topics: list[str],
@@ -56,10 +56,10 @@ class KafkaBatchConsumer:
         enable_message_commit: bool = True,
         instance_id: str | None = None,
     ):
-        """Initialize Kafka batch consumer.
+        """Initialize message batch consumer.
 
         Args:
-            config: KafkaConfig with connection details
+            config: MessageConfig with connection details
             domain: Pipeline domain (e.g., "verisk", "claimx")
             worker_name: Worker name for logging
             topics: List of topics to consume
@@ -92,7 +92,7 @@ class KafkaBatchConsumer:
         self._batch_count = 0
 
         logger.info(
-            "Initialized Kafka batch consumer",
+            "Initialized message batch consumer",
             extra={
                 "domain": domain,
                 "worker_name": worker_name,
@@ -107,7 +107,7 @@ class KafkaBatchConsumer:
         )
 
     async def start(self) -> None:
-        """Start the Kafka batch consumer."""
+        """Start the message batch consumer."""
         if self._running:
             logger.warning(
                 "Batch consumer already running, ignoring duplicate start call"
@@ -115,7 +115,7 @@ class KafkaBatchConsumer:
             return
 
         logger.info(
-            "Starting Kafka batch consumer",
+            "Starting message batch consumer",
             extra={
                 "topics": self.topics,
                 "group_id": self.group_id,
@@ -183,7 +183,7 @@ class KafkaBatchConsumer:
                 kafka_consumer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
+                oauth_callback = create_eventhub_oauth_callback()
                 kafka_consumer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
                 kafka_consumer_config["sasl_plain_username"] = (
@@ -207,7 +207,7 @@ class KafkaBatchConsumer:
         update_assigned_partitions(self.group_id, partition_count)
 
         logger.info(
-            "Kafka batch consumer started successfully",
+            "Message batch consumer started successfully",
             extra={
                 "topics": self.topics,
                 "group_id": self.group_id,
@@ -231,12 +231,12 @@ class KafkaBatchConsumer:
             self._running = False
 
     async def stop(self) -> None:
-        """Stop the Kafka batch consumer."""
+        """Stop the message batch consumer."""
         if not self._running or self._consumer is None:
             logger.debug("Batch consumer not running or already stopped")
             return
 
-        logger.info("Stopping Kafka batch consumer")
+        logger.info("Stopping message batch consumer")
         self._running = False
 
         try:
@@ -244,10 +244,10 @@ class KafkaBatchConsumer:
                 await self._consumer.commit()
                 await self._consumer.stop()
 
-            logger.info("Kafka batch consumer stopped successfully")
+            logger.info("Message batch consumer stopped successfully")
         except Exception as e:
             logger.error(
-                "Error stopping Kafka batch consumer",
+                "Error stopping message batch consumer",
                 extra={"error": str(e)},
                 exc_info=True,
             )

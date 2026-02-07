@@ -6,7 +6,7 @@
 # to a Kafka topic for asynchronous processing and enrichment.
 #
 # Architecture:
-#   ClaimX Event → Plugin (filter task_id=32513) → Kafka Topic → Worker → Delta Table
+#   ClaimX Event → Plugin (filter task_id=32513) → Event Hub Topic → Worker → Delta Table
 #
 # Related Files:
 #   - plugins/config/connections.yaml - ClaimX API connection config
@@ -54,7 +54,7 @@ config:
         # Publish to unified tracking topic
         # Worker will consume from this topic, enrich with ClaimX API data,
         # and write to Delta table for historical analysis
-        publish_to_topic: com.allstate.pcesdopodappv1.itel.cabinet.task.tracking
+        publish_to_topic: pcesdopodappv1-itel-cabinet-pending
 
         log:
           level: info
@@ -72,10 +72,10 @@ config:
 #   - on_any: Captures ALL events (CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED, etc.)
 #   - Alternative: Use on_assigned and on_completed for specific events only
 #
-# Kafka Topic:
-#   - itel.cabinet.task.tracking: Single topic for all task 32513 events
+# Event Hub Topic:
+#   - pcesdopodappv1-itel-cabinet-pending: Single topic for all task 32513 events
 #   - Worker consumes from this topic for processing
-#   - Retention: 7 days (configured in Kafka)
+#   - Retention: 7 days (configured in Event Hub)
 #
 # Payload Structure:
 #   Published messages include:
@@ -95,19 +95,19 @@ config:
 #
 # Monitoring:
 #   - Check plugin logs: tail -f logs/claimx/enrichment_worker.log | grep "iTel Cabinet"
-#   - Monitor Kafka topic: kafka-console-consumer --topic itel.cabinet.task.tracking
+#   - Monitor Event Hub topic: pcesdopodappv1-itel-cabinet-pending
 #   - View metrics: itel_plugin_events_triggered_total
 #
 # Testing:
 #   1. Set enabled: true
 #   2. Start enrichment worker
 #   3. Create/update task 32513 in ClaimX
-#   4. Verify events published to itel.cabinet.task.tracking topic
+#   4. Verify events published to pcesdopodappv1-itel-cabinet-pending topic
 #   5. Check logs for "iTel Cabinet task event tracked" messages
 #
 # Troubleshooting:
 #   - No events triggered: Verify task_id in ClaimX matches 32513 exactly
 #   - Plugin not running: Check enrichment worker is running with plugins enabled
-#   - No Kafka messages: Check Kafka connectivity and topic creation
+#   - No Event Hub messages: Check Event Hub connectivity and topic creation
 #
 # =============================================================================

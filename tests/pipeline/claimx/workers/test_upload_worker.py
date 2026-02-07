@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.claimx.workers.upload_worker import ClaimXUploadWorker, UploadResult
@@ -29,8 +29,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.downloads.cached"
     config.get_consumer_group.return_value = "claimx-upload-worker"
 
@@ -166,7 +166,7 @@ class TestClaimXUploadWorkerInitialization:
 
     def test_initialization_requires_onelake_config(self):
         """Worker requires OneLake configuration when no storage client injected."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.onelake_domain_paths = {}
         config.onelake_base_path = None
 

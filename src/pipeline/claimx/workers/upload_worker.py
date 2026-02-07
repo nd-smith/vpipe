@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
@@ -66,7 +66,7 @@ class ClaimXUploadWorker:
     6. Commit offsets after batch processing
 
     Usage:
-        config = KafkaConfig.from_env()
+        config = MessageConfig.from_env()
         worker = ClaimXUploadWorker(config)
         await worker.start()  # Runs until stopped
         await worker.stop()
@@ -76,7 +76,7 @@ class ClaimXUploadWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "claimx",
         instance_id: str | None = None,
         storage_client: Any | None = None,

@@ -19,7 +19,7 @@ import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 from pipeline.verisk.workers.event_ingester import EventIngesterWorker
@@ -28,8 +28,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.events"
     config.get_consumer_group.return_value = "verisk-event-ingester"
     config.get_worker_config.return_value = {
@@ -104,7 +104,7 @@ class TestEventIngesterWorkerInitialization:
 
     def test_initialization_with_separate_producer_config(self, mock_config):
         """Worker accepts separate producer config."""
-        producer_config = Mock(spec=KafkaConfig)
+        producer_config = Mock(spec=MessageConfig)
         producer_config.get_topic.return_value = "verisk.enrichment.pending"
         worker = EventIngesterWorker(
             config=mock_config, producer_config=producer_config

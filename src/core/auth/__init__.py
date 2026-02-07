@@ -1,13 +1,13 @@
 """
 Authentication module.
 
-Provides unified authentication for Azure services and Kafka.
+Provides unified authentication for Azure services and EventHub.
 
 Components:
     - TokenCache: Thread-safe token caching with expiry checks (WP-102 ✓)
     - Azure credential abstraction (CLI, SPN, managed identity) (WP-103 ✓)
     - Token refresh logic (WP-103 ✓)
-    - Kafka OAUTHBEARER callback for SASL authentication (WP-104)
+    - EventHub OAUTHBEARER callback for SASL authentication (WP-104)
 
 Review checklist for WP-102:
     [x] Token refresh timing (50min buffer for 60min tokens - CORRECT)
@@ -29,12 +29,12 @@ from .credentials import (
     get_default_provider,
     get_storage_options,
 )
-from .kafka_oauth import (
+from .eventhub_oauth import (
     EVENTHUB_RESOURCE,
     EVENTHUB_SCOPE,
-    KafkaOAuthError,
-    create_kafka_oauth_callback,
-    get_kafka_oauth_token,
+    EventHubAuthError,
+    create_eventhub_oauth_callback,
+    get_eventhub_oauth_token,
 )
 from .token_cache import TOKEN_EXPIRY_MINS, TOKEN_REFRESH_MINS, TokenCache
 
@@ -51,10 +51,10 @@ __all__ = [
     "clear_token_cache",
     "STORAGE_RESOURCE",
     "STORAGE_SCOPE",
-    # Kafka OAuth (WP-104)
-    "create_kafka_oauth_callback",
-    "get_kafka_oauth_token",
-    "KafkaOAuthError",
+    # EventHub OAuth (WP-104)
+    "create_eventhub_oauth_callback",
+    "get_eventhub_oauth_token",
+    "EventHubAuthError",
     "EVENTHUB_RESOURCE",
     "EVENTHUB_SCOPE",
 ]

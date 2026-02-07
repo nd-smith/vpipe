@@ -22,7 +22,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from dataclasses import dataclass
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.download.models import DownloadOutcome
 from core.types import ErrorCategory
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
@@ -32,8 +32,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.downloads.pending"
     config.get_consumer_group.return_value = "claimx-download-worker"
     config.get_worker_config.return_value = {

@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.common.eventhouse.kql_client import (
     EventhouseConfig,
     KQLClient,
@@ -108,7 +108,7 @@ class PollerConfig:
     """Configuration for KQL Event Poller."""
 
     eventhouse: EventhouseConfig
-    kafka: KafkaConfig | None = None  # Optional when using custom sink
+    kafka: MessageConfig | None = None  # Optional when using custom sink
     event_schema_class: type | None = None
     domain: str = "verisk"
     poll_interval_seconds: int = 30

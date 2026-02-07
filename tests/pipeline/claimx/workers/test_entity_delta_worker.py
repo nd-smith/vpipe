@@ -20,7 +20,7 @@ import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.workers.entity_delta_worker import ClaimXEntityDeltaWorker
 from pipeline.common.types import PipelineMessage
@@ -28,8 +28,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.enriched"
     config.get_consumer_group.return_value = "claimx-entity-delta-writer"
 
@@ -130,7 +130,7 @@ class TestEntityDeltaWorkerInitialization:
 
     def test_initialization_with_separate_producer_config(self, mock_config):
         """Worker accepts separate producer config."""
-        producer_config = Mock(spec=KafkaConfig)
+        producer_config = Mock(spec=MessageConfig)
         worker = ClaimXEntityDeltaWorker(
             config=mock_config,
             projects_table_path="abfss://test/projects",
@@ -329,7 +329,7 @@ class TestEntityDeltaWorkerBatching:
     async def test_batch_accumulates_entity_rows(self, sample_message):
         """Worker accumulates entity rows in batch."""
         # Create config with custom batch size
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "claimx.enriched"
         config.get_consumer_group.return_value = "claimx-entity-delta-writer"
 
@@ -363,7 +363,7 @@ class TestEntityDeltaWorkerBatching:
     async def test_batch_flushes_on_size_threshold(self, sample_message):
         """Worker flushes batch when size threshold reached."""
         # Create config with batch_size=2
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "claimx.enriched"
         config.get_consumer_group.return_value = "claimx-entity-delta-writer"
 

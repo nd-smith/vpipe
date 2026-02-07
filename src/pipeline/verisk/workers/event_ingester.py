@@ -24,7 +24,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
@@ -66,9 +66,9 @@ class EventIngesterWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "verisk",
-        producer_config: KafkaConfig | None = None,
+        producer_config: MessageConfig | None = None,
         instance_id: str | None = None,
     ):
         self.consumer_config = config

@@ -1,15 +1,15 @@
 """Common infrastructure shared across all pipeline domains.
 
 This package provides domain-agnostic infrastructure including:
-- BaseKafkaConsumer: Base class for Kafka consumers
-- BaseKafkaProducer: Base class for Kafka producers
+- MessageConsumer: Base class for Kafka consumers
+- MessageProducer: Base class for Kafka producers
 - Logging utilities
 - Exception classes and error classification
 - Resilience patterns (circuit breaker, retry)
 
 Import classes directly from submodules to avoid loading heavy dependencies:
-    from pipeline.common.consumer import BaseKafkaConsumer
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.consumer import MessageConsumer
+    from pipeline.common.producer import MessageProducer
     import logging
     from core.types import ErrorCategory
 """

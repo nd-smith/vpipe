@@ -30,7 +30,7 @@ from typing import Any
 
 import aiohttp
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
@@ -97,7 +97,7 @@ class DownloadWorker:
     5. Commit offsets after batch processing
 
     Usage:
-        config = KafkaConfig.from_env()
+        config = MessageConfig.from_env()
         worker = DownloadWorker(config)
         await worker.start()  # Runs until stopped
         await worker.stop()
@@ -110,7 +110,7 @@ class DownloadWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "verisk",
         temp_dir: Path | None = None,
         instance_id: str | None = None,

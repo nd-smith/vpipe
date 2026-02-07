@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
@@ -79,7 +79,7 @@ class UploadWorker:
     6. Commit offsets after batch processing
 
     Usage:
-        config = KafkaConfig.from_env()
+        config = MessageConfig.from_env()
         worker = UploadWorker(config)
         await worker.start()  # Runs until stopped
         await worker.stop()
@@ -92,7 +92,7 @@ class UploadWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "verisk",
         instance_id: str | None = None,
         storage_client: Any | None = None,

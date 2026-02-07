@@ -23,7 +23,7 @@ import logging
 import time
 import uuid
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.context import set_log_context
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
@@ -65,8 +65,8 @@ class ResultProcessor:
     - Safe for concurrent message processing
 
     Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> producer = BaseKafkaProducer(config)
+        >>> config = MessageConfig.from_env()
+        >>> producer = MessageProducer(config)
         >>> await producer.start()
         >>> processor = ResultProcessor(
         ...     config=config,
@@ -90,7 +90,7 @@ class ResultProcessor:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         producer,
         inventory_table_path: str,
         failed_table_path: str | None = None,

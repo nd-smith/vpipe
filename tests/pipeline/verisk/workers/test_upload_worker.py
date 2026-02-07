@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.workers.upload_worker import UploadWorker, UploadResult
@@ -30,8 +30,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.downloads.cached"
     config.get_consumer_group.return_value = "verisk-upload-worker"
 
@@ -171,7 +171,7 @@ class TestUploadWorkerInitialization:
 
     def test_initialization_requires_onelake_config(self):
         """Worker requires OneLake configuration when no storage client injected."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.onelake_domain_paths = {}
         config.onelake_base_path = None
 

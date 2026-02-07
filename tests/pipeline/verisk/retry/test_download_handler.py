@@ -17,7 +17,7 @@ import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.results import FailedDownloadMessage
@@ -29,7 +29,7 @@ class TestRetryHandlerInitialization:
 
     def test_initialization_with_default_domain(self):
         """RetryHandler initializes with default verisk domain."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
 
@@ -44,7 +44,7 @@ class TestRetryHandlerInitialization:
 
     def test_initialization_with_custom_domain(self):
         """RetryHandler initializes with custom domain."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [300, 600]
         config.get_max_retries.return_value = 2
 
@@ -56,7 +56,7 @@ class TestRetryHandlerInitialization:
 
     def test_loads_retry_configuration_from_config(self):
         """RetryHandler loads retry delays and max retries from config."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [100, 200, 300]
         config.get_max_retries.return_value = 3
 
@@ -67,7 +67,7 @@ class TestRetryHandlerInitialization:
 
     def test_producers_initially_none(self):
         """Producers are None before start() is called."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [300]
         config.get_max_retries.return_value = 1
 
@@ -82,7 +82,7 @@ class TestRetryHandlerErrorCategoryRouting:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -220,7 +220,7 @@ class TestRetryHandlerRetryExhaustion:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -315,7 +315,7 @@ class TestRetryHandlerMetadataAndTimestamp:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -460,7 +460,7 @@ class TestRetryHandlerRetryHeaders:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -566,7 +566,7 @@ class TestRetryHandlerDLQMessage:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -732,7 +732,7 @@ class TestRetryHandlerTaskImmutability:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -808,7 +808,7 @@ class TestRetryHandlerDLQErrorTruncation:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4

@@ -1,7 +1,7 @@
 """
-Kafka error classification for consumer and producer operations.
+Transport error classification for message consumer and producer operations.
 
-Provides consistent error handling for aiokafka exceptions,
+Provides consistent error handling for transport exceptions (Kafka protocol, EventHub),
 mapping them to typed PipelineError hierarchy with retry decisions.
 """
 
@@ -125,12 +125,12 @@ def classify_error_type(error_type_name: str) -> str | None:
     return None
 
 
-class KafkaErrorClassifier:
+class TransportErrorClassifier:
     """
-    Centralized error classification for Kafka operations.
+    Centralized error classification for message transport operations.
 
     Provides consistent error categorization for both producer and consumer operations.
-    Maps aiokafka exceptions to PipelineError hierarchy.
+    Maps transport exceptions (Kafka protocol via aiokafka, EventHub) to PipelineError hierarchy.
     """
 
     @staticmethod
@@ -138,11 +138,11 @@ class KafkaErrorClassifier:
         error: Exception, context: dict | None = None
     ) -> PipelineError:
         """
-        Classify a Kafka consumer error into appropriate exception type.
+        Classify a message consumer error into appropriate exception type.
 
         Args:
-            error: Original exception from aiokafka consumer
-            context: Additional context (merged with default {"service": "kafka_consumer"})
+            error: Original exception from message consumer
+            context: Additional context (merged with default {"service": "message_consumer"})
 
         Returns:
             Classified PipelineError subclass
@@ -153,7 +153,7 @@ class KafkaErrorClassifier:
 
         error_str = str(error).lower()
         error_type = type(error).__name__
-        error_context = {"service": "kafka_consumer"}
+        error_context = {"service": "message_consumer"}
         if context:
             error_context.update(context)
 
@@ -260,11 +260,11 @@ class KafkaErrorClassifier:
         error: Exception, context: dict | None = None
     ) -> PipelineError:
         """
-        Classify a Kafka producer error into appropriate exception type.
+        Classify a message producer error into appropriate exception type.
 
         Args:
-            error: Original exception from aiokafka producer
-            context: Additional context (merged with default {"service": "kafka_producer"})
+            error: Original exception from message producer
+            context: Additional context (merged with default {"service": "message_producer"})
 
         Returns:
             Classified PipelineError subclass
@@ -275,7 +275,7 @@ class KafkaErrorClassifier:
 
         error_str = str(error).lower()
         error_type = type(error).__name__
-        error_context = {"service": "kafka_producer"}
+        error_context = {"service": "message_producer"}
         if context:
             error_context.update(context)
 
@@ -378,13 +378,13 @@ class KafkaErrorClassifier:
         )
 
     @staticmethod
-    def classify_kafka_error(
+    def classify_transport_error(
         error: Exception,
         operation_type: str,
         context: dict | None = None,
     ) -> PipelineError:
         """
-        Generic Kafka error classifier with operation routing.
+        Generic transport error classifier with operation routing.
 
         Routes to operation-specific classifier based on operation type.
 
@@ -399,9 +399,9 @@ class KafkaErrorClassifier:
         operation_type = operation_type.lower()
 
         if operation_type == "consumer":
-            return KafkaErrorClassifier.classify_consumer_error(error, context)
+            return TransportErrorClassifier.classify_consumer_error(error, context)
         elif operation_type == "producer":
-            return KafkaErrorClassifier.classify_producer_error(error, context)
+            return TransportErrorClassifier.classify_producer_error(error, context)
         else:
             # Fall back to generic classification
             return wrap_exception(error, context=context)

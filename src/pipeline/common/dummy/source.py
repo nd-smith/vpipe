@@ -12,13 +12,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.common.dummy.file_server import DummyFileServer, FileServerConfig
 from pipeline.common.dummy.generators import (
     GeneratorConfig,
     RealisticDataGenerator,
 )
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.producer import MessageProducer
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class DummySourceConfig:
     """Configuration for the dummy data source."""
 
-    kafka: KafkaConfig
+    kafka: MessageConfig
     generator: GeneratorConfig = field(default_factory=GeneratorConfig)
     file_server: FileServerConfig = field(default_factory=FileServerConfig)
 
@@ -65,7 +65,7 @@ class DummyDataSource:
         self.config = config
         self._generator = RealisticDataGenerator(config.generator)
         self._file_server: DummyFileServer | None = None
-        self._producers: dict[str, BaseKafkaProducer] = {}
+        self._producers: dict[str, MessageProducer] = {}
         self._running = False
         self._shutdown_event = asyncio.Event()
         self._total_events = 0
@@ -119,7 +119,7 @@ class DummyDataSource:
 
         # Create producers for each domain
         for domain in self.config.domains:
-            producer = BaseKafkaProducer(
+            producer = MessageProducer(
                 config=self.config.kafka,
                 domain=domain,
                 worker_name="dummy_source",
@@ -379,7 +379,7 @@ class DummyDataSource:
 
 
 def load_dummy_source_config(
-    kafka_config: KafkaConfig,
+    kafka_config: MessageConfig,
     dummy_config: dict[str, Any] | None = None,
 ) -> DummySourceConfig:
     """

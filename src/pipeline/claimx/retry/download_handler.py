@@ -9,7 +9,7 @@ exhausted retries to dead-letter queue (DLQ).
 import logging
 from datetime import UTC, datetime, timedelta
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.handlers.utils import (
@@ -36,7 +36,7 @@ class DownloadRetryHandler:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         api_client: ClaimXApiClient,
         domain: str = "claimx",
     ):

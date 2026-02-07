@@ -19,7 +19,7 @@ import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.retry.download_handler import DownloadRetryHandler
@@ -32,7 +32,7 @@ class TestDownloadRetryHandlerInitialization:
 
     def test_initialization_with_default_domain(self):
         """DownloadRetryHandler initializes with default claimx domain."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
         api_client = Mock(spec=ClaimXApiClient)
@@ -49,7 +49,7 @@ class TestDownloadRetryHandlerInitialization:
 
     def test_initialization_with_custom_domain(self):
         """DownloadRetryHandler initializes with custom domain."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [100, 200]
         config.get_max_retries.return_value = 2
         api_client = Mock(spec=ClaimXApiClient)
@@ -64,7 +64,7 @@ class TestDownloadRetryHandlerInitialization:
 
     def test_producers_initially_none(self):
         """Producers are None before start() is called."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_retry_delays.return_value = [300]
         config.get_max_retries.return_value = 1
         api_client = Mock(spec=ClaimXApiClient)
@@ -80,7 +80,7 @@ class TestDownloadRetryHandlerErrorCategoryRouting:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -196,7 +196,7 @@ class TestDownloadRetryHandlerURLExpirationDetection:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -304,7 +304,7 @@ class TestDownloadRetryHandlerURLRefresh:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -472,7 +472,7 @@ class TestDownloadRetryHandlerURLRefreshIntegration:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -564,7 +564,7 @@ class TestDownloadRetryHandlerRetryExhaustion:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -641,7 +641,7 @@ class TestDownloadRetryHandlerMessageKeys:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4
@@ -731,7 +731,7 @@ class TestDownloadRetryHandlerTaskImmutability:
 
     @pytest.fixture
     def mock_config(self):
-        """Mock KafkaConfig with standard retry configuration."""
+        """Mock MessageConfig with standard retry configuration."""
         config = Mock()
         config.get_retry_delays.return_value = [300, 600, 1200, 2400]
         config.get_max_retries.return_value = 4

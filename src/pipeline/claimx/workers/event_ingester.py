@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.context import set_log_context
 from core.logging.utilities import format_cycle_output
 from pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -46,10 +46,10 @@ class ClaimXEventIngesterWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "claimx",
         enrichment_topic: str = "",
-        producer_config: KafkaConfig | None = None,
+        producer_config: MessageConfig | None = None,
         instance_id: str | None = None,
     ):
         self.consumer_config = config
@@ -117,7 +117,7 @@ class ClaimXEventIngesterWorker:
         )
 
     @property
-    def config(self) -> KafkaConfig:
+    def config(self) -> MessageConfig:
         return self.consumer_config
 
     async def start(self) -> None:

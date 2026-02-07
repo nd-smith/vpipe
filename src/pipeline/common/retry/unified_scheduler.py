@@ -16,10 +16,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from config.config import KafkaConfig
-from pipeline.common.consumer import BaseKafkaConsumer
+from config.config import MessageConfig
+from pipeline.common.consumer import MessageConsumer
 from pipeline.common.health import HealthCheckServer
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.producer import MessageProducer
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
@@ -68,8 +68,8 @@ class UnifiedRetryScheduler:
     - This is acceptable trade-off vs blocking entire queue
 
     Usage:
-        >>> config = KafkaConfig.from_env()
-        >>> producer = BaseKafkaProducer(
+        >>> config = MessageConfig.from_env()
+        >>> producer = MessageProducer(
         ...     config=config,
         ...     domain="verisk",
         ...     worker_name="unified_retry_scheduler"
@@ -88,8 +88,8 @@ class UnifiedRetryScheduler:
 
     def __init__(
         self,
-        config: KafkaConfig,
-        producer: BaseKafkaProducer,
+        config: MessageConfig,
+        producer: MessageProducer,
         domain: str,
         persistence_interval_seconds: int = 10,
         health_port: int = 8095,
@@ -114,7 +114,7 @@ class UnifiedRetryScheduler:
         self._dlq_topic = config.get_topic(domain, "dlq")
         self._max_retries = config.get_max_retries(domain)
 
-        self._consumer: BaseKafkaConsumer | None = None
+        self._consumer: MessageConsumer | None = None
         self._running = False
 
         # In-memory delay queue (min-heap by scheduled_time)
@@ -187,7 +187,7 @@ class UnifiedRetryScheduler:
         self._persistence_task = asyncio.create_task(self._periodic_persistence())
 
         # Create consumer for retry topic
-        self._consumer = BaseKafkaConsumer(
+        self._consumer = MessageConsumer(
             config=self.config,
             domain=self.domain,
             worker_name=self.worker_name,

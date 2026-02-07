@@ -10,9 +10,9 @@ Provides XACT DLQ message management with:
 import json
 import logging
 
-from config.config import KafkaConfig
-from pipeline.common.consumer import BaseKafkaConsumer
-from pipeline.common.producer import BaseKafkaProducer
+from config.config import MessageConfig
+from pipeline.common.consumer import MessageConsumer
+from pipeline.common.producer import MessageProducer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import FailedDownloadMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
@@ -31,7 +31,7 @@ class DLQHandler:
     - Structured logging for compliance
 
     Usage:
-        >>> config = KafkaConfig.from_env()
+        >>> config = MessageConfig.from_env()
         >>> handler = DLQHandler(config)
         >>> await handler.start()
         >>>
@@ -45,7 +45,7 @@ class DLQHandler:
         >>> await handler.stop()
     """
 
-    def __init__(self, config: KafkaConfig):
+    def __init__(self, config: MessageConfig):
         """
         Initialize XACT DLQ handler with Kafka configuration.
 
@@ -54,8 +54,8 @@ class DLQHandler:
         """
         self.config = config
         self.domain = "verisk"
-        self._consumer: BaseKafkaConsumer | None = None
-        self._producer: BaseKafkaProducer | None = None
+        self._consumer: MessageConsumer | None = None
+        self._producer: MessageProducer | None = None
 
         # Get topic names from config
         self._dlq_topic = config.get_topic("verisk", "dlq")
@@ -82,7 +82,7 @@ class DLQHandler:
         logger.info("Starting XACT DLQ handler")
 
         # Create producer for replay operations
-        self._producer = BaseKafkaProducer(
+        self._producer = MessageProducer(
             config=self.config,
             domain=self.domain,
             worker_name="dlq_handler",
@@ -91,7 +91,7 @@ class DLQHandler:
 
         # Create consumer for DLQ topic with manual commit
         # The message handler is set to _handle_dlq_message
-        self._consumer = BaseKafkaConsumer(
+        self._consumer = MessageConsumer(
             config=self.config,
             domain=self.domain,
             worker_name="dlq_handler",

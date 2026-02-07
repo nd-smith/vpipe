@@ -18,14 +18,14 @@ import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig."""
+    """Mock MessageConfig."""
     config = Mock()
     # _send_to_retry_topic needs these methods
     config.get_retry_topic.return_value = "test.retry"
@@ -51,9 +51,9 @@ class TestDeltaRetryHandlerInitialization:
         assert handler._max_retries == 4
         assert (
             handler._retry_topic_prefix
-            == "com.allstate.pcesdopodappv1.delta-events.retry"
+            == "verisk-retry"
         )
-        assert handler._dlq_topic == "com.allstate.pcesdopodappv1.delta-events.dlq"
+        assert handler._dlq_topic == "verisk-dlq"
 
     def test_initialization_with_custom_retry_delays(self, mock_config):
         """Handler accepts custom retry delays."""

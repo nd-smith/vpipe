@@ -18,15 +18,15 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.workers.delta_events_worker import ClaimXDeltaEventsWorker
 from pipeline.common.types import PipelineMessage
 
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.events"
     config.get_consumer_group.return_value = "claimx-delta-events-writer"
 
@@ -274,7 +274,7 @@ class TestDeltaEventsWorkerBatching:
     ):
         """Worker accumulates events in batch."""
         # Create config with batch_size=10
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "claimx.events"
         config.get_consumer_group.return_value = "claimx-delta-events-writer"
 
@@ -306,7 +306,7 @@ class TestDeltaEventsWorkerBatching:
     ):
         """Worker flushes batch when size threshold reached."""
         # Create config with batch_size=2
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "claimx.events"
         config.get_consumer_group.return_value = "claimx-delta-events-writer"
 

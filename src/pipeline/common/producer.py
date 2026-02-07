@@ -1,4 +1,4 @@
-"""Kafka producer with circuit breaker integration and Azure AD authentication."""
+"""Message producer with circuit breaker integration and Azure AD authentication."""
 
 import json
 import logging
@@ -8,8 +8,8 @@ from typing import Any
 from aiokafka import AIOKafkaProducer
 from pydantic import BaseModel
 
-from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
+from config.config import MessageConfig
+from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from core.utils.json_serializers import json_serializer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -22,12 +22,12 @@ from pipeline.common.types import ProduceResult
 logger = logging.getLogger(__name__)
 
 
-class BaseKafkaProducer:
-    """Async Kafka producer with circuit breaker, Azure AD auth, and worker-specific config."""
+class MessageProducer:
+    """Async message producer with circuit breaker, Azure AD auth, and worker-specific config."""
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str,
         worker_name: str,
     ):
@@ -41,7 +41,7 @@ class BaseKafkaProducer:
         self.producer_config = config.get_worker_config(domain, worker_name, "producer")
 
         logger.info(
-            "Initialized Kafka producer",
+            "Initialized message producer",
             extra={
                 "domain": domain,
                 "worker_name": worker_name,
@@ -57,7 +57,7 @@ class BaseKafkaProducer:
             logger.warning("Producer already started, ignoring duplicate start call")
             return
 
-        logger.info("Starting Kafka producer")
+        logger.info("Starting message producer")
 
         kafka_producer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
@@ -122,7 +122,7 @@ class BaseKafkaProducer:
                 kafka_producer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
+                oauth_callback = create_eventhub_oauth_callback()
                 kafka_producer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
                 kafka_producer_config["sasl_plain_username"] = (
@@ -154,7 +154,7 @@ class BaseKafkaProducer:
         update_connection_status("producer", connected=True)
 
         logger.info(
-            "Kafka producer started successfully",
+            "Message producer started successfully",
             extra={
                 "bootstrap_servers": self.config.bootstrap_servers,
                 "acks": self.producer_config.get("acks", "all"),
@@ -173,7 +173,7 @@ class BaseKafkaProducer:
             logger.debug("Producer already stopped")
             return
 
-        logger.info("Stopping Kafka producer")
+        logger.info("Stopping message producer")
 
         try:
             # During shutdown, event loop may be closed and aiokafka's stop() will fail
@@ -194,10 +194,10 @@ class BaseKafkaProducer:
             if self._started:
                 await self._producer.flush()
             await self._producer.stop()
-            logger.info("Kafka producer stopped successfully")
+            logger.info("Message producer stopped successfully")
         except Exception as e:
             logger.error(
-                "Error stopping Kafka producer",
+                "Error stopping message producer",
                 extra={"error": str(e)},
                 exc_info=True,
             )
@@ -231,7 +231,7 @@ class BaseKafkaProducer:
         # Note: Distributed tracing has been removed or no active span
 
         logger.debug(
-            "Sending message to Kafka",
+            "Sending message",
             extra={
                 "topic": topic,
                 "key": key,
@@ -297,7 +297,7 @@ class BaseKafkaProducer:
             return []
 
         logger.info(
-            "Sending batch to Kafka",
+            "Sending batch",
             extra={"topic": topic, "message_count": len(messages), "headers": headers},
         )
 
@@ -382,8 +382,8 @@ class BaseKafkaProducer:
 
 
 __all__ = [
-    "BaseKafkaProducer",
+    "MessageProducer",
     "AIOKafkaProducer",
     "ProduceResult",
-    "create_kafka_oauth_callback",
+    "create_eventhub_oauth_callback",
 ]

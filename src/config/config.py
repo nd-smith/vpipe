@@ -1,4 +1,4 @@
-"""Kafka pipeline configuration from YAML file.
+"""Message pipeline configuration from YAML file.
 
 Loads from config/config.yaml with all settings in one place.
 Environment variables are supported using ${VAR_NAME} syntax.
@@ -94,12 +94,10 @@ DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
 
 
 @dataclass
-class KafkaConfig:
+class MessageConfig:
     """Pipeline configuration.
 
     Loads from YAML file with hierarchical structure organized by domain and worker.
-
-    Note: Class name is historical. The pipeline uses EventHub transport, not Kafka.
 
     Configuration structure:
         pipeline:
@@ -327,16 +325,16 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return result
 
 
-def _get_storage_config(kafka_data: dict) -> dict:
-    """Get storage config from kafka.storage section only."""
-    return kafka_data.get("storage", {})
+def _get_storage_config(pipeline_data: dict) -> dict:
+    """Get storage config from pipeline.storage section only."""
+    return pipeline_data.get("storage", {})
 
 
 def load_config(
     config_path: Path | None = None,
     overrides: dict[str, Any] | None = None,
-) -> KafkaConfig:
-    """Load Kafka configuration from config.yaml file.
+) -> MessageConfig:
+    """Load message pipeline configuration from config.yaml file.
 
     Loads from single consolidated config/config.yaml file with all settings.
 
@@ -381,7 +379,7 @@ def load_config(
     else:
         logger.info("ClaimX API authentication configured")
 
-    config = KafkaConfig(
+    config = MessageConfig(
         verisk=verisk_config,
         claimx=claimx_config,
         onelake_base_path=storage.get("onelake_base_path", ""),
@@ -415,27 +413,27 @@ def load_config(
     return config
 
 
-_kafka_config: KafkaConfig | None = None
+_message_config: MessageConfig | None = None
 
 
-def get_config() -> KafkaConfig:
-    """Get or load the singleton Kafka config instance."""
-    global _kafka_config
-    if _kafka_config is None:
-        _kafka_config = load_config()
-    return _kafka_config
+def get_config() -> MessageConfig:
+    """Get or load the singleton message config instance."""
+    global _message_config
+    if _message_config is None:
+        _message_config = load_config()
+    return _message_config
 
 
-def set_config(config: KafkaConfig) -> None:
-    """Set the singleton Kafka config instance (useful for testing)."""
-    global _kafka_config
-    _kafka_config = config
+def set_config(config: MessageConfig) -> None:
+    """Set the singleton message config instance (useful for testing)."""
+    global _message_config
+    _message_config = config
 
 
 def reset_config() -> None:
     """Reset the singleton config instance (forces reload on next get_config() call)."""
-    global _kafka_config
-    _kafka_config = None
+    global _message_config
+    _message_config = None
 
 
 def _cli_main() -> int:
@@ -443,7 +441,7 @@ def _cli_main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Kafka Pipeline Configuration Tool",
+        description="Message Pipeline Configuration Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

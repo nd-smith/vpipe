@@ -18,15 +18,15 @@ No infrastructure required - all dependencies mocked.
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.verisk.workers.delta_events_worker import DeltaEventsWorker
 from pipeline.common.types import PipelineMessage
 
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "xact.events.raw"
     config.get_consumer_group.return_value = "xact-delta-events-writer"
 
@@ -119,7 +119,7 @@ class TestDeltaEventsWorkerInitialization:
                 return {"batch_size": 100, "max_batches": 10, "health_port": 8093}
             return {"health_port": 8093}
 
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "xact.events.raw"
         config.get_consumer_group.return_value = "xact-delta-events-writer"
         config.get_worker_config = Mock(side_effect=mock_get_worker_config)
@@ -304,7 +304,7 @@ class TestDeltaEventsWorkerBatching:
     ):
         """Worker accumulates events in batch."""
         # Create config with batch_size=10
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "xact.events.raw"
         config.get_consumer_group.return_value = "xact-delta-events-writer"
 
@@ -336,7 +336,7 @@ class TestDeltaEventsWorkerBatching:
     ):
         """Worker flushes batch when size threshold reached."""
         # Create config with batch_size=2
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "xact.events.raw"
         config.get_consumer_group.return_value = "xact-delta-events-writer"
 

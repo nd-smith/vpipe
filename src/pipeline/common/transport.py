@@ -25,7 +25,7 @@ from typing import Any
 
 from aiokafka.structs import ConsumerRecord
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
 logger = logging.getLogger(__name__)
@@ -211,20 +211,20 @@ def _resolve_eventhub_consumer_group(
     domain: str,
     topic_key: str | None,
     worker_name: str,
-    kafka_config: KafkaConfig,
+    message_config: MessageConfig,
 ) -> str:
     """Resolve Event Hub consumer group for a given domain/topic.
 
     Priority:
     1. config.yaml: eventhub.{domain}.{topic_key}.consumer_group
-    2. KafkaConfig.get_consumer_group (existing Kafka consumer group logic)
+    2. MessageConfig.get_consumer_group (existing consumer group logic)
     3. eventhub.default_consumer_group from config.yaml
 
     Args:
         domain: Pipeline domain
         topic_key: Topic key matching config.yaml
         worker_name: Worker name
-        kafka_config: KafkaConfig for fallback consumer group resolution
+        message_config: MessageConfig for fallback consumer group resolution
 
     Returns:
         Consumer group name
@@ -245,9 +245,9 @@ def _resolve_eventhub_consumer_group(
             )
             return consumer_group
 
-    # 2. KafkaConfig consumer group (existing logic)
+    # 2. MessageConfig consumer group (existing logic)
     try:
-        return kafka_config.get_consumer_group(domain, worker_name)
+        return message_config.get_consumer_group(domain, worker_name)
     except (ValueError, KeyError):
         pass
 
@@ -270,7 +270,7 @@ def _resolve_eventhub_consumer_group(
 
 
 def create_producer(
-    config: KafkaConfig,
+    config: MessageConfig,
     domain: str,
     worker_name: str,
     transport_type: TransportType | None = None,
@@ -280,7 +280,7 @@ def create_producer(
     """Create a producer instance based on transport configuration.
 
     Args:
-        config: KafkaConfig with connection details
+        config: MessageConfig with connection details
         domain: Pipeline domain (e.g., "verisk", "claimx")
         worker_name: Worker name for logging
         transport_type: Optional override for transport type (defaults to env var)
@@ -291,7 +291,7 @@ def create_producer(
                    eventhub.{domain}.{topic_key}.eventhub_name.
 
     Returns:
-        BaseKafkaProducer or EventHubProducer instance
+        MessageProducer or EventHubProducer instance
 
     Note for Event Hub:
         Name resolution priority:
@@ -343,14 +343,14 @@ def create_producer(
         )
 
     else:  # TransportType.KAFKA
-        from pipeline.common.producer import BaseKafkaProducer
+        from pipeline.common.producer import MessageProducer
 
         logger.info(
-            f"Creating Kafka producer: domain={domain}, worker={worker_name}, "
+            f"Creating message producer (Kafka protocol): domain={domain}, worker={worker_name}, "
             f"servers={config.bootstrap_servers}"
         )
 
-        return BaseKafkaProducer(
+        return MessageProducer(
             config=config,
             domain=domain,
             worker_name=worker_name,
@@ -358,7 +358,7 @@ def create_producer(
 
 
 async def create_consumer(
-    config: KafkaConfig,
+    config: MessageConfig,
     domain: str,
     worker_name: str,
     topics: list[str],
@@ -371,7 +371,7 @@ async def create_consumer(
     """Create a consumer instance based on transport configuration.
 
     Args:
-        config: KafkaConfig with connection details
+        config: MessageConfig with connection details
         domain: Pipeline domain (e.g., "verisk", "claimx")
         worker_name: Worker name for logging
         topics: List of topics to consume from
@@ -383,7 +383,7 @@ async def create_consumer(
                    from config.yaml (e.g., "events", "downloads_pending").
 
     Returns:
-        BaseKafkaConsumer or EventHubConsumer instance
+        MessageConsumer or EventHubConsumer instance
     """
     transport = transport_type or get_transport_type()
 
@@ -452,14 +452,14 @@ async def create_consumer(
         )
 
     else:  # TransportType.KAFKA
-        from pipeline.common.consumer import BaseKafkaConsumer
+        from pipeline.common.consumer import MessageConsumer
 
         logger.info(
-            f"Creating Kafka consumer: domain={domain}, worker={worker_name}, "
+            f"Creating message consumer (Kafka protocol): domain={domain}, worker={worker_name}, "
             f"topics={topics}, servers={config.bootstrap_servers}"
         )
 
-        return BaseKafkaConsumer(
+        return MessageConsumer(
             config=config,
             domain=domain,
             worker_name=worker_name,
@@ -471,7 +471,7 @@ async def create_consumer(
 
 
 async def create_batch_consumer(
-    config: KafkaConfig,
+    config: MessageConfig,
     domain: str,
     worker_name: str,
     topics: list[str],
@@ -486,7 +486,7 @@ async def create_batch_consumer(
     """Create a batch consumer for concurrent message processing.
 
     Args:
-        config: KafkaConfig with connection details
+        config: MessageConfig with connection details
         domain: Pipeline domain (e.g., "verisk", "claimx")
         worker_name: Worker name for logging and metrics
         topics: List of topics to consume (EventHub requires single topic)
@@ -499,7 +499,7 @@ async def create_batch_consumer(
         topic_key: Optional topic key for EventHub resolution from config.yaml
 
     Returns:
-        EventHubBatchConsumer or KafkaBatchConsumer based on transport
+        EventHubBatchConsumer or MessageBatchConsumer based on transport
 
     Batch Handler Contract:
         The batch_handler receives a list of PipelineMessage objects and must:
@@ -594,15 +594,15 @@ async def create_batch_consumer(
         )
 
     else:  # TransportType.KAFKA
-        from pipeline.common.batch_consumer import KafkaBatchConsumer
+        from pipeline.common.batch_consumer import MessageBatchConsumer
 
         logger.info(
-            f"Creating Kafka batch consumer: domain={domain}, worker={worker_name}, "
+            f"Creating message batch consumer (Kafka protocol): domain={domain}, worker={worker_name}, "
             f"topics={topics}, servers={config.bootstrap_servers}, "
             f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}"
         )
 
-        return KafkaBatchConsumer(
+        return MessageBatchConsumer(
             config=config,
             domain=domain,
             worker_name=worker_name,

@@ -17,7 +17,7 @@ import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.dlq.handler import DLQHandler
 from pipeline.verisk.schemas.results import FailedDownloadMessage
@@ -29,7 +29,7 @@ class TestDLQHandlerInitialization:
 
     def test_initialization(self):
         """DLQHandler initializes with config and domain."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
 
         handler = DLQHandler(config=config)
 
@@ -40,14 +40,14 @@ class TestDLQHandlerInitialization:
 
     def test_is_running_property_when_not_started(self):
         """is_running returns False when handler not started."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
 
         assert handler.is_running is False
 
     def test_is_running_property_with_consumer_only(self):
         """is_running returns False when only consumer is set."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._consumer = Mock(is_running=True)
 
@@ -55,7 +55,7 @@ class TestDLQHandlerInitialization:
 
     def test_is_running_property_with_producer_only(self):
         """is_running returns False when only producer is set."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._producer = Mock(is_started=True)
 
@@ -63,7 +63,7 @@ class TestDLQHandlerInitialization:
 
     def test_is_running_property_with_both_started(self):
         """is_running returns True when both consumer and producer are started."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._consumer = Mock(is_running=True)
         handler._producer = Mock(is_started=True)
@@ -77,7 +77,7 @@ class TestDLQHandlerMessageParsing:
     @pytest.fixture
     def handler(self):
         """DLQHandler instance."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         return DLQHandler(config=config)
 
     @pytest.fixture
@@ -206,7 +206,7 @@ class TestDLQHandlerReplayMessage:
     @pytest.fixture
     def handler(self):
         """DLQHandler with mocked producer."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._producer = AsyncMock()
         handler._producer.is_started = True
@@ -256,7 +256,7 @@ class TestDLQHandlerReplayMessage:
     @pytest.mark.asyncio
     async def test_replay_message_raises_if_producer_not_started(self):
         """Raises RuntimeError if producer not started."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._producer = None
 
@@ -363,7 +363,7 @@ class TestDLQHandlerAcknowledgeMessage:
     @pytest.fixture
     def handler(self):
         """DLQHandler with mocked consumer."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         mock_consumer = Mock()
         mock_consumer._consumer = AsyncMock()
@@ -413,7 +413,7 @@ class TestDLQHandlerAcknowledgeMessage:
     @pytest.mark.asyncio
     async def test_acknowledge_message_raises_if_consumer_not_started(self):
         """Raises RuntimeError if consumer not started."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._consumer = None
 
@@ -455,7 +455,7 @@ class TestDLQHandlerEdgeCases:
     @pytest.fixture
     def handler(self):
         """DLQHandler instance."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         return DLQHandler(config=config)
 
     def test_parse_message_with_unicode_content(self, handler):
@@ -539,7 +539,7 @@ class TestDLQHandlerEdgeCases:
     @pytest.mark.asyncio
     async def test_replay_with_zero_retry_count_in_original(self):
         """Replay works correctly when original task has retry_count=0."""
-        config = Mock(spec=KafkaConfig)
+        config = Mock(spec=MessageConfig)
         handler = DLQHandler(config=config)
         handler._producer = AsyncMock()
         handler._producer.is_started = True

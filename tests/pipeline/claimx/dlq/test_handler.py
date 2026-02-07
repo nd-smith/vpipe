@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.dlq.handler import ClaimXDLQHandler
 from pipeline.claimx.schemas.results import (
     FailedDownloadMessage,
@@ -26,7 +26,7 @@ from pipeline.common.types import PipelineMessage
 @pytest.fixture
 def mock_config():
     """Create a mock Kafka configuration."""
-    config = Mock(spec=KafkaConfig)
+    config = Mock(spec=MessageConfig)
     config.bootstrap_servers = "localhost:9092"
     config.sasl_username = "test_user"
     config.sasl_password = "test_pass"
@@ -848,7 +848,7 @@ class TestClaimXDLQHandlerStartStop:
     """Tests for starting and stopping the DLQ handler."""
 
     @pytest.mark.asyncio
-    @patch("pipeline.claimx.dlq.handler.BaseKafkaProducer")
+    @patch("pipeline.claimx.dlq.handler.MessageProducer")
     async def test_start_creates_producer(self, mock_producer_class, mock_config):
         """Test start() initializes producer."""
         # Create mock producer instance

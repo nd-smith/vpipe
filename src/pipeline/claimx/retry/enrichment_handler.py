@@ -8,7 +8,7 @@ retry topics. Routes exhausted retries to dead-letter queue (DLQ).
 import logging
 from datetime import UTC, datetime, timedelta
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.claimx.handlers.utils import (
     LOG_ERROR_TRUNCATE_LONG,
@@ -29,7 +29,7 @@ class EnrichmentRetryHandler:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "claimx",
     ):
         """

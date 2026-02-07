@@ -30,7 +30,7 @@ Error Classification:
         - Generic exceptions without clear classification
 
 Usage:
-    >>> config = KafkaConfig.from_env()
+    >>> config = MessageConfig.from_env()
     >>>
     >>> handler = DeltaRetryHandler(
     ...     config=config,
@@ -53,7 +53,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 class DeltaRetryHandler:
     """
-    Handles retry logic for failed Delta batch writes via Kafka topics.
+    Handles retry logic for failed Delta batch writes via Event Hub topics.
 
     Routes failed Delta batches to appropriate retry topics based on
     retry count and error classification, or to DLQ when retries are exhausted.
@@ -90,8 +90,8 @@ class DeltaRetryHandler:
         ...     config=config,
         ...     table_path="abfss://.../xact_events",
         ...     retry_delays=[300, 600, 1200, 2400],
-        ...     retry_topic_prefix="com.allstate.pcesdopodappv1.delta-events.retry",
-        ...     dlq_topic="com.allstate.pcesdopodappv1.delta-events.dlq",
+        ...     retry_topic_prefix="verisk-retry",
+        ...     dlq_topic="verisk-dlq",
         ...     domain="verisk"
         ... )
         >>> await handler.start()
@@ -99,7 +99,7 @@ class DeltaRetryHandler:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         table_path: str,
         retry_delays: list[int] | None = None,
         retry_topic_prefix: str | None = None,
@@ -110,11 +110,11 @@ class DeltaRetryHandler:
         Initialize Delta retry handler.
 
         Args:
-            config: Kafka configuration
+            config: Message broker configuration
             table_path: Delta table path for writes
             retry_delays: List of retry delays in seconds (default: [300, 600, 1200, 2400])
-            retry_topic_prefix: Prefix for retry topics (default: "com.allstate.pcesdopodappv1.delta-events.retry")
-            dlq_topic: Dead-letter queue topic name (default: "com.allstate.pcesdopodappv1.delta-events.dlq")
+            retry_topic_prefix: Prefix for retry topics (default: "verisk-retry")
+            dlq_topic: Dead-letter queue topic name (default: "verisk-dlq")
             domain: Domain identifier (default: "verisk")
         """
         self.config = config
@@ -125,9 +125,9 @@ class DeltaRetryHandler:
         self._retry_delays = retry_delays or [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
         self._max_retries = len(self._retry_delays)
         self._retry_topic_prefix = (
-            retry_topic_prefix or "com.allstate.pcesdopodappv1.delta-events.retry"
+            retry_topic_prefix or "verisk-retry"
         )
-        self._dlq_topic = dlq_topic or "com.allstate.pcesdopodappv1.delta-events.dlq"
+        self._dlq_topic = dlq_topic or "verisk-dlq"
 
         # Dedicated producers (created in start())
         self._retry_producer = None

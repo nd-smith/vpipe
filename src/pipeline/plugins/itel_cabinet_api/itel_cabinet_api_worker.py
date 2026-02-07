@@ -33,7 +33,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging import setup_logging
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
@@ -201,7 +201,7 @@ class ItelCabinetApiWorker:
         )
 
         # Create minimal KafkaConfig for transport layer
-        config = KafkaConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
+        config = MessageConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
 
         # Create consumer via transport layer
         self.consumer = await create_consumer(

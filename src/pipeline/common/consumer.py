@@ -1,4 +1,4 @@
-"""Kafka consumer with circuit breaker, auth, error classification, and DLQ routing (WP-211)."""
+"""Message consumer with circuit breaker, auth, error classification, and DLQ routing (WP-211)."""
 
 import asyncio
 import json
@@ -10,10 +10,10 @@ from collections.abc import Awaitable, Callable
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord, TopicPartition
 
-from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
+from config.config import MessageConfig
+from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from core.errors.exceptions import ErrorCategory
-from core.errors.kafka_classifier import KafkaErrorClassifier
+from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -30,12 +30,12 @@ from pipeline.common.types import PipelineMessage, from_consumer_record
 logger = logging.getLogger(__name__)
 
 
-class BaseKafkaConsumer:
-    """Async Kafka consumer with circuit breaker, auth, worker-specific config, and DLQ routing."""
+class MessageConsumer:
+    """Async message consumer with circuit breaker, auth, worker-specific config, and DLQ routing."""
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str,
         worker_name: str,
         topics: list[str],
@@ -68,7 +68,7 @@ class BaseKafkaConsumer:
         self._enable_message_commit = enable_message_commit
 
         logger.info(
-            "Initialized Kafka consumer",
+            "Initialized message consumer",
             extra={
                 "domain": domain,
                 "worker_name": worker_name,
@@ -87,7 +87,7 @@ class BaseKafkaConsumer:
             return
 
         logger.info(
-            "Starting Kafka consumer",
+            "Starting message consumer",
             extra={
                 "topics": self.topics,
                 "group_id": self.group_id,
@@ -154,7 +154,7 @@ class BaseKafkaConsumer:
                 kafka_consumer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
+                oauth_callback = create_eventhub_oauth_callback()
                 kafka_consumer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
                 kafka_consumer_config["sasl_plain_username"] = (
@@ -178,7 +178,7 @@ class BaseKafkaConsumer:
         update_assigned_partitions(self.group_id, partition_count)
 
         logger.info(
-            "Kafka consumer started successfully",
+            "Message consumer started successfully",
             extra={
                 "topics": self.topics,
                 "group_id": self.group_id,
@@ -205,7 +205,7 @@ class BaseKafkaConsumer:
             logger.debug("Consumer not running or already stopped")
             return
 
-        logger.info("Stopping Kafka consumer")
+        logger.info("Stopping message consumer")
         self._running = False
 
         try:
@@ -226,10 +226,10 @@ class BaseKafkaConsumer:
                 finally:
                     self._dlq_producer = None
 
-            logger.info("Kafka consumer stopped successfully")
+            logger.info("Message consumer stopped successfully")
         except Exception:
             logger.error(
-                "Error stopping Kafka consumer",
+                "Error stopping message consumer",
                 exc_info=True,
             )
             raise
@@ -400,7 +400,7 @@ class BaseKafkaConsumer:
         duration: float,
     ) -> None:
         """Error classification with DLQ routing for PERMANENT errors, retry for others."""
-        classified_error = KafkaErrorClassifier.classify_consumer_error(
+        classified_error = TransportErrorClassifier.classify_consumer_error(
             error,
             context={
                 "topic": message.topic,
@@ -540,7 +540,7 @@ class BaseKafkaConsumer:
                 dlq_producer_config["ssl_context"] = ssl_context
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
+                oauth_callback = create_eventhub_oauth_callback()
                 dlq_producer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
                 dlq_producer_config["sasl_plain_username"] = (
@@ -660,8 +660,8 @@ class BaseKafkaConsumer:
 
 
 __all__ = [
-    "BaseKafkaConsumer",
+    "MessageConsumer",
     "AIOKafkaConsumer",
     "ConsumerRecord",
-    "create_kafka_oauth_callback",
+    "create_eventhub_oauth_callback",
 ]

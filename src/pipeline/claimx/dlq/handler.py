@@ -11,14 +11,14 @@ Provides ClaimX DLQ message management with:
 import json
 import logging
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.schemas.results import (
     FailedDownloadMessage,
     FailedEnrichmentMessage,
 )
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask, ClaimXEnrichmentTask
-from pipeline.common.consumer import BaseKafkaConsumer
-from pipeline.common.producer import BaseKafkaProducer
+from pipeline.common.consumer import MessageConsumer
+from pipeline.common.producer import MessageProducer
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class ClaimXDLQHandler:
     - Structured logging for compliance
 
     Usage:
-        >>> config = KafkaConfig.from_env()
+        >>> config = MessageConfig.from_env()
         >>> handler = ClaimXDLQHandler(config, dlq_type="download")
         >>> await handler.start()
         >>>
@@ -49,7 +49,7 @@ class ClaimXDLQHandler:
         >>> await handler.stop()
     """
 
-    def __init__(self, config: KafkaConfig, dlq_type: str = "download"):
+    def __init__(self, config: MessageConfig, dlq_type: str = "download"):
         """
         Initialize ClaimX DLQ handler with Kafka configuration.
 
@@ -68,8 +68,8 @@ class ClaimXDLQHandler:
         self.config = config
         self.domain = "claimx"
         self.dlq_type = dlq_type
-        self._consumer: BaseKafkaConsumer | None = None
-        self._producer: BaseKafkaProducer | None = None
+        self._consumer: MessageConsumer | None = None
+        self._producer: MessageProducer | None = None
 
         logger.info(
             "Initialized ClaimX DLQ handler",
@@ -92,7 +92,7 @@ class ClaimXDLQHandler:
         )
 
         # Create producer for replay operations
-        self._producer = BaseKafkaProducer(
+        self._producer = MessageProducer(
             config=self.config,
             domain=self.domain,
             worker_name=f"{self.dlq_type}_dlq_handler",

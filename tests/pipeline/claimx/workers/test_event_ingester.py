@@ -19,7 +19,7 @@ import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.claimx.workers.event_ingester import ClaimXEventIngesterWorker
@@ -28,8 +28,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.events.raw"
     config.get_consumer_group.return_value = "claimx-event-ingester"
     config.get_worker_config.return_value = {
@@ -97,7 +97,7 @@ class TestEventIngesterInitialization:
 
     def test_initialization_with_separate_producer_config(self, mock_config):
         """Worker accepts separate producer config."""
-        producer_config = Mock(spec=KafkaConfig)
+        producer_config = Mock(spec=MessageConfig)
         worker = ClaimXEventIngesterWorker(
             config=mock_config, producer_config=producer_config
         )

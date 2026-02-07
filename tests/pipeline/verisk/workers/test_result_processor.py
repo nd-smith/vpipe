@@ -20,7 +20,7 @@ import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.workers.result_processor import ResultProcessor
 from pipeline.common.types import PipelineMessage
@@ -28,8 +28,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.downloads.results"
     config.get_consumer_group.return_value = "verisk-result-processor"
 

@@ -369,7 +369,7 @@ def kafka_container(request) -> Generator:
     kafka = KafkaContainer()
     kafka.start()
 
-    # Set environment variable for KafkaConfig.from_env()
+    # Set environment variable for MessageConfig.from_env()
     # This allows tests to use the test container's bootstrap server
     os.environ["KAFKA_BOOTSTRAP_SERVERS"] = kafka.get_bootstrap_server()
     # Disable auth for local testing
@@ -402,15 +402,15 @@ def kafka_config(kafka_container):
         kafka_container: Test Kafka container fixture
 
     Returns:
-        KafkaConfig: Configuration for test environment
+        MessageConfig: Configuration for test environment
     """
     if kafka_container is None:
         pytest.skip("Kafka container not available - this fixture requires @pytest.mark.integration")
 
-    from pipeline.config import KafkaConfig
+    from pipeline.config import MessageConfig
 
     # Create config from environment (which includes container bootstrap server)
-    config = KafkaConfig.from_env()
+    config = MessageConfig.from_env()
 
     # Override security settings for local testing
     config.security_protocol = "PLAINTEXT"
@@ -433,11 +433,11 @@ async def kafka_producer(
         kafka_config: Test Kafka configuration
 
     Yields:
-        BaseKafkaProducer: Started producer instance
+        MessageProducer: Started producer instance
     """
-    from pipeline.common.producer import BaseKafkaProducer
+    from pipeline.common.producer import MessageProducer
 
-    producer = BaseKafkaProducer(config=kafka_config)
+    producer = MessageProducer(config=kafka_config)
     await producer.start()
 
     yield producer
@@ -510,7 +510,7 @@ def test_kafka_config(
         unique_topic_prefix: Unique prefix for this test
 
     Returns:
-        KafkaConfig: Configuration with test-specific topic names
+        MessageConfig: Configuration with test-specific topic names
     """
     # Create a copy and update topic names
     config = kafka_config
@@ -537,7 +537,7 @@ async def kafka_consumer_factory(
     Yields:
         callable: Factory function that creates consumers
     """
-    from pipeline.common.consumer import BaseKafkaConsumer
+    from pipeline.common.consumer import MessageConsumer
 
     created_consumers = []
 
@@ -555,9 +555,9 @@ async def kafka_consumer_factory(
             message_handler: Async callback for processing messages
 
         Returns:
-            BaseKafkaConsumer: Started consumer instance
+            MessageConsumer: Started consumer instance
         """
-        consumer = BaseKafkaConsumer(
+        consumer = MessageConsumer(
             config=kafka_config,
             topics=topics,
             group_id=group_id,

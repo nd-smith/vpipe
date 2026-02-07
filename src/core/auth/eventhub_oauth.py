@@ -1,5 +1,5 @@
 """
-Kafka SASL/OAUTHBEARER authentication for Azure EventHub.
+Azure EventHub SASL/OAUTHBEARER authentication.
 
 This module provides OAuth token callback functions for aiokafka clients
 connecting to Azure EventHub with SASL/OAUTHBEARER authentication.
@@ -9,14 +9,14 @@ credential methods) to obtain OAuth tokens for EventHub access.
 
 Example:
     >>> from core.auth import AzureCredentialProvider
-    >>> from core.auth.kafka_oauth import create_kafka_oauth_callback
+    >>> from core.auth.eventhub_oauth import create_eventhub_oauth_callback
     >>>
     >>> provider = AzureCredentialProvider(
     ...     client_id="...",
     ...     client_secret="...",
     ...     tenant_id="..."
     ... )
-    >>> callback = create_kafka_oauth_callback(provider)
+    >>> callback = create_eventhub_oauth_callback(provider)
     >>>
     >>> # Use with aiokafka
     >>> from aiokafka import AIOKafkaProducer
@@ -46,22 +46,22 @@ EVENTHUB_RESOURCE = "https://eventhubs.azure.net/"
 EVENTHUB_SCOPE = "https://eventhubs.azure.net/.default"
 
 
-class KafkaOAuthError(Exception):
+class EventHubAuthError(Exception):
     """
-    Raised when Kafka OAuth token acquisition fails.
+    Raised when EventHub OAuth token acquisition fails.
 
-    This exception indicates authentication issues specific to Kafka/EventHub
+    This exception indicates authentication issues specific to EventHub
     that may require reconfiguration or credential refresh.
     """
 
     pass
 
 
-def create_kafka_oauth_callback(
+def create_eventhub_oauth_callback(
     provider: AzureCredentialProvider | None = None,
 ) -> Callable[[], str]:
     """
-    Create Kafka OAUTHBEARER token callback for aiokafka.
+    Create EventHub OAUTHBEARER token callback for aiokafka.
 
     The returned callback function can be passed to aiokafka's
     `sasl_oauth_token_provider` parameter for OAUTHBEARER authentication.
@@ -74,7 +74,7 @@ def create_kafka_oauth_callback(
         Callable that returns OAuth token string when invoked
 
     Raises:
-        KafkaOAuthError: If token acquisition fails
+        EventHubAuthError: If token acquisition fails
 
     Example:
         >>> # With explicit provider
@@ -83,11 +83,11 @@ def create_kafka_oauth_callback(
         ...     client_secret="...",
         ...     tenant_id="..."
         ... )
-        >>> callback = create_kafka_oauth_callback(provider)
+        >>> callback = create_eventhub_oauth_callback(provider)
 
         >>> # With environment variables
         >>> # (requires AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)
-        >>> callback = create_kafka_oauth_callback()
+        >>> callback = create_eventhub_oauth_callback()
 
     Note:
         The callback captures the provider instance, so the same provider
@@ -97,18 +97,18 @@ def create_kafka_oauth_callback(
         # Create provider from environment variables
         provider = AzureCredentialProvider()
         logger.info(
-            "Created Kafka OAuth callback with environment-based auth",
+            "Created EventHub OAuth callback with environment-based auth",
             extra={"auth_mode": provider.auth_mode},
         )
     else:
         logger.info(
-            "Created Kafka OAuth callback with provided credential provider",
+            "Created EventHub OAuth callback with provided credential provider",
             extra={"auth_mode": provider.auth_mode},
         )
 
     def oauth_callback() -> str:
         """
-        Get OAuth token for Kafka/EventHub authentication.
+        Get OAuth token for EventHub authentication.
 
         This function is called by aiokafka when authentication is needed.
         It obtains a token from Azure AD for the EventHub resource.
@@ -117,13 +117,13 @@ def create_kafka_oauth_callback(
             OAuth access token string
 
         Raises:
-            KafkaOAuthError: If token acquisition fails
+            EventHubAuthError: If token acquisition fails
         """
         try:
             token = provider.get_token_for_resource(EVENTHUB_RESOURCE)
 
             logger.debug(
-                "Successfully acquired Kafka OAuth token",
+                "Successfully acquired EventHub OAuth token",
                 extra={"resource": EVENTHUB_RESOURCE, "auth_mode": provider.auth_mode},
             )
 
@@ -131,32 +131,32 @@ def create_kafka_oauth_callback(
 
         except AzureAuthError as e:
             logger.error(
-                "Failed to acquire Kafka OAuth token",
+                "Failed to acquire EventHub OAuth token",
                 extra={
                     "resource": EVENTHUB_RESOURCE,
                     "auth_mode": provider.auth_mode,
                     "error": str(e),
                 },
             )
-            raise KafkaOAuthError(
-                f"Failed to acquire OAuth token for Kafka/EventHub\n"
+            raise EventHubAuthError(
+                f"Failed to acquire OAuth token for EventHub\n"
                 f"Auth mode: {provider.auth_mode}\n"
                 f"Error: {str(e)}"
             ) from e
         except Exception as e:
             logger.error(
-                "Unexpected error in Kafka OAuth callback",
+                "Unexpected error in EventHub OAuth callback",
                 extra={"error": str(e)},
                 exc_info=True,
             )
-            raise KafkaOAuthError(
-                f"Unexpected error acquiring Kafka OAuth token: {str(e)}"
+            raise EventHubAuthError(
+                f"Unexpected error acquiring EventHub OAuth token: {str(e)}"
             ) from e
 
     return oauth_callback
 
 
-def get_kafka_oauth_token(
+def get_eventhub_oauth_token(
     provider: AzureCredentialProvider | None = None, force_refresh: bool = False
 ) -> str:
     """
@@ -164,7 +164,7 @@ def get_kafka_oauth_token(
 
     This is a convenience function for cases where you need the token
     directly rather than as a callback. For aiokafka, prefer using
-    create_kafka_oauth_callback().
+    create_eventhub_oauth_callback().
 
     Args:
         provider: AzureCredentialProvider instance. If None, creates new provider.
@@ -174,10 +174,10 @@ def get_kafka_oauth_token(
         OAuth access token string
 
     Raises:
-        KafkaOAuthError: If token acquisition fails
+        EventHubAuthError: If token acquisition fails
 
     Example:
-        >>> token = get_kafka_oauth_token()
+        >>> token = get_eventhub_oauth_token()
         >>> # Use token in custom authentication flow
     """
     if provider is None:
@@ -186,13 +186,13 @@ def get_kafka_oauth_token(
     try:
         return provider.get_token_for_resource(EVENTHUB_RESOURCE, force_refresh)
     except AzureAuthError as e:
-        raise KafkaOAuthError(f"Failed to get Kafka OAuth token: {str(e)}") from e
+        raise EventHubAuthError(f"Failed to get EventHub OAuth token: {str(e)}") from e
 
 
 __all__ = [
-    "create_kafka_oauth_callback",
-    "get_kafka_oauth_token",
-    "KafkaOAuthError",
+    "create_eventhub_oauth_callback",
+    "get_eventhub_oauth_token",
+    "EventHubAuthError",
     "EVENTHUB_RESOURCE",
     "EVENTHUB_SCOPE",
 ]

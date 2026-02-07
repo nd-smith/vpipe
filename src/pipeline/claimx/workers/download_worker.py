@@ -19,7 +19,7 @@ import aiohttp
 if TYPE_CHECKING:
     from aiokafka import AIOKafkaConsumer
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
 from core.errors.exceptions import CircuitOpenError
@@ -84,7 +84,7 @@ class ClaimXDownloadWorker:
     5. Commit offsets after batch processing
 
     Usage:
-        config = KafkaConfig.from_env()
+        config = MessageConfig.from_env()
         worker = ClaimXDownloadWorker(config)
         await worker.start()  # Runs until stopped
         await worker.stop()
@@ -94,7 +94,7 @@ class ClaimXDownloadWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "claimx",
         temp_dir: Path | None = None,
         instance_id: str | None = None,

@@ -1,6 +1,6 @@
 """Azure Event Hub producer adapter.
 
-Implements the same interface as BaseKafkaProducer but uses azure-eventhub SDK
+Implements the same interface as MessageProducer but uses azure-eventhub SDK
 with AMQP over WebSocket transport for compatibility with Azure Private Link.
 
 Architecture notes:
@@ -79,7 +79,7 @@ class EventHubRecordMetadata:
 
 
 class EventHubProducer:
-    """Event Hub producer with BaseKafkaProducer-compatible interface.
+    """Event Hub producer with MessageProducer-compatible interface.
 
     Uses azure-eventhub SDK with TransportType.AmqpOverWebsocket for
     compatibility with Azure Private Link endpoints.
@@ -442,7 +442,7 @@ class EventHubProducer:
         """Flush pending messages.
 
         Note: Event Hub SDK sends synchronously, so this is a no-op.
-        Included for interface compatibility with BaseKafkaProducer.
+        Included for interface compatibility with MessageProducer.
         """
         if not self._started or self._producer is None:
             raise RuntimeError("Producer not started. Call start() first.")

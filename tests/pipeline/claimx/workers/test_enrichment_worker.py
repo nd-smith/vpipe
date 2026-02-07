@@ -21,7 +21,7 @@ import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from pipeline.claimx.handlers.base import HandlerResult, EnrichmentResult
@@ -34,8 +34,8 @@ from pipeline.common.types import PipelineMessage
 
 @pytest.fixture
 def mock_config():
-    """Mock KafkaConfig with standard settings."""
-    config = Mock(spec=KafkaConfig)
+    """Mock MessageConfig with standard settings."""
+    config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.enrichment.pending"
     config.get_consumer_group.return_value = "claimx-enrichment"
     config.get_worker_config.return_value = {
@@ -155,7 +155,7 @@ class TestEnrichmentWorkerInitialization:
     def test_initialization_with_separate_producer_config(self, mock_config):
         """Worker accepts separate producer config."""
         with patch("pipeline.claimx.workers.enrichment_worker.ProjectCache"):
-            producer_config = Mock(spec=KafkaConfig)
+            producer_config = Mock(spec=MessageConfig)
             worker = ClaimXEnrichmentWorker(
                 config=mock_config, producer_config=producer_config
             )

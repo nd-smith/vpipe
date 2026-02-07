@@ -14,8 +14,8 @@ from pathlib import Path
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
 from dotenv import load_dotenv
 
-from config.config import KafkaConfig
-from core.auth.kafka_oauth import create_kafka_oauth_callback
+from config.config import MessageConfig
+from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from pipeline.claimx.schemas.results import (
     FailedDownloadMessage,
     FailedEnrichmentMessage,
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 class DLQManager:
     """Manager for ClaimX DLQ operations."""
 
-    def __init__(self, config: KafkaConfig):
+    def __init__(self, config: MessageConfig):
         """
         Initialize DLQ manager.
 
@@ -63,7 +63,7 @@ class DLQManager:
             consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
+                oauth_callback = create_eventhub_oauth_callback()
                 consumer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
                 consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
@@ -83,7 +83,7 @@ class DLQManager:
             producer_config["sasl_mechanism"] = self.config.sasl_mechanism
 
             if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_kafka_oauth_callback()
+                oauth_callback = create_eventhub_oauth_callback()
                 producer_config["sasl_oauth_token_provider"] = oauth_callback
             elif self.config.sasl_mechanism == "PLAIN":
                 producer_config["sasl_plain_username"] = self.config.sasl_plain_username
@@ -403,7 +403,7 @@ class DLQManager:
 
 async def cmd_list(args: argparse.Namespace) -> int:
     """Execute list command."""
-    config = KafkaConfig.from_env()
+    config = MessageConfig.from_env()
     manager = DLQManager(config)
 
     print("\n📊 ClaimX DLQ Message Counts\n")
@@ -426,7 +426,7 @@ async def cmd_list(args: argparse.Namespace) -> int:
 
 async def cmd_inspect(args: argparse.Namespace) -> int:
     """Execute inspect command."""
-    config = KafkaConfig.from_env()
+    config = MessageConfig.from_env()
     manager = DLQManager(config)
 
     print(f"\n🔍 Inspecting {args.dlq_type.capitalize()} DLQ (limit: {args.limit})\n")
@@ -449,7 +449,7 @@ async def cmd_inspect(args: argparse.Namespace) -> int:
 
 async def cmd_replay(args: argparse.Namespace) -> int:
     """Execute replay command."""
-    config = KafkaConfig.from_env()
+    config = MessageConfig.from_env()
     manager = DLQManager(config)
 
     event_ids = args.event_ids.split(",") if args.event_ids else None
@@ -476,7 +476,7 @@ async def cmd_replay(args: argparse.Namespace) -> int:
 
 async def cmd_purge(args: argparse.Namespace) -> int:
     """Execute purge command."""
-    config = KafkaConfig.from_env()
+    config = MessageConfig.from_env()
     manager = DLQManager(config)
 
     print(f"\n🗑️  Purging {args.dlq_type.capitalize()} DLQ...")

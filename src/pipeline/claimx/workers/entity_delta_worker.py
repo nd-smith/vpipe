@@ -8,7 +8,7 @@ import contextlib
 import json
 import logging
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.schemas.entities import EntityRowsMessage
@@ -39,7 +39,7 @@ class ClaimXEntityDeltaWorker:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "claimx",
         entity_rows_topic: str = "",
         projects_table_path: str = "",
@@ -49,7 +49,7 @@ class ClaimXEntityDeltaWorker:
         task_templates_table_path: str = "",
         external_links_table_path: str = "",
         video_collab_table_path: str = "",
-        producer_config: KafkaConfig | None = None,
+        producer_config: MessageConfig | None = None,
         instance_id: str | None = None,
     ):
         """

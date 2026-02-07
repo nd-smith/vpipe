@@ -1,7 +1,7 @@
 """Azure Event Hub transport adapters.
 
 Provides Event Hub producer and consumer implementations that are compatible
-with the BaseKafkaProducer and BaseKafkaConsumer interfaces.
+with the MessageProducer and MessageConsumer interfaces.
 
 Uses azure-eventhub SDK with AMQP over WebSocket transport for compatibility
 with Azure Private Link endpoints.

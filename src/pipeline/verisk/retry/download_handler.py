@@ -9,7 +9,7 @@ queue (DLQ).
 import logging
 from datetime import UTC, datetime, timedelta
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
@@ -29,12 +29,12 @@ class RetryHandler:
     retry count, or to DLQ when retries are exhausted. Preserves error
     context through retry chain for observability.
 
-    The retry delays are configurable via KafkaConfig:
+    The retry delays are configurable via MessageConfig:
     - Default: [300s, 600s, 1200s, 2400s] (5m, 10m, 20m, 40m)
     - Retry topics: {pending_topic}.retry.{delay}m
 
     Usage:
-        >>> config = KafkaConfig.from_env()
+        >>> config = MessageConfig.from_env()
         >>> retry_handler = RetryHandler(config)
         >>> await retry_handler.start()
         >>>
@@ -49,7 +49,7 @@ class RetryHandler:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         domain: str = "verisk",
     ):
         """

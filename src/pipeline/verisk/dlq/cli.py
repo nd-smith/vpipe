@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from pipeline.common.types import PipelineMessage, from_consumer_record
 from pipeline.verisk.dlq.handler import DLQHandler
 
@@ -115,7 +115,7 @@ class CLITaskManager:
 
 class DLQCLIManager:
 
-    def __init__(self, config: KafkaConfig):
+    def __init__(self, config: MessageConfig):
         self.config = config
         self.handler = DLQHandler(config)
         self._messages: list[PipelineMessage] = []
@@ -310,9 +310,9 @@ async def main_list(args):
                 if not manager.handler._producer
                 else None
             )
-            from pipeline.common.consumer import BaseKafkaConsumer
+            from pipeline.common.consumer import MessageConsumer
 
-            manager.handler._consumer = BaseKafkaConsumer(
+            manager.handler._consumer = MessageConsumer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",
@@ -354,9 +354,9 @@ async def main_view(args):
                 else None
             )
 
-            from pipeline.common.consumer import BaseKafkaConsumer
+            from pipeline.common.consumer import MessageConsumer
 
-            manager.handler._consumer = BaseKafkaConsumer(
+            manager.handler._consumer = MessageConsumer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",
@@ -394,17 +394,17 @@ async def main_replay(args):
     async with CLITaskManager() as task_manager:
         try:
             manager.handler._handle_dlq_message = _noop_message_handler
-            from pipeline.common.producer import BaseKafkaProducer
+            from pipeline.common.producer import MessageProducer
 
-            manager.handler._producer = BaseKafkaProducer(
+            manager.handler._producer = MessageProducer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",
             )
             await manager.handler._producer.start()
-            from pipeline.common.consumer import BaseKafkaConsumer
+            from pipeline.common.consumer import MessageConsumer
 
-            manager.handler._consumer = BaseKafkaConsumer(
+            manager.handler._consumer = MessageConsumer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",
@@ -443,17 +443,17 @@ async def main_resolve(args):
     async with CLITaskManager() as task_manager:
         try:
             manager.handler._handle_dlq_message = _noop_message_handler
-            from pipeline.common.producer import BaseKafkaProducer
+            from pipeline.common.producer import MessageProducer
 
-            manager.handler._producer = BaseKafkaProducer(
+            manager.handler._producer = MessageProducer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",
             )
             await manager.handler._producer.start()
-            from pipeline.common.consumer import BaseKafkaConsumer
+            from pipeline.common.consumer import MessageConsumer
 
-            manager.handler._consumer = BaseKafkaConsumer(
+            manager.handler._consumer = MessageConsumer(
                 config=config,
                 domain=domain,
                 worker_name="dlq_cli",

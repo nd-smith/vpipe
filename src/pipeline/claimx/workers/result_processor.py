@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import polars as pl
 from pydantic import ValidationError
 
-from config.config import KafkaConfig
+from config.config import MessageConfig
 from core.logging.context import set_log_context
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
@@ -47,7 +47,7 @@ class ClaimXResultProcessor:
     - Metrics emission for dashboards
 
     Usage:
-        >>> config = KafkaConfig.from_env()
+        >>> config = MessageConfig.from_env()
         >>> processor = ClaimXResultProcessor(config)
         >>> await processor.start()
         >>> # Processor runs until stopped
@@ -62,7 +62,7 @@ class ClaimXResultProcessor:
 
     def __init__(
         self,
-        config: KafkaConfig,
+        config: MessageConfig,
         results_topic: str = "",
         inventory_table_path: str = "",
         batch_size: int | None = None,
@@ -73,8 +73,8 @@ class ClaimXResultProcessor:
         Initialize ClaimX result processor.
 
         Args:
-            config: Kafka configuration for consumer
-            results_topic: Topic name for upload results (e.g., "com.allstate.pcesdopodappv1.claimx.downloads.results")
+            config: Message broker configuration for consumer
+            results_topic: Topic name for upload results (e.g., "claimx-downloads-results")
             inventory_table_path: Full abfss:// path to claimx_attachments table (optional)
             batch_size: Optional custom batch size (default: 100)
             batch_timeout_seconds: Optional custom timeout (default: 5.0)
@@ -255,7 +255,7 @@ class ClaimXResultProcessor:
         Request graceful shutdown.
 
         This method is compatible with the shutdown pattern used in other workers.
-        For BaseKafkaConsumer-based workers, stop() handles the graceful shutdown
+        For MessageConsumer-based workers, stop() handles the graceful shutdown
         logic (flushing batches), but this method allows for a consistent interface.
         """
         logger.info("Graceful shutdown requested for ClaimXResultProcessor")

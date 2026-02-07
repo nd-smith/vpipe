@@ -1,6 +1,6 @@
 """Azure Event Hub consumer adapter.
 
-Implements the same interface as BaseKafkaConsumer but uses azure-eventhub SDK
+Implements the same interface as MessageConsumer but uses azure-eventhub SDK
 with AMQP over WebSocket transport for compatibility with Azure Private Link.
 
 Architecture notes:
@@ -29,7 +29,7 @@ from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
 from core.errors.exceptions import ErrorCategory
-from core.errors.kafka_classifier import KafkaErrorClassifier
+from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
 from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
 from pipeline.common.eventhub.diagnostics import (
@@ -143,7 +143,7 @@ class EventHubConsumerRecord:
 
 
 class EventHubConsumer:
-    """Event Hub consumer with BaseKafkaConsumer-compatible interface.
+    """Event Hub consumer with MessageConsumer-compatible interface.
 
     Uses azure-eventhub SDK with TransportType.AmqpOverWebsocket for
     compatibility with Azure Private Link endpoints.
@@ -727,7 +727,7 @@ class EventHubConsumer:
         self, message: PipelineMessage, error: Exception, duration: float
     ) -> None:
         """Error classification with DLQ routing using transport-agnostic PipelineMessage."""
-        classified_error = KafkaErrorClassifier.classify_consumer_error(
+        classified_error = TransportErrorClassifier.classify_consumer_error(
             error,
             context={
                 "topic": message.topic,

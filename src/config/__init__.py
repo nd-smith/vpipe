@@ -1,6 +1,6 @@
-"""Configuration loading for Kafka pipeline.
+"""Configuration loading for message pipeline.
 
-This module provides centralized configuration loading for the Kafka pipeline system.
+This module provides centralized configuration loading for the message pipeline system.
 Configuration is loaded from a single consolidated config.yaml file.
 
 Configuration Structure
@@ -13,8 +13,8 @@ Main Functions
 --------------
 
 Core configuration loading:
-    - load_config(): Load Kafka configuration from YAML files
-    - get_config(): Get or load singleton Kafka config instance
+    - load_config(): Load message pipeline configuration from YAML files
+    - get_config(): Get or load singleton message config instance
     - reset_config(): Reset singleton config instance
 
 Pipeline configuration:
@@ -71,7 +71,7 @@ See Also
 """
 
 from config.config import (
-    KafkaConfig,
+    MessageConfig,
     get_config,
     load_config,
     reset_config,
@@ -93,7 +93,7 @@ __all__ = [
     "set_config",
     "reset_config",
     # Core config classes
-    "KafkaConfig",
+    "MessageConfig",
     # Pipeline config functions
     "get_pipeline_config",
     "get_event_source_type",
