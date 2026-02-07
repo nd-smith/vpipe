@@ -488,31 +488,39 @@ class EventHubConsumer:
 
         # DIAGNOSTIC: Log checkpoint store state before starting consume loop
         if self.checkpoint_store:
+            logger.info(
+                "[DIAGNOSTIC] Checkpoint store exists, querying checkpoints...",
+                extra={"checkpoint_store_type": type(self.checkpoint_store).__name__},
+            )
             try:
                 checkpoints = await self.checkpoint_store.list_checkpoints(
                     self._consumer._address.hostname,
                     self.eventhub_name,
                     self.consumer_group,
                 )
+                checkpoints_list = list(checkpoints)  # Convert to list in case it's an iterator
                 logger.info(
-                    "[DIAGNOSTIC] Checkpoint store state before consume",
+                    f"[DIAGNOSTIC] Checkpoint store returned {len(checkpoints_list)} checkpoints",
                     extra={
-                        "checkpoint_count": len(checkpoints),
+                        "checkpoint_count": len(checkpoints_list),
                         "checkpoints": [
                             {
                                 "partition": cp["partition_id"],
                                 "offset": cp.get("offset"),
                                 "sequence_number": cp.get("sequence_number"),
                             }
-                            for cp in checkpoints
+                            for cp in checkpoints_list
                         ],
                     },
                 )
             except Exception as e:
                 logger.warning(
-                    "[DIAGNOSTIC] Failed to query checkpoint store",
-                    extra={"error": str(e)},
+                    f"[DIAGNOSTIC] Failed to query checkpoint store: {e}",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
                 )
+        else:
+            logger.info("[DIAGNOSTIC] No checkpoint store configured (checkpoint_store is None)")
 
         logger.info(
             "[DIAGNOSTIC] Starting receive with starting_position=EventPosition.earliest()",
