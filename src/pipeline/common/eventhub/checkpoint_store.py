@@ -36,58 +36,16 @@ Usage:
 import asyncio
 import logging
 import os
-from collections.abc import Iterable
-from typing import Any, Protocol
+from typing import Any
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Protocol definition
-# =============================================================================
-
-
-class CheckpointStoreProtocol(Protocol):
-    """Protocol matching the Azure Event Hub CheckpointStore duck type.
-
-    Both BlobCheckpointStore and JsonCheckpointStore implement this.
-    The EventHubConsumerClient accepts any object with these four methods.
-    """
-
-    async def list_ownership(
-        self,
-        fully_qualified_namespace: str,
-        eventhub_name: str,
-        consumer_group: str,
-        **kwargs: Any,
-    ) -> Iterable[dict[str, Any]]: ...
-
-    async def claim_ownership(
-        self,
-        ownership_list: Iterable[dict[str, Any]],
-        **kwargs: Any,
-    ) -> Iterable[dict[str, Any]]: ...
-
-    async def update_checkpoint(
-        self,
-        checkpoint: dict[str, Any],
-        **kwargs: Any,
-    ) -> None: ...
-
-    async def list_checkpoints(
-        self,
-        fully_qualified_namespace: str,
-        eventhub_name: str,
-        consumer_group: str,
-        **kwargs: Any,
-    ) -> Iterable[dict[str, Any]]: ...
 
 
 # =============================================================================
 # Singleton state
 # =============================================================================
 
-_checkpoint_store: CheckpointStoreProtocol | None = None
+_checkpoint_store: Any = None
 _checkpoint_store_lock = asyncio.Lock()
 _initialization_attempted = False
 
@@ -160,7 +118,7 @@ def _load_checkpoint_config() -> dict:
 # =============================================================================
 
 
-async def get_checkpoint_store() -> CheckpointStoreProtocol | None:
+async def get_checkpoint_store() -> Any:
     """Get or create the singleton checkpoint store instance.
 
     The backend is selected by the 'type' field in config:
@@ -174,7 +132,7 @@ async def get_checkpoint_store() -> CheckpointStoreProtocol | None:
     double-checked locking to ensure only one store is created.
 
     Returns:
-        CheckpointStoreProtocol instance, or None if not configured
+        Checkpoint store instance, or None if not configured
 
     Raises:
         ValueError: If checkpoint store type is unknown
@@ -218,7 +176,7 @@ async def get_checkpoint_store() -> CheckpointStoreProtocol | None:
             )
 
 
-def _create_json_store(config: dict) -> CheckpointStoreProtocol:
+def _create_json_store(config: dict) -> Any:
     """Create a JsonCheckpointStore from config."""
     from pipeline.common.eventhub.json_checkpoint_store import JsonCheckpointStore
 
@@ -226,7 +184,7 @@ def _create_json_store(config: dict) -> CheckpointStoreProtocol:
     return JsonCheckpointStore(storage_path=storage_path)
 
 
-def _create_blob_store(config: dict) -> CheckpointStoreProtocol | None:
+def _create_blob_store(config: dict) -> Any:
     """Create a BlobCheckpointStore from config, or None if not configured."""
     from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 
@@ -341,7 +299,6 @@ def reset_checkpoint_store() -> None:
 
 
 __all__ = [
-    "CheckpointStoreProtocol",
     "get_checkpoint_store",
     "close_checkpoint_store",
     "reset_checkpoint_store",
