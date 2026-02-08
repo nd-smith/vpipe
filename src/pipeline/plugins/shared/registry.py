@@ -64,7 +64,6 @@ class PluginRegistry:
             "Registered plugin",
             extra={
                 "plugin_name": plugin.name,
-                "plugin_version": plugin.version,
                 "domains": (
                     [d.value for d in plugin.domains] if plugin.domains else ["all"]
                 ),

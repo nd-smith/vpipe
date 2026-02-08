@@ -8,12 +8,6 @@ imported on Python 3.11 test environments.
 import sys
 import types
 
-# -- pipeline.common.logging uses PEP 695 generics (Python 3.12+) -----------
-_mock_logging = types.ModuleType("pipeline.common.logging")
-_mock_logging.LoggedClass = type("LoggedClass", (), {})
-_mock_logging.logged_operation = lambda *a, **k: lambda f: f
-sys.modules.setdefault("pipeline.common.logging", _mock_logging)
-
 # -- pipeline.common.retry needs aiokafka -----------------------------------
 _mock_retry = types.ModuleType("pipeline.common.retry")
 _mock_retry.RetryConfig = type(
