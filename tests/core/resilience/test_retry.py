@@ -8,7 +8,6 @@ Test Coverage:
     - Exception classification and retry decisions
     - Auth error detection and callbacks
     - Decorator behavior with various error types
-    - Statistics tracking
 """
 
 import time
@@ -26,7 +25,6 @@ from core.errors.exceptions import (
 )
 from core.resilience.retry import (
     RetryConfig,
-    RetryStats,
     with_retry,
     DEFAULT_RETRY,
     AUTH_RETRY,
@@ -195,26 +193,6 @@ class TestRetryConfig:
         error = RuntimeError("Unknown error")
 
         assert config.should_retry(error, 0) is True
-
-
-class TestRetryStats:
-    """Tests for RetryStats dataclass."""
-
-    def test_default_values(self):
-        """RetryStats initializes with defaults."""
-        stats = RetryStats()
-        assert stats.attempts == 0
-        assert stats.total_delay == 0.0
-        assert stats.final_error is None
-        assert stats.success is False
-
-    def test_retried_property(self):
-        """retried is True when attempts > 1."""
-        stats = RetryStats(attempts=1)
-        assert stats.retried is False
-
-        stats = RetryStats(attempts=2)
-        assert stats.retried is True
 
 
 class TestWithRetryDecorator:

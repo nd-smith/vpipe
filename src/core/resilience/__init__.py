@@ -36,7 +36,6 @@ from .retry import (
     AUTH_RETRY,
     DEFAULT_RETRY,
     RetryConfig,
-    RetryStats,
     with_retry,
     with_retry_async,
 )
@@ -56,7 +55,6 @@ __all__ = [
     "get_rate_limiter",
     # Retry
     "RetryConfig",
-    "RetryStats",
     "with_retry",
     "with_retry_async",
     "DEFAULT_RETRY",

@@ -317,21 +317,6 @@ DEFAULT_RETRY = RetryConfig(max_attempts=3, base_delay=1.0)
 AUTH_RETRY = RetryConfig(max_attempts=2, base_delay=0.5)
 
 
-@dataclass
-class RetryStats:
-    """Statistics from a retry operation."""
-
-    attempts: int = 0
-    total_delay: float = 0.0
-    final_error: Exception | None = None
-    success: bool = False
-
-    @property
-    def retried(self) -> bool:
-        """Whether any retries occurred."""
-        return self.attempts > 1
-
-
 def with_retry(
     config: RetryConfig | None = None,
     on_auth_error: Callable[[], None] | None = None,
@@ -436,7 +421,6 @@ def with_retry_async(
 
 __all__ = [
     "RetryConfig",
-    "RetryStats",
     "with_retry",
     "with_retry_async",
     "DEFAULT_RETRY",
