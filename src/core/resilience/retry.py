@@ -137,6 +137,70 @@ def _safe_invoke_on_retry(
         )
 
 
+def _log_recovery(func_name: str, attempt: int, config: "RetryConfig") -> None:
+    """Log successful recovery after retries."""
+    logger.info(
+        "Retry succeeded for %s after %d attempts",
+        func_name,
+        attempt + 1,
+        extra={
+            "operation": func_name,
+            "attempt": attempt + 1,
+            "total_attempts": config.max_attempts,
+        },
+    )
+
+
+def _handle_exception(
+    e: Exception,
+    attempt: int,
+    config: "RetryConfig",
+    func_name: str,
+    on_retry: Callable[[Exception, int, float], None] | None,
+    wrap_errors: bool,
+) -> tuple[float, Exception, bool]:
+    """Process an exception in the retry loop.
+
+    Returns (delay, wrapped_exception, needs_auth_refresh).
+    Raises wrapped or original exception if the error should not be retried.
+    """
+    wrapped = (
+        wrap_exception(e)
+        if wrap_errors and not isinstance(e, PipelineError)
+        else e
+    )
+    error_category = _extract_error_category(wrapped)
+
+    # Detect auth refresh need
+    needs_auth = (
+        isinstance(wrapped, PipelineError) and wrapped.should_refresh_auth
+    )
+    if needs_auth:
+        logger.info(
+            "Auth error detected for %s, refreshing credentials",
+            func_name,
+            extra={
+                "operation": func_name,
+                "error_category": error_category,
+            },
+        )
+
+    # Check if we should retry
+    if not config.should_retry(wrapped, attempt):
+        _log_retry_failure(func_name, wrapped, e, error_category, config)
+        if wrap_errors:
+            raise wrapped from e
+        raise
+
+    delay = config.get_delay(attempt, wrapped)
+    _log_retry_attempt(func_name, attempt, config, error_category, delay, e, wrapped)
+
+    if on_retry:
+        _safe_invoke_on_retry(on_retry, wrapped, attempt, delay, func_name)
+
+    return delay, wrapped, needs_auth
+
+
 @dataclass
 class RetryConfig:
     """Configuration for retry behavior."""
@@ -303,66 +367,16 @@ def with_retry(
             for attempt in range(config.max_attempts):
                 try:
                     result = func(*args, **kwargs)
-
-                    # Log recovery if this wasn't the first attempt
                     if attempt > 0:
-                        logger.info(
-                            "Retry succeeded for %s after %d attempts",
-                            func.__name__,
-                            attempt + 1,
-                            extra={
-                                "operation": func.__name__,
-                                "attempt": attempt + 1,
-                                "total_attempts": config.max_attempts,
-                            },
-                        )
-
+                        _log_recovery(func.__name__, attempt, config)
                     return result
-
                 except Exception as e:
                     last_error = e
-                    wrapped = (
-                        wrap_exception(e)
-                        if wrap_errors and not isinstance(e, PipelineError)
-                        else e
+                    delay, _, needs_auth = _handle_exception(
+                        e, attempt, config, func.__name__, on_retry, wrap_errors
                     )
-                    error_category = _extract_error_category(wrapped)
-
-                    # Handle auth errors - refresh before retry decision
-                    if (
-                        isinstance(wrapped, PipelineError)
-                        and wrapped.should_refresh_auth
-                    ):
-                        logger.info(
-                            "Auth error detected for %s, refreshing credentials",
-                            func.__name__,
-                            extra={
-                                "operation": func.__name__,
-                                "error_category": error_category,
-                            },
-                        )
-                        if on_auth_error:
-                            on_auth_error()
-
-                    if not config.should_retry(wrapped, attempt):
-                        _log_retry_failure(
-                            func.__name__, wrapped, e, error_category, config
-                        )
-                        if wrap_errors:
-                            raise wrapped from e
-                        raise
-
-                    delay = config.get_delay(attempt, wrapped)
-                    _log_retry_attempt(
-                        func.__name__, attempt, config, error_category,
-                        delay, e, wrapped,
-                    )
-
-                    if on_retry:
-                        _safe_invoke_on_retry(
-                            on_retry, wrapped, attempt, delay, func.__name__
-                        )
-
+                    if needs_auth and on_auth_error:
+                        on_auth_error()
                     time.sleep(delay)
 
             # Should not reach here, but just in case
@@ -397,69 +411,19 @@ def with_retry_async(
             for attempt in range(config.max_attempts):
                 try:
                     result = await func(*args, **kwargs)
-
                     if attempt > 0:
-                        logger.info(
-                            "Retry succeeded for %s after %d attempts",
-                            func.__name__,
-                            attempt + 1,
-                            extra={
-                                "operation": func.__name__,
-                                "attempt": attempt + 1,
-                                "total_attempts": config.max_attempts,
-                            },
-                        )
-
+                        _log_recovery(func.__name__, attempt, config)
                     return result
-
                 except Exception as e:
                     last_error = e
-                    wrapped = (
-                        wrap_exception(e)
-                        if wrap_errors and not isinstance(e, PipelineError)
-                        else e
+                    delay, _, needs_auth = _handle_exception(
+                        e, attempt, config, func.__name__, on_retry, wrap_errors
                     )
-                    error_category = _extract_error_category(wrapped)
-
-                    # Handle auth errors - refresh before retry decision
-                    if (
-                        isinstance(wrapped, PipelineError)
-                        and wrapped.should_refresh_auth
-                    ):
-                        logger.info(
-                            "Auth error detected for %s, refreshing credentials",
-                            func.__name__,
-                            extra={
-                                "operation": func.__name__,
-                                "error_category": error_category,
-                            },
-                        )
-                        if on_auth_error:
-                            # Support async auth callbacks
-                            if asyncio.iscoroutinefunction(on_auth_error):
-                                await on_auth_error()
-                            else:
-                                on_auth_error()
-
-                    if not config.should_retry(wrapped, attempt):
-                        _log_retry_failure(
-                            func.__name__, wrapped, e, error_category, config
-                        )
-                        if wrap_errors:
-                            raise wrapped from e
-                        raise
-
-                    delay = config.get_delay(attempt, wrapped)
-                    _log_retry_attempt(
-                        func.__name__, attempt, config, error_category,
-                        delay, e, wrapped,
-                    )
-
-                    if on_retry:
-                        _safe_invoke_on_retry(
-                            on_retry, wrapped, attempt, delay, func.__name__
-                        )
-
+                    if needs_auth and on_auth_error:
+                        if asyncio.iscoroutinefunction(on_auth_error):
+                            await on_auth_error()
+                        else:
+                            on_auth_error()
                     await asyncio.sleep(delay)
 
             if last_error:
