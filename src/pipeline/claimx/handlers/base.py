@@ -3,18 +3,15 @@
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
     Any,
     Optional,
-    TypeVar,
 )
 
 from core.types import ErrorCategory
-from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
-from pipeline.claimx.handlers.utils import LOG_ERROR_TRUNCATE_SHORT
+from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.common.logging import extract_log_context
@@ -81,110 +78,98 @@ class HandlerResult:
         self.api_calls = api_calls
 
 
-def _make_error_result(
-    event: ClaimXEventMessage,
-    error: Exception,
+def aggregate_results(
+    handler_name: str,
+    results: list[EnrichmentResult],
     start_time: datetime,
-    api_calls: int,
-    category: ErrorCategory,
-    is_retryable: bool,
-) -> EnrichmentResult:
-    duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
-    return EnrichmentResult(
-        event=event,
-        success=False,
-        error=str(error),
-        error_category=category,
-        is_retryable=is_retryable,
-        api_calls=api_calls,
-        duration_ms=duration_ms,
+) -> HandlerResult:
+    """Aggregate individual enrichment results into a single handler result."""
+    duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
+
+    total = 0
+    succeeded = 0
+    failed = 0
+    failed_permanent = 0
+    api_calls = 0
+    all_rows = EntityRowsMessage()
+    errors = []
+
+    for enrichment_result in results:
+        if enrichment_result is None:
+            logger.error(
+                "Invalid handler result",
+                extra={
+                    "handler_name": handler_name,
+                },
+                exc_info=True,
+            )
+            continue
+        total += 1
+        api_calls += enrichment_result.api_calls
+
+        if enrichment_result.success:
+            succeeded += 1
+            all_rows.merge(enrichment_result.rows)
+        else:
+            failed += 1
+            if not enrichment_result.is_retryable:
+                failed_permanent += 1
+            if enrichment_result.error:
+                errors.append(enrichment_result.error)
+
+    # Log entity row counts
+    row_counts = {
+        "projects": len(all_rows.projects),
+        "contacts": len(all_rows.contacts),
+        "media": len(all_rows.media),
+        "tasks": len(all_rows.tasks),
+        "task_templates": len(all_rows.task_templates),
+        "external_links": len(all_rows.external_links),
+        "video_collab": len(all_rows.video_collab),
+    }
+    non_zero_counts = {k: v for k, v in row_counts.items() if v > 0}
+
+    if non_zero_counts:
+        logger.debug(
+            "Aggregated entity rows",
+            extra={
+                "handler_name": handler_name,
+                "entity_counts": non_zero_counts,
+                "total_rows": sum(non_zero_counts.values()),
+            },
+        )
+
+    if succeeded > 0:
+        avg_duration = duration_seconds / succeeded
+        claimx_handler_duration_seconds.labels(
+            handler_name=handler_name, status="success"
+        ).observe(avg_duration)
+
+    if failed > 0:
+        avg_duration = duration_seconds / failed
+        claimx_handler_duration_seconds.labels(
+            handler_name=handler_name, status="failed"
+        ).observe(avg_duration)
+
+    claimx_handler_events_total.labels(
+        handler_name=handler_name, status="success"
+    ).inc(succeeded)
+    claimx_handler_events_total.labels(handler_name=handler_name, status="failed").inc(
+        failed
     )
 
-
-F = TypeVar("F", bound=Callable[..., Awaitable[EnrichmentResult]])
-
-
-def with_api_error_handling(
-    api_calls: int = 1,
-    log_context: Callable[[ClaimXEventMessage], dict] | None = None,
-) -> Callable[
-    [Callable[..., Awaitable[EnrichmentResult]]],
-    Callable[[Any, ClaimXEventMessage], Awaitable[EnrichmentResult]],
-]:
-    """Decorator for standardized API error handling with extract_log_context."""
-
-    def decorator(
-        fn: Callable[..., Awaitable[EnrichmentResult]],
-    ) -> Callable[[Any, ClaimXEventMessage], Awaitable[EnrichmentResult]]:
-        async def wrapper(self: Any, event: ClaimXEventMessage) -> EnrichmentResult:
-            start_time = datetime.now(UTC)
-            handler_name = getattr(self, "name", self.__class__.__name__)
-
-            try:
-                return await fn(self, event, start_time)
-
-            except ClaimXApiError as e:
-                # Use extract_log_context, but allow override via log_context param
-                event_log_context = extract_log_context(event)
-                if log_context:
-                    event_log_context.update(log_context(event))
-
-                duration_ms = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-                logger.warning(
-                    "API error",
-                    extra={
-                        "handler_name": handler_name,
-                        "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
-                        "error_category": e.category.value if e.category else None,
-                        "http_status": e.status_code,
-                        "duration_ms": duration_ms,
-                        **event_log_context,
-                    },
-                )
-                return _make_error_result(
-                    event,
-                    e,
-                    start_time,
-                    api_calls,
-                    category=e.category,
-                    is_retryable=e.is_retryable,
-                )
-
-            except Exception as e:
-                # Use extract_log_context for consistent failure logging
-                event_log_context = extract_log_context(event)
-                if log_context:
-                    event_log_context.update(log_context(event))
-
-                duration_ms = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-                logger.error(
-                    "Unexpected error",
-                    extra={
-                        "handler_name": handler_name,
-                        "duration_ms": duration_ms,
-                        **event_log_context,
-                    },
-                    exc_info=True,
-                )
-                return _make_error_result(
-                    event,
-                    e,
-                    start_time,
-                    api_calls,
-                    category=ErrorCategory.TRANSIENT,
-                    is_retryable=True,
-                )
-
-        # Copy only name and doc, not signature
-        wrapper.__name__ = fn.__name__
-        wrapper.__doc__ = fn.__doc__
-        return wrapper
-
-    return decorator
+    return HandlerResult(
+        handler_name=handler_name,
+        total=total,
+        succeeded=succeeded,
+        failed=failed,
+        failed_permanent=failed_permanent,
+        skipped=0,
+        rows=all_rows,
+        errors=errors,
+        duration_seconds=duration_seconds,
+        api_calls=api_calls,
+    )
 
 
 class EventHandler(ABC):
@@ -355,7 +340,7 @@ class EventHandler(ABC):
         else:
             results = await self.handle_batch(events)
 
-        handler_result = self._aggregate_results(results, start_time)
+        handler_result = aggregate_results(self.name, results, start_time)
 
         logger.debug(
             "Handler processing complete",
@@ -434,102 +419,6 @@ class EventHandler(ABC):
         )
 
         return results
-
-    def _aggregate_results(
-        self,
-        results: list[EnrichmentResult],
-        start_time: datetime,
-    ) -> HandlerResult:
-        duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
-
-        total = 0
-        succeeded = 0
-        failed = 0
-        failed_permanent = 0
-        api_calls = 0
-        all_rows = EntityRowsMessage()
-        errors = []
-
-        for enrichment_result in results:
-            if enrichment_result is None:
-                logger.error(
-                    "Invalid handler result",
-                    extra={
-                        "handler_name": self.name,
-                    },
-                    exc_info=True,
-                )
-                continue
-            total += 1
-            api_calls += enrichment_result.api_calls
-
-            if enrichment_result.success:
-                succeeded += 1
-                all_rows.merge(enrichment_result.rows)
-            else:
-                failed += 1
-                if not enrichment_result.is_retryable:
-                    failed_permanent += 1
-                if enrichment_result.error:
-                    errors.append(enrichment_result.error)
-
-        # Log entity row counts
-        row_counts = {
-            "projects": len(all_rows.projects),
-            "contacts": len(all_rows.contacts),
-            "media": len(all_rows.media),
-            "tasks": len(all_rows.tasks),
-            "task_templates": len(all_rows.task_templates),
-            "external_links": len(all_rows.external_links),
-            "video_collab": len(all_rows.video_collab),
-        }
-        non_zero_counts = {k: v for k, v in row_counts.items() if v > 0}
-
-        if non_zero_counts:
-            logger.debug(
-                "Aggregated entity rows",
-                extra={
-                    "handler_name": self.name,
-                    "entity_counts": non_zero_counts,
-                    "total_rows": sum(non_zero_counts.values()),
-                },
-            )
-
-        if succeeded > 0:
-            # Calculate average duration per successful event
-            avg_duration = (
-                duration_seconds / succeeded if succeeded else duration_seconds
-            )
-            claimx_handler_duration_seconds.labels(
-                handler_name=self.name, status="success"
-            ).observe(avg_duration)
-
-        if failed > 0:
-            # Calculate average duration per failed event
-            avg_duration = duration_seconds / failed if failed else duration_seconds
-            claimx_handler_duration_seconds.labels(
-                handler_name=self.name, status="failed"
-            ).observe(avg_duration)
-
-        claimx_handler_events_total.labels(
-            handler_name=self.name, status="success"
-        ).inc(succeeded)
-        claimx_handler_events_total.labels(handler_name=self.name, status="failed").inc(
-            failed
-        )
-
-        return HandlerResult(
-            handler_name=self.name,
-            total=total,
-            succeeded=succeeded,
-            failed=failed,
-            failed_permanent=failed_permanent,
-            skipped=0,
-            rows=all_rows,
-            errors=errors,
-            duration_seconds=duration_seconds,
-            api_calls=api_calls,
-        )
 
 
 class NoOpHandler(EventHandler):
