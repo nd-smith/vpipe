@@ -37,7 +37,6 @@ class VideoCollabHandler(EventHandler):
     """
 
     event_types = ["VIDEO_COLLABORATION_INVITE_SENT", "VIDEO_COLLABORATION_COMPLETED"]
-    supports_batching = False
     HANDLER_NAME = "video"
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:

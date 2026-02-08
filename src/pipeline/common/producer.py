@@ -9,8 +9,8 @@ from aiokafka import AIOKafkaProducer
 from pydantic import BaseModel
 
 from config.config import MessageConfig
-from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from core.utils.json_serializers import json_serializer
+from pipeline.common.kafka_config import build_kafka_security_config
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_message_produced,
@@ -110,31 +110,7 @@ class MessageProducer:
             ]
         if "max_request_size" not in self.producer_config:
             kafka_producer_config["max_request_size"] = 10 * 1024 * 1024
-        if self.config.security_protocol != "PLAINTEXT":
-            kafka_producer_config["security_protocol"] = self.config.security_protocol
-            kafka_producer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            # Create SSL context for SSL/SASL_SSL connections
-            if "SSL" in self.config.security_protocol:
-                import ssl
-
-                ssl_context = ssl.create_default_context()
-                kafka_producer_config["ssl_context"] = ssl_context
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_eventhub_oauth_callback()
-                kafka_producer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                kafka_producer_config["sasl_plain_username"] = (
-                    self.config.sasl_plain_username
-                )
-                kafka_producer_config["sasl_plain_password"] = (
-                    self.config.sasl_plain_password
-                )
-            elif self.config.sasl_mechanism == "GSSAPI":
-                kafka_producer_config["sasl_kerberos_service_name"] = (
-                    self.config.sasl_kerberos_service_name
-                )
+        kafka_producer_config.update(build_kafka_security_config(self.config))
 
         # Debug: log connection settings (mask secrets)
         logger.info(
@@ -385,5 +361,4 @@ __all__ = [
     "MessageProducer",
     "AIOKafkaProducer",
     "ProduceResult",
-    "create_eventhub_oauth_callback",
 ]

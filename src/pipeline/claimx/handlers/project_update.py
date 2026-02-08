@@ -70,7 +70,6 @@ class ProjectUpdateHandler(EventHandler):
         "POLICYHOLDER_JOINED",
         "PROJECT_AUTO_XA_LINKING_UNSUCCESSFUL",
     ]
-    supports_batching = False
     HANDLER_NAME = "project_update"
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:

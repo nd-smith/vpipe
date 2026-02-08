@@ -38,7 +38,6 @@ class ProjectHandler(EventHandler):
     """
 
     event_types = ["PROJECT_CREATED", "PROJECT_MFN_ADDED"]
-    supports_batching = False
     HANDLER_NAME = "project"
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:

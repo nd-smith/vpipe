@@ -10,10 +10,12 @@ Provides:
 
 from core.resilience.retry import AUTH_RETRY, DEFAULT_RETRY, RetryConfig, with_retry
 from pipeline.common.retry import retry_utils
+from pipeline.common.retry.delay_queue import DelayQueue
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 
 __all__ = [
+    "DelayQueue",
     "DeltaRetryHandler",
     "UnifiedRetryScheduler",
     "retry_utils",

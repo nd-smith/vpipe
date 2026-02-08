@@ -15,7 +15,6 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
 from dotenv import load_dotenv
 
 from config.config import MessageConfig
-from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from pipeline.claimx.schemas.results import (
     FailedDownloadMessage,
     FailedEnrichmentMessage,
@@ -50,6 +49,8 @@ class DLQManager:
 
     def _get_consumer_config(self) -> dict:
         """Build Kafka consumer configuration."""
+        from pipeline.common.kafka_config import build_kafka_security_config
+
         consumer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": "claimx-dlq-cli",  # Dedicated consumer group
@@ -57,38 +58,18 @@ class DLQManager:
             "auto_offset_reset": "earliest",  # Read from beginning
         }
 
-        # Configure security
-        if self.config.security_protocol != "PLAINTEXT":
-            consumer_config["security_protocol"] = self.config.security_protocol
-            consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_eventhub_oauth_callback()
-                consumer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                consumer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                consumer_config["sasl_plain_password"] = self.config.sasl_plain_password
-
+        consumer_config.update(build_kafka_security_config(self.config))
         return consumer_config
 
     def _get_producer_config(self) -> dict:
         """Build Kafka producer configuration."""
+        from pipeline.common.kafka_config import build_kafka_security_config
+
         producer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
         }
 
-        # Configure security
-        if self.config.security_protocol != "PLAINTEXT":
-            producer_config["security_protocol"] = self.config.security_protocol
-            producer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_eventhub_oauth_callback()
-                producer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                producer_config["sasl_plain_username"] = self.config.sasl_plain_username
-                producer_config["sasl_plain_password"] = self.config.sasl_plain_password
-
+        producer_config.update(build_kafka_security_config(self.config))
         return producer_config
 
     async def list_dlq_counts(self) -> dict:

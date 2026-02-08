@@ -13,7 +13,6 @@ Handler Types:
 
 Base Classes:
     - EventHandler: Abstract base class for all handlers
-    - NoOpHandler: Base for handlers that don't need API calls
     - HandlerRegistry: Registry for routing events to handlers
 
 Usage:
@@ -32,7 +31,6 @@ from pipeline.claimx.handlers.base import (
     EventHandler,
     HandlerRegistry,
     HandlerResult,
-    NoOpHandler,
     register_handler,
 )
 from pipeline.claimx.handlers.base import (
@@ -82,7 +80,6 @@ def get_handler_registry() -> HandlerRegistry:
 __all__ = [
     # Base classes
     "EventHandler",
-    "NoOpHandler",
     "EnrichmentResult",
     "HandlerResult",
     "HandlerRegistry",

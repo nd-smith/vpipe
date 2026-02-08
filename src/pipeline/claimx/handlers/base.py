@@ -6,7 +6,6 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
-    Any,
     Optional,
 )
 
@@ -179,8 +178,6 @@ class EventHandler(ABC):
     """
 
     event_types: list[str] = []
-    supports_batching: bool = False
-    batch_key: str | None = None
 
     def __init__(
         self,
@@ -329,16 +326,11 @@ class EventHandler(ABC):
             extra={
                 "handler_name": self.name,
                 "total_events": len(events),
-                "supports_batching": self.supports_batching,
-                "batch_key": self.batch_key,
                 "event_type_distribution": event_type_counts,
             },
         )
 
-        if self.supports_batching and self.batch_key:
-            results = await self._process_batched(events)
-        else:
-            results = await self.handle_batch(events)
+        results = await self.handle_batch(events)
 
         handler_result = aggregate_results(self.name, results, start_time)
 
@@ -356,133 +348,6 @@ class EventHandler(ABC):
         )
 
         return handler_result
-
-    async def _process_batched(
-        self, events: list[ClaimXEventMessage]
-    ) -> list[EnrichmentResult]:
-        """Process events in batches grouped by batch_key, concurrently."""
-        import asyncio
-
-        # Group by batch key
-        groups: dict[Any, list[ClaimXEventMessage]] = defaultdict(list)
-        for event in events:
-            key = getattr(event, self.batch_key, None)
-            groups[key].append(event)
-
-        logger.debug(
-            "Processing batched events",
-            extra={
-                "handler_name": self.name,
-                "total_events": len(events),
-                "batch_key": self.batch_key,
-                "group_count": len(groups),
-                "group_sizes": {str(k): len(v) for k, v in groups.items()},
-            },
-        )
-
-        # Process all groups concurrently
-        async def process_group(key: Any, group_events: list[ClaimXEventMessage]):
-            return key, await self.handle_batch(group_events)
-
-        tasks = [process_group(k, evts) for k, evts in groups.items()]
-        group_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Flatten results, preserving order
-        results = []
-        groups_succeeded = 0
-        groups_failed = 0
-
-        for group_result in group_results:
-            if isinstance(group_result, Exception):
-                groups_failed += 1
-                logger.error(
-                    "Batch group processing failed",
-                    extra={
-                        "handler_name": self.name,
-                        "batch_key": self.batch_key,
-                    },
-                    exc_info=True,
-                )
-                continue
-            key, batch_results = group_result
-            groups_succeeded += 1
-            results.extend(batch_results)
-
-        logger.debug(
-            "Batched processing complete",
-            extra={
-                "handler_name": self.name,
-                "groups_succeeded": groups_succeeded,
-                "groups_failed": groups_failed,
-                "total_results": len(results),
-            },
-        )
-
-        return results
-
-
-class NoOpHandler(EventHandler):
-    """Extracts data directly from event payload without API calls."""
-
-    supports_batching = False
-
-    async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
-        start_time = datetime.now(UTC)
-
-        try:
-            rows = self.extract_rows(event)
-            duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
-
-            row_counts = {
-                "projects": len(rows.projects),
-                "contacts": len(rows.contacts),
-                "media": len(rows.media),
-                "tasks": len(rows.tasks),
-            }
-            non_zero = {k: v for k, v in row_counts.items() if v > 0}
-
-            logger.debug(
-                "NoOp handler extracted rows",
-                extra={
-                    "handler_name": self.name,
-                    "entity_counts": non_zero if non_zero else None,
-                    "duration_ms": duration_ms,
-                    **extract_log_context(event),
-                },
-            )
-
-            return EnrichmentResult(
-                event=event,
-                success=True,
-                rows=rows,
-                api_calls=0,
-                duration_ms=duration_ms,
-            )
-
-        except Exception as e:
-            logger.error(
-                "Error extracting rows from event",
-                extra={
-                    "handler_name": self.name,
-                    **extract_log_context(event),
-                },
-                exc_info=True,
-            )
-            duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
-
-            return EnrichmentResult(
-                event=event,
-                success=False,
-                error=str(e),
-                error_category=ErrorCategory.TRANSIENT,
-                is_retryable=True,
-                api_calls=0,
-                duration_ms=duration_ms,
-            )
-
-    @abstractmethod
-    def extract_rows(self, event: ClaimXEventMessage) -> EntityRowsMessage:
-        pass
 
 
 # Module-level handler registry
@@ -580,8 +445,6 @@ def register_handler(cls: type[EventHandler]) -> type[EventHandler]:
             extra={
                 "handler_name": cls.__name__,
                 "event_type": event_type,
-                "supports_batching": cls.supports_batching,
-                "batch_key": cls.batch_key,
             },
         )
     return cls

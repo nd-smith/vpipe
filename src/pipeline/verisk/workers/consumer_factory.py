@@ -5,7 +5,7 @@ from typing import Any
 from aiokafka import AIOKafkaConsumer
 
 from config.config import MessageConfig
-from core.auth.eventhub_oauth import create_eventhub_oauth_callback
+from pipeline.common.kafka_config import build_kafka_security_config
 
 
 def create_consumer(
@@ -58,15 +58,7 @@ def create_consumer(
             consumer_config[key] = consumer_config_dict[key]
 
     # Add security configuration
-    if config.security_protocol != "PLAINTEXT":
-        consumer_config["security_protocol"] = config.security_protocol
-        consumer_config["sasl_mechanism"] = config.sasl_mechanism
-
-        if config.sasl_mechanism == "OAUTHBEARER":
-            consumer_config["sasl_oauth_token_provider"] = create_eventhub_oauth_callback()
-        elif config.sasl_mechanism == "PLAIN":
-            consumer_config["sasl_plain_username"] = config.sasl_plain_username
-            consumer_config["sasl_plain_password"] = config.sasl_plain_password
+    consumer_config.update(build_kafka_security_config(config))
 
     # Handle both single topic (str) and multiple topics (list)
     if isinstance(topics, str):
