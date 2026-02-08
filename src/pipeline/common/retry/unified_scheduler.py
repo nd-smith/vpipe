@@ -41,7 +41,7 @@ def parse_scheduled_time(value: str) -> datetime | None:
         return None
 
 
-def encode_message_key(original_key, message: PipelineMessage) -> bytes | None:
+def encode_message_key(original_key: str | bytes | None, message: PipelineMessage) -> bytes | None:
     """Encode a message key to bytes, falling back to message.key."""
     if isinstance(original_key, str):
         return original_key.encode("utf-8")

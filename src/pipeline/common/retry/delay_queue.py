@@ -10,6 +10,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+EXPIRED_MESSAGE_GRACE_SECONDS = 300
+
 
 @dataclass
 class DelayedMessage:
@@ -163,7 +165,7 @@ class DelayQueue:
                 scheduled_time = datetime.fromisoformat(msg_data["scheduled_time"])
 
                 # Skip messages that are too old (more than max retry delay past due)
-                if (now - scheduled_time).total_seconds() > 300:  # 5 minutes grace period
+                if (now - scheduled_time).total_seconds() > EXPIRED_MESSAGE_GRACE_SECONDS:
                     expired_count += 1
                     logger.debug(
                         "Skipping expired message from persistence",

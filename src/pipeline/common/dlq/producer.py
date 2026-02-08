@@ -7,6 +7,7 @@ import time
 from aiokafka import AIOKafkaProducer
 
 from config.config import MessageConfig
+from core.types import ErrorCategory
 from pipeline.common.kafka_config import build_kafka_security_config
 from pipeline.common.metrics import record_dlq_message
 from pipeline.common.types import PipelineMessage
@@ -62,7 +63,7 @@ class DLQProducer:
             extra={"bootstrap_servers": self._config.bootstrap_servers},
         )
 
-    async def send(self, pipeline_message: PipelineMessage, error: Exception, error_category) -> None:
+    async def send(self, pipeline_message: PipelineMessage, error: Exception, error_category: ErrorCategory) -> None:
         """Send failed message to {topic}.dlq with full context."""
         await self._ensure_started()
 
