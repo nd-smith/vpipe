@@ -39,20 +39,11 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import wraps
-from typing import Protocol, TypeVar
+from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
-
-class MetricsCollector(Protocol):
-    """Protocol for metrics collection (optional dependency)."""
-
-    def increment_counter(self, name: str, labels: dict | None = None) -> None: ...
-    def observe_histogram(
-        self, name: str, value: float, labels: dict | None = None
-    ) -> None: ...
 
 
 @dataclass
@@ -105,7 +96,6 @@ class RateLimiter:
         _tokens: Current token count (protected by _lock)
         _last_update: Last time tokens were refilled
         _lock: Asyncio lock for thread safety
-        _metrics: Optional metrics collector
     """
 
     def __init__(
@@ -113,7 +103,6 @@ class RateLimiter:
         config: RateLimiterConfig | None = None,
         calls_per_second: float | None = None,
         enabled: bool | None = None,
-        metrics: MetricsCollector | None = None,
     ):
         """
         Initialize rate limiter.
@@ -122,7 +111,6 @@ class RateLimiter:
             config: Full configuration object (preferred)
             calls_per_second: Shorthand for config.calls_per_second
             enabled: Shorthand for config.enabled
-            metrics: Optional metrics collector
         """
         # Allow shorthand initialization
         if config is None:
@@ -145,7 +133,6 @@ class RateLimiter:
         self._tokens = self._burst_capacity  # Start with full bucket
         self._last_update = time.monotonic()
         self._lock = asyncio.Lock()
-        self._metrics = metrics
 
         if not config.enabled:
             logger.info(
@@ -207,17 +194,6 @@ class RateLimiter:
                     },
                 )
 
-                if self._metrics:
-                    self._metrics.increment_counter(
-                        "rate_limiter_wait_total",
-                        labels={"limiter": self.config.name},
-                    )
-                    self._metrics.observe_histogram(
-                        "rate_limiter_wait_seconds",
-                        wait_time,
-                        labels={"limiter": self.config.name},
-                    )
-
                 # Wait for tokens to refill
                 await asyncio.sleep(wait_time)
 
@@ -227,12 +203,6 @@ class RateLimiter:
             else:
                 # Enough tokens available, consume them
                 self._tokens -= tokens
-
-            if self._metrics:
-                self._metrics.increment_counter(
-                    "rate_limiter_acquire_total",
-                    labels={"limiter": self.config.name},
-                )
 
     @asynccontextmanager
     async def acquire_context(self, tokens: float = 1.0):
@@ -297,7 +267,6 @@ _rate_limiters: dict[str, RateLimiter] = {}
 def get_rate_limiter(
     name: str,
     config: RateLimiterConfig | None = None,
-    metrics: MetricsCollector | None = None,
 ) -> RateLimiter:
     """
     Get or create a named rate limiter (singleton pattern).
@@ -305,7 +274,6 @@ def get_rate_limiter(
     Args:
         name: Unique identifier for this rate limiter
         config: Configuration (only used on first call)
-        metrics: Optional metrics collector
 
     Returns:
         RateLimiter instance for the given name
@@ -316,7 +284,7 @@ def get_rate_limiter(
     if name not in _rate_limiters:
         if config is None:
             config = RateLimiterConfig(name=name)
-        _rate_limiters[name] = RateLimiter(config=config, metrics=metrics)
+        _rate_limiters[name] = RateLimiter(config=config)
     return _rate_limiters[name]
 
 

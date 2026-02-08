@@ -7,7 +7,6 @@ Test Coverage:
     - Blocking behavior when rate limit reached
     - Context manager (acquire_context)
     - Disabled rate limiter behavior
-    - Metrics collection
     - Registry pattern (get_rate_limiter)
     - Decorator usage (rate_limited)
     - Concurrent async calls
@@ -15,7 +14,6 @@ Test Coverage:
 
 import asyncio
 import time
-from unittest.mock import Mock
 
 import pytest
 
@@ -207,44 +205,6 @@ class TestRateLimiterContextManager:
             pass
 
         assert limiter._tokens == initial_tokens - 3.0
-
-
-class TestRateLimiterMetrics:
-    """Tests for metrics collection."""
-
-    @pytest.mark.asyncio
-    async def test_metrics_on_acquire_without_wait(self):
-        """Metrics incremented on successful acquire without wait."""
-        metrics = Mock()
-        limiter = RateLimiter(calls_per_second=10.0, metrics=metrics)
-
-        await limiter.acquire()
-
-        metrics.increment_counter.assert_called_once_with(
-            "rate_limiter_acquire_total", labels={"limiter": "rate_limiter"}
-        )
-
-    @pytest.mark.asyncio
-    async def test_metrics_on_acquire_with_wait(self):
-        """Metrics track wait time when rate limit reached."""
-        metrics = Mock()
-        limiter = RateLimiter(calls_per_second=10.0, metrics=metrics)
-
-        # Consume all tokens to force a wait
-        await limiter.acquire(tokens=10.0)
-        metrics.reset_mock()
-
-        await limiter.acquire(tokens=1.0)
-
-        # Should have recorded wait event and histogram
-        assert any(
-            call[0][0] == "rate_limiter_wait_total"
-            for call in metrics.increment_counter.call_args_list
-        )
-        assert any(
-            call[0][0] == "rate_limiter_wait_seconds"
-            for call in metrics.observe_histogram.call_args_list
-        )
 
 
 class TestRateLimiterStats:

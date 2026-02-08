@@ -19,12 +19,11 @@ Design Principles:
     - Type hints throughout
 """
 
-from .types import ErrorCategory, ErrorClassifier, TokenProvider
+from .types import ErrorCategory, TokenProvider
 
 __version__ = "0.1.0"
 
 __all__ = [
     "ErrorCategory",
-    "ErrorClassifier",
     "TokenProvider",
 ]

@@ -32,7 +32,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, TypeVar
+from typing import TypeVar
 
 from core.errors.exceptions import CircuitOpenError
 from core.types import ErrorCategory
@@ -46,19 +46,6 @@ class CircuitState(Enum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
-
-
-class MetricsCollector(Protocol):
-    """Protocol for metrics collection (optional dependency)."""
-
-    def increment_counter(self, name: str, labels: dict | None = None) -> None: ...
-    def set_gauge(
-        self, name: str, value: float, labels: dict | None = None
-    ) -> None: ...
-
-
-class ErrorClassifier(Protocol):
-    def classify_error(self, error: Exception) -> ErrorCategory: ...
 
 
 @dataclass
@@ -140,17 +127,6 @@ class CircuitStats:
     current_state: str = "closed"
 
 
-def _default_classifier(exc: Exception) -> ErrorCategory:
-    # Check if exception has a category attribute (from PipelineError)
-    if hasattr(exc, "category") and isinstance(exc.category, ErrorCategory):
-        return exc.category
-
-    # Default classification logic
-    # By default, only count transient and unknown errors
-    # Permanent errors are application bugs, not service issues
-    return ErrorCategory.UNKNOWN
-
-
 class CircuitBreaker:
     """Circuit breaker implementation with exception-aware failure tracking. Thread-safe."""
 
@@ -159,14 +135,10 @@ class CircuitBreaker:
         name: str,
         config: CircuitBreakerConfig | None = None,
         on_state_change: Callable[[CircuitState, CircuitState], None] | None = None,
-        metrics_collector: MetricsCollector | None = None,
-        error_classifier: ErrorClassifier | None = None,
     ):
         self.name = name
         self.config = config or CircuitBreakerConfig()
         self.on_state_change = on_state_change
-        self._metrics = metrics_collector
-        self._classifier = error_classifier
 
         self._state = CircuitState.CLOSED
         self._failure_count = 0
@@ -176,9 +148,6 @@ class CircuitBreaker:
 
         self._stats = CircuitStats()
         self._lock = threading.RLock()
-
-        # Export initial state metric
-        self._export_state_metric()
 
     @property
     def state(self) -> CircuitState:
@@ -215,11 +184,12 @@ class CircuitBreaker:
             )
 
     def _should_count_failure(self, exc: Exception) -> bool:
-        # Classify the error
-        if self._classifier:
-            category = self._classifier.classify_error(exc)
+        # Classify the error using exception's category if available (PipelineError),
+        # otherwise default to UNKNOWN
+        if hasattr(exc, "category") and isinstance(exc.category, ErrorCategory):
+            category = exc.category
         else:
-            category = _default_classifier(exc)
+            category = ErrorCategory.UNKNOWN
 
         # Ignore auth errors if configured
         if self.config.ignore_auth_errors and category == ErrorCategory.AUTH:
@@ -267,17 +237,6 @@ class CircuitBreaker:
         self._stats.last_state_change_time = time.time()
         self._stats.current_state = new_state.value
 
-        # Export state transition counter metric
-        if self._metrics:
-            self._metrics.increment_counter(
-                "circuit_breaker_state_transitions",
-                labels={
-                    "circuit_name": self.name,
-                    "from_state": old_state.value,
-                    "to_state": new_state.value,
-                },
-            )
-
         # Reset counters on state change
         if new_state == CircuitState.CLOSED:
             self._failure_count = 0
@@ -312,19 +271,9 @@ class CircuitBreaker:
                     exc_info=False,
                 )
 
-        # Update state metrics after transition
-        self._export_state_metric()
-
     def _record_success(self) -> None:
         self._stats.successful_calls += 1
         self._stats.last_success_time = time.time()
-
-        # Export success counter metric
-        if self._metrics:
-            self._metrics.increment_counter(
-                "circuit_breaker_calls_total",
-                labels={"circuit_name": self.name, "result": "success"},
-            )
 
         if self._state == CircuitState.HALF_OPEN:
             self._success_count += 1
@@ -334,19 +283,9 @@ class CircuitBreaker:
             # Reset failure count on success (consecutive failure tracking)
             self._failure_count = 0
 
-        # Update state metrics
-        self._export_state_metric()
-
     def _record_failure(self, exc: Exception) -> None:
         self._stats.failed_calls += 1
         self._stats.last_failure_time = time.time()
-
-        # Export failure counter metric
-        if self._metrics:
-            self._metrics.increment_counter(
-                "circuit_breaker_calls_total",
-                labels={"circuit_name": self.name, "result": "failure"},
-            )
 
         # Check if this error should count
         if not self._should_count_failure(exc):
@@ -386,38 +325,6 @@ class CircuitBreaker:
             )
             if self._failure_count >= self.config.failure_threshold:
                 self._transition_to(CircuitState.OPEN)
-
-        # Update state metrics
-        self._export_state_metric()
-
-    def _export_state_metric(self) -> None:
-        if not self._metrics:
-            return
-
-        # Export state as numeric gauge (0=closed, 1=half_open, 2=open)
-        state_value = {
-            CircuitState.CLOSED: 0,
-            CircuitState.HALF_OPEN: 1,
-            CircuitState.OPEN: 2,
-        }[self._state]
-
-        self._metrics.set_gauge(
-            "circuit_breaker_state", state_value, labels={"circuit_name": self.name}
-        )
-
-        # Export failure count
-        self._metrics.set_gauge(
-            "circuit_breaker_failures",
-            self._failure_count,
-            labels={"circuit_name": self.name},
-        )
-
-        # Export success count (relevant in half-open)
-        self._metrics.set_gauge(
-            "circuit_breaker_successes",
-            self._success_count,
-            labels={"circuit_name": self.name},
-        )
 
     def _can_execute(self) -> bool:
         self._check_state_transition()
@@ -559,17 +466,10 @@ _registry_lock = threading.Lock()
 def get_circuit_breaker(
     name: str,
     config: CircuitBreakerConfig | None = None,
-    metrics_collector: MetricsCollector | None = None,
-    error_classifier: ErrorClassifier | None = None,
 ) -> CircuitBreaker:
     with _registry_lock:
         if name not in _breakers:
-            _breakers[name] = CircuitBreaker(
-                name,
-                config,
-                metrics_collector=metrics_collector,
-                error_classifier=error_classifier,
-            )
+            _breakers[name] = CircuitBreaker(name, config)
             logger.debug(
                 "Created circuit breaker: circuit_name=%s",
                 name,
@@ -595,8 +495,6 @@ def reset_circuit_breakers() -> None:
 def circuit_protected(
     name: str,
     config: CircuitBreakerConfig | None = None,
-    metrics_collector: MetricsCollector | None = None,
-    error_classifier: ErrorClassifier | None = None,
 ):
     """
     Decorator to protect a function with a circuit breaker.
@@ -609,15 +507,13 @@ def circuit_protected(
     Args:
         name: Circuit breaker name
         config: Circuit breaker configuration
-        metrics_collector: Optional metrics collector
-        error_classifier: Optional error classifier
 
     Returns:
         Decorator function
     """
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        breaker = get_circuit_breaker(name, config, metrics_collector, error_classifier)
+        breaker = get_circuit_breaker(name, config)
 
         def wrapper(*args, **kwargs) -> T:
             return breaker.execute_protected(func, *args, **kwargs)
@@ -633,8 +529,6 @@ __all__ = [
     "CircuitOpenError",
     "CircuitState",
     "CircuitStats",
-    "ErrorClassifier",
-    "MetricsCollector",
     "circuit_protected",
     "get_circuit_breaker",
     "reset_circuit_breakers",  # For testing only

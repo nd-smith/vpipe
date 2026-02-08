@@ -8,7 +8,6 @@ Test Coverage:
     - Timeout-based state transition
     - Thread safety with concurrent access
     - Error classification and filtering
-    - Metrics collection
     - Registry pattern (get_circuit_breaker)
     - Decorator usage (circuit_protected)
 """
@@ -16,7 +15,7 @@ Test Coverage:
 import asyncio
 import threading
 import time
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 
 import pytest
 
@@ -395,59 +394,6 @@ class TestCircuitBreakerThreadSafety:
         expected_calls = num_threads * calls_per_thread
         assert breaker.stats.total_calls == expected_calls
         assert breaker.stats.failed_calls == expected_calls
-
-
-class TestCircuitBreakerMetrics:
-    """Tests for metrics collection."""
-
-    def test_metrics_collector_called_on_success(self):
-        """Metrics collector receives success events."""
-        metrics = Mock()
-        breaker = CircuitBreaker("test", metrics_collector=metrics)
-
-        breaker.record_success()
-
-        metrics.increment_counter.assert_called_with(
-            "circuit_breaker_calls_total",
-            labels={"circuit_name": "test", "result": "success"},
-        )
-
-    def test_metrics_collector_called_on_failure(self):
-        """Metrics collector receives failure events."""
-        metrics = Mock()
-        breaker = CircuitBreaker(
-            "test",
-            CircuitBreakerConfig(ignore_auth_errors=False),
-            metrics_collector=metrics,
-        )
-
-        breaker.record_failure(TransientError("Fail"))
-
-        metrics.increment_counter.assert_called_with(
-            "circuit_breaker_calls_total",
-            labels={"circuit_name": "test", "result": "failure"},
-        )
-
-    def test_metrics_collector_called_on_state_change(self):
-        """Metrics collector receives state transition events."""
-        metrics = Mock()
-        breaker = CircuitBreaker(
-            "test",
-            CircuitBreakerConfig(failure_threshold=1, ignore_auth_errors=False),
-            metrics_collector=metrics,
-        )
-
-        breaker.record_failure(TransientError("Fail"))
-
-        # Check for state transition metric
-        calls = [
-            c
-            for c in metrics.increment_counter.call_args_list
-            if c[0][0] == "circuit_breaker_state_transitions"
-        ]
-        assert len(calls) == 1
-        assert calls[0][1]["labels"]["from_state"] == "closed"
-        assert calls[0][1]["labels"]["to_state"] == "open"
 
 
 class TestCircuitBreakerCallbacks:

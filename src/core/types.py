@@ -34,39 +34,6 @@ class ErrorCategory(Enum):
     UNKNOWN = "unknown"
 
 
-class ErrorClassifier(Protocol):
-    """
-    Protocol for error classification implementations.
-
-    Different modules (Azure storage, Kafka, HTTP) implement this protocol
-    to classify domain-specific errors into standard categories.
-    """
-
-    def classify_error(self, error: Exception) -> ErrorCategory:
-        """
-        Classify an exception into an error category.
-
-        Args:
-            error: Exception to classify
-
-        Returns:
-            ErrorCategory indicating how to handle this error
-        """
-        ...
-
-    def is_transient(self, error: Exception) -> bool:
-        """
-        Check if error is transient (retriable).
-
-        Args:
-            error: Exception to check
-
-        Returns:
-            True if error may succeed on retry
-        """
-        ...
-
-
 class TokenProvider(Protocol):
     """
     Protocol for authentication token providers.
@@ -101,6 +68,5 @@ class TokenProvider(Protocol):
 
 __all__ = [
     "ErrorCategory",
-    "ErrorClassifier",
     "TokenProvider",
 ]
