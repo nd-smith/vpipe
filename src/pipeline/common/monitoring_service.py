@@ -42,6 +42,12 @@ class PrometheusClient:
         """
         self.prometheus_url = prometheus_url.rstrip("/")
         self.query_url = f"{self.prometheus_url}/api/v1/query"
+        self._session: aiohttp.ClientSession | None = None
+
+    def _ensure_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def query(self, query: str) -> dict[str, Any]:
         """
@@ -49,10 +55,8 @@ class PrometheusClient:
 
         Raises aiohttp.ClientError if request fails.
         """
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(self.query_url, params={"query": query}) as resp,
-        ):
+        session = self._ensure_session()
+        async with session.get(self.query_url, params={"query": query}) as resp:
             resp.raise_for_status()
             data = await resp.json()
             if data.get("status") != "success":
@@ -113,14 +117,16 @@ class PrometheusClient:
     async def check_prometheus_health(self) -> bool:
         """Check if Prometheus is reachable and healthy."""
         try:
-            async with (
-                aiohttp.ClientSession() as session,
-                session.get(f"{self.prometheus_url}/-/healthy") as resp,
-            ):
+            session = self._ensure_session()
+            async with session.get(f"{self.prometheus_url}/-/healthy") as resp:
                 return resp.status == 200
         except Exception as e:
             logger.exception("Failed to check Prometheus health: %s", e)
             return False
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
 
 
 class MonitoringService:
@@ -407,6 +413,7 @@ async def main():
             f"Cannot connect to Prometheus at {args.prometheus_url}. "
             "Make sure Prometheus is running."
         )
+        await prometheus.close()
         return
 
     # Start monitoring service
@@ -418,6 +425,8 @@ async def main():
         await asyncio.Event().wait()
     except KeyboardInterrupt:
         logger.info("Shutting down monitoring service")
+    finally:
+        await prometheus.close()
 
 
 if __name__ == "__main__":

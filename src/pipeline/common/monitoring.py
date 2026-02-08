@@ -128,14 +128,18 @@ class MonitoringServer:
         self.parser = MetricsParser()
         self._app: web.Application | None = None
         self._runner: web.AppRunner | None = None
+        self._session: aiohttp.ClientSession | None = None
+
+    def _ensure_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def fetch_metrics(self) -> str | None:
         """Fetch raw metrics from Prometheus endpoint."""
         try:
-            async with (
-                aiohttp.ClientSession() as session,
-                session.get(self.metrics_url, timeout=5) as resp,
-            ):
+            session = self._ensure_session()
+            async with session.get(self.metrics_url, timeout=5) as resp:
                 if resp.status == 200:
                     return await resp.text()
                 logger.warning("Metrics endpoint returned %s", resp.status)
@@ -482,6 +486,8 @@ class MonitoringServer:
 
     async def stop(self) -> None:
         """Stop the monitoring server."""
+        if self._session and not self._session.closed:
+            await self._session.close()
         if self._runner:
             await self._runner.cleanup()
             logger.info("Monitoring server stopped")
