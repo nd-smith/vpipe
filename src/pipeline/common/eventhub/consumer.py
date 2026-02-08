@@ -31,7 +31,7 @@ from core.errors.exceptions import ErrorCategory
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
 from core.utils import generate_worker_id
-from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
+from typing import Any
 from pipeline.common.eventhub.diagnostics import (
     log_connection_attempt_details,
     log_connection_diagnostics,
@@ -163,7 +163,7 @@ class EventHubConsumer:
         message_handler: Callable[[PipelineMessage], Awaitable[None]],
         enable_message_commit: bool = True,
         instance_id: str | None = None,
-        checkpoint_store: CheckpointStoreProtocol | None = None,
+        checkpoint_store: Any = None,
     ):
         """Initialize Event Hub consumer.
 

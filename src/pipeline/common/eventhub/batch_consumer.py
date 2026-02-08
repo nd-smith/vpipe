@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
-from pipeline.common.eventhub.checkpoint_store import CheckpointStoreProtocol
+from typing import Any
 from pipeline.common.eventhub.consumer import EventHubConsumerRecord
 from pipeline.common.metrics import (
     update_assigned_partitions,
@@ -79,7 +79,7 @@ class EventHubBatchConsumer:
         batch_timeout_ms: int = 1000,
         enable_message_commit: bool = True,
         instance_id: str | None = None,
-        checkpoint_store: CheckpointStoreProtocol | None = None,
+        checkpoint_store: Any = None,
     ):
         """Initialize Event Hub batch consumer.
 
