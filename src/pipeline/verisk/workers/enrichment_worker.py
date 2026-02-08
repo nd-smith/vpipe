@@ -244,21 +244,10 @@ class XACTEnrichmentWorker:
         )
 
         for plugin in self.plugin_registry.list_plugins():
-            try:
-                await plugin.on_load()
-                logger.debug(
-                    "Plugin loaded",
-                    extra={
-                        "plugin_name": plugin.name,
-                        "plugin_version": plugin.version,
-                    },
-                )
-            except Exception as e:
-                logger.error(
-                    "Plugin on_load failed",
-                    extra={"plugin_name": plugin.name, "error": str(e)},
-                    exc_info=True,
-                )
+            logger.debug(
+                "Plugin loaded",
+                extra={"plugin_name": plugin.name},
+            )
 
         self.retry_handler = DownloadRetryHandler(
             config=self.consumer_config,
@@ -299,20 +288,6 @@ class XACTEnrichmentWorker:
 
         if self._stats_logger:
             await self._stats_logger.stop()
-
-        for plugin in self.plugin_registry.list_plugins():
-            try:
-                await plugin.on_unload()
-                logger.debug(
-                    "Plugin unloaded",
-                    extra={"plugin_name": plugin.name},
-                )
-            except Exception as e:
-                logger.error(
-                    "Plugin on_unload failed",
-                    extra={"plugin_name": plugin.name, "error": str(e)},
-                    exc_info=True,
-                )
 
         if self.consumer:
             await self.consumer.stop()

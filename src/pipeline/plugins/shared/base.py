@@ -358,8 +358,6 @@ class Plugin(ABC):
 
     # Plugin metadata
     name: str = "unnamed_plugin"
-    description: str = ""
-    version: str = "1.0.0"
 
     # Filtering: which contexts trigger this plugin
     # Empty list = no filter (matches all)
@@ -382,17 +380,6 @@ class Plugin(ABC):
         """
         self.logger = logging.getLogger(__name__)
         self.config = {**self.default_config, **(config or {})}
-        self._enabled = True
-
-    @property
-    def enabled(self):
-        return self._enabled
-
-    def enable(self) -> None:
-        self._enabled = True
-
-    def disable(self) -> None:
-        self._enabled = False
 
     def should_run(self, context: PluginContext) -> bool:
         """
@@ -404,9 +391,6 @@ class Plugin(ABC):
         Returns:
             True if plugin should execute
         """
-        if not self._enabled:
-            return False
-
         if self.domains and context.domain not in self.domains:
             return False
 
@@ -427,11 +411,3 @@ class Plugin(ABC):
             PluginResult with success status and actions to perform
         """
         pass
-
-    async def on_load(self) -> None:
-        """Called when plugin is loaded. Override for initialization."""
-        return
-
-    async def on_unload(self) -> None:
-        """Called when plugin is unloaded. Override for cleanup."""
-        return
