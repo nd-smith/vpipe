@@ -393,25 +393,6 @@ class ClaimXEnrichmentWorker:
 
         await self._process_single_task(task)
 
-    async def _execute_handler(
-        self,
-        handler,
-        event: ClaimXEventMessage,
-        task: ClaimXEnrichmentTask,
-    ):
-        """
-        Execute handler to enrich event with API data.
-
-        Args:
-            handler: Handler instance for this event type
-            event: Event message to process
-            task: Original enrichment task
-
-        Returns:
-            HandlerResult with entity rows and metadata
-        """
-        handler_result = await handler.process([event])
-        return handler_result
 
     async def _dispatch_entity_rows(
         self,
@@ -498,7 +479,7 @@ class ClaimXEnrichmentWorker:
 
         try:
             # Step 4: Execute handler to enrich event with API data
-            handler_result = await self._execute_handler(handler, event, task)
+            handler_result = await handler.process([event])
 
             # Check if handler succeeded - HandlerResult has succeeded/failed counts, not a success boolean
             if handler_result.failed > 0:
