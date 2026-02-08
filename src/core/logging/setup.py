@@ -7,7 +7,6 @@ import os
 import secrets
 import shutil
 import sys
-import threading
 import time
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
@@ -48,24 +47,88 @@ NOISY_LOGGERS = [
 ]
 
 
-class ArchivingTimedRotatingFileHandler(TimedRotatingFileHandler):
-    """
-    Custom TimedRotatingFileHandler that automatically moves rotated files to an archive folder.
+class LogArchiver:
+    """Moves rotated log files into an archive directory."""
 
-    When a log file is rotated (e.g., file.log -> file.log.2026-01-22), the backup files
-    are automatically moved to an 'archive' subdirectory to keep the main log
-    directory clean.
+    def __init__(self, archive_dir: Path):
+        self.archive_dir = archive_dir
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
 
-    Example:
-        Before rotation:
-            logs/xact/2026-01-05/xact_download_0105_1430_happy-tiger.log
+    def archive_rotated_files(self, log_dir: Path, base_name: str) -> None:
+        """Move rotated backup files (base_name.*) from log_dir to archive_dir."""
+        for rotated_file in log_dir.glob(f"{base_name}.*"):
+            archive_file = self.archive_dir / rotated_file.name
+            try:
+                shutil.move(str(rotated_file), str(archive_file))
+            except Exception as e:
+                print(
+                    f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr
+                )
 
-        After rotation (daily at midnight):
-            logs/xact/2026-01-05/xact_download_0105_1430_happy-tiger.log (new file)
-            logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.2026-01-05
-            logs/xact/2026-01-05/archive/xact_download_0105_1430_happy-tiger.log.2026-01-04
 
-    If archive_dir is provided, rotated files are moved there instead.
+class OneLakeLogUploader:
+    """Uploads archived log files to OneLake and manages local retention."""
+
+    def __init__(self, onelake_client, log_retention_hours: int):
+        self.onelake_client = onelake_client
+        self.log_retention_hours = log_retention_hours
+
+    def upload_and_cleanup(
+        self, archive_dir: Path, base_name: str, log_dir: Path
+    ) -> None:
+        """Upload archived rotated files to OneLake, delete after success."""
+        for rotated_file in archive_dir.glob(f"{base_name}.*"):
+            try:
+                relative_path = rotated_file.resolve().relative_to(
+                    log_dir.parent.parent
+                )
+                onelake_path = f"logs/{relative_path}"
+                self.onelake_client.upload_file(
+                    relative_path=onelake_path,
+                    local_path=str(rotated_file),
+                    overwrite=True,
+                )
+                rotated_file.unlink()
+                print(
+                    f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr
+                )
+            except Exception as e:
+                print(
+                    f"Warning: Failed to upload log {rotated_file}: {e}",
+                    file=sys.stderr,
+                )
+
+    def cleanup_old_logs(self, log_dir: Path, archive_dir: Path) -> None:
+        """Remove log files older than retention period."""
+        if self.log_retention_hours <= 0:
+            return
+
+        cutoff_time = time.time() - (self.log_retention_hours * 3600)
+        for directory in [log_dir, archive_dir]:
+            if not directory.exists():
+                continue
+            for log_file in directory.glob("*.log*"):
+                try:
+                    if log_file.stat().st_mtime < cutoff_time:
+                        log_file.unlink()
+                        print(f"Cleaned up old log: {log_file.name}", file=sys.stderr)
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr
+                    )
+
+
+class PipelineFileHandler(TimedRotatingFileHandler):
+    """Single file handler with optional archiving, size-based rollover, and OneLake upload.
+
+    Combines time-based rotation (from TimedRotatingFileHandler) with optional
+    size-based rotation, automatic archiving of rotated files, and OneLake upload.
+
+    Args:
+        filename: Log file path.
+        archiver: Optional LogArchiver to move rotated files to an archive dir.
+        uploader: Optional OneLakeLogUploader to upload and clean up rotated files.
+        max_bytes: Maximum file size before rotation (0 to disable size-based rotation).
     """
 
     def __init__(
@@ -77,183 +140,54 @@ class ArchivingTimedRotatingFileHandler(TimedRotatingFileHandler):
         encoding=None,
         delay=False,
         utc=False,
-        archive_dir=None,
+        archiver: LogArchiver | None = None,
+        uploader: OneLakeLogUploader | None = None,
+        max_bytes: int = 0,
     ):
         super().__init__(filename, when, interval, backupCount, encoding, delay, utc)
-        if archive_dir:
-            self.archive_dir = Path(archive_dir)
-        else:
-            # Fallback to subdirectory behavior
-            log_path = Path(self.baseFilename)
-            self.archive_dir = log_path.parent / "archive"
-
-        self.archive_dir.mkdir(parents=True, exist_ok=True)
-
-    def doRollover(self):
-        super().doRollover()
-
-        # Move rotated files to archive
-        # TimedRotatingFileHandler appends timestamps like .2026-01-22 to rotated files
-        log_path = Path(self.baseFilename)
-        log_dir = log_path.parent
-        base_name = log_path.name
-
-        # Find all rotated backup files (they have timestamps appended)
-        for rotated_file in log_dir.glob(f"{base_name}.*"):
-            # Skip the current log file itself
-            if rotated_file == log_path:
-                continue
-
-            archive_file = self.archive_dir / rotated_file.name
-            try:
-                shutil.move(str(rotated_file), str(archive_file))
-            except Exception as e:
-                # Log to stderr if we can't move the file (don't use logger to avoid recursion)
-                print(
-                    f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr
-                )
-
-
-class OneLakeRotatingFileHandler(ArchivingTimedRotatingFileHandler):
-    """
-    Enhanced log handler with time + size rotation triggers and OneLake upload.
-
-    Rotates logs when EITHER condition is met:
-    - Time limit reached (e.g., every 15 minutes)
-    - Size limit reached (e.g., 50 MB)
-
-    On rotation:
-    - Uploads rotated file to OneLake
-    - Deletes local file after successful upload
-    - Keeps only recent logs locally
-
-    On initialization:
-    - Cleans up old log files from previous runs
-
-    Environment variables:
-        LOG_UPLOAD_ENABLED: Enable OneLake upload (default: false)
-        LOG_MAX_SIZE_MB: Max log file size before rotation (default: 50)
-        LOG_ROTATION_MINUTES: Time-based rotation interval (default: 15)
-        LOG_RETENTION_HOURS: Keep logs locally for N hours (default: 2)
-        ONELAKE_LOG_PATH: OneLake path for logs (default: {ONELAKE_BASE_PATH}/logs)
-    """
-
-    def __init__(
-        self,
-        filename,
-        when="M",
-        interval=15,
-        backupCount=0,
-        encoding=None,
-        delay=False,
-        utc=False,
-        archive_dir=None,
-        max_bytes=52428800,  # 50 MB default
-        onelake_client=None,
-        log_retention_hours=2,
-    ):
-        super().__init__(
-            filename, when, interval, backupCount, encoding, delay, utc, archive_dir
-        )
+        self.archiver = archiver
+        self.uploader = uploader
         self.max_bytes = max_bytes
-        self.onelake_client = onelake_client
-        self.log_retention_hours = log_retention_hours
-        self.upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
 
-        # Clean up old logs on initialization
-        self._cleanup_old_logs()
+        # Store archive_dir for crash log upload to find archived files
+        self.archive_dir = archiver.archive_dir if archiver else None
+        # Store onelake_client for crash log upload to reuse
+        self.onelake_client = uploader.onelake_client if uploader else None
+
+        if uploader:
+            log_path = Path(self.baseFilename)
+            uploader.cleanup_old_logs(log_path.parent, archiver.archive_dir)
 
     def shouldRollover(self, record):
-        """
-        Determine if rollover should occur.
-        Rollover happens if EITHER time OR size limit is reached.
-        """
-        # Check time-based rollover (from parent class)
         if super().shouldRollover(record):
             return 1
 
-        # Check size-based rollover
-        if self.stream is None:
-            self.stream = self._open()
-
         if self.max_bytes > 0:
+            if self.stream is None:
+                self.stream = self._open()
             msg = f"{self.format(record)}\n"
-            self.stream.seek(0, 2)  # Go to end of file
+            self.stream.seek(0, 2)
             if self.stream.tell() + len(msg.encode("utf-8")) >= self.max_bytes:
                 return 1
 
         return 0
 
     def doRollover(self):
-        """
-        Perform rollover, then upload to OneLake and cleanup.
-        """
-        # Get rotated file path before rollover
-        Path(self.baseFilename)
-
-        # Do the actual rotation (parent class handles this)
         super().doRollover()
 
-        # Upload and cleanup rotated files
-        if self.upload_enabled and self.onelake_client:
-            self._upload_and_cleanup_rotated_files()
-        else:
-            # If upload disabled, still cleanup old files
-            self._cleanup_old_logs()
-
-    def _upload_and_cleanup_rotated_files(self):
-        """Upload rotated files to OneLake and delete after success."""
         log_path = Path(self.baseFilename)
         log_dir = log_path.parent
         base_name = log_path.name
 
-        # Find rotated files in archive directory
-        for rotated_file in self.archive_dir.glob(f"{base_name}.*"):
-            try:
-                # Build OneLake path: logs/{domain}/{date}/{filename}
-                # Resolve to absolute path to avoid relative/absolute path mismatch
-                relative_path = rotated_file.resolve().relative_to(log_dir.parent.parent)
-                onelake_path = f"logs/{relative_path}"
+        if self.archiver:
+            self.archiver.archive_rotated_files(log_dir, base_name)
 
-                # Upload to OneLake
-                self.onelake_client.upload_file(
-                    relative_path=onelake_path,
-                    local_path=str(rotated_file),
-                    overwrite=True,
-                )
-
-                rotated_file.unlink()
-                print(f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr)
-
-            except Exception as e:
-                print(
-                    f"Warning: Failed to upload log {rotated_file}: {e}",
-                    file=sys.stderr,
-                )
-
-    def _cleanup_old_logs(self):
-        """Remove log files older than retention period."""
-        if self.log_retention_hours <= 0:
-            return
-
-        log_path = Path(self.baseFilename)
-        log_dir = log_path.parent
-        cutoff_time = time.time() - (self.log_retention_hours * 3600)
-
-        # Clean up old files in both main log dir and archive dir
-        for directory in [log_dir, self.archive_dir]:
-            if not directory.exists():
-                continue
-
-            for log_file in directory.glob("*.log*"):
-                try:
-                    if log_file.stat().st_mtime < cutoff_time:
-                        log_file.unlink()
-                        print(f"Cleaned up old log: {log_file.name}", file=sys.stderr)
-                except Exception as e:
-                    print(
-                        f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr
-                    )
+        if self.uploader and self.archiver:
+            self.uploader.upload_and_cleanup(
+                self.archiver.archive_dir, base_name, log_dir
+            )
+        elif self.uploader:
+            self.uploader.cleanup_old_logs(log_dir, log_dir)
 
 
 def get_log_file_path(
@@ -538,27 +472,30 @@ def setup_logging(
                     )
                     upload_enabled = False
 
-        # Choose handler based on upload configuration
+        # Build helpers for file handler
+        archiver = LogArchiver(archive_dir)
+        uploader = None
+
         if upload_enabled and onelake_client:
-            file_handler = OneLakeRotatingFileHandler(
+            uploader = OneLakeLogUploader(onelake_client, retention_hours)
+            file_handler = PipelineFileHandler(
                 log_file,
-                when="M",  # Minute-based rotation
+                when="M",
                 interval=rotation_minutes,
                 backupCount=backup_count,
                 encoding="utf-8",
-                archive_dir=archive_dir,
-                max_bytes=max_size_mb * 1024 * 1024,  # Convert MB to bytes
-                onelake_client=onelake_client,
-                log_retention_hours=retention_hours,
+                archiver=archiver,
+                uploader=uploader,
+                max_bytes=max_size_mb * 1024 * 1024,
             )
         else:
-            file_handler = ArchivingTimedRotatingFileHandler(
+            file_handler = PipelineFileHandler(
                 log_file,
                 when=rotation_when,
                 interval=rotation_interval,
                 backupCount=backup_count,
                 encoding="utf-8",
-                archive_dir=archive_dir,
+                archiver=archiver,
             )
 
         file_handler.setLevel(file_level)
@@ -607,7 +544,7 @@ def setup_multi_worker_logging(
     """
     Configure logging with per-worker auto-archiving time-based file handlers.
 
-    Creates one ArchivingTimedRotatingFileHandler per worker type, each filtered
+    Creates one PipelineFileHandler per worker type, each filtered
     to only receive logs from that worker's context. Also creates
     a combined log file that receives all logs.
 
@@ -714,13 +651,14 @@ def setup_multi_worker_logging(
             except ValueError:
                 archive_dir = log_file.parent / "archive"
 
-            handler = ArchivingTimedRotatingFileHandler(
+            archiver = LogArchiver(archive_dir)
+            handler = PipelineFileHandler(
                 log_file,
                 when=rotation_when,
                 interval=rotation_interval,
                 backupCount=backup_count,
                 encoding="utf-8",
-                archive_dir=archive_dir,
+                archiver=archiver,
             )
             handler.setLevel(file_level)
             handler.setFormatter(file_formatter)
@@ -732,20 +670,20 @@ def setup_multi_worker_logging(
             log_dir, domain=domain, stage="pipeline", instance_id=instance_id
         )
         combined_file.parent.mkdir(parents=True, exist_ok=True)
-        # Calculate archive dir for combined log
         try:
             relative_path = combined_file.relative_to(log_dir)
             combined_archive_dir = log_dir / "archive" / relative_path.parent
         except ValueError:
             combined_archive_dir = combined_file.parent / "archive"
 
-        combined_handler = ArchivingTimedRotatingFileHandler(
+        combined_archiver = LogArchiver(combined_archive_dir)
+        combined_handler = PipelineFileHandler(
             combined_file,
             when=rotation_when,
             interval=rotation_interval,
             backupCount=backup_count,
             encoding="utf-8",
-            archive_dir=combined_archive_dir,
+            archiver=combined_archiver,
         )
         combined_handler.setLevel(file_level)
         combined_handler.setFormatter(file_formatter)
