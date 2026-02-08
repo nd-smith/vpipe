@@ -41,7 +41,6 @@ ENV/
 .DS_Store
 .serena
 claudedocs
-claude
 *.claude
 
 
@@ -95,6 +94,7 @@ htmlcov/
 .hypothesis/
 debug/
 poller_xact.json
+test-results/
 
 # Jupyter
 .ipynb_checkpoints
