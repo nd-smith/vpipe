@@ -1,23 +1,21 @@
 """Message consumer with circuit breaker, auth, error classification, and DLQ routing (WP-211)."""
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiokafka import AIOKafkaConsumer
 from aiokafka.structs import ConsumerRecord, TopicPartition
 
 from config.config import MessageConfig
-from core.auth.eventhub_oauth import create_eventhub_oauth_callback
 from core.errors.exceptions import ErrorCategory
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
 from core.utils import generate_worker_id
+from pipeline.common.kafka_config import build_kafka_security_config
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
-    record_dlq_message,
     record_message_consumed,
     record_processing_error,
     update_assigned_partitions,
@@ -54,9 +52,6 @@ class MessageConsumer:
         self.message_handler = message_handler
         self._consumer: AIOKafkaConsumer | None = None
         self._running = False
-        self._dlq_producer: AIOKafkaProducer | None = (
-            None  # Lazy-initialized for DLQ routing (WP-211)
-        )
 
         # Generate unique worker ID using coolnames for easier tracing in logs
         prefix = f"{domain}-{worker_name}"
@@ -72,6 +67,18 @@ class MessageConsumer:
         self._batch_count = 0
 
         self._enable_message_commit = enable_message_commit
+
+        # Local import to avoid circular dependency through pipeline.common.dlq.__init__
+        from pipeline.common.dlq.producer import DLQProducer
+
+        # Lazy-initialized DLQ producer (WP-211)
+        self._dlq_producer = DLQProducer(
+            config=config,
+            domain=domain,
+            worker_name=worker_name,
+            group_id=self.group_id,
+            worker_id=self.worker_id,
+        )
 
         logger.info(
             "Initialized message consumer",
@@ -148,31 +155,7 @@ class MessageConsumer:
                 self.consumer_config["partition_assignment_strategy"]
             )
 
-        if self.config.security_protocol != "PLAINTEXT":
-            kafka_consumer_config["security_protocol"] = self.config.security_protocol
-            kafka_consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            # Create SSL context for SSL/SASL_SSL connections
-            if "SSL" in self.config.security_protocol:
-                import ssl
-
-                ssl_context = ssl.create_default_context()
-                kafka_consumer_config["ssl_context"] = ssl_context
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_eventhub_oauth_callback()
-                kafka_consumer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                kafka_consumer_config["sasl_plain_username"] = (
-                    self.config.sasl_plain_username
-                )
-                kafka_consumer_config["sasl_plain_password"] = (
-                    self.config.sasl_plain_password
-                )
-            elif self.config.sasl_mechanism == "GSSAPI":
-                kafka_consumer_config["sasl_kerberos_service_name"] = (
-                    self.config.sasl_kerberos_service_name
-                )
+        kafka_consumer_config.update(build_kafka_security_config(self.config))
 
         self._consumer = AIOKafkaConsumer(*self.topics, **kafka_consumer_config)
 
@@ -219,18 +202,7 @@ class MessageConsumer:
                 await self._consumer.commit()
                 await self._consumer.stop()
 
-            if self._dlq_producer is not None:
-                try:
-                    await self._dlq_producer.flush()
-                    await self._dlq_producer.stop()
-                    logger.info("DLQ producer stopped successfully")
-                except Exception:
-                    logger.error(
-                        "Error stopping DLQ producer",
-                        exc_info=True,
-                    )
-                finally:
-                    self._dlq_producer = None
+            await self._dlq_producer.stop()
 
             logger.info("Message consumer stopped successfully")
         except Exception:
@@ -433,7 +405,7 @@ class MessageConsumer:
             )
 
             try:
-                await self._send_to_dlq(pipeline_message, error, error_category)
+                await self._dlq_producer.send(pipeline_message, error, error_category)
 
                 # Commit offset after DLQ routing to advance past poison pill
                 if self._enable_message_commit:
@@ -510,151 +482,6 @@ class MessageConsumer:
                 },
             )
 
-    async def _ensure_dlq_producer(self) -> None:
-        """Lazy-initialize DLQ producer to avoid unnecessary connections."""
-        if self._dlq_producer is not None:
-            return
-
-        logger.info(
-            "Initializing DLQ producer for permanent error routing",
-            extra={
-                "domain": self.domain,
-                "worker_name": self.worker_name,
-            },
-        )
-
-        dlq_producer_config = {
-            "bootstrap_servers": self.config.bootstrap_servers,
-            "value_serializer": lambda v: v,
-            "request_timeout_ms": self.config.request_timeout_ms,
-            "metadata_max_age_ms": self.config.metadata_max_age_ms,
-            "connections_max_idle_ms": self.config.connections_max_idle_ms,
-            "acks": "all",
-            "enable_idempotence": True,
-            "retry_backoff_ms": 1000,
-        }
-
-        if self.config.security_protocol != "PLAINTEXT":
-            dlq_producer_config["security_protocol"] = self.config.security_protocol
-            dlq_producer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            # Create SSL context for SSL/SASL_SSL connections
-            if "SSL" in self.config.security_protocol:
-                import ssl
-
-                ssl_context = ssl.create_default_context()
-                dlq_producer_config["ssl_context"] = ssl_context
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_eventhub_oauth_callback()
-                dlq_producer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                dlq_producer_config["sasl_plain_username"] = (
-                    self.config.sasl_plain_username
-                )
-                dlq_producer_config["sasl_plain_password"] = (
-                    self.config.sasl_plain_password
-                )
-            elif self.config.sasl_mechanism == "GSSAPI":
-                dlq_producer_config["sasl_kerberos_service_name"] = (
-                    self.config.sasl_kerberos_service_name
-                )
-
-        self._dlq_producer = AIOKafkaProducer(**dlq_producer_config)
-        await self._dlq_producer.start()
-
-        logger.info(
-            "DLQ producer started successfully",
-            extra={
-                "bootstrap_servers": self.config.bootstrap_servers,
-            },
-        )
-
-    async def _send_to_dlq(
-        self,
-        pipeline_message: PipelineMessage,
-        error: Exception,
-        error_category: ErrorCategory,
-    ) -> None:
-        """Send failed message to {topic}.dlq with full context (original message + error details)."""
-        await self._ensure_dlq_producer()
-
-        dlq_topic = f"{pipeline_message.topic}.dlq"
-
-        dlq_message = {
-            "original_topic": pipeline_message.topic,
-            "original_partition": pipeline_message.partition,
-            "original_offset": pipeline_message.offset,
-            "original_key": (
-                pipeline_message.key.decode("utf-8") if pipeline_message.key else None
-            ),
-            "original_value": (
-                pipeline_message.value.decode("utf-8")
-                if pipeline_message.value
-                else None
-            ),
-            "original_headers": {
-                k: v.decode("utf-8") if isinstance(v, bytes) else v
-                for k, v in (pipeline_message.headers or [])
-            },
-            "original_timestamp": pipeline_message.timestamp,
-            "error_type": type(error).__name__,
-            "error_message": str(error),
-            "error_category": error_category.value,
-            "consumer_group": self.group_id,
-            "worker_id": self.worker_id,
-            "domain": self.domain,
-            "worker_name": self.worker_name,
-            "dlq_timestamp": time.time(),
-        }
-
-        dlq_value = json.dumps(dlq_message).encode("utf-8")
-        dlq_key = pipeline_message.key or f"dlq-{pipeline_message.offset}".encode()
-
-        dlq_headers = [
-            ("dlq_source_topic", pipeline_message.topic.encode("utf-8")),
-            ("dlq_error_category", error_category.value.encode("utf-8")),
-            ("dlq_consumer_group", self.group_id.encode("utf-8")),
-        ]
-
-        try:
-            metadata = await self._dlq_producer.send_and_wait(
-                dlq_topic,
-                key=dlq_key,
-                value=dlq_value,
-                headers=dlq_headers,
-            )
-
-            logger.info(
-                "Message sent to DLQ successfully",
-                extra={
-                    "dlq_topic": dlq_topic,
-                    "dlq_partition": metadata.partition,
-                    "dlq_offset": metadata.offset,
-                    "original_topic": pipeline_message.topic,
-                    "original_partition": pipeline_message.partition,
-                    "original_offset": pipeline_message.offset,
-                    "error_category": error_category.value,
-                    "error_type": type(error).__name__,
-                },
-            )
-
-            # Record DLQ routing metric
-            record_dlq_message(self.domain, error_category.value)
-
-        except Exception:
-            logger.error(
-                "Failed to send message to DLQ - message will be retried",
-                extra={
-                    "dlq_topic": dlq_topic,
-                    "original_topic": pipeline_message.topic,
-                    "original_partition": pipeline_message.partition,
-                    "original_offset": pipeline_message.offset,
-                    "error_category": error_category.value,
-                },
-                exc_info=True,
-            )
-
     @property
     def is_running(self) -> bool:
         return self._running and self._consumer is not None
@@ -664,5 +491,4 @@ __all__ = [
     "MessageConsumer",
     "AIOKafkaConsumer",
     "ConsumerRecord",
-    "create_eventhub_oauth_callback",
 ]

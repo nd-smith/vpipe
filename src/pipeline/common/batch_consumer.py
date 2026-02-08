@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from aiokafka import AIOKafkaConsumer
 
 from config.config import MessageConfig
-from core.auth.eventhub_oauth import create_eventhub_oauth_callback
+from pipeline.common.kafka_config import build_kafka_security_config
 from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
@@ -171,31 +171,7 @@ class MessageBatchConsumer:
                 self.consumer_config["partition_assignment_strategy"]
             )
 
-        if self.config.security_protocol != "PLAINTEXT":
-            kafka_consumer_config["security_protocol"] = self.config.security_protocol
-            kafka_consumer_config["sasl_mechanism"] = self.config.sasl_mechanism
-
-            # Create SSL context for SSL/SASL_SSL connections
-            if "SSL" in self.config.security_protocol:
-                import ssl
-
-                ssl_context = ssl.create_default_context()
-                kafka_consumer_config["ssl_context"] = ssl_context
-
-            if self.config.sasl_mechanism == "OAUTHBEARER":
-                oauth_callback = create_eventhub_oauth_callback()
-                kafka_consumer_config["sasl_oauth_token_provider"] = oauth_callback
-            elif self.config.sasl_mechanism == "PLAIN":
-                kafka_consumer_config["sasl_plain_username"] = (
-                    self.config.sasl_plain_username
-                )
-                kafka_consumer_config["sasl_plain_password"] = (
-                    self.config.sasl_plain_password
-                )
-            elif self.config.sasl_mechanism == "GSSAPI":
-                kafka_consumer_config["sasl_kerberos_service_name"] = (
-                    self.config.sasl_kerberos_service_name
-                )
+        kafka_consumer_config.update(build_kafka_security_config(self.config))
 
         self._consumer = AIOKafkaConsumer(*self.topics, **kafka_consumer_config)
 
