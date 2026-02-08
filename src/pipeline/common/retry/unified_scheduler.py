@@ -6,13 +6,9 @@ to their target topics based on headers after the scheduled delay has elapsed.
 """
 
 import asyncio
-import base64
 import contextlib
-import heapq
-import json
 import logging
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,26 +16,40 @@ from config.config import MessageConfig
 from pipeline.common.consumer import MessageConsumer
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.producer import MessageProducer
+from pipeline.common.retry.delay_queue import DelayedMessage, DelayQueue
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class DelayedMessage:
-    """In-memory representation of a delayed retry message."""
+def parse_retry_count(value: str) -> int | None:
+    """Parse retry count from header value. Returns None if invalid."""
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
-    scheduled_time: datetime
-    target_topic: str
-    retry_count: int
-    worker_type: str
-    message_key: bytes | None
-    message_value: bytes
-    headers: dict[str, str]
 
-    def __lt__(self, other: "DelayedMessage") -> bool:
-        """Compare by scheduled_time for heap ordering."""
-        return self.scheduled_time < other.scheduled_time
+def parse_scheduled_time(value: str) -> datetime | None:
+    """Parse scheduled retry time from header value. Returns None if invalid."""
+    try:
+        scheduled_time = datetime.fromisoformat(value)
+        if scheduled_time.tzinfo is None:
+            scheduled_time = scheduled_time.replace(tzinfo=UTC)
+        return scheduled_time
+    except Exception:
+        return None
+
+
+def encode_message_key(original_key, message: PipelineMessage) -> bytes | None:
+    """Encode a message key to bytes, falling back to message.key."""
+    if isinstance(original_key, str):
+        return original_key.encode("utf-8")
+    if isinstance(original_key, bytes):
+        return original_key
+    if message.key:
+        return message.key if isinstance(message.key, bytes) else message.key.encode("utf-8")
+    return None
 
 
 class UnifiedRetryScheduler:
@@ -117,16 +127,13 @@ class UnifiedRetryScheduler:
         self._consumer: MessageConsumer | None = None
         self._running = False
 
-        # In-memory delay queue (min-heap by scheduled_time)
-        self._delayed_queue: list[DelayedMessage] = []
-
         # Background tasks
         self._processor_task: asyncio.Task | None = None
         self._persistence_task: asyncio.Task | None = None
         self._persistence_interval = persistence_interval_seconds
 
-        # Persistence file path
-        self._persistence_file = Path(f"/tmp/pcesdopodappv1_{domain}_retry_queue.json")
+        persistence_file = Path(f"/tmp/pcesdopodappv1_{domain}_retry_queue.json")
+        self._delay_queue = DelayQueue(domain, persistence_file)
 
         # Metrics
         self._messages_routed = 0
@@ -148,7 +155,7 @@ class UnifiedRetryScheduler:
                 "retry_topic": self.retry_topic,
                 "dlq_topic": self._dlq_topic,
                 "max_retries": self._max_retries,
-                "persistence_file": str(self._persistence_file),
+                "persistence_file": str(persistence_file),
                 "persistence_interval": self._persistence_interval,
             },
         )
@@ -178,7 +185,7 @@ class UnifiedRetryScheduler:
         await self.health_server.start()
 
         # Restore delayed messages from disk if available
-        await self._restore_from_disk()
+        self._messages_restored = self._delay_queue.restore_from_disk()
 
         # Start background processor for delayed messages
         self._processor_task = asyncio.create_task(self._process_delayed_messages())
@@ -239,7 +246,7 @@ class UnifiedRetryScheduler:
                 "messages_delayed": self._messages_delayed,
                 "messages_malformed": self._messages_malformed,
                 "messages_exhausted": self._messages_exhausted,
-                "queue_size": len(self._delayed_queue),
+                "queue_size": len(self._delay_queue),
             },
         )
 
@@ -257,7 +264,7 @@ class UnifiedRetryScheduler:
                 await self._persistence_task
 
         # Persist delayed queue before shutdown
-        await self._persist_to_disk()
+        self._delay_queue.persist_to_disk()
 
         if self._consumer:
             await self._consumer.stop()
@@ -274,16 +281,7 @@ class UnifiedRetryScheduler:
         Extracts routing information from headers, checks if delay has elapsed,
         and routes to the target topic if ready. If not ready, stores in
         in-memory queue for later processing.
-
-        Args:
-            message: PipelineMessage from retry topic
-
-        Note:
-            This method commits offsets immediately after processing, whether
-            the message is routed immediately or stored for later. Messages
-            stored in the in-memory queue are persisted to disk periodically.
         """
-        # Parse headers
         headers = self._parse_headers(message)
 
         # Validate required headers
@@ -309,17 +307,14 @@ class UnifiedRetryScheduler:
             )
             return
 
-        # Extract routing information
-        scheduled_retry_time_str = headers["scheduled_retry_time"]
         target_topic = headers["target_topic"]
         retry_count_str = headers["retry_count"]
         original_key = headers.get("original_key", message.key)
         worker_type = headers.get("worker_type", "unknown")
 
-        # Parse retry count
-        try:
-            retry_count = int(retry_count_str)
-        except ValueError:
+        # Parse and validate retry count
+        retry_count = parse_retry_count(retry_count_str)
+        if retry_count is None:
             logger.error(
                 "Invalid retry_count in header, routing to DLQ",
                 extra={
@@ -341,11 +336,11 @@ class UnifiedRetryScheduler:
                 "target_topic": target_topic,
                 "retry_count": retry_count,
                 "worker_type": worker_type,
-                "scheduled_retry_time": scheduled_retry_time_str,
+                "scheduled_retry_time": headers["scheduled_retry_time"],
             },
         )
 
-        # Check if retries exhausted - route to DLQ
+        # Check if retries exhausted
         if retry_count >= self._max_retries:
             logger.warning(
                 "Retries exhausted, routing to DLQ",
@@ -364,30 +359,25 @@ class UnifiedRetryScheduler:
             )
             return
 
-        # Parse scheduled time
-        try:
-            scheduled_time = datetime.fromisoformat(scheduled_retry_time_str)
-            # Ensure timezone-aware
-            if scheduled_time.tzinfo is None:
-                scheduled_time = scheduled_time.replace(tzinfo=UTC)
-        except Exception as e:
+        # Parse and validate scheduled time
+        scheduled_time = parse_scheduled_time(headers["scheduled_retry_time"])
+        if scheduled_time is None:
             logger.error(
                 "Failed to parse scheduled_retry_time, routing to DLQ",
                 extra={
-                    "scheduled_retry_time": scheduled_retry_time_str,
-                    "error": str(e),
+                    "scheduled_retry_time": headers["scheduled_retry_time"],
                 },
                 exc_info=True,
             )
             self._messages_malformed += 1
             await self._send_to_dlq(
                 message,
-                f"Invalid scheduled_retry_time: {e}",
+                f"Invalid scheduled_retry_time: {headers['scheduled_retry_time']}",
                 headers,
             )
             return
 
-        # Check if ready for redelivery
+        # Not ready yet — add to delay queue
         now = datetime.now(UTC)
         if now < scheduled_time:
             seconds_remaining = (scheduled_time - now).total_seconds()
@@ -400,44 +390,28 @@ class UnifiedRetryScheduler:
                 },
             )
 
-            # Add to in-memory delay queue
-            # Convert key to bytes if needed
-            if isinstance(original_key, str):
-                msg_key = original_key.encode("utf-8")
-            elif isinstance(original_key, bytes):
-                msg_key = original_key
-            elif message.key:
-                msg_key = (
-                    message.key
-                    if isinstance(message.key, bytes)
-                    else message.key.encode("utf-8")
-                )
-            else:
-                msg_key = None
-
             delayed_msg = DelayedMessage(
                 scheduled_time=scheduled_time,
                 target_topic=target_topic,
                 retry_count=retry_count,
                 worker_type=worker_type,
-                message_key=msg_key,
+                message_key=encode_message_key(original_key, message),
                 message_value=bytes(message.value),
                 headers=headers,
             )
-            heapq.heappush(self._delayed_queue, delayed_msg)
+            self._delay_queue.push(delayed_msg)
             self._messages_delayed += 1
 
             logger.debug(
                 "Message added to delay queue",
                 extra={
-                    "queue_size": len(self._delayed_queue),
+                    "queue_size": len(self._delay_queue),
                     "target_topic": target_topic,
                 },
             )
-            # Return normally - offset will be committed (we've accepted responsibility)
             return
 
-        # Ready - route to target topic immediately
+        # Ready — route to target topic immediately
         logger.info(
             "Routing message to target topic",
             extra={
@@ -460,20 +434,11 @@ class UnifiedRetryScheduler:
         )
 
     def _parse_headers(self, message: PipelineMessage) -> dict[str, str]:
-        """
-        Parse Kafka message headers into a dictionary.
-
-        Args:
-            message: PipelineMessage with headers
-
-        Returns:
-            Dictionary of header key-value pairs
-        """
+        """Parse Kafka message headers into a dictionary."""
         headers = {}
         if message.headers:
             for key, value in message.headers:
                 try:
-                    # Decode header value (Kafka headers are bytes)
                     decoded_value = (
                         value.decode("utf-8")
                         if isinstance(value, bytes)
@@ -496,14 +461,7 @@ class UnifiedRetryScheduler:
         reason: str,
         headers: dict[str, str],
     ) -> None:
-        """
-        Send malformed message to DLQ.
-
-        Args:
-            message: Original PipelineMessage
-            reason: Reason for DLQ routing
-            headers: Parsed headers (may be incomplete)
-        """
+        """Send malformed message to DLQ."""
         logger.error(
             "Sending malformed retry message to DLQ",
             extra={
@@ -556,18 +514,7 @@ class UnifiedRetryScheduler:
         headers: dict[str, str],
         original_topic: str,
     ) -> None:
-        """
-        Route a message to its target topic.
-
-        Args:
-            target_topic: Destination topic
-            message_key: Message key (bytes or None)
-            message_value: Message value (bytes)
-            retry_count: Current retry count
-            worker_type: Type of worker that will process message
-            headers: Original headers
-            original_topic: Source topic (for logging)
-        """
+        """Route a message to its target topic."""
         try:
             # Build redelivery headers (all values must be strings)
             redelivery_headers = {
@@ -607,21 +554,15 @@ class UnifiedRetryScheduler:
             raise
 
     async def _process_delayed_messages(self) -> None:
-        """
-        Background task that continuously processes delayed messages when ready.
-        """
+        """Background task that continuously processes delayed messages when ready."""
         logger.info("Started delayed message processor")
 
         while self._running:
             try:
                 now = datetime.now(UTC)
+                ready_messages = self._delay_queue.pop_ready(now)
 
-                # Process all messages that are ready
-                while (
-                    self._delayed_queue and self._delayed_queue[0].scheduled_time <= now
-                ):
-                    delayed_msg = heapq.heappop(self._delayed_queue)
-
+                for delayed_msg in ready_messages:
                     logger.debug(
                         "Processing delayed message",
                         extra={
@@ -646,15 +587,11 @@ class UnifiedRetryScheduler:
                             f"Failed to route delayed message to '{delayed_msg.target_topic}', will retry in 5s: {type(e).__name__}: {str(e)}",
                             exc_info=True,
                         )
-                        # Put back in queue with a small delay to avoid tight loop
-                        delayed_msg.scheduled_time = datetime.now(UTC).replace(
-                            microsecond=0
-                        ) + timedelta(seconds=5)
-                        heapq.heappush(self._delayed_queue, delayed_msg)
+                        self._delay_queue.requeue_with_delay(delayed_msg, delay_seconds=5)
 
                 # Sleep until next message is ready (or max 1 second)
-                if self._delayed_queue:
-                    next_time = self._delayed_queue[0].scheduled_time
+                next_time = self._delay_queue.next_scheduled_time
+                if next_time is not None:
                     sleep_seconds = max(0.1, (next_time - now).total_seconds())
                     await asyncio.sleep(min(sleep_seconds, 1.0))
                 else:
@@ -671,9 +608,7 @@ class UnifiedRetryScheduler:
                 await asyncio.sleep(1.0)
 
     async def _periodic_persistence(self) -> None:
-        """
-        Background task that periodically persists the delayed queue to disk.
-        """
+        """Background task that periodically persists the delayed queue to disk."""
         logger.info(
             "Started periodic persistence",
             extra={"interval_seconds": self._persistence_interval},
@@ -682,7 +617,7 @@ class UnifiedRetryScheduler:
         while self._running:
             try:
                 await asyncio.sleep(self._persistence_interval)
-                await self._persist_to_disk()
+                self._delay_queue.persist_to_disk()
             except asyncio.CancelledError:
                 logger.info("Periodic persistence cancelled")
                 raise
@@ -691,163 +626,6 @@ class UnifiedRetryScheduler:
                     "Error in periodic persistence",
                     exc_info=True,
                 )
-
-    async def _persist_to_disk(self) -> None:
-        """
-        Persist the in-memory delayed queue to disk as JSON.
-        """
-        if not self._delayed_queue:
-            logger.debug("Delayed queue empty, skipping persistence")
-            return
-
-        try:
-            # Convert queue to serializable format
-            messages_data = []
-            for msg in self._delayed_queue:
-                messages_data.append(
-                    {
-                        "scheduled_time": msg.scheduled_time.isoformat(),
-                        "target_topic": msg.target_topic,
-                        "retry_count": msg.retry_count,
-                        "worker_type": msg.worker_type,
-                        "message_key": (
-                            base64.b64encode(msg.message_key).decode("utf-8")
-                            if msg.message_key
-                            else None
-                        ),
-                        "message_value": base64.b64encode(msg.message_value).decode(
-                            "utf-8"
-                        ),
-                        "headers": msg.headers,
-                    }
-                )
-
-            data = {
-                "version": 1,
-                "domain": self.domain,
-                "last_persisted": datetime.now(UTC).isoformat(),
-                "messages": messages_data,
-            }
-
-            # Write atomically (write to temp file, then rename)
-            temp_file = self._persistence_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
-                json.dump(data, f, indent=2)
-
-            temp_file.replace(self._persistence_file)
-
-            logger.debug(
-                "Persisted delayed queue to disk",
-                extra={
-                    "queue_size": len(self._delayed_queue),
-                    "file": str(self._persistence_file),
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Failed to persist delayed queue to disk",
-                extra={
-                    "file": str(self._persistence_file),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-
-    async def _restore_from_disk(self) -> None:
-        """
-        Restore the in-memory delayed queue from disk if available.
-        """
-        if not self._persistence_file.exists():
-            logger.debug(
-                "No persistence file found, starting with empty queue",
-                extra={"file": str(self._persistence_file)},
-            )
-            return
-
-        try:
-            with open(self._persistence_file) as f:
-                data = json.load(f)
-
-            if data.get("version") != 1:
-                logger.warning(
-                    "Unknown persistence file version, ignoring",
-                    extra={"version": data.get("version")},
-                )
-                return
-
-            if data.get("domain") != self.domain:
-                logger.warning(
-                    "Persistence file domain mismatch, ignoring",
-                    extra={
-                        "expected_domain": self.domain,
-                        "file_domain": data.get("domain"),
-                    },
-                )
-                return
-
-            # Restore messages
-            now = datetime.now(UTC)
-            restored_count = 0
-            expired_count = 0
-
-            for msg_data in data.get("messages", []):
-                scheduled_time = datetime.fromisoformat(msg_data["scheduled_time"])
-
-                # Skip messages that are too old (more than max retry delay past due)
-                if (
-                    now - scheduled_time
-                ).total_seconds() > 300:  # 5 minutes grace period
-                    expired_count += 1
-                    logger.debug(
-                        "Skipping expired message from persistence",
-                        extra={
-                            "scheduled_time": scheduled_time.isoformat(),
-                            "target_topic": msg_data["target_topic"],
-                        },
-                    )
-                    continue
-
-                delayed_msg = DelayedMessage(
-                    scheduled_time=scheduled_time,
-                    target_topic=msg_data["target_topic"],
-                    retry_count=msg_data["retry_count"],
-                    worker_type=msg_data["worker_type"],
-                    message_key=(
-                        base64.b64decode(msg_data["message_key"])
-                        if msg_data["message_key"]
-                        else None
-                    ),
-                    message_value=base64.b64decode(msg_data["message_value"]),
-                    headers=msg_data["headers"],
-                )
-                heapq.heappush(self._delayed_queue, delayed_msg)
-                restored_count += 1
-
-            self._messages_restored = restored_count
-
-            logger.info(
-                "Restored delayed queue from disk",
-                extra={
-                    "restored_count": restored_count,
-                    "expired_count": expired_count,
-                    "file": str(self._persistence_file),
-                    "last_persisted": data.get("last_persisted"),
-                },
-            )
-
-            # Delete persistence file after successful restore
-            self._persistence_file.unlink()
-
-        except Exception as e:
-            logger.error(
-                "Failed to restore delayed queue from disk",
-                extra={
-                    "file": str(self._persistence_file),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
 
     @property
     def is_running(self) -> bool:
@@ -863,7 +641,7 @@ class UnifiedRetryScheduler:
             "messages_malformed": self._messages_malformed,
             "messages_exhausted": self._messages_exhausted,
             "messages_restored": self._messages_restored,
-            "queue_size": len(self._delayed_queue),
+            "queue_size": len(self._delay_queue),
         }
 
 
