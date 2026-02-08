@@ -4,7 +4,9 @@ Media event handler.
 Handles: PROJECT_FILE_ADDED
 """
 
+import asyncio
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from core.types import ErrorCategory
@@ -13,6 +15,8 @@ from pipeline.claimx.handlers import transformers
 from pipeline.claimx.handlers.base import (
     EnrichmentResult,
     EventHandler,
+    HandlerResult,
+    aggregate_results,
     register_handler,
 )
 from pipeline.claimx.handlers.utils import (
@@ -43,9 +47,91 @@ class MediaHandler(EventHandler):
     """
 
     event_types = ["PROJECT_FILE_ADDED"]
-    supports_batching = True
-    batch_key = "project_id"
     HANDLER_NAME = "media"
+
+    async def process(self, events: list[ClaimXEventMessage]) -> HandlerResult:
+        """Process media events grouped by project_id for batch optimization."""
+        if not events:
+            return HandlerResult(
+                handler_name=self.name,
+                total=0,
+                succeeded=0,
+                failed=0,
+                failed_permanent=0,
+                skipped=0,
+                rows=EntityRowsMessage(),
+                errors=[],
+                duration_seconds=0.0,
+                api_calls=0,
+            )
+
+        start_time = datetime.now(UTC)
+
+        # Group by project_id
+        groups: dict[str | None, list[ClaimXEventMessage]] = defaultdict(list)
+        for event in events:
+            groups[event.project_id].append(event)
+
+        logger.debug(
+            "Processing batched media events",
+            extra={
+                "handler_name": self.name,
+                "total_events": len(events),
+                "group_count": len(groups),
+                "group_sizes": {str(k): len(v) for k, v in groups.items()},
+            },
+        )
+
+        # Process all project groups concurrently
+        async def process_group(key, group_events):
+            return key, await self.handle_batch(group_events)
+
+        tasks = [process_group(k, evts) for k, evts in groups.items()]
+        group_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        results = []
+        groups_succeeded = 0
+        groups_failed = 0
+
+        for group_result in group_results:
+            if isinstance(group_result, Exception):
+                groups_failed += 1
+                logger.error(
+                    "Batch group processing failed",
+                    extra={"handler_name": self.name},
+                    exc_info=True,
+                )
+                continue
+            _key, batch_results = group_result
+            groups_succeeded += 1
+            results.extend(batch_results)
+
+        logger.debug(
+            "Batched processing complete",
+            extra={
+                "handler_name": self.name,
+                "groups_succeeded": groups_succeeded,
+                "groups_failed": groups_failed,
+                "total_results": len(results),
+            },
+        )
+
+        handler_result = aggregate_results(self.name, results, start_time)
+
+        logger.debug(
+            "Handler processing complete",
+            extra={
+                "handler_name": self.name,
+                "records_processed": handler_result.total,
+                "records_succeeded": handler_result.succeeded,
+                "records_failed": handler_result.failed,
+                "records_failed_permanent": handler_result.failed_permanent,
+                "api_calls": handler_result.api_calls,
+                "duration_seconds": round(handler_result.duration_seconds, 3),
+            },
+        )
+
+        return handler_result
 
     async def handle_batch(
         self, events: list[ClaimXEventMessage]

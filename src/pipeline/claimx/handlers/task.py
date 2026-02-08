@@ -40,7 +40,6 @@ class TaskHandler(EventHandler):
     """
 
     event_types = ["CUSTOM_TASK_ASSIGNED", "CUSTOM_TASK_COMPLETED"]
-    supports_batching = False
     HANDLER_NAME = "task"
 
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
