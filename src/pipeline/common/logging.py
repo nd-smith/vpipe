@@ -2,8 +2,6 @@
 Pipeline-specific logging utilities.
 
 Provides pipeline-specific abstractions built on top of core.logging:
-- LoggedClass: Mixin for classes with logging infrastructure
-- logged_operation: Decorator for automatic operation logging
 - extract_log_context: Extract identifiers from pipeline objects for logging
 - with_api_error_handling: Decorator for API error handling
 
@@ -13,180 +11,15 @@ For core logging functions, import directly from core.logging:
 
 import asyncio
 import functools
-import logging
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
-from core.logging import get_logger, log_exception, log_with_context
-
-F = TypeVar("F", bound=Callable[..., Any])
+from core.logging import get_logger, log_exception
 
 __all__ = [
-    "LoggedClass",
-    "logged_operation",
     "extract_log_context",
     "with_api_error_handling",
 ]
-
-
-def logged_operation(
-    level: int = logging.DEBUG,
-    slow_threshold_ms: float | None = None,
-    log_start: bool = False,
-    operation_name: str | None = None,
-) -> Callable[[F], F]:
-    """
-    Decorator for automatic operation logging on class methods.
-
-    Simplified version without full OperationContext infrastructure.
-
-    Args:
-        level: Log level for completion message
-        slow_threshold_ms: Not implemented in simplified version
-        log_start: Also log when operation starts
-        operation_name: Override operation name (default: method_name)
-
-    Example:
-        class ApiClient(LoggedClass):
-            @logged_operation(level=logging.DEBUG)
-            def fetch_data(self):
-                ...
-    """
-
-    def decorator(func: F) -> F:
-        if asyncio.iscoroutinefunction(func):
-
-            @functools.wraps(func)
-            async def async_wrapper(self, *args, **kwargs):
-                _logger = getattr(self, "_logger", None) or get_logger(
-                    self.__class__.__module__
-                )
-                op_name = operation_name or func.__name__
-                full_op = f"{self.__class__.__name__}.{op_name}"
-
-                if log_start:
-                    log_with_context(_logger, level, f"{full_op} starting")
-
-                try:
-                    result = await func(self, *args, **kwargs)
-                    log_with_context(_logger, level, f"{full_op} completed")
-                    return result
-                except Exception as e:
-                    log_exception(_logger, e, f"{full_op} failed")
-                    raise
-
-            return async_wrapper  # type: ignore
-        else:
-
-            @functools.wraps(func)
-            def sync_wrapper(self, *args, **kwargs):
-                _logger = getattr(self, "_logger", None) or get_logger(
-                    self.__class__.__module__
-                )
-                op_name = operation_name or func.__name__
-                full_op = f"{self.__class__.__name__}.{op_name}"
-
-                if log_start:
-                    log_with_context(_logger, level, f"{full_op} starting")
-
-                try:
-                    result = func(self, *args, **kwargs)
-                    log_with_context(_logger, level, f"{full_op} completed")
-                    return result
-                except Exception as e:
-                    log_exception(_logger, e, f"{full_op} failed")
-                    raise
-
-            return sync_wrapper  # type: ignore
-
-    return decorator
-
-
-class LoggedClass:
-    """
-    Mixin providing logging infrastructure for classes.
-
-    Provides:
-    - self._logger: Logger instance
-    - self._log(): Log with auto-extracted context
-    - self._log_exception(): Exception logging with context
-
-    Example:
-        class ApiClient(LoggedClass):
-            def __init__(self, api_url: str):
-                self.api_url = api_url
-                super().__init__()
-
-            def fetch(self):
-                self._log(logging.DEBUG, "Fetching data")
-                ...
-    """
-
-    log_component: str | None = None  # Optional logger name suffix
-
-    def __init__(self, *args, **kwargs):
-        logger_name = self.__class__.__module__
-        if self.log_component:
-            logger_name = f"{logger_name}.{self.log_component}"
-        self._logger = get_logger(logger_name)
-        super().__init__(*args, **kwargs)
-
-    def _log(self, level: int, msg: str, **extra: Any) -> None:
-        """
-        Log with automatic context extraction from instance.
-
-        Args:
-            level: Log level
-            msg: Log message
-            **extra: Additional context fields
-        """
-        context: dict[str, Any] = {}
-        for attr in [
-            "table_path",
-            "primary_keys",
-            "circuit_name",
-            "api_url",
-            "base_url",
-        ]:
-            if hasattr(self, attr):
-                value = getattr(self, attr)
-                if value is not None:
-                    key = "table" if attr == "table_path" else attr
-                    context[key] = value
-        context.update(extra)
-        log_with_context(self._logger, level, msg, **context)
-
-    def _log_exception(
-        self,
-        exc: Exception,
-        msg: str,
-        level: int = logging.ERROR,
-        **extra: Any,
-    ) -> None:
-        """
-        Log exception with automatic context extraction from instance.
-
-        Args:
-            exc: Exception to log
-            msg: Context message
-            level: Log level (default: ERROR)
-            **extra: Additional context fields
-        """
-        context: dict[str, Any] = {}
-        for attr in [
-            "table_path",
-            "primary_keys",
-            "circuit_name",
-            "api_url",
-            "base_url",
-        ]:
-            if hasattr(self, attr):
-                value = getattr(self, attr)
-                if value is not None:
-                    key = "table" if attr == "table_path" else attr
-                    context[key] = value
-        context.update(extra)
-        log_exception(self._logger, exc, msg, level=level, **context)
 
 
 def extract_log_context(obj: Any) -> dict[str, Any]:
