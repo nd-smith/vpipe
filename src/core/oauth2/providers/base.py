@@ -12,9 +12,11 @@ class BaseOAuth2Provider(ABC):
     """
     Abstract base class for OAuth2 token providers.
 
-    Implementations handle token acquisition for different OAuth2 flows
-    (client credentials, authorization code, etc.) and providers (Azure AD,
-    generic OAuth2 servers, etc.).
+    Implementations:
+        - AzureADProvider: Azure AD client credentials flow (azure-identity SDK)
+        - GenericOAuth2Provider: Standard OAuth2 client credentials flow (HTTP-based)
+
+    Used by OAuth2TokenManager to manage tokens from multiple providers.
     """
 
     def __init__(self, provider_name: str):
