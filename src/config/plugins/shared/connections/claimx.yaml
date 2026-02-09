@@ -23,7 +23,8 @@ connections:
   #   2. Fetching all project media to extract download URLs
   #
   # Required Environment Variables:
-  #   - CLAIMX_API_BASE_PATH: ClaimX API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
+  #   - CLAIMX_API_URL: ClaimX API base URL (e.g., https://www.claimxperience.com/service/cxedirest)
+  #     (Legacy: CLAIMX_API_BASE_PATH still supported for backward compatibility)
   #   - CLAIMX_API_TOKEN: Basic token for ClaimX API authentication
   #
   # Endpoints Used:
@@ -39,7 +40,7 @@ connections:
   # ===========================================================================
   claimx_api:
     name: claimx_api
-    base_url: ${CLAIMX_API_BASE_PATH}  # e.g., https://www.claimxperience.com/service/cxedirest
+    base_url: ${CLAIMX_API_URL:-${CLAIMX_API_BASE_PATH:-https://www.claimxperience.com/service/cxedirest}}
     auth_type: basic
     auth_token: ${CLAIMX_API_TOKEN}
     timeout_seconds: 30
@@ -79,8 +80,10 @@ connections:
 # Environment Variable Setup:
 #   Before starting workers, export required variables:
 #
-#   export CLAIMX_API_BASE_PATH="https://www.claimxperience.com/service/cxedirest"
+#   export CLAIMX_API_URL="https://www.claimxperience.com/service/cxedirest"
 #   export CLAIMX_API_TOKEN="your-bearer-token-here"
+#
+#   Note: Legacy variable CLAIMX_API_BASE_PATH is still supported for backward compatibility
 #
 # Testing Connection:
 #   Use ConnectionManager to test connections:

@@ -35,7 +35,7 @@ workers:
 # Environment Variables Required
 # =============================================================================
 # ClaimX API connection
-# export CLAIMX_API_BASE_PATH="https://www.claimxperience.com/service/cxedirest"
+# export CLAIMX_API_URL="https://www.claimxperience.com/service/cxedirest"
 # export CLAIMX_API_TOKEN="your-claimx-basic-token"
 #
 # Kafka connection

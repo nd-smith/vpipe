@@ -14,7 +14,7 @@ This plugin processes iTel Cabinet Repair Form (task 32513) events from ClaimX:
 ### 1. Set Environment Variables
 
 ```bash
-export CLAIMX_API_BASE_URL="https://api.claimx.com"
+export CLAIMX_API_URL="https://api.claimx.com"
 export CLAIMX_API_TOKEN="your-claimx-token"
 export ITEL_CABINET_API_BASE_URL="https://api.itelcabinet.com"
 export ITEL_CABINET_API_TOKEN="your-itel-token"
