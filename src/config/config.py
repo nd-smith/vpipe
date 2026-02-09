@@ -136,6 +136,14 @@ class MessageConfig:
     """
 
     # =========================================================================
+    # KAFKA CONNECTION CONFIGURATION (for local development and plugin workers)
+    # =========================================================================
+    bootstrap_servers: str = ""
+    request_timeout_ms: int = 120000  # 2 minutes
+    metadata_max_age_ms: int = 300000  # 5 minutes
+    connections_max_idle_ms: int = 540000  # 9 minutes
+
+    # =========================================================================
     # DOMAIN CONFIGURATIONS (verisk and claimx)
     # =========================================================================
     verisk: VeriskDomainConfig = field(default_factory=dict)
@@ -173,13 +181,18 @@ class MessageConfig:
 
     def _get_domain_config(
         self, domain: str
-    ) -> VeriskDomainConfig | ClaimXDomainConfig:
-        """Get domain config, supporting legacy 'xact' name."""
+    ) -> VeriskDomainConfig | ClaimXDomainConfig | dict:
+        """Get domain config, supporting legacy 'xact' name.
+
+        Returns empty dict for unknown domains (e.g., 'plugins') to support
+        plugin workers that don't follow the standard config structure.
+        """
         if domain in ("xact", "verisk"):
             return self.verisk
         if domain == "claimx":
             return self.claimx
-        raise ValueError(f"Unknown domain: {domain}. Must be 'verisk' or 'claimx'")
+        # Return empty dict for unknown domains (e.g., plugin workers)
+        return {}
 
     def get_worker_config(
         self,
@@ -190,24 +203,26 @@ class MessageConfig:
         """Get configuration for a specific worker's component.
 
         Args:
-            domain: Domain name ("verisk" or "claimx", "xact" supported as legacy alias)
+            domain: Domain name ("verisk" or "claimx", "xact" supported as legacy alias,
+                    or "plugins" for plugin workers)
             worker_name: Name of the worker (e.g., "download_worker", "event_ingester")
             component: Component type ("consumer", "producer", or "processing")
 
         Returns:
             dict[str, Any]: Configuration for the specified component.
+            Returns empty dict for unknown domains or missing worker configs.
 
         Raises:
-            ValueError: If domain is not configured or component is invalid.
+            ValueError: If component is invalid.
         """
-        domain_config = self._get_domain_config(domain)
-        if not domain_config:
-            raise ValueError(f"No configuration found for domain: {domain}")
-
         if component not in ("consumer", "producer", "processing"):
             raise ValueError(
                 f"Invalid component: {component}. Must be 'consumer', 'producer', or 'processing'"
             )
+
+        domain_config = self._get_domain_config(domain)
+        if not domain_config:
+            return {}
 
         worker_config = domain_config.get(worker_name, {})
         return worker_config.get(component, {})
