@@ -246,6 +246,11 @@ class EventHubBatchConsumer:
             update_assigned_partitions(self.consumer_group, 0)
             self._consumer = None
 
+            # Allow time for aiohttp sessions to close properly
+            # EventHubConsumerClient uses aiohttp internally with AmqpOverWebsocket
+            # and doesn't always close sessions cleanly on exit
+            await asyncio.sleep(0.250)
+
     async def commit(self) -> None:
         """Commit offsets (for compatibility with transport layer interface).
 

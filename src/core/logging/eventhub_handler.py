@@ -203,6 +203,11 @@ class EventHubLogHandler(logging.Handler):
                 with contextlib.suppress(Exception):
                     await self._send_batch(producer, batch)
 
+        # Allow time for aiohttp sessions to close properly
+        # EventHubProducerClient uses aiohttp internally with AmqpOverWebsocket
+        # and doesn't always close sessions cleanly on exit
+        await asyncio.sleep(0.250)
+
     async def _send_batch(
         self, producer: EventHubProducerClient, batch: list[str]
     ) -> None:

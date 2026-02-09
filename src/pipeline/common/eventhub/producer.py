@@ -211,6 +211,12 @@ class EventHubProducer:
             self._producer = None
             self._started = False
 
+            # Allow time for aiohttp sessions to close properly
+            # EventHubProducerClient uses aiohttp internally with AmqpOverWebsocket
+            # and doesn't always close sessions cleanly on exit
+            import asyncio
+            await asyncio.sleep(0.250)
+
     async def send(
         self,
         value: BaseModel | dict[str, Any] | bytes,
