@@ -23,6 +23,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
@@ -371,9 +372,8 @@ class EventHubConsumer:
             # max_wait_time causes callback with event=None when no events arrive
             if event is None:
                 partition_id = partition_context.partition_id
-                logger.debug(
-                    f"[DIAGNOSTIC] No events received on partition {partition_id} "
-                    f"within max_wait_time"
+                logger.info(
+                    f"[DIAGNOSTIC] No events on partition {partition_id} (max_wait_time elapsed)"
                 )
                 return
 
@@ -521,7 +521,12 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    starting_position="-1",  # Start from beginning (like earliest)
+                    # Use datetime-based position instead of offset "-1".
+                    # Offset "-1" uses AMQP offset filter which appears to not
+                    # deliver events in some SDK/service configurations.
+                    # Datetime filter uses a different AMQP mechanism that
+                    # reliably starts from the earliest available event.
+                    starting_position=datetime(2000, 1, 1, tzinfo=UTC),
                     max_wait_time=5,  # Diagnostic: fire callback even with no events
                 )
         except Exception:
