@@ -277,6 +277,7 @@ class OneLakeClient:
         self._service_client: DataLakeServiceClient | None = None
         self._file_system_client = None
         self._session: requests.Session | None = None
+        self._credential: Any | None = None  # Azure credential (may have HTTP client)
 
         self._write_tokens: dict[str, WriteOperation] = {}
 
@@ -316,6 +317,7 @@ class OneLakeClient:
             try:
                 credential = FileBackedTokenCredential(resource=auth.STORAGE_RESOURCE)
                 self._file_credential = credential
+                self._credential = credential
                 auth_mode = "file"
                 logger.info(
                     "Using FileBackedTokenCredential for auto-refresh",
@@ -329,16 +331,19 @@ class OneLakeClient:
                 credential = None
                 auth_mode = None
                 self._file_credential = None
+                self._credential = None
         else:
             credential = None
             auth_mode = None
             self._file_credential = None
+            self._credential = None
 
         if credential is None and auth.use_cli:
             token = auth.get_storage_token()
             if not token:
                 raise RuntimeError("Failed to get CLI storage token")
             credential = TokenCredential(token)
+            self._credential = credential
             auth_mode = "cli"
 
         if credential is None and auth.has_spn_credentials:
@@ -358,6 +363,7 @@ class OneLakeClient:
                 client_id=auth.client_id,
                 client_secret=auth.client_secret,
             )
+            self._credential = credential
             auth_mode = "spn"
 
         if credential is None:
@@ -445,6 +451,11 @@ class OneLakeClient:
             with contextlib.suppress(Exception):
                 self._session.close()
             self._session = None
+        if self._credential is not None:
+            with contextlib.suppress(Exception):
+                if hasattr(self._credential, "close"):
+                    self._credential.close()
+            self._credential = None
         self._service_client = None
         self._file_system_client = None
 
@@ -486,6 +497,11 @@ class OneLakeClient:
             with contextlib.suppress(Exception):
                 self._session.close()
             self._session = None
+        if self._credential is not None:
+            with contextlib.suppress(Exception):
+                if hasattr(self._credential, "close"):
+                    self._credential.close()
+            self._credential = None
         self._service_client = None
         self._file_system_client = None
         self._create_clients(max_pool_size=self._max_pool_size)
