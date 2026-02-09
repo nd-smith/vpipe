@@ -199,26 +199,21 @@ def _resolve_eventhub_consumer_group(
 ) -> str:
     """Resolve Event Hub consumer group for a given domain/topic.
 
-    Priority:
+    Unlike Kafka, Event Hub consumer groups must be explicitly created in Azure
+    before use. This function requires the consumer group to be explicitly
+    configured — it will NOT generate a name automatically.
+
+    Lookup order:
     1. config.yaml: eventhub.{domain}.{topic_key}.consumer_group
-    2. MessageConfig.get_consumer_group (existing consumer group logic)
-    3. eventhub.default_consumer_group from config.yaml
+    2. config.yaml: eventhub.default_consumer_group
 
-    Args:
-        domain: Pipeline domain
-        topic_key: Topic key matching config.yaml
-        worker_name: Worker name
-        message_config: MessageConfig for fallback consumer group resolution
-
-    Returns:
-        Consumer group name
-
-    Raises:
-        ValueError: If consumer group cannot be resolved
+    Raises ValueError if not configured, to prevent silent failures from
+    connecting with a consumer group that doesn't exist on the Event Hub.
     """
-    # 1. Config file lookup (preferred)
+    config = _load_eventhub_config()
+
+    # 1. Topic-specific consumer group
     if topic_key:
-        config = _load_eventhub_config()
         domain_config = config.get(domain, {})
         topic_config = domain_config.get(topic_key, {})
         consumer_group = topic_config.get(CONSUMER_GROUP_KEY)
@@ -229,21 +224,16 @@ def _resolve_eventhub_consumer_group(
             )
             return consumer_group
 
-    # 2. MessageConfig consumer group (existing logic)
-    try:
-        return message_config.get_consumer_group(domain, worker_name)
-    except (ValueError, KeyError):
-        pass
-
-    # 3. Default from config
-    config = _load_eventhub_config()
+    # 2. Default from config
     default_group = config.get(DEFAULT_CONSUMER_GROUP_KEY)
     if default_group:
         return default_group
 
     raise ValueError(
         f"Event Hub consumer group not configured for domain='{domain}', "
-        f"topic_key='{topic_key}', worker='{worker_name}'. Configure in config.yaml under "
+        f"topic_key='{topic_key}', worker='{worker_name}'. "
+        f"Event Hub consumer groups must be pre-created in Azure and explicitly "
+        f"configured in config.yaml under "
         f"eventhub.{domain}.{topic_key}.consumer_group or eventhub.default_consumer_group."
     )
 

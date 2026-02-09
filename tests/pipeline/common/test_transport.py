@@ -143,19 +143,9 @@ class TestResolveEventHubConsumerGroup:
             )
         assert group == "my-group"
 
-    def test_falls_back_to_message_config(self):
-        message_config = Mock()
-        message_config.get_consumer_group.return_value = "fallback-group"
-        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
-            group = _resolve_eventhub_consumer_group(
-                "verisk", None, "event_ingester", message_config
-            )
-        assert group == "fallback-group"
-
     def test_falls_back_to_default_consumer_group(self):
         mock_config = {"default_consumer_group": "default-group"}
         message_config = Mock()
-        message_config.get_consumer_group.side_effect = ValueError("no group")
         with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
             group = _resolve_eventhub_consumer_group(
                 "verisk", None, "worker", message_config
@@ -164,11 +154,18 @@ class TestResolveEventHubConsumerGroup:
 
     def test_raises_when_no_consumer_group(self):
         message_config = Mock()
-        message_config.get_consumer_group.side_effect = ValueError("no group")
         with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
             with pytest.raises(ValueError, match="consumer group not configured"):
                 _resolve_eventhub_consumer_group(
                     "verisk", "events", "worker", message_config
+                )
+
+    def test_raises_when_no_topic_key_and_no_default(self):
+        message_config = Mock()
+        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
+            with pytest.raises(ValueError, match="consumer group not configured"):
+                _resolve_eventhub_consumer_group(
+                    "verisk", None, "worker", message_config
                 )
 
 
