@@ -97,15 +97,6 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     "claimx-entity-writer": {
         "runner": claimx_runners.run_claimx_entity_delta_worker,
     },
-    # Deprecated workers (captured for better error messages)
-    "dummy-source": {
-        "deprecated": True,
-        "message": "Worker 'dummy-source' has been removed along with simulation mode support.",
-    },
-    "dummy_source": {
-        "deprecated": True,
-        "message": "Worker 'dummy_source' has been removed along with simulation mode support.",
-    },
 }
 
 
@@ -136,12 +127,6 @@ async def run_worker_from_registry(
         raise ValueError(f"Unknown worker: {worker_name}")
 
     worker_def = WORKER_REGISTRY[worker_name]
-
-    # Check if deprecated
-    if worker_def.get("deprecated"):
-        raise ValueError(
-            worker_def.get("message", f"Worker '{worker_name}' is deprecated")
-        )
 
     # Check requirements
     if worker_def.get("requires_eventhouse"):

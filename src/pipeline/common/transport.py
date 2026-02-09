@@ -91,8 +91,7 @@ def _get_namespace_connection_string() -> str:
 
     Priority:
     1. EVENTHUB_NAMESPACE_CONNECTION_STRING env var
-    2. EVENTHUB_CONNECTION_STRING env var (backward compat, EntityPath stripped)
-    3. eventhub.namespace_connection_string from config.yaml
+    2. eventhub.namespace_connection_string from config.yaml
 
     Returns:
         Namespace connection string with EntityPath removed (if present).
@@ -111,22 +110,7 @@ def _get_namespace_connection_string() -> str:
             )
         return stripped
 
-    # 2. Legacy env var (backward compat)
-    conn = os.getenv("EVENTHUB_CONNECTION_STRING")
-    if conn:
-        logger.debug(
-            "Using legacy EVENTHUB_CONNECTION_STRING. "
-            "Consider migrating to EVENTHUB_NAMESPACE_CONNECTION_STRING."
-        )
-        stripped = _strip_entity_path(conn)
-        if not stripped or not stripped.strip():
-            raise ValueError(
-                "EVENTHUB_CONNECTION_STRING is set but empty or contains only whitespace. "
-                "Ensure the environment variable contains a valid Event Hub connection string."
-            )
-        return stripped
-
-    # 3. Config file
+    # 2. Config file
     config = _load_eventhub_config()
     conn = config.get(NAMESPACE_CONNECTION_STRING_KEY, "")
     if conn:

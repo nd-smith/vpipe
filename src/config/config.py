@@ -174,20 +174,15 @@ class MessageConfig:
     # =========================================================================
     logging_config: LoggingConfig = field(default_factory=dict)
 
-    @property
-    def xact(self) -> VeriskDomainConfig:
-        """Backwards compatibility alias for verisk domain."""
-        return self.verisk
-
     def _get_domain_config(
         self, domain: str
     ) -> VeriskDomainConfig | ClaimXDomainConfig | dict:
-        """Get domain config, supporting legacy 'xact' name.
+        """Get domain config by name.
 
         Returns empty dict for unknown domains (e.g., 'plugins') to support
         plugin workers that don't follow the standard config structure.
         """
-        if domain in ("xact", "verisk"):
+        if domain == "verisk":
             return self.verisk
         if domain == "claimx":
             return self.claimx
@@ -203,8 +198,7 @@ class MessageConfig:
         """Get configuration for a specific worker's component.
 
         Args:
-            domain: Domain name ("verisk" or "claimx", "xact" supported as legacy alias,
-                    or "plugins" for plugin workers)
+            domain: Domain name ("verisk", "claimx", or "plugins" for plugin workers)
             worker_name: Name of the worker (e.g., "download_worker", "event_ingester")
             component: Component type ("consumer", "producer", or "processing")
 

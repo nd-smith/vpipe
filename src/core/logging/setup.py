@@ -449,14 +449,12 @@ def setup_logging(
 
         # Create OneLake client if upload enabled
         onelake_client = None
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv(
-            "ONELAKE_BASE_PATH"
-        )
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
         if upload_enabled:
             if not onelake_log_path:
                 print(
-                    "Warning: LOG_UPLOAD_ENABLED=true but no ONELAKE_LOG_PATH or "
-                    "ONELAKE_BASE_PATH configured, disabling log upload",
+                    "Warning: LOG_UPLOAD_ENABLED=true but ONELAKE_LOG_PATH not configured, "
+                    "disabling log upload",
                     file=sys.stderr,
                 )
                 upload_enabled = False
@@ -802,13 +800,11 @@ def _do_crash_log_upload(reason: str) -> None:
 
     # Phase 2: Get or create OneLake client
     if onelake_client is None:
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH") or os.getenv(
-            "ONELAKE_BASE_PATH"
-        )
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
         if not onelake_log_path:
             crash_logger.warning(
                 "No OneLake path configured for crash log upload "
-                "(set ONELAKE_LOG_PATH or ONELAKE_BASE_PATH)"
+                "(set ONELAKE_LOG_PATH)"
             )
             return
 

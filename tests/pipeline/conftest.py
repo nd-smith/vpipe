@@ -147,10 +147,6 @@ class MockDeltaInventoryWriter:
         self.write_count += 1
         return True
 
-    async def write_batch(self, results: List) -> bool:
-        """Alias for write_results for backward compatibility."""
-        return await self.write_results(results)
-
     def get_records_by_trace_id(self, trace_id: str) -> List[Dict]:
         return [r for r in self.inventory_records if r.get("trace_id") == trace_id]
 
@@ -407,7 +403,7 @@ def kafka_config(kafka_container):
     if kafka_container is None:
         pytest.skip("Kafka container not available - this fixture requires @pytest.mark.integration")
 
-    from pipeline.config import MessageConfig
+    from config.config import MessageConfig
 
     # Create config from environment (which includes container bootstrap server)
     config = MessageConfig.from_env()

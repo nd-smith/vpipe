@@ -103,7 +103,7 @@ class DLQHandler:
             "XACT DLQ handler started successfully",
             extra={
                 "dlq_topic": self._dlq_topic,
-                "consumer_group": self.config.get_consumer_group("xact", "dlq_handler"),
+                "consumer_group": self.config.get_consumer_group("verisk", "dlq_handler"),
             },
         )
 

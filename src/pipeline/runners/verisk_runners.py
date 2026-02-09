@@ -26,7 +26,7 @@ async def run_event_ingester(
     eventhub_config,
     local_kafka_config,
     shutdown_event: asyncio.Event,
-    domain: str = "xact",
+    domain: str = "verisk",
     instance_id: int | None = None,
 ):
     """Reads events from Event Hub and produces download tasks to local Kafka.
@@ -350,7 +350,7 @@ async def run_result_processor(
 async def run_local_event_ingester(
     local_kafka_config,
     shutdown_event: asyncio.Event,
-    domain: str = "xact",
+    domain: str = "verisk",
     instance_id: int | None = None,
 ):
     """Consumes from local Kafka events.raw topic and processes events to downloads.pending.

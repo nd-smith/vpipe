@@ -104,7 +104,7 @@ class DeltaRetryHandler:
         retry_delays: list[int] | None = None,
         retry_topic_prefix: str | None = None,
         dlq_topic: str | None = None,
-        domain: str = "xact",
+        domain: str = "verisk",
     ):
         """
         Initialize Delta retry handler.

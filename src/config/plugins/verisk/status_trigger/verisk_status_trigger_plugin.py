@@ -54,7 +54,7 @@ class XACTStatusTriggerPlugin(Plugin):
     description = "Trigger actions (Kafka, webhooks, logs) based on XACT status changes"
 
     # Plugin metadata - which domains and stages this plugin applies to
-    domains = [Domain.XACT]
+    domains = [Domain.VERISK]
     stages = [PipelineStage.ENRICHMENT_COMPLETE]
     event_types = ["*"]  # All event types
     priority = 100  # Standard priority
