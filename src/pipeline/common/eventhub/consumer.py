@@ -233,8 +233,6 @@ class EventHubConsumer:
             )
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
-            else:
-                logger.info("[DEBUG] Consumer using system default CA certificates")
 
             # Log connection attempt details
             log_connection_attempt_details(
@@ -242,31 +240,19 @@ class EventHubConsumer:
                 transport_type="AmqpOverWebsocket",
                 ssl_kwargs=ssl_kwargs,
             )
-            logger.info(
-                f"[DEBUG] Consumer group: {self.consumer_group}"
-            )
 
             # Create consumer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # Pass checkpoint_store if provided for durable offset persistence
-            logger.info("[DEBUG] Calling EventHubConsumerClient.from_connection_string...")
-            # DIAGNOSTIC: bypass checkpoint store to test if it's causing
-            # the event processor to not start partition receivers
-            logger.info(
-                f"[DIAGNOSTIC] checkpoint_store type: "
-                f"{type(self.checkpoint_store).__name__ if self.checkpoint_store else 'None'} "
-                f"— BYPASSING for diagnostic (using in-memory)"
-            )
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
                 uamqp_transport=True,
-                # checkpoint_store=self.checkpoint_store,
+                checkpoint_store=self.checkpoint_store,
                 **ssl_kwargs,
             )
-            logger.info("[DEBUG] Consumer client object created successfully")
 
             self._running = True
             update_connection_status("consumer", connected=True)
@@ -289,23 +275,18 @@ class EventHubConsumer:
             logger.info("Consumer loop cancelled, shutting down")
             raise
         except Exception as e:
-            # Log masked connection string for troubleshooting
             masked_conn = mask_connection_string(self.connection_string)
-
             logger.error(
-                "[DEBUG] Consumer loop terminated with error",
+                "Consumer loop terminated with error",
                 extra={
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "eventhub_name": self.eventhub_name,
                     "consumer_group": self.consumer_group,
-                    "ca_bundle": ca_bundle if ca_bundle else "system default",
                     "connection_string_masked": masked_conn,
                 },
                 exc_info=True,
             )
-            logger.error(f"[DEBUG] Exception details: {repr(e)}")
-            logger.error(f"[DEBUG] Connection string (masked): {masked_conn}")
             raise
         finally:
             self._running = False
@@ -371,22 +352,6 @@ class EventHubConsumer:
             },
         )
 
-        # DIAGNOSTIC: enable SDK-level debug logging to see AMQP frames
-        for sdk_logger_name in ("azure.eventhub", "uamqp"):
-            sdk_logger = logging.getLogger(sdk_logger_name)
-            sdk_logger.setLevel(logging.DEBUG)
-            if not sdk_logger.handlers:
-                sdk_logger.addHandler(logging.StreamHandler())
-            logger.info(f"[DIAGNOSTIC] Enabled DEBUG logging for {sdk_logger_name}")
-
-        # DIAGNOSTIC: detect which AMQP transport library is active
-        try:
-            import uamqp
-            logger.info(f"[DIAGNOSTIC] AMQP transport: uamqp {uamqp.__version__}")
-        except ImportError:
-            logger.info("[DIAGNOSTIC] AMQP transport: pure-python (uamqp NOT installed)")
-
-        # Define single event handler
         async def on_event(partition_context, event):
             """Process single event from Event Hub partition."""
             if not self._running:
@@ -395,15 +360,7 @@ class EventHubConsumer:
             partition_id = partition_context.partition_id
 
             if event is None:
-                logger.info(
-                    f"[DIAGNOSTIC] No events on partition {partition_id} (max_wait_time elapsed)"
-                )
                 return
-
-            logger.info(
-                f"[DIAGNOSTIC] Received event on partition {partition_id}, "
-                f"offset={event.offset}, seq={event.sequence_number}"
-            )
 
             self._current_partition_context[partition_id] = partition_context
 
@@ -438,21 +395,6 @@ class EventHubConsumer:
                     "partition_id": partition_id,
                 },
             )
-
-            # Diagnostic: query partition properties to verify events exist
-            try:
-                props = await self._consumer.get_partition_properties(partition_id)
-                logger.info(
-                    f"[DIAGNOSTIC] Partition {partition_id} properties: "
-                    f"begin_seq={props.get('beginning_sequence_number')}, "
-                    f"last_seq={props.get('last_enqueued_sequence_number')}, "
-                    f"last_offset={props.get('last_enqueued_offset')}, "
-                    f"is_empty={props.get('is_empty')}"
-                )
-            except Exception as e:
-                logger.warning(f"[DIAGNOSTIC] Failed to get partition {partition_id} properties: {e}")
-
-            # Update metrics
             current_count = len(self._current_partition_context)
             update_assigned_partitions(self.consumer_group, current_count + 1)
 
@@ -478,39 +420,25 @@ class EventHubConsumer:
             partition_id = (
                 partition_context.partition_id if partition_context else "unknown"
             )
-            error_type = type(error).__name__
-            error_str = str(error)
             logger.error(
-                f"[DIAGNOSTIC] on_error: partition={partition_id}, "
-                f"type={error_type}, error={error_str}",
+                "Event Hub consumer error",
+                extra={
+                    "partition_id": partition_id,
+                    "error_type": type(error).__name__,
+                    "error": str(error),
+                },
                 exc_info=True,
             )
 
-        # DIAGNOSTIC: heartbeat task to prove event loop is alive
-        async def heartbeat():
-            tick = 0
-            while self._running:
-                await asyncio.sleep(10)
-                tick += 1
-                logger.info(f"[DIAGNOSTIC] heartbeat tick={tick} (event loop alive)")
-
-        # Start receiving events with receive() callback
         try:
             async with self._consumer:
-                heartbeat_task = asyncio.create_task(heartbeat())
-                try:
-                    logger.info("[DIAGNOSTIC] Calling receive(partition_id='0', starting_position='-1', max_wait_time=5)")
-                    await self._consumer.receive(
-                        on_event=on_event,
-                        on_partition_initialize=on_partition_initialize,
-                        on_partition_close=on_partition_close,
-                        on_error=on_error,
-                        starting_position="-1",
-                        max_wait_time=5,
-                        partition_id="0",
-                    )
-                finally:
-                    heartbeat_task.cancel()
+                await self._consumer.receive(
+                    on_event=on_event,
+                    on_partition_initialize=on_partition_initialize,
+                    on_partition_close=on_partition_close,
+                    on_error=on_error,
+                    max_wait_time=5,
+                )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
             raise

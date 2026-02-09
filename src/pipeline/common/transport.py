@@ -11,8 +11,10 @@ Architecture:
 
 Event Hub resolution:
 - One namespace connection string provides access to all Event Hubs
-- Event Hub names and consumer groups are defined per-topic in config.yaml
-  under eventhub.{domain}.{topic_key}.eventhub_name / consumer_group
+- Event Hub names are defined per-topic in config.yaml
+  under eventhub.{domain}.{topic_key}.eventhub_name
+- Consumer groups are defined per-worker under each topic:
+  eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}
 - The Azure SDK `eventhub_name` parameter is used instead of
   baking EntityPath into the connection string
 """
@@ -35,7 +37,7 @@ logger = logging.getLogger(__name__)
 EVENTHUB_CONFIG_KEY = "eventhub"
 NAMESPACE_CONNECTION_STRING_KEY = "namespace_connection_string"
 EVENTHUB_NAME_KEY = "eventhub_name"
-CONSUMER_GROUP_KEY = "consumer_group"
+CONSUMER_GROUPS_KEY = "consumer_groups"
 DEFAULT_CONSUMER_GROUP_KEY = "default_consumer_group"
 
 
@@ -197,14 +199,14 @@ def _resolve_eventhub_consumer_group(
     worker_name: str,
     message_config: MessageConfig,
 ) -> str:
-    """Resolve Event Hub consumer group for a given domain/topic.
+    """Resolve Event Hub consumer group for a given domain/topic/worker.
 
     Unlike Kafka, Event Hub consumer groups must be explicitly created in Azure
     before use. This function requires the consumer group to be explicitly
     configured — it will NOT generate a name automatically.
 
     Lookup order:
-    1. config.yaml: eventhub.{domain}.{topic_key}.consumer_group
+    1. config.yaml: eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}
     2. config.yaml: eventhub.default_consumer_group
 
     Raises ValueError if not configured, to prevent silent failures from
@@ -212,15 +214,16 @@ def _resolve_eventhub_consumer_group(
     """
     config = _load_eventhub_config()
 
-    # 1. Topic-specific consumer group
+    # 1. Worker-specific consumer group under the topic
     if topic_key:
         domain_config = config.get(domain, {})
         topic_config = domain_config.get(topic_key, {})
-        consumer_group = topic_config.get(CONSUMER_GROUP_KEY)
+        consumer_groups = topic_config.get(CONSUMER_GROUPS_KEY, {})
+        consumer_group = consumer_groups.get(worker_name)
         if consumer_group:
             logger.debug(
                 f"Resolved consumer group from config: "
-                f"eventhub.{domain}.{topic_key}.consumer_group={consumer_group}"
+                f"eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}={consumer_group}"
             )
             return consumer_group
 
@@ -234,7 +237,8 @@ def _resolve_eventhub_consumer_group(
         f"topic_key='{topic_key}', worker='{worker_name}'. "
         f"Event Hub consumer groups must be pre-created in Azure and explicitly "
         f"configured in config.yaml under "
-        f"eventhub.{domain}.{topic_key}.consumer_group or eventhub.default_consumer_group."
+        f"eventhub.{domain}.{topic_key}.consumer_groups.{worker_name} "
+        f"or eventhub.default_consumer_group."
     )
 
 

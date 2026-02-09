@@ -129,8 +129,6 @@ class EventHubProducer:
             )
             if ca_bundle:
                 ssl_kwargs = {"connection_verify": ca_bundle}
-            else:
-                logger.info("[DEBUG] Using system default CA certificates")
 
             # Log connection attempt details
             log_connection_attempt_details(
@@ -142,7 +140,6 @@ class EventHubProducer:
             # Create producer with AMQP over WebSocket transport
             # Namespace connection string + eventhub_name parameter
             # This is required for Azure Private Link endpoints
-            logger.info("[DEBUG] Calling EventHubProducerClient.from_connection_string...")
             self._producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
@@ -150,12 +147,9 @@ class EventHubProducer:
                 uamqp_transport=True,
                 **ssl_kwargs,
             )
-            logger.info("[DEBUG] Producer client object created successfully")
 
             # Test connection by getting properties
-            logger.info("[DEBUG] Attempting to get Event Hub properties (triggers actual connection)...")
             props = self._producer.get_eventhub_properties()
-            logger.info(f"[DEBUG] Successfully retrieved Event Hub properties: {props}")
             logger.info(
                 f"Connected to Event Hub: {props.get('name', 'unknown')}, "
                 f"partitions: {len(props.get('partition_ids', []))}"
@@ -177,18 +171,15 @@ class EventHubProducer:
             masked_conn = mask_connection_string(self.connection_string)
 
             logger.error(
-                "[DEBUG] Failed to start Event Hub producer",
+                "Failed to start Event Hub producer",
                 extra={
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "eventhub_name": self.eventhub_name,
-                    "ca_bundle": ca_bundle if ca_bundle else "system default",
                     "connection_string_masked": masked_conn,
                 },
                 exc_info=True,
             )
-            logger.error(f"[DEBUG] Exception details: {repr(e)}")
-            logger.error(f"[DEBUG] Connection string (masked): {masked_conn}")
             raise
 
     async def stop(self) -> None:

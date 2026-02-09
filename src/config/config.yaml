@@ -184,10 +184,10 @@ transport:
 # Event Hub names and consumer groups are defined below per-domain.
 #
 # Consumer group notes:
-#   A consumer group is per-application, NOT per-process.
-#   Multiple instances of the same app share ONE consumer group to
-#   balance partitions across processes (horizontal scaling).
-#   Use separate consumer groups for independent readers of the same stream.
+#   Each worker that independently reads a stream needs its own consumer group.
+#   Consumer groups are keyed by worker_name under each topic:
+#     eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}
+#   Consumer groups must be pre-created in Azure before use.
 eventhub:
   # Namespace-level connection string (no EntityPath)
   # Falls back to EVENTHUB_CONNECTION_STRING for backward compatibility
@@ -235,25 +235,33 @@ eventhub:
   verisk:
     events:
       eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-verisk_events}
-      consumer_group: ${EVENTHUB_VERISK_EVENTS_CONSUMER_GROUP:-verisk-pipeline}
+      consumer_groups:
+        event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-verisk-event-ingester}
+        delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-verisk-delta-events-writer}
     enrichment_pending:
       eventhub_name: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_NAME:-verisk-enrichment-pending}
-      consumer_group: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_CONSUMER_GROUP:-verisk-enrichment-pipeline}
+      consumer_groups:
+        enrichment_worker: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-verisk-enrichment-pipeline}
     downloads_pending:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_NAME:-verisk-downloads-pending}
-      consumer_group: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_CONSUMER_GROUP:-verisk-downloads-pipeline}
+      consumer_groups:
+        download_worker: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-verisk-downloads-pipeline}
     downloads_cached:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_NAME:-verisk-downloads-cached}
-      consumer_group: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_CONSUMER_GROUP:-verisk-downloads-cached-pipeline}
+      consumer_groups:
+        upload_worker: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-verisk-downloads-cached-pipeline}
     downloads_results:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_NAME:-verisk-downloads-results}
-      consumer_group: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_CONSUMER_GROUP:-verisk-downloads-results-pipeline}
+      consumer_groups:
+        result_processor: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-verisk-downloads-results-pipeline}
     retry:
       eventhub_name: ${EVENTHUB_VERISK_RETRY_NAME:-verisk-retry}
-      consumer_group: ${EVENTHUB_VERISK_RETRY_CONSUMER_GROUP:-verisk-retry-pipeline}
+      consumer_groups:
+        unified_retry_scheduler: ${EVENTHUB_VERISK_RETRY_CG_RETRY_SCHEDULER:-verisk-retry-pipeline}
     dlq:
       eventhub_name: ${EVENTHUB_VERISK_DLQ_NAME:-verisk-dlq}
-      consumer_group: ${EVENTHUB_VERISK_DLQ_CONSUMER_GROUP:-verisk-dlq-pipeline}
+      consumer_groups:
+        dlq_handler: ${EVENTHUB_VERISK_DLQ_CG_DLQ_HANDLER:-verisk-dlq-pipeline}
 
   # ---------------------------------------------------------------------------
   # ClaimX Domain
@@ -262,28 +270,37 @@ eventhub:
   claimx:
     events:
       eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
-      # Consumer group removed - each worker uses its own group (e.g., claimx-event_ingester, claimx-delta_events_writer)
+      consumer_groups:
+        event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-claimx-event-ingester}
+        delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-claimx-delta-events-writer}
     enrichment_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_NAME:-claimx-enrichment-pending}
-      consumer_group: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CONSUMER_GROUP:-claimx-events_ingester}
+      consumer_groups:
+        enrichment_worker: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-claimx-enrichment-pipeline}
     enriched:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHED_NAME:-claimx-enriched}
-      consumer_group: ${EVENTHUB_CLAIMX_ENRICHED_CONSUMER_GROUP:-claimx-enriched-pipeline}
+      consumer_groups:
+        entity_delta_writer: ${EVENTHUB_CLAIMX_ENRICHED_CG_ENTITY_DELTA_WRITER:-claimx-enriched-pipeline}
     downloads_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_NAME:-claimx-downloads-pending}
-      consumer_group: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_CONSUMER_GROUP:-claimx-downloads-pipeline}
+      consumer_groups:
+        download_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-claimx-downloads-pipeline}
     downloads_cached:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_NAME:-claimx-downloads-cached}
-      consumer_group: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_CONSUMER_GROUP:-claimx-downloads-cached-pipeline}
+      consumer_groups:
+        upload_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-claimx-downloads-cached-pipeline}
     downloads_results:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_NAME:-claimx-downloads-results}
-      consumer_group: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_CONSUMER_GROUP:-claimx-downloads-results-pipeline}
+      consumer_groups:
+        result_processor: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-claimx-downloads-results-pipeline}
     retry:
       eventhub_name: ${EVENTHUB_CLAIMX_RETRY_NAME:-claimx-retry}
-      consumer_group: ${EVENTHUB_CLAIMX_RETRY_CONSUMER_GROUP:-claimx-retry-pipeline}
+      consumer_groups:
+        unified_retry_scheduler: ${EVENTHUB_CLAIMX_RETRY_CG_RETRY_SCHEDULER:-claimx-retry-pipeline}
     dlq:
       eventhub_name: ${EVENTHUB_CLAIMX_DLQ_NAME:-claimx-dlq}
-      consumer_group: ${EVENTHUB_CLAIMX_DLQ_CONSUMER_GROUP:-claimx-dlq-pipeline}
+      consumer_groups:
+        dlq_handler: ${EVENTHUB_CLAIMX_DLQ_CG_DLQ_HANDLER:-claimx-dlq-pipeline}
 
   # ---------------------------------------------------------------------------
   # Plugins Domain
@@ -292,28 +309,26 @@ eventhub:
   plugins:
     itel_cabinet_pending:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_PENDING_NAME:-pcesdopodappv1-itel-cabinet-pending}
-      consumer_group: ${EVENTHUB_ITEL_CABINET_PENDING_CONSUMER_GROUP:-itel-cabinet-pending-pipeline}
+      consumer_groups:
+        itel_cabinet_tracking_worker: ${EVENTHUB_ITEL_CABINET_PENDING_CG_TRACKING_WORKER:-itel-cabinet-pending-pipeline}
     itel_cabinet_completed:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_COMPLETED_NAME:-pcesdopodappv1-itel-cabinet-completed}
-      consumer_group: ${EVENTHUB_ITEL_CABINET_COMPLETED_CONSUMER_GROUP:-itel-cabinet-completed-pipeline}
+      consumer_groups:
+        itel_cabinet_api_worker: ${EVENTHUB_ITEL_CABINET_COMPLETED_CG_API_WORKER:-itel-cabinet-completed-pipeline}
     itel_cabinet_success:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_SUCCESS_NAME:-pcesdopodappv1-itel-cabinet-success}
-      consumer_group: ${EVENTHUB_ITEL_CABINET_SUCCESS_CONSUMER_GROUP:-itel-cabinet-success-pipeline}
     itel_cabinet_errors:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_ERRORS_NAME:-pcesdopodappv1-itel-cabinet-errors}
-      consumer_group: ${EVENTHUB_ITEL_CABINET_ERRORS_CONSUMER_GROUP:-itel-cabinet-errors-pipeline}
     itel_api_success:
       eventhub_name: ${EVENTHUB_ITEL_API_SUCCESS_NAME:-pcesdopodappv1-itel-api-success}
-      consumer_group: ${EVENTHUB_ITEL_API_SUCCESS_CONSUMER_GROUP:-itel-api-success-pipeline}
     itel_api_errors:
       eventhub_name: ${EVENTHUB_ITEL_API_ERRORS_NAME:-pcesdopodappv1-itel-api-errors}
-      consumer_group: ${EVENTHUB_ITEL_API_ERRORS_CONSUMER_GROUP:-itel-api-errors-pipeline}
     ghrn_mitigation_pending:
       eventhub_name: ${EVENTHUB_GHRN_MITIGATION_PENDING_NAME:-pcesdopodappv1-ghrn-mitigation-pending}
-      consumer_group: ${EVENTHUB_GHRN_MITIGATION_PENDING_CONSUMER_GROUP:-ghrn-mitigation-pending-pipeline}
+      consumer_groups:
+        mitigation_tracking_worker: ${EVENTHUB_GHRN_MITIGATION_PENDING_CG_TRACKING_WORKER:-ghrn-mitigation-pending-pipeline}
     ghrn_mitigation_completed:
       eventhub_name: ${EVENTHUB_GHRN_MITIGATION_COMPLETED_NAME:-pcesdopodappv1-ghrn-mitigation-completed}
-      consumer_group: ${EVENTHUB_GHRN_MITIGATION_COMPLETED_CONSUMER_GROUP:-ghrn-mitigation-completed-pipeline}
 
 # =============================================================================
 # LOGGING & MONITORING

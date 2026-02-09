@@ -132,7 +132,9 @@ class TestResolveEventHubConsumerGroup:
         mock_config = {
             "verisk": {
                 "events": {
-                    "consumer_group": "my-group",
+                    "consumer_groups": {
+                        "event_ingester": "my-group",
+                    },
                 }
             }
         }
