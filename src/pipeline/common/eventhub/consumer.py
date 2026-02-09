@@ -434,19 +434,55 @@ class EventHubConsumer:
             )
 
         async def on_error(partition_context, error):
-            """Called when error occurs during consumption."""
+            """Called when error occurs during consumption.
+
+            Note: This callback is invoked by the EventHub SDK when connection/transport
+            errors occur. ConnectError and SocketError typically indicate connection
+            timeouts due to blocked receive loops or network issues.
+            """
             partition_id = (
                 partition_context.partition_id if partition_context else "unknown"
             )
-            logger.error(
-                "Error in Event Hub consumption",
-                extra={
-                    "entity": self.eventhub_name,
-                    "consumer_group": self.consumer_group,
-                    "partition_id": partition_id,
-                },
-                exc_info=True,
-            )
+
+            # Extract error details for diagnostics
+            error_type = type(error).__name__
+            error_str = str(error)
+
+            # Enhanced logging for connection errors that may indicate blocked receive loop
+            is_connection_error = error_type in (
+                "ConnectError",
+                "ConnectionLostError",
+                "SocketError",
+            ) or "closing transport" in error_str.lower()
+
+            if is_connection_error:
+                logger.error(
+                    f"[DIAGNOSTIC] on_error called: partition={partition_id}, "
+                    f"error_type={error_type}, error={error_str}",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "partition_id": partition_id,
+                        "error_type": error_type,
+                        "error_category": "connection",
+                        "diagnostic_hint": (
+                            "Connection errors may indicate the receive loop is blocked "
+                            "by long-running message handlers, preventing SDK heartbeats. "
+                            "Ensure message handlers complete quickly (<5s)."
+                        ),
+                    },
+                )
+            else:
+                logger.error(
+                    "Error in Event Hub consumption",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "partition_id": partition_id,
+                        "error_type": error_type,
+                    },
+                    exc_info=True,
+                )
 
         # Start receiving events
         # This runs until stop() is called

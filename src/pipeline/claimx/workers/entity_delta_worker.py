@@ -107,6 +107,8 @@ class ClaimXEntityDeltaWorker:
         self._batch: list[EntityRowsMessage] = []
         self._batch_lock = asyncio.Lock()
         self._batch_timer: asyncio.Task | None = None
+        self._flush_in_progress = False
+        self._pending_flush_task: asyncio.Task | None = None
 
         # Metrics and cycle output tracking
         self._batches_written = 0
@@ -199,6 +201,12 @@ class ClaimXEntityDeltaWorker:
             self._batch_timer.cancel()
             self._batch_timer = None
 
+        # Wait for pending flush to complete
+        if self._pending_flush_task and not self._pending_flush_task.done():
+            logger.info("Waiting for pending flush to complete before shutdown")
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._pending_flush_task
+
         # Flush remaining batch
         await self._flush_batch()
 
@@ -221,6 +229,9 @@ class ClaimXEntityDeltaWorker:
     async def _handle_message(self, record: PipelineMessage) -> None:
         """
         Handle a single message (add to batch).
+
+        Note: This handler must return quickly to prevent blocking the EventHub
+        receive loop. When batch size is reached, we trigger a non-blocking flush.
         """
         self._records_processed += 1
 
@@ -235,9 +246,10 @@ class ClaimXEntityDeltaWorker:
                 if len(self._batch) >= self.batch_size:
                     should_flush = True
 
+            # Trigger non-blocking flush if batch size reached
+            # This prevents blocking the EventHub receive loop during long-running delta writes
             if should_flush:
-                await self._flush_batch()
-                self._reset_batch_timer()
+                self._trigger_flush()
 
         except Exception as e:
             log_worker_error(
@@ -251,8 +263,46 @@ class ClaimXEntityDeltaWorker:
             )
             self._records_failed += 1
 
+    def _trigger_flush(self) -> None:
+        """Trigger a non-blocking flush operation.
+
+        If a flush is already in progress, this is a no-op to prevent concurrent flushes.
+        Otherwise, creates a background task to flush the batch without blocking the caller.
+        """
+        if self._flush_in_progress:
+            logger.debug("Flush already in progress, skipping trigger")
+            return
+
+        # Cancel pending flush task if it exists (to prioritize immediate flush over timeout)
+        if self._pending_flush_task and not self._pending_flush_task.done():
+            self._pending_flush_task.cancel()
+
+        # Create background flush task
+        self._pending_flush_task = asyncio.create_task(self._flush_batch_wrapper())
+        logger.debug("Triggered non-blocking batch flush")
+
+    async def _flush_batch_wrapper(self) -> None:
+        """Wrapper for _flush_batch that manages flush state and prevents concurrent flushes."""
+        if self._flush_in_progress:
+            logger.debug("Another flush is already in progress, skipping")
+            return
+
+        self._flush_in_progress = True
+        try:
+            await self._flush_batch()
+            # Reset batch timer after successful flush
+            self._reset_batch_timer()
+        except Exception:
+            logger.error("Error in batch flush wrapper", exc_info=True)
+        finally:
+            self._flush_in_progress = False
+
     async def _flush_batch(self) -> None:
-        """Write accumulated batch to Delta Lake."""
+        """Write accumulated batch to Delta Lake.
+
+        Note: This method can take significant time (30-60+ seconds for large batches).
+        It should be called from a background task to avoid blocking the EventHub receive loop.
+        """
         batch_size = 0
         async with self._batch_lock:
             if not self._batch:
@@ -407,7 +457,11 @@ class ClaimXEntityDeltaWorker:
                 )
 
     async def _periodic_flush(self) -> None:
-        """Timer callback to periodically flush batch regardless of size."""
+        """Timer callback to periodically flush batch regardless of size.
+
+        Uses the same non-blocking flush mechanism to prevent concurrent flushes
+        and avoid blocking the EventHub receive loop.
+        """
         try:
             while True:
                 await asyncio.sleep(self.batch_timeout_seconds)
@@ -421,7 +475,7 @@ class ClaimXEntityDeltaWorker:
                             extra={"batch_size": len(self._batch)},
                         )
                 if should_flush:
-                    await self._flush_batch()
+                    self._trigger_flush()
         except asyncio.CancelledError:
             pass  # Expected on shutdown
 
