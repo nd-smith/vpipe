@@ -13,15 +13,28 @@ from typing import Any
 from pipeline.runners import claimx_runners, verisk_runners
 
 
+def _filter_kwargs(func, kwargs):
+    """Filter kwargs to only those accepted by func's signature."""
+    sig = inspect.signature(func)
+    has_var_keyword = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    if has_var_keyword:
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k in sig.parameters}
+
+
 async def _run_event_ingester_router(**kwargs):
     """Route to appropriate event ingester based on configuration.
 
     Uses local ingester if only local_kafka_config provided (dev mode),
     otherwise uses Event Hub ingester.
     """
-    if "local_kafka_config" in kwargs and "eventhub_config" not in kwargs:
-        return await verisk_runners.run_local_event_ingester(**kwargs)
-    return await verisk_runners.run_event_ingester(**kwargs)
+    if kwargs.get("eventhub_config") is None:
+        runner = verisk_runners.run_local_event_ingester
+    else:
+        runner = verisk_runners.run_event_ingester
+    return await runner(**_filter_kwargs(runner, kwargs))
 
 
 # Worker registry mapping worker names to their runner functions and config builders
@@ -182,5 +195,11 @@ async def run_worker_from_registry(
     # Run the worker, passing only kwargs that match the runner's signature
     runner = worker_def["runner"]
     sig = inspect.signature(runner)
-    filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+    has_var_keyword = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    if has_var_keyword:
+        filtered_kwargs = kwargs
+    else:
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
     await runner(**filtered_kwargs)

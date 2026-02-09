@@ -39,7 +39,7 @@ def _get_config_value(env_var: str, yaml_value: str, default: str = "") -> str:
         return value
 
     # Expand environment variables in yaml_value
-    # This handles cases like "events_table_path: ${CLAIMX_EVENTS_TABLE_PATH}"
+    # This handles cases like "events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE}"
     result = yaml_value or default
     if result:
         expanded = os.path.expandvars(result)
@@ -410,7 +410,7 @@ class ClaimXEventhouseSourceConfig:
             CLAIMX_POLL_INTERVAL_SECONDS: Poll interval (default: 30)
             CLAIMX_POLL_BATCH_SIZE: Max events per poll (default: 1000)
             CLAIMX_EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
-            CLAIMX_EVENTS_TABLE_PATH: Path to claimx_events Delta table
+            CLAIMX_DELTA_EVENTS_TABLE: Path to claimx_events Delta table
             CLAIMX_EVENTS_TOPIC: Event Hub topic (default: claimx_events)
         """
         # Use default config directory if not specified
@@ -470,7 +470,7 @@ class ClaimXEventhouseSourceConfig:
                 )
             ),
             claimx_events_table_path=_get_config_value(
-                "CLAIMX_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
+                "CLAIMX_DELTA_EVENTS_TABLE", poller_data.get("events_table_path", "")
             ),
             claimx_events_window_hours=int(
                 os.getenv(
@@ -602,7 +602,7 @@ class PipelineConfig:
             "claimx_eventhouse" in yaml_data
             or os.getenv("CLAIMX_EVENTHOUSE_CLUSTER_URL")
             or os.getenv("CLAIMX_EVENTHOUSE_DATABASE")
-            or os.getenv("CLAIMX_EVENTS_TABLE_PATH")
+            or os.getenv("CLAIMX_DELTA_EVENTS_TABLE")
         )
         if has_claimx_config:
             try:

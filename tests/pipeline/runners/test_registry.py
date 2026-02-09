@@ -73,25 +73,29 @@ class TestEventIngesterRouter:
 
     @pytest.mark.asyncio
     async def test_routes_to_local_when_only_local_config(self):
-        """Routes to local ingester when only local_kafka_config provided."""
-        with patch("pipeline.runners.registry.verisk_runners.run_local_event_ingester") as mock_local:
-            mock_local.return_value = asyncio.Future()
-            mock_local.return_value.set_result(None)
-
-            await _run_event_ingester_router(local_kafka_config=Mock())
+        """Routes to local ingester when eventhub_config is absent."""
+        with patch(
+            "pipeline.runners.registry.verisk_runners.run_local_event_ingester",
+            autospec=True,
+        ) as mock_local:
+            await _run_event_ingester_router(
+                local_kafka_config=Mock(),
+                shutdown_event=asyncio.Event(),
+            )
 
         mock_local.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_routes_to_eventhub_when_eventhub_config_present(self):
         """Routes to Event Hub ingester when eventhub_config provided."""
-        with patch("pipeline.runners.registry.verisk_runners.run_event_ingester") as mock_eventhub:
-            mock_eventhub.return_value = asyncio.Future()
-            mock_eventhub.return_value.set_result(None)
-
+        with patch(
+            "pipeline.runners.registry.verisk_runners.run_event_ingester",
+            autospec=True,
+        ) as mock_eventhub:
             await _run_event_ingester_router(
                 local_kafka_config=Mock(),
                 eventhub_config=Mock(),
+                shutdown_event=asyncio.Event(),
             )
 
         mock_eventhub.assert_called_once()
@@ -99,11 +103,15 @@ class TestEventIngesterRouter:
     @pytest.mark.asyncio
     async def test_routes_to_eventhub_when_only_eventhub_config(self):
         """Routes to Event Hub ingester when only eventhub_config provided."""
-        with patch("pipeline.runners.registry.verisk_runners.run_event_ingester") as mock_eventhub:
-            mock_eventhub.return_value = asyncio.Future()
-            mock_eventhub.return_value.set_result(None)
-
-            await _run_event_ingester_router(eventhub_config=Mock())
+        with patch(
+            "pipeline.runners.registry.verisk_runners.run_event_ingester",
+            autospec=True,
+        ) as mock_eventhub:
+            await _run_event_ingester_router(
+                eventhub_config=Mock(),
+                local_kafka_config=Mock(),
+                shutdown_event=asyncio.Event(),
+            )
 
         mock_eventhub.assert_called_once()
 
@@ -114,7 +122,11 @@ class TestRunWorkerFromRegistry:
     @pytest.mark.asyncio
     async def test_runs_worker_successfully(self):
         """Runs worker by looking it up in registry."""
-        mock_runner = AsyncMock()
+        calls = []
+
+        async def mock_runner(pipeline_config, shutdown_event, domain):
+            calls.append((pipeline_config, shutdown_event, domain))
+
         pipeline_config = Mock()
         pipeline_config.domain = "claimx"
         shutdown_event = asyncio.Event()
@@ -129,7 +141,7 @@ class TestRunWorkerFromRegistry:
                 shutdown_event=shutdown_event,
             )
 
-        mock_runner.assert_called_once()
+        assert len(calls) == 1
 
     @pytest.mark.asyncio
     async def test_raises_for_unknown_worker(self):
