@@ -262,6 +262,7 @@ class EventHubConsumer:
                 consumer_group=self.consumer_group,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
+                uamqp_transport=True,
                 # checkpoint_store=self.checkpoint_store,
                 **ssl_kwargs,
             )

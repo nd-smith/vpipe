@@ -147,6 +147,7 @@ class EventHubProducer:
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
+                uamqp_transport=True,
                 **ssl_kwargs,
             )
             logger.info("[DEBUG] Producer client object created successfully")
