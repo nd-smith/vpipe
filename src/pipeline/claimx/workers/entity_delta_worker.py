@@ -160,6 +160,7 @@ class ClaimXEntityDeltaWorker:
             worker_name="entity_delta_writer",
             topics=[self._entity_rows_topic],
             message_handler=self._handle_message,
+            topic_key="enriched",
         )
 
         # Initialize retry handler
