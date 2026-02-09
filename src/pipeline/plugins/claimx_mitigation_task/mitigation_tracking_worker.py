@@ -11,7 +11,7 @@ Configuration:
     config/plugins/claimx/claimx_mitigation_task/workers.yaml
 
 Environment Variables:
-    CLAIMX_API_BASE_URL: ClaimX API base URL
+    CLAIMX_API_URL: ClaimX API base URL
     CLAIMX_API_TOKEN: Bearer token for ClaimX API
     KAFKA_BOOTSTRAP_SERVERS: Kafka broker addresses (default: localhost:9094)
 """
