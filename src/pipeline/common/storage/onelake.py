@@ -10,6 +10,7 @@ import contextlib
 import logging
 import os
 import socket
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -26,6 +27,20 @@ from pipeline.common.auth import clear_token_cache, get_auth
 from pipeline.common.retry import RetryConfig, with_retry
 
 logger = logging.getLogger(__name__)
+
+# Thread-local storage to prevent recursion during auth operations
+_upload_context = threading.local()
+
+
+def _is_in_upload() -> bool:
+    """Check if we're currently in an upload operation (prevent recursion)."""
+    return getattr(_upload_context, "in_upload", False)
+
+
+def _set_in_upload(value: bool) -> None:
+    """Set the upload context flag."""
+    _upload_context.in_upload = value
+
 
 # Retry config for OneLake operations
 ONELAKE_RETRY_CONFIG = RetryConfig(
@@ -549,13 +564,24 @@ class OneLakeClient:
         data: bytes,
         overwrite: bool = True,
     ) -> str:
-        self._ensure_client()
+        # Prevent recursion during auth operations
+        if _is_in_upload():
+            import sys
 
-        full_path = self._full_path(relative_path)
-        directory, filename = self._split_path(full_path)
-        bytes_count = len(data)
+            print(
+                f"Warning: Skipping recursive upload attempt during auth: {relative_path}",
+                file=sys.stderr,
+            )
+            return f"{self.base_path}/{relative_path}"
 
+        _set_in_upload(True)
         try:
+            self._ensure_client()
+
+            full_path = self._full_path(relative_path)
+            directory, filename = self._split_path(full_path)
+            bytes_count = len(data)
+
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
             file_client.upload_data(data, overwrite=overwrite)
@@ -569,10 +595,8 @@ class OneLakeClient:
                 },
             )
             return result_path
-
-        except Exception as e:
-            self._handle_auth_error(e)
-            raise
+        finally:
+            _set_in_upload(False)
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def upload_bytes_with_idempotency(
@@ -621,27 +645,22 @@ class OneLakeClient:
         full_path = self._full_path(relative_path)
         directory, filename = self._split_path(full_path)
 
-        try:
-            dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
-            file_client = dir_client.get_file_client(filename)
+        dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
+        file_client = dir_client.get_file_client(filename)
 
-            download = file_client.download_file()
-            content = download.readall()
+        download = file_client.download_file()
+        content = download.readall()
 
-            bytes_count = len(content)
+        bytes_count = len(content)
 
-            logger.debug(
-                "Download complete",
-                extra={
-                    "blob_path": relative_path,
-                    "bytes_downloaded": bytes_count,
-                },
-            )
-            return content
-
-        except Exception as e:
-            self._handle_auth_error(e)
-            raise
+        logger.debug(
+            "Download complete",
+            extra={
+                "blob_path": relative_path,
+                "bytes_downloaded": bytes_count,
+            },
+        )
+        return content
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def upload_file(
@@ -650,14 +669,26 @@ class OneLakeClient:
         local_path: str,
         overwrite: bool = True,
     ) -> str:
-        self._ensure_client()
+        # Prevent recursion during auth operations (e.g., log upload during auth)
+        if _is_in_upload():
+            import sys
 
-        full_path = self._full_path(relative_path)
-        directory, filename = self._split_path(full_path)
+            print(
+                f"Warning: Skipping recursive upload attempt during auth: {relative_path}",
+                file=sys.stderr,
+            )
+            # Return a dummy path to avoid breaking callers
+            return f"{self.base_path}/{relative_path}"
 
-        file_size = os.path.getsize(local_path)
-
+        _set_in_upload(True)
         try:
+            self._ensure_client()
+
+            full_path = self._full_path(relative_path)
+            directory, filename = self._split_path(full_path)
+
+            file_size = os.path.getsize(local_path)
+
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
 
@@ -673,10 +704,8 @@ class OneLakeClient:
                 },
             )
             return result_path
-
-        except Exception as e:
-            self._handle_auth_error(e)
-            raise
+        finally:
+            _set_in_upload(False)
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
     def exists(self, relative_path: str) -> bool:
@@ -696,8 +725,6 @@ class OneLakeClient:
             if "404" in error_str or "not found" in error_str:
                 logger.debug("File does not exist", extra={"blob_path": relative_path})
                 return False
-
-            self._handle_auth_error(e)
             raise
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
@@ -718,8 +745,6 @@ class OneLakeClient:
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
                 return False
-
-            self._handle_auth_error(e)
             raise
 
     @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
@@ -753,7 +778,6 @@ class OneLakeClient:
             error_str = str(e).lower()
             if "404" in error_str or "not found" in error_str:
                 return None
-            self._handle_auth_error(e)
             raise
 
     def track_request(self, success: bool = True) -> None:
