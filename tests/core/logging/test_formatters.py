@@ -226,10 +226,10 @@ class TestJSONFormatter:
 
     def test_sanitizes_url_with_password_param(self):
         formatter = JSONFormatter()
-        url = "https://example.com/api?password=hunter2"
+        url = "https://example.com/api?password=DUMMY_VALUE"
         sanitized = formatter._sanitize_url(url)
 
-        assert "hunter2" not in sanitized
+        assert "DUMMY_VALUE" not in sanitized
         assert "password=[REDACTED]" in sanitized
 
     def test_sanitizes_url_case_insensitive(self):

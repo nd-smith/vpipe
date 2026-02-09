@@ -31,10 +31,10 @@ class TestMaskConnectionString:
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=RootManageSharedAccessKey;"
-            "SharedAccessKey=abc123xyz"
+            "SharedAccessKey=dGVzdEtleQ=="
         )
         result = mask_connection_string(conn)
-        assert "abc123xyz" not in result
+        assert "dGVzdEtleQ==" not in result
         assert "***MASKED***" in result
         assert "RootManageSharedAccessKey" in result
         assert "myhub.servicebus.windows.net" in result
@@ -75,12 +75,12 @@ class TestParseConnectionString:
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=RootPolicy;"
-            "SharedAccessKey=secret123"
+            "SharedAccessKey=dGVzdEtleQ=="
         )
         parts = parse_connection_string(conn)
         assert parts["Endpoint"] == "sb://myhub.servicebus.windows.net/"
         assert parts["SharedAccessKeyName"] == "RootPolicy"
-        assert parts["SharedAccessKey"] == "secret123"
+        assert parts["SharedAccessKey"] == "dGVzdEtleQ=="
 
     def test_empty_string_returns_empty_dict(self):
         assert parse_connection_string("") == {}
@@ -99,9 +99,9 @@ class TestParseConnectionString:
         assert parts["EntityPath"] == "myentity"
 
     def test_handles_value_with_equals_sign(self):
-        conn = "SharedAccessKey=abc=def=ghi"
+        conn = "SharedAccessKey=dGVz=dEtl=eQ=="
         parts = parse_connection_string(conn)
-        assert parts["SharedAccessKey"] == "abc=def=ghi"
+        assert parts["SharedAccessKey"] == "dGVz=dEtl=eQ=="
 
 
 # =============================================================================
