@@ -528,13 +528,11 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    # Use datetime-based position instead of offset "-1".
-                    # Offset "-1" uses AMQP offset filter which appears to not
-                    # deliver events in some SDK/service configurations.
-                    # Datetime filter uses a different AMQP mechanism that
-                    # reliably starts from the earliest available event.
-                    starting_position=datetime(2000, 1, 1, tzinfo=UTC),
-                    max_wait_time=5,  # Diagnostic: fire callback even with no events
+                    # DIAGNOSTIC: direct receive from partition 0 to bypass
+                    # event processor entirely and test raw AMQP receive
+                    starting_position="-1",
+                    max_wait_time=5,
+                    partition_id="0",
                 )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
