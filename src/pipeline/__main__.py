@@ -444,6 +444,33 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
         loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
 
 
+def _drain_pending_tasks(loop: asyncio.AbstractEventLoop, timeout: float = 15) -> None:
+    """Wait for pending asyncio tasks to finish, then force-cancel stragglers.
+
+    On Windows, KeyboardInterrupt leaves coroutines suspended (not cancelled).
+    This gives them time to complete graceful shutdown before the loop closes,
+    preventing 'Task was destroyed but it is pending!' warnings.
+    """
+
+    async def _drain(timeout: float) -> None:
+        current = asyncio.current_task()
+        remaining = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+        if not remaining:
+            return
+
+        done, pending = await asyncio.wait(remaining, timeout=timeout)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    try:
+        loop.run_until_complete(_drain(timeout))
+    except KeyboardInterrupt:
+        # Second Ctrl+C during drain — force cancel everything
+        pass
+
+
 def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
@@ -721,6 +748,7 @@ def main():
                 )
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
+        shutdown_event.set()
     except Exception as e:
         # Fatal error handling
         # Note: Workers with health servers handle their own error mode in
@@ -737,6 +765,9 @@ def main():
         loop.run_until_complete(asyncio.to_thread(upload_crash_logs, error_msg))
         loop.run_until_complete(shutdown_event.wait())
     finally:
+        # Let workers complete graceful shutdown (they respond to shutdown_event)
+        _drain_pending_tasks(loop)
+
         # Stop early health server
         print("[SHUTDOWN] Stopping early health server...", flush=True)
         loop.run_until_complete(early_health_server.stop())

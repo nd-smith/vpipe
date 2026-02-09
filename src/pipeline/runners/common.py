@@ -45,6 +45,7 @@ async def _start_with_retry(
     max_retries: int | None = None,
     backoff_base: int | None = None,
     use_constant_backoff: bool = False,
+    shutdown_event: asyncio.Event | None = None,
 ) -> None:
     """Retry an async start function with exponential backoff.
 
@@ -57,6 +58,7 @@ async def _start_with_retry(
         max_retries: Number of retry attempts (default: 5, env: STARTUP_MAX_RETRIES)
         backoff_base: Base seconds for backoff (default: 5, env: STARTUP_BACKOFF_SECONDS)
         use_constant_backoff: If True, use constant delays instead of linear (default: False)
+        shutdown_event: If set, skip retries during shutdown
     """
     max_retries = max_retries or int(
         os.getenv("STARTUP_MAX_RETRIES", str(DEFAULT_STARTUP_RETRIES))
@@ -70,6 +72,9 @@ async def _start_with_retry(
             await start_fn()
             return
         except Exception as e:
+            if shutdown_event and shutdown_event.is_set():
+                logger.info(f"Shutdown in progress, not retrying {label}")
+                raise
             if attempt == max_retries:
                 logger.error(
                     f"Failed to start {label} after {max_retries} attempts, giving up",
@@ -162,20 +167,29 @@ async def execute_worker_with_shutdown(
     set_log_context(**context)
     logger.info("Starting %s%s...", stage_name, logger_suffix)
 
+    worker_stopped = False
+
     async def shutdown_watcher():
+        nonlocal worker_stopped
         await shutdown_event.wait()
         logger.info(
             f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
         )
         await worker_instance.stop()
+        worker_stopped = True
 
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
-        await _start_with_retry(worker_instance.start, stage_name)
+        await _start_with_retry(
+            worker_instance.start, stage_name, shutdown_event=shutdown_event
+        )
     except Exception as e:
-        # If worker has health server, enter error mode to keep it alive
-        if hasattr(worker_instance, "health_server"):
+        # Don't enter error mode if we're shutting down — just let cleanup happen
+        if (
+            hasattr(worker_instance, "health_server")
+            and not shutdown_event.is_set()
+        ):
             await _cleanup_watcher_task(watcher_task)
             await _enter_worker_error_mode(
                 worker_instance.health_server,
@@ -183,14 +197,16 @@ async def execute_worker_with_shutdown(
                 f"Fatal error: {e}",
                 shutdown_event,
             )
-            # After shutdown signal, stop worker normally
-            await worker_instance.stop()
-        else:
+            if not worker_stopped:
+                await worker_instance.stop()
+                worker_stopped = True
+        elif not shutdown_event.is_set():
             # No health server - re-raise for top-level error mode
             raise
     finally:
         await _cleanup_watcher_task(watcher_task)
-        await worker_instance.stop()
+        if not worker_stopped:
+            await worker_instance.stop()
 
 
 async def execute_worker_with_producer(
@@ -254,7 +270,9 @@ async def execute_worker_with_producer(
         worker_name=producer_worker_name,
         topic_key="retry",
     )
-    await _start_with_retry(producer.start, f"{stage_name}-producer")
+    await _start_with_retry(
+        producer.start, f"{stage_name}-producer", shutdown_event=shutdown_event
+    )
 
     worker = worker_class(
         config=kafka_config,
@@ -263,20 +281,29 @@ async def execute_worker_with_producer(
         **worker_kwargs,
     )
 
+    worker_stopped = False
+
     async def shutdown_watcher():
+        nonlocal worker_stopped
         await shutdown_event.wait()
         logger.info(
             f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
         )
         await worker.stop()
+        await producer.stop()
+        worker_stopped = True
 
     watcher_task = asyncio.create_task(shutdown_watcher())
 
     try:
-        await _start_with_retry(worker.start, stage_name)
+        await _start_with_retry(
+            worker.start, stage_name, shutdown_event=shutdown_event
+        )
     except Exception as e:
-        # If worker has health server, enter error mode to keep it alive
-        if hasattr(worker, "health_server"):
+        if (
+            hasattr(worker, "health_server")
+            and not shutdown_event.is_set()
+        ):
             await _cleanup_watcher_task(watcher_task)
             await _enter_worker_error_mode(
                 worker.health_server,
@@ -284,16 +311,18 @@ async def execute_worker_with_producer(
                 f"Fatal error: {e}",
                 shutdown_event,
             )
-            # After shutdown signal, stop worker and producer normally
-            await worker.stop()
-            await producer.stop()
-        else:
+            if not worker_stopped:
+                await worker.stop()
+                await producer.stop()
+                worker_stopped = True
+        elif not shutdown_event.is_set():
             # No health server - re-raise for top-level error mode
             raise
     finally:
         await _cleanup_watcher_task(watcher_task)
-        await worker.stop()
-        await producer.stop()
+        if not worker_stopped:
+            await worker.stop()
+            await producer.stop()
 
 
 async def execute_poller_with_shutdown(
@@ -342,10 +371,13 @@ async def execute_poller_with_shutdown(
                 max_retries=poller_max_retries,
                 backoff_base=poller_backoff,
                 use_constant_backoff=True,
+                shutdown_event=shutdown_event,
             )
         except Exception as e:
-            # If poller has health server, enter error mode to keep it alive
-            if hasattr(poller, "health_server"):
+            if (
+                hasattr(poller, "health_server")
+                and not shutdown_event.is_set()
+            ):
                 await _cleanup_watcher_task(watcher_task)
                 await _enter_worker_error_mode(
                     poller.health_server,
@@ -354,7 +386,7 @@ async def execute_poller_with_shutdown(
                     shutdown_event,
                 )
                 # After shutdown signal, context manager will handle cleanup
-            else:
+            elif not shutdown_event.is_set():
                 # No health server - re-raise for top-level error mode
                 raise
         finally:
