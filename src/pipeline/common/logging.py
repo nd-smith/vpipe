@@ -12,7 +12,7 @@ For core logging functions, import directly from core.logging:
 import asyncio
 import functools
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
 from core.logging import get_logger, log_exception
 
@@ -82,7 +82,10 @@ def extract_log_context(obj: Any) -> dict[str, Any]:
     return ctx
 
 
-def with_api_error_handling[F: Callable[..., Any]](func: F) -> F:
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def with_api_error_handling(func: F) -> F:
     """
     Decorator for API error handling with logging.
 

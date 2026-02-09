@@ -97,6 +97,21 @@ markers = [
     "extended: Extended tests that may take hours (e.g., 4-hour sustained load tests)",
 ]
 
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/pipeline/common/dummy/*",
+    "src/pipeline/__main__.py",
+    "src/scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
 [tool.ruff]
 # Ruff linter configuration (optional but recommended)
 line-length = 100
