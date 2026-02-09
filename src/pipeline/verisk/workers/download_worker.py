@@ -45,6 +45,7 @@ from pipeline.common.metrics import (
     record_processing_error,
     update_assigned_partitions,
     update_connection_status,
+    update_disk_usage,
 )
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_batch_consumer, create_producer
@@ -125,10 +126,10 @@ class DownloadWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        self.temp_dir = temp_dir or Path(tempfile.gettempdir()) / "download_worker"
+        self.temp_dir = (temp_dir or Path(tempfile.gettempdir()) / "pipeline_temp") / domain
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
-        self.cache_dir = Path(config.cache_dir)
+        self.cache_dir = Path(config.cache_dir) / domain
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Only consume from pending topic
@@ -835,6 +836,9 @@ class DownloadWorker:
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
         """Get cycle statistics for periodic logging."""
+        update_disk_usage(str(self.temp_dir))
+        update_disk_usage(str(self.cache_dir))
+
         msg = format_cycle_output(
             cycle_count=cycle_count,
             succeeded=self._records_succeeded,

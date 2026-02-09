@@ -102,8 +102,8 @@ class TestDownloadWorkerInitialization:
             assert worker.worker_id == "download_worker"
             assert worker.instance_id is None
             assert worker._running is False
-            assert worker.temp_dir == tmp_path
-            assert worker.cache_dir == Path("/tmp/cache")
+            assert worker.temp_dir == tmp_path / "verisk"
+            assert worker.cache_dir == Path("/tmp/cache/verisk")
 
     def test_initialization_with_custom_domain(self, mock_config, tmp_path):
         """Worker initializes with custom domain."""

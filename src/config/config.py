@@ -50,6 +50,7 @@ class StorageConfig(TypedDict, total=False):
     onelake_base_path: str
     onelake_domain_paths: dict[str, str]
     cache_dir: str
+    temp_dir: str
 
 
 class FileLoggingConfig(TypedDict, total=False):
@@ -148,6 +149,9 @@ class MessageConfig:
     cache_dir: str = field(
         default_factory=lambda: str(Path(tempfile.gettempdir()) / "pipeline_cache")
     )
+    temp_dir: str = field(
+        default_factory=lambda: str(Path(tempfile.gettempdir()) / "pipeline_temp")
+    )
 
     # =========================================================================
     # CLAIMX API CONFIGURATION
@@ -241,6 +245,7 @@ class MessageConfig:
             onelake_base_path=self.onelake_base_path,
             onelake_domain_paths=self.onelake_domain_paths,
             cache_dir=self.cache_dir,
+            temp_dir=self.temp_dir,
         )
 
     def validate(self) -> None:
@@ -416,6 +421,8 @@ def load_config(
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
         cache_dir=storage.get("cache_dir")
         or str(Path(tempfile.gettempdir()) / "pipeline_cache"),
+        temp_dir=storage.get("temp_dir")
+        or str(Path(tempfile.gettempdir()) / "pipeline_temp"),
         claimx_api_url=get_config_value(
             "CLAIMX_API_URL", claimx_api.get("base_url", "")
         ),

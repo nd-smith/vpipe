@@ -11,6 +11,7 @@ Contains all runner functions for XACT pipeline workers:
 
 import asyncio
 import logging
+from pathlib import Path
 
 from pipeline.runners.common import (
     execute_poller_with_shutdown,
@@ -260,7 +261,10 @@ async def run_download_worker(
     from pipeline.verisk.workers.download_worker import DownloadWorker
 
     worker = DownloadWorker(
-        config=kafka_config, domain="verisk", instance_id=instance_id
+        config=kafka_config,
+        domain="verisk",
+        temp_dir=Path(kafka_config.temp_dir),
+        instance_id=instance_id,
     )
     await execute_worker_with_shutdown(
         worker,

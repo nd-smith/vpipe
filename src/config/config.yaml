@@ -44,6 +44,7 @@ pipeline:
       verisk: ""
       claimx: ""
     cache_dir: ${CACHE_DIR:-/tmp/pipeline_cache}
+    temp_dir: ${TEMP_DIR:-/tmp/pipeline_temp}
 
 # =============================================================================
 # EVENTHOUSE - VERISK DOMAIN
