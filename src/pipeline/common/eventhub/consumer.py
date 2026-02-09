@@ -250,12 +250,19 @@ class EventHubConsumer:
             # Namespace connection string + eventhub_name parameter
             # Pass checkpoint_store if provided for durable offset persistence
             logger.info("[DEBUG] Calling EventHubConsumerClient.from_connection_string...")
+            # DIAGNOSTIC: bypass checkpoint store to test if it's causing
+            # the event processor to not start partition receivers
+            logger.info(
+                f"[DIAGNOSTIC] checkpoint_store type: "
+                f"{type(self.checkpoint_store).__name__ if self.checkpoint_store else 'None'} "
+                f"— BYPASSING for diagnostic (using in-memory)"
+            )
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
                 consumer_group=self.consumer_group,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
-                checkpoint_store=self.checkpoint_store,
+                # checkpoint_store=self.checkpoint_store,
                 **ssl_kwargs,
             )
             logger.info("[DEBUG] Consumer client object created successfully")
