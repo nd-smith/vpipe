@@ -593,6 +593,11 @@ def main():
         print("[STARTUP] EventHub logging: DISABLED")
 
     # Create event loop early so we can start health server immediately
+    # Use SelectorEventLoop on Windows — the pure-Python AMQP transport
+    # in azure-eventhub 5.x hangs on IocpProactor (receive callbacks never fire)
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        print("[STARTUP] Using WindowsSelectorEventLoopPolicy (AMQP compatibility)", flush=True)
     print("[STARTUP] Creating event loop...", flush=True)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
