@@ -23,7 +23,6 @@ aiohttp>=3.9.2,<4.0.0
 # Azure Event Hub (AMQP transport is default, Kafka protocol still supported)
 azure-eventhub>=5.15.1,<6.0.0
 azure-eventhub-checkpointstoreblob-aio>=1.1.0,<2.0.0  # Durable checkpoint persistence
-uamqp>=1.6.0,<2.0.0  # C-based AMQP transport (pure-python pyamqp has receive bugs)
 websocket-client>=1.7.0,<2.0.0  # Required for AMQP over WebSocket transport
 aiokafka>=0.8.0,<1.0.0  # Kafka protocol support (still used in transport layer)
 
