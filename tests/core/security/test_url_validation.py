@@ -226,7 +226,7 @@ class TestValidateDownloadUrlLocalhost:
 
     @patch.dict(os.environ, {}, clear=True)
     def test_rejects_credential_injection_on_localhost(self):
-        url = "http://admin:secret@localhost:8080/file"
+        url = "http://user:PLACEHOLDER@localhost:8080/file"
         with pytest.raises(URLValidationError, match="Credential injection"):
             validate_download_url(url, allow_localhost=True)
 
@@ -603,10 +603,10 @@ class TestSanitizeErrorMessage:
         assert result.endswith("...")
 
     def test_redacts_password_in_message(self):
-        msg = "Connection string: password=s3cret"
+        msg = "Connection string: password=DUMMY_VALUE"
         result = sanitize_error_message(msg)
         assert "password=[REDACTED]" in result
-        assert "s3cret" not in result
+        assert "DUMMY_VALUE" not in result
 
     def test_redacts_secret_in_message(self):
         msg = "Config error: secret=myvalue"

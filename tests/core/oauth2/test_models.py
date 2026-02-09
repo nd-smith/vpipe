@@ -112,13 +112,13 @@ class TestOAuth2Config:
         config = OAuth2Config(
             provider_name="test_provider",
             client_id="client_123",
-            client_secret="secret_456",
+            client_secret="test-dummy-placeholder",
             token_url="https://auth.example.com/token",
         )
 
         assert config.provider_name == "test_provider"
         assert config.client_id == "client_123"
-        assert config.client_secret == "secret_456"
+        assert config.client_secret == "test-dummy-placeholder"
         assert config.token_url == "https://auth.example.com/token"
 
     def test_scope_as_string(self):
