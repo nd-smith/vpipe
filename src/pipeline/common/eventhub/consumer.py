@@ -368,6 +368,15 @@ class EventHubConsumer:
             if not self._running:
                 return
 
+            # max_wait_time causes callback with event=None when no events arrive
+            if event is None:
+                partition_id = partition_context.partition_id
+                logger.debug(
+                    f"[DIAGNOSTIC] No events received on partition {partition_id} "
+                    f"within max_wait_time"
+                )
+                return
+
             # Store partition context for checkpointing
             partition_id = partition_context.partition_id
             self._current_partition_context[partition_id] = partition_context
@@ -415,6 +424,20 @@ class EventHubConsumer:
                     "partition_id": partition_id,
                 },
             )
+
+            # Diagnostic: query partition properties to verify events exist
+            try:
+                props = await self._consumer.get_partition_properties(partition_id)
+                logger.info(
+                    f"[DIAGNOSTIC] Partition {partition_id} properties: "
+                    f"begin_seq={props.get('beginning_sequence_number')}, "
+                    f"last_seq={props.get('last_enqueued_sequence_number')}, "
+                    f"last_offset={props.get('last_enqueued_offset')}, "
+                    f"is_empty={props.get('is_empty')}"
+                )
+            except Exception as e:
+                logger.warning(f"[DIAGNOSTIC] Failed to get partition {partition_id} properties: {e}")
+
             # Update metrics
             current_count = len(self._current_partition_context)
             update_assigned_partitions(self.consumer_group, current_count + 1)
@@ -499,6 +522,7 @@ class EventHubConsumer:
                     on_partition_close=on_partition_close,
                     on_error=on_error,
                     starting_position="-1",  # Start from beginning (like earliest)
+                    max_wait_time=5,  # Diagnostic: fire callback even with no events
                 )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
