@@ -207,11 +207,9 @@ class KQLClient:
             has_spn = client_id and client_secret and tenant_id
 
             print(f"[EVENTHOUSE CONNECTION] Authentication environment:")
-            print(f"[EVENTHOUSE CONNECTION]   - AZURE_TOKEN_FILE: {token_file if token_file else 'Not set'}")
-            print(f"[EVENTHOUSE CONNECTION]   - SPN credentials available: {has_spn}")
+            print(f"[EVENTHOUSE CONNECTION]   - AZURE_TOKEN_FILE: {'Set' if token_file else 'Not set'}")
             if has_spn:
-                print(f"[EVENTHOUSE CONNECTION]   - AZURE_CLIENT_ID: {client_id[:8]}...")
-                print(f"[EVENTHOUSE CONNECTION]   - AZURE_TENANT_ID: {tenant_id}")
+                print(f"[EVENTHOUSE CONNECTION]   - SPN credentials: Available")
                 print(f"[EVENTHOUSE CONNECTION]   - AZURE_CLIENT_SECRET: {'Set (' + str(len(client_secret)) + ' chars)' if client_secret else 'Not set'}")
 
             auth_mode = "default"
@@ -222,8 +220,6 @@ class KQLClient:
                 print("\n[EVENTHOUSE CONNECTION] Using Service Principal (SPN) authentication")
                 print(f"[EVENTHOUSE CONNECTION] Building connection string for: {self.config.cluster_url}")
                 print(f"[EVENTHOUSE CONNECTION]   - Method: AAD Application Key Authentication")
-                print(f"[EVENTHOUSE CONNECTION]   - Client ID: {client_id[:8]}...")
-                print(f"[EVENTHOUSE CONNECTION]   - Tenant ID: {tenant_id}")
                 kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
                     self.config.cluster_url,
                     client_id,
@@ -234,12 +230,10 @@ class KQLClient:
                 print("[EVENTHOUSE CONNECTION] SPN connection string builder created successfully")
                 logger.info(
                     "Using SPN credentials for Eventhouse authentication",
-                    extra={"client_id": client_id[:8] + "..."},
                 )
             # Use token file only if SPN is not available
             elif token_file:
                 print(f"\n[EVENTHOUSE CONNECTION] Using token file authentication")
-                print(f"[EVENTHOUSE CONNECTION] Token file path: {token_file}")
                 token_path = Path(token_file)
                 if token_path.exists():
                     print("[EVENTHOUSE CONNECTION] Token file exists, reading credentials...")
@@ -257,7 +251,6 @@ class KQLClient:
                         print("[EVENTHOUSE CONNECTION] Token file connection string builder created successfully")
                         logger.info(
                             "Using token file for Eventhouse authentication via unified auth",
-                            extra={"token_file": token_file},
                         )
                     except Exception as e:
                         print(f"[EVENTHOUSE CONNECTION] ERROR: Token file auth failed - {e}")
@@ -267,7 +260,7 @@ class KQLClient:
                             extra={"error": str(e)[:200]},
                         )
                 else:
-                    print(f"[EVENTHOUSE CONNECTION] WARNING: Token file does not exist: {token_file}")
+                    print(f"[EVENTHOUSE CONNECTION] WARNING: Token file does not exist")
                     print(f"[EVENTHOUSE CONNECTION] Falling back to DefaultAzureCredential...")
 
             # Fall back to DefaultAzureCredential
