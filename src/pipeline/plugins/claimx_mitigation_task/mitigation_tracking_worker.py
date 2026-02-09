@@ -1,19 +1,22 @@
 """
 ClaimX Mitigation Task Tracking Worker
 
-Consumes mitigation task completion events from Kafka, enriches them with ClaimX data,
-and publishes to success topic. Simple, explicit flow.
+Consumes mitigation task completion events via transport layer (Event Hub or Kafka),
+enriches them with ClaimX data, and publishes to success topic. Simple, explicit flow.
 
 Usage:
     python -m pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker
 
 Configuration:
     config/plugins/claimx/claimx_mitigation_task/workers.yaml
+    config/config.yaml (eventhub.plugins section)
 
 Environment Variables:
     CLAIMX_API_URL: ClaimX API base URL
     CLAIMX_API_TOKEN: Bearer token for ClaimX API
-    KAFKA_BOOTSTRAP_SERVERS: Kafka broker addresses (default: localhost:9094)
+    PIPELINE_TRANSPORT: Transport type (eventhub or kafka, default: eventhub)
+    EVENTHUB_NAMESPACE_CONNECTION_STRING: Event Hub namespace connection string
+    KAFKA_BOOTSTRAP_SERVERS: Kafka broker addresses (only used if PIPELINE_TRANSPORT=kafka)
 """
 
 import asyncio
@@ -24,12 +27,11 @@ import sys
 from pathlib import Path
 
 import yaml
-from aiokafka import AIOKafkaProducer
 from dotenv import load_dotenv
 
 from config.config import MessageConfig
 from core.logging import log_worker_startup, setup_logging
-from pipeline.common.transport import create_consumer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.connections import (
     AuthType,
@@ -152,6 +154,7 @@ class MitigationTrackingWorker:
             topics=[self.kafka_config["input_topic"]],
             message_handler=self._handle_message,
             enable_message_commit=True,
+            topic_key="ghrn_mitigation_pending",
         )
 
         await self.consumer.start()
@@ -322,10 +325,14 @@ async def main():
     for conn in connections_list:
         connection_manager.add_connection(conn)
 
-    # Setup Kafka producer
-    producer = AIOKafkaProducer(
-        bootstrap_servers=kafka_servers,
-        value_serializer=lambda v: v,  # Already serialized in pipeline
+    # Setup producer via transport layer (supports both Kafka and Event Hub)
+    # Create minimal MessageConfig for transport layer
+    config = MessageConfig(bootstrap_servers=kafka_servers)
+    producer = create_producer(
+        config=config,
+        domain="plugins",
+        worker_name="mitigation_tracking_worker",
+        topic_key="ghrn_mitigation_completed",
     )
     await producer.start()
 
