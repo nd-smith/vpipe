@@ -507,7 +507,7 @@ def setup_logging(
     # Suppress noisy loggers
     if suppress_noisy:
         for logger_name in NOISY_LOGGERS:
-            logging.getLogger(logger_name).setLevel(logging.WARNING)
+            logging.getLogger(logger_name).setLevel(logging.ERROR)
 
     logger = logging.getLogger(name)
     if log_to_stdout:
@@ -692,7 +692,7 @@ def setup_multi_worker_logging(
     # Suppress noisy loggers
     if suppress_noisy:
         for logger_name in NOISY_LOGGERS:
-            logging.getLogger(logger_name).setLevel(logging.WARNING)
+            logging.getLogger(logger_name).setLevel(logging.ERROR)
 
     logger = logging.getLogger("pipeline")
     logger.debug(
