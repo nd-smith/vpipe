@@ -88,7 +88,7 @@ async def resolve_claimx_project_id(
 class Domain(str, Enum):
     """Pipeline domains."""
 
-    XACT = "xact"
+    VERISK = "verisk"
     CLAIMX = "claimx"
 
 

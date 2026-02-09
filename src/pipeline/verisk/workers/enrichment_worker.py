@@ -45,7 +45,7 @@ from pipeline.plugins.shared.registry import (
     PluginOrchestrator,
     PluginRegistry,
 )
-from pipeline.verisk.retry import DownloadRetryHandler
+from pipeline.verisk.retry import RetryHandler
 from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
@@ -114,7 +114,7 @@ class XACTEnrichmentWorker:
 
         self.producer = None
         self.consumer = None
-        self.retry_handler: DownloadRetryHandler | None = None
+        self.retry_handler: RetryHandler | None = None
 
         self.plugin_registry = PluginRegistry()
         self.plugin_orchestrator: PluginOrchestrator | None = None
@@ -249,7 +249,7 @@ class XACTEnrichmentWorker:
                 extra={"plugin_name": plugin.name},
             )
 
-        self.retry_handler = DownloadRetryHandler(
+        self.retry_handler = RetryHandler(
             config=self.consumer_config,
         )
         await self.retry_handler.start()
@@ -346,7 +346,7 @@ class XACTEnrichmentWorker:
             # Execute plugins at ENRICHMENT_COMPLETE stage
             if self.plugin_orchestrator:
                 plugin_context = PluginContext(
-                    domain=Domain.XACT,
+                    domain=Domain.VERISK,
                     stage=PipelineStage.ENRICHMENT_COMPLETE,
                     message=task,
                     event_id=task.event_id,

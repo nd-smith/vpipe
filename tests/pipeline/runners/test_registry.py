@@ -157,19 +157,6 @@ class TestRunWorkerFromRegistry:
             )
 
     @pytest.mark.asyncio
-    async def test_raises_for_deprecated_worker(self):
-        """Raises ValueError for deprecated worker."""
-        pipeline_config = Mock()
-        shutdown_event = asyncio.Event()
-
-        with pytest.raises(ValueError, match="has been removed"):
-            await run_worker_from_registry(
-                worker_name="dummy-source",
-                pipeline_config=pipeline_config,
-                shutdown_event=shutdown_event,
-            )
-
-    @pytest.mark.asyncio
     async def test_validates_eventhouse_requirement(self):
         """Validates eventhouse requirement when specified."""
         from config.pipeline_config import EventSourceType

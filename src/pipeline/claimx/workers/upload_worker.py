@@ -102,8 +102,7 @@ class ClaimXUploadWorker:
             raise ValueError(
                 "OneLake path configuration required. Set either:\n"
                 "  - onelake_domain_paths in config.yaml (preferred), or\n"
-                "  - ONELAKE_CLAIMX_PATH env var, or\n"
-                "  - ONELAKE_BASE_PATH env var (fallback for all domains)"
+                "  - ONELAKE_CLAIMX_PATH env var"
             )
 
         # Get worker-specific processing config

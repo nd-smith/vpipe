@@ -127,8 +127,7 @@ class UploadWorker:
             raise ValueError(
                 "OneLake path configuration required. Set either:\n"
                 "  - onelake_domain_paths in config.yaml (preferred), or\n"
-                "  - ONELAKE_XACT_PATH / ONELAKE_CLAIMX_PATH env vars, or\n"
-                "  - ONELAKE_BASE_PATH env var (fallback for all domains)"
+                "  - ONELAKE_XACT_PATH / ONELAKE_CLAIMX_PATH env vars"
             )
 
         # Get worker-specific processing config

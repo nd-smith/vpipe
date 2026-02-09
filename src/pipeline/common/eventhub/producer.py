@@ -60,19 +60,6 @@ class EventHubRecordMetadata:
             offset=offset,
         )
 
-    # Expose ProduceResult fields for backward compatibility
-    @property
-    def topic(self) -> str:
-        return self._result.topic
-
-    @property
-    def partition(self) -> int:
-        return self._result.partition
-
-    @property
-    def offset(self) -> int:
-        return self._result.offset
-
     def to_produce_result(self) -> ProduceResult:
         """Get the underlying ProduceResult for code that accepts it directly."""
         return self._result

@@ -55,7 +55,7 @@ class ExampleXACTTaskPlugin(Plugin):
 
     name = "example_xact_task_plugin"
     description = "Example: Create ClaimX task from XACT event"
-    domains = [Domain.XACT]
+    domains = [Domain.VERISK]
     stages = [PipelineStage.UPLOAD_COMPLETE]
 
     async def execute(self, context: PluginContext) -> PluginResult:
@@ -90,7 +90,7 @@ class ExampleConditionalTaskPlugin(Plugin):
 
     name = "example_conditional_task_plugin"
     description = "Example: Conditional task creation with logging"
-    domains = [Domain.CLAIMX, Domain.XACT]
+    domains = [Domain.CLAIMX, Domain.VERISK]
 
     async def execute(self, context: PluginContext) -> PluginResult:
         """Create task only under certain conditions."""

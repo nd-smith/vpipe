@@ -36,9 +36,7 @@ from azure.eventhub.aio import EventHubConsumerClient
 
 def _get_connection_string() -> str:
     """Get namespace connection string, stripping EntityPath if present."""
-    conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING") or os.getenv(
-        "EVENTHUB_CONNECTION_STRING"
-    )
+    conn = os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING")
     if not conn:
         return ""
     # Strip EntityPath (we pass eventhub_name separately)

@@ -97,7 +97,7 @@ class DeltaEventsWorker:
                     Also provides delta_events_batch_size and delta_events_max_batches.
             producer: Message producer for retry topic routing (required).
             events_table_path: Full abfss:// path to xact_events Delta table
-            domain: Domain identifier (default: "xact")
+            domain: Domain identifier (default: "verisk")
         """
         self.config = config
         self.domain = domain

@@ -279,10 +279,6 @@ async def main():
     # Load environment variables from .env file before any config access
     load_dotenv(PROJECT_ROOT / ".env")
 
-    # Backward compat: bridge legacy CLAIMX_API_BASE_PATH → CLAIMX_API_URL
-    if not os.environ.get("CLAIMX_API_URL") and os.environ.get("CLAIMX_API_BASE_PATH"):
-        os.environ["CLAIMX_API_URL"] = os.environ["CLAIMX_API_BASE_PATH"]
-
     # Setup logging
     setup_logging(
         name="mitigation_tracking",

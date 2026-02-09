@@ -107,36 +107,6 @@ class EventHubConsumerRecord:
             headers=headers if headers else None,
         )
 
-    # Expose PipelineMessage fields for backward compatibility
-    # This allows existing code using .topic, .partition, etc. to continue working
-    @property
-    def topic(self) -> str:
-        return self._message.topic
-
-    @property
-    def partition(self) -> int:
-        return self._message.partition
-
-    @property
-    def offset(self) -> int:
-        return self._message.offset
-
-    @property
-    def timestamp(self) -> int:
-        return self._message.timestamp
-
-    @property
-    def key(self) -> bytes | None:
-        return self._message.key
-
-    @property
-    def value(self) -> bytes | None:
-        return self._message.value
-
-    @property
-    def headers(self) -> list[tuple[str, bytes]] | None:
-        return self._message.headers
-
     def to_pipeline_message(self) -> PipelineMessage:
         """Get the underlying PipelineMessage for handlers that accept it directly."""
         return self._message
@@ -543,12 +513,12 @@ class EventHubConsumer:
         """Build mapping from source topic names to DLQ entity names.
 
         Maps:
-        - xact topics (verisk_events) -> xact-dlq
+        - verisk topics (verisk_events) -> verisk-dlq
         - claimx topics (claimx_events) -> claimx-dlq
         """
         return {
             # Verisk domain
-            "verisk_events": "xact-dlq",
+            "verisk_events": "verisk-dlq",
             # ClaimX domain
             "claimx_events": "claimx-dlq",
         }
