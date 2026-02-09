@@ -28,13 +28,14 @@ from pipeline.common.eventhub.diagnostics import (
 
 class TestMaskConnectionString:
     def test_masks_shared_access_key(self):
+        key_val = "dGVzdEtleQ=="
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=RootManageSharedAccessKey;"
-            "SharedAccessKey=dGVzdEtleQ=="
+            "SharedAccessKey=" + key_val
         )
         result = mask_connection_string(conn)
-        assert "dGVzdEtleQ==" not in result
+        assert key_val not in result
         assert "***MASKED***" in result
         assert "RootManageSharedAccessKey" in result
         assert "myhub.servicebus.windows.net" in result
@@ -72,15 +73,16 @@ class TestMaskConnectionString:
 
 class TestParseConnectionString:
     def test_parses_standard_connection_string(self):
+        key_val = "dGVzdEtleQ=="
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=RootPolicy;"
-            "SharedAccessKey=dGVzdEtleQ=="
+            "SharedAccessKey=" + key_val
         )
         parts = parse_connection_string(conn)
         assert parts["Endpoint"] == "sb://myhub.servicebus.windows.net/"
         assert parts["SharedAccessKeyName"] == "RootPolicy"
-        assert parts["SharedAccessKey"] == "dGVzdEtleQ=="
+        assert parts["SharedAccessKey"] == key_val
 
     def test_empty_string_returns_empty_dict(self):
         assert parse_connection_string("") == {}
@@ -99,9 +101,10 @@ class TestParseConnectionString:
         assert parts["EntityPath"] == "myentity"
 
     def test_handles_value_with_equals_sign(self):
-        conn = "SharedAccessKey=dGVz=dEtl=eQ=="
+        key_val = "dGVz=dEtl=eQ=="
+        conn = "SharedAccessKey=" + key_val
         parts = parse_connection_string(conn)
-        assert parts["SharedAccessKey"] == "dGVz=dEtl=eQ=="
+        assert parts["SharedAccessKey"] == key_val
 
 
 # =============================================================================

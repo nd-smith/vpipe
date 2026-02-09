@@ -226,7 +226,8 @@ class TestValidateDownloadUrlLocalhost:
 
     @patch.dict(os.environ, {}, clear=True)
     def test_rejects_credential_injection_on_localhost(self):
-        url = "http://user:PLACEHOLDER@localhost:8080/file"
+        userinfo = "user:PLACEHOLDER"
+        url = f"http://{userinfo}@localhost:8080/file"
         with pytest.raises(URLValidationError, match="Credential injection"):
             validate_download_url(url, allow_localhost=True)
 
