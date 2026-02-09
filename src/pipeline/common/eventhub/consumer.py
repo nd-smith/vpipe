@@ -371,6 +371,14 @@ class EventHubConsumer:
             },
         )
 
+        # DIAGNOSTIC: enable SDK-level debug logging to see AMQP frames
+        for sdk_logger_name in ("azure.eventhub", "uamqp"):
+            sdk_logger = logging.getLogger(sdk_logger_name)
+            sdk_logger.setLevel(logging.DEBUG)
+            if not sdk_logger.handlers:
+                sdk_logger.addHandler(logging.StreamHandler())
+            logger.info(f"[DIAGNOSTIC] Enabled DEBUG logging for {sdk_logger_name}")
+
         # DIAGNOSTIC: detect which AMQP transport library is active
         try:
             import uamqp
@@ -378,50 +386,46 @@ class EventHubConsumer:
         except ImportError:
             logger.info("[DIAGNOSTIC] AMQP transport: pure-python (uamqp NOT installed)")
 
-        # Define batch event handler
-        async def on_event_batch(partition_context, events):
-            """Process batch of events from Event Hub partition."""
+        # Define single event handler
+        async def on_event(partition_context, event):
+            """Process single event from Event Hub partition."""
             if not self._running:
                 return
 
             partition_id = partition_context.partition_id
 
-            if not events:
+            if event is None:
                 logger.info(
-                    f"[DIAGNOSTIC] on_event_batch called with 0 events on partition {partition_id} "
-                    f"(max_wait_time elapsed)"
+                    f"[DIAGNOSTIC] No events on partition {partition_id} (max_wait_time elapsed)"
                 )
                 return
 
             logger.info(
-                f"[DIAGNOSTIC] on_event_batch received {len(events)} events on partition {partition_id}"
+                f"[DIAGNOSTIC] Received event on partition {partition_id}, "
+                f"offset={event.offset}, seq={event.sequence_number}"
             )
 
-            for event in events:
-                # Store partition context for checkpointing
-                self._current_partition_context[partition_id] = partition_context
+            self._current_partition_context[partition_id] = partition_context
 
-                record_adapter = EventHubConsumerRecord(
-                    event, self.eventhub_name, partition_id
+            record_adapter = EventHubConsumerRecord(
+                event, self.eventhub_name, partition_id
+            )
+            message = record_adapter.to_pipeline_message()
+
+            try:
+                await self._process_message(message)
+                if self._enable_message_commit:
+                    await partition_context.update_checkpoint(event)
+            except Exception:
+                logger.error(
+                    "Message processing failed - will not checkpoint",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "partition_id": partition_id,
+                        "offset": message.offset,
+                    },
+                    exc_info=True,
                 )
-                message = record_adapter.to_pipeline_message()
-
-                try:
-                    await self._process_message(message)
-                except Exception:
-                    logger.error(
-                        "Message processing failed",
-                        extra={
-                            "entity": self.eventhub_name,
-                            "partition_id": partition_id,
-                            "offset": message.offset,
-                        },
-                        exc_info=True,
-                    )
-
-            # Checkpoint after batch
-            if self._enable_message_commit and events:
-                await partition_context.update_checkpoint(events[-1])
 
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
@@ -490,20 +494,19 @@ class EventHubConsumer:
                 tick += 1
                 logger.info(f"[DIAGNOSTIC] heartbeat tick={tick} (event loop alive)")
 
-        # Start receiving events with receive_batch instead of receive
+        # Start receiving events with receive() callback
         try:
             async with self._consumer:
                 heartbeat_task = asyncio.create_task(heartbeat())
                 try:
-                    logger.info("[DIAGNOSTIC] Calling receive_batch(partition_id='0', starting_position='-1', max_batch_size=50, max_wait_time=10)")
-                    await self._consumer.receive_batch(
-                        on_event_batch=on_event_batch,
+                    logger.info("[DIAGNOSTIC] Calling receive(partition_id='0', starting_position='-1', max_wait_time=5)")
+                    await self._consumer.receive(
+                        on_event=on_event,
                         on_partition_initialize=on_partition_initialize,
                         on_partition_close=on_partition_close,
                         on_error=on_error,
                         starting_position="-1",
-                        max_batch_size=50,
-                        max_wait_time=10,
+                        max_wait_time=5,
                         partition_id="0",
                     )
                 finally:
