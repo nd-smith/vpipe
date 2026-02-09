@@ -11,6 +11,7 @@ Contains all runner functions for ClaimX pipeline workers:
 
 import asyncio
 import logging
+from pathlib import Path
 
 from pipeline.runners.common import (
     execute_poller_with_shutdown,
@@ -153,6 +154,7 @@ async def run_claimx_download_worker(
     worker = ClaimXDownloadWorker(
         config=kafka_config,
         domain="claimx",
+        temp_dir=Path(kafka_config.temp_dir),
         instance_id=instance_id,
     )
     await execute_worker_with_shutdown(

@@ -587,6 +587,71 @@ class TestConvenienceFunctions:
             )
             mock_labels.inc.assert_called_once()
 
+    def test_update_disk_usage_sets_all_gauges(self):
+        """update_disk_usage sets bytes, available, and ratio gauges."""
+        mock_usage_gauge = Mock()
+        mock_usage_labels = Mock()
+        mock_usage_gauge.labels.return_value = mock_usage_labels
+
+        mock_available_gauge = Mock()
+        mock_available_labels = Mock()
+        mock_available_gauge.labels.return_value = mock_available_labels
+
+        mock_ratio_gauge = Mock()
+        mock_ratio_labels = Mock()
+        mock_ratio_gauge.labels.return_value = mock_ratio_labels
+
+        # shutil.disk_usage returns a named tuple with total, used, free
+        mock_disk_usage = Mock(total=100_000, used=60_000, free=40_000)
+
+        with patch("pipeline.common.metrics.disk_usage_bytes_gauge", mock_usage_gauge):
+            with patch(
+                "pipeline.common.metrics.disk_available_bytes_gauge",
+                mock_available_gauge,
+            ):
+                with patch(
+                    "pipeline.common.metrics.disk_usage_ratio_gauge", mock_ratio_gauge
+                ):
+                    with patch(
+                        "pipeline.common.metrics.shutil.disk_usage",
+                        return_value=mock_disk_usage,
+                    ):
+                        from pipeline.common.metrics import update_disk_usage
+
+                        update_disk_usage("/ad/nas/verisk/tmp")
+
+                        mock_usage_gauge.labels.assert_called_once_with(
+                            path="/ad/nas/verisk/tmp"
+                        )
+                        mock_usage_labels.set.assert_called_once_with(60_000)
+
+                        mock_available_gauge.labels.assert_called_once_with(
+                            path="/ad/nas/verisk/tmp"
+                        )
+                        mock_available_labels.set.assert_called_once_with(40_000)
+
+                        mock_ratio_gauge.labels.assert_called_once_with(
+                            path="/ad/nas/verisk/tmp"
+                        )
+                        mock_ratio_labels.set.assert_called_once_with(0.6)
+
+    def test_update_disk_usage_handles_oserror(self):
+        """update_disk_usage silently handles OSError for missing paths."""
+        mock_gauge = Mock()
+
+        with patch("pipeline.common.metrics.disk_usage_bytes_gauge", mock_gauge):
+            with patch(
+                "pipeline.common.metrics.shutil.disk_usage",
+                side_effect=OSError("No such file"),
+            ):
+                from pipeline.common.metrics import update_disk_usage
+
+                # Should not raise
+                update_disk_usage("/nonexistent/path")
+
+                # Gauge should not be touched
+                mock_gauge.labels.assert_not_called()
+
 
 class TestModuleLevelMetrics:
     """Test module-level metric initialization."""
@@ -607,6 +672,9 @@ class TestModuleLevelMetrics:
         assert hasattr(metrics, "kafka_connection_status_gauge")
         assert hasattr(metrics, "consumer_assigned_partitions_gauge")
         assert hasattr(metrics, "message_processing_duration_seconds")
+        assert hasattr(metrics, "disk_usage_bytes_gauge")
+        assert hasattr(metrics, "disk_available_bytes_gauge")
+        assert hasattr(metrics, "disk_usage_ratio_gauge")
 
     def test_module_exports_all_functions(self):
         """Module exports all expected convenience functions."""
@@ -623,6 +691,7 @@ class TestModuleLevelMetrics:
         assert hasattr(metrics, "update_assigned_partitions")
         assert hasattr(metrics, "record_delta_write")
         assert hasattr(metrics, "record_dlq_message")
+        assert hasattr(metrics, "update_disk_usage")
 
     def test_metrics_are_callable_when_prometheus_unavailable(self):
         """Module-level metrics work as NoOpMetric when prometheus unavailable."""

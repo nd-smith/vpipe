@@ -7,11 +7,13 @@ Focused on essential metrics:
 - Error rates
 - Delta write tracking
 - Connection health
+- Disk usage (temp/cache directories)
 
 If prometheus-client is not available, metrics gracefully degrade to no-ops.
 """
 
 import logging
+import shutil
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -245,6 +247,25 @@ retry_messages_exhausted_counter = _create_counter(
     labelnames=["domain"],
 )
 
+# Disk usage
+disk_usage_bytes_gauge = _create_gauge(
+    "pipeline_disk_usage_bytes",
+    "Disk space used in bytes",
+    labelnames=["path"],
+)
+
+disk_available_bytes_gauge = _create_gauge(
+    "pipeline_disk_available_bytes",
+    "Disk space available in bytes",
+    labelnames=["path"],
+)
+
+disk_usage_ratio_gauge = _create_gauge(
+    "pipeline_disk_usage_ratio",
+    "Disk usage as ratio 0.0-1.0",
+    labelnames=["path"],
+)
+
 
 # =============================================================================
 # Convenience Functions (minimal set, callers can use metrics directly)
@@ -327,6 +348,17 @@ def record_dlq_message(domain: str, reason: str) -> None:
     dlq_messages_counter.labels(domain=domain, reason=reason).inc()
 
 
+def update_disk_usage(path: str) -> None:
+    """Update disk usage metrics for a directory path."""
+    try:
+        usage = shutil.disk_usage(path)
+        disk_usage_bytes_gauge.labels(path=path).set(usage.used)
+        disk_available_bytes_gauge.labels(path=path).set(usage.free)
+        disk_usage_ratio_gauge.labels(path=path).set(usage.used / usage.total)
+    except OSError:
+        pass
+
+
 __all__ = [
     # Metrics
     "messages_produced_counter",
@@ -342,6 +374,9 @@ __all__ = [
     "message_processing_duration_seconds",
     "claimx_handler_duration_seconds",
     "claimx_handler_events_total",
+    "disk_usage_bytes_gauge",
+    "disk_available_bytes_gauge",
+    "disk_usage_ratio_gauge",
     # Helper functions
     "record_message_produced",
     "record_message_consumed",
@@ -353,4 +388,5 @@ __all__ = [
     "update_assigned_partitions",
     "record_delta_write",
     "record_dlq_message",
+    "update_disk_usage",
 ]
