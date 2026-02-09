@@ -370,55 +370,57 @@ class EventHubConsumer:
             },
         )
 
-        # Define event handler for each partition
-        async def on_event(partition_context, event):
-            """Process single event from Event Hub partition."""
+        # DIAGNOSTIC: detect which AMQP transport library is active
+        try:
+            import uamqp
+            logger.info(f"[DIAGNOSTIC] AMQP transport: uamqp {uamqp.__version__}")
+        except ImportError:
+            logger.info("[DIAGNOSTIC] AMQP transport: pure-python (uamqp NOT installed)")
+
+        # Define batch event handler
+        async def on_event_batch(partition_context, events):
+            """Process batch of events from Event Hub partition."""
             if not self._running:
                 return
 
-            # max_wait_time causes callback with event=None when no events arrive
-            if event is None:
-                partition_id = partition_context.partition_id
+            partition_id = partition_context.partition_id
+
+            if not events:
                 logger.info(
-                    f"[DIAGNOSTIC] No events on partition {partition_id} (max_wait_time elapsed)"
+                    f"[DIAGNOSTIC] on_event_batch called with 0 events on partition {partition_id} "
+                    f"(max_wait_time elapsed)"
                 )
                 return
 
-            # Store partition context for checkpointing
-            partition_id = partition_context.partition_id
-            self._current_partition_context[partition_id] = partition_context
-
-            # Convert EventData to transport-agnostic PipelineMessage
-            # This adapter handles all conversion from EventHub-specific types
-            record_adapter = EventHubConsumerRecord(
-                event, self.eventhub_name, partition_id
+            logger.info(
+                f"[DIAGNOSTIC] on_event_batch received {len(events)} events on partition {partition_id}"
             )
-            message = record_adapter.to_pipeline_message()
 
-            # Process the message
-            # This may raise an exception if DLQ write fails for a PERMANENT error
-            try:
-                await self._process_message(message)
+            for event in events:
+                # Store partition context for checkpointing
+                self._current_partition_context[partition_id] = partition_context
 
-                # Checkpoint after successful processing
-                # (including successful DLQ writes for PERMANENT errors)
-                if self._enable_message_commit:
-                    await partition_context.update_checkpoint(event)
-
-            except Exception:
-                # If processing failed and we couldn't send to DLQ,
-                # do not checkpoint - let Event Hub redeliver the message
-                logger.error(
-                    "Message processing failed - will not checkpoint",
-                    extra={
-                        "entity": self.eventhub_name,
-                        "partition_id": partition_id,
-                        "offset": message.offset,
-                    },
-                    exc_info=True,
+                record_adapter = EventHubConsumerRecord(
+                    event, self.eventhub_name, partition_id
                 )
-                # Do not re-raise - continue processing other messages
-                # Event Hub will redeliver this message on the next receive
+                message = record_adapter.to_pipeline_message()
+
+                try:
+                    await self._process_message(message)
+                except Exception:
+                    logger.error(
+                        "Message processing failed",
+                        extra={
+                            "entity": self.eventhub_name,
+                            "partition_id": partition_id,
+                            "offset": message.offset,
+                        },
+                        exc_info=True,
+                    )
+
+            # Checkpoint after batch
+            if self._enable_message_commit and events:
+                await partition_context.update_checkpoint(events[-1])
 
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
@@ -461,79 +463,50 @@ class EventHubConsumer:
                     "reason": reason,
                 },
             )
-            # Clean up partition context
             self._current_partition_context.pop(partition_id, None)
-            # Update metrics
             update_assigned_partitions(
                 self.consumer_group, len(self._current_partition_context)
             )
 
         async def on_error(partition_context, error):
-            """Called when error occurs during consumption.
-
-            Note: This callback is invoked by the EventHub SDK when connection/transport
-            errors occur. ConnectError and SocketError typically indicate connection
-            timeouts due to blocked receive loops or network issues.
-            """
+            """Called when error occurs during consumption."""
             partition_id = (
                 partition_context.partition_id if partition_context else "unknown"
             )
-
-            # Extract error details for diagnostics
             error_type = type(error).__name__
             error_str = str(error)
+            logger.error(
+                f"[DIAGNOSTIC] on_error: partition={partition_id}, "
+                f"type={error_type}, error={error_str}",
+                exc_info=True,
+            )
 
-            # Enhanced logging for connection errors that may indicate blocked receive loop
-            is_connection_error = error_type in (
-                "ConnectError",
-                "ConnectionLostError",
-                "SocketError",
-            ) or "closing transport" in error_str.lower()
+        # DIAGNOSTIC: heartbeat task to prove event loop is alive
+        async def heartbeat():
+            tick = 0
+            while self._running:
+                await asyncio.sleep(10)
+                tick += 1
+                logger.info(f"[DIAGNOSTIC] heartbeat tick={tick} (event loop alive)")
 
-            if is_connection_error:
-                logger.error(
-                    f"[DIAGNOSTIC] on_error called: partition={partition_id}, "
-                    f"error_type={error_type}, error={error_str}",
-                    extra={
-                        "entity": self.eventhub_name,
-                        "consumer_group": self.consumer_group,
-                        "partition_id": partition_id,
-                        "error_type": error_type,
-                        "error_category": "connection",
-                        "diagnostic_hint": (
-                            "Connection errors may indicate the receive loop is blocked "
-                            "by long-running message handlers, preventing SDK heartbeats. "
-                            "Ensure message handlers complete quickly (<5s)."
-                        ),
-                    },
-                )
-            else:
-                logger.error(
-                    "Error in Event Hub consumption",
-                    extra={
-                        "entity": self.eventhub_name,
-                        "consumer_group": self.consumer_group,
-                        "partition_id": partition_id,
-                        "error_type": error_type,
-                    },
-                    exc_info=True,
-                )
-
-        # Start receiving events
-        # This runs until stop() is called
+        # Start receiving events with receive_batch instead of receive
         try:
             async with self._consumer:
-                await self._consumer.receive(
-                    on_event=on_event,
-                    on_partition_initialize=on_partition_initialize,
-                    on_partition_close=on_partition_close,
-                    on_error=on_error,
-                    # DIAGNOSTIC: direct receive from partition 0 to bypass
-                    # event processor entirely and test raw AMQP receive
-                    starting_position="-1",
-                    max_wait_time=5,
-                    partition_id="0",
-                )
+                heartbeat_task = asyncio.create_task(heartbeat())
+                try:
+                    logger.info("[DIAGNOSTIC] Calling receive_batch(partition_id='0', starting_position='-1', max_batch_size=50, max_wait_time=10)")
+                    await self._consumer.receive_batch(
+                        on_event_batch=on_event_batch,
+                        on_partition_initialize=on_partition_initialize,
+                        on_partition_close=on_partition_close,
+                        on_error=on_error,
+                        starting_position="-1",
+                        max_batch_size=50,
+                        max_wait_time=10,
+                        partition_id="0",
+                    )
+                finally:
+                    heartbeat_task.cancel()
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
             raise
