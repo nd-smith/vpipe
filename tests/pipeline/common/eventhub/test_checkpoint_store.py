@@ -18,11 +18,18 @@ def mock_azure_module():
     """Pre-populate sys.modules with mock azure SDK so blob store tests work
     without the azure-eventhub package installed."""
     mock_blobstore_module = MagicMock()
+    mock_blob_aio_module = MagicMock()
+    # Make ContainerClient.from_connection_string() return an async-compatible mock
+    mock_container_client = AsyncMock()
+    mock_blob_aio_module.ContainerClient.from_connection_string.return_value = mock_container_client
     modules_to_mock = {
         "azure": MagicMock(),
         "azure.eventhub": MagicMock(),
         "azure.eventhub.extensions": MagicMock(),
         "azure.eventhub.extensions.checkpointstoreblobaio": mock_blobstore_module,
+        "azure.storage": MagicMock(),
+        "azure.storage.blob": MagicMock(),
+        "azure.storage.blob.aio": mock_blob_aio_module,
     }
 
     originals = {k: sys.modules.get(k) for k in modules_to_mock}
@@ -584,7 +591,7 @@ class TestCheckpointStoreLogging:
         # Check for initialization log messages
         log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
         assert any("initializing" in msg.lower() for msg in log_messages)
-        assert any("initialized successfully" in msg.lower() for msg in log_messages)
+        assert any("connectivity verified" in msg.lower() for msg in log_messages)
 
     @pytest.mark.asyncio
     async def test_logs_warning_when_container_name_empty(self, caplog):

@@ -165,6 +165,7 @@ class EventHubConsumer:
         self._current_partition_context = (
             {}
         )  # Track partition contexts for checkpointing
+        self._checkpoint_count = 0  # Total checkpoints since startup
 
         # Generate unique worker ID using coolnames for easier tracing in logs
         prefix = f"{domain}-{worker_name}"
@@ -372,6 +373,17 @@ class EventHubConsumer:
                 await self._process_message(message)
                 if self._enable_message_commit:
                     await partition_context.update_checkpoint(event)
+                    self._checkpoint_count += 1
+                    if self._checkpoint_count % 1000 == 0:
+                        logger.info(
+                            "Checkpoint heartbeat",
+                            extra={
+                                "partition_id": partition_id,
+                                "offset": message.offset,
+                                "total_checkpoints": self._checkpoint_count,
+                                "consumer_group": self.consumer_group,
+                            },
+                        )
             except Exception:
                 logger.error(
                     "Message processing failed - will not checkpoint",
@@ -386,12 +398,14 @@ class EventHubConsumer:
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
             partition_id = partition_context.partition_id
+            checkpoint_type = "blob_storage" if self.checkpoint_store else "in_memory"
             logger.info(
                 "Partition assigned",
                 extra={
                     "entity": self.eventhub_name,
                     "consumer_group": self.consumer_group,
                     "partition_id": partition_id,
+                    "checkpoint_type": checkpoint_type,
                 },
             )
             current_count = len(self._current_partition_context)
@@ -436,6 +450,7 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
+                    starting_position="-1",
                     max_wait_time=5,
                 )
         except Exception:

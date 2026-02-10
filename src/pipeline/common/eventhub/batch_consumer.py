@@ -117,6 +117,7 @@ class EventHubBatchConsumer:
 
         # Background task for timeout-based flushing
         self._flush_task: asyncio.Task | None = None
+        self._batch_checkpoint_count = 0  # Total batches checkpointed since startup
 
         logger.info(
             "Initialized Event Hub batch consumer",
@@ -309,12 +310,14 @@ class EventHubBatchConsumer:
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
             partition_id = partition_context.partition_id
+            checkpoint_type = "blob_storage" if self.checkpoint_store else "in_memory"
             logger.info(
                 "Partition assigned",
                 extra={
                     "entity": self.eventhub_name,
                     "consumer_group": self.consumer_group,
                     "partition_id": partition_id,
+                    "checkpoint_type": checkpoint_type,
                 },
             )
             # Update metrics
@@ -480,15 +483,27 @@ class EventHubBatchConsumer:
                         )
                         checkpoint_errors += 1
 
-                logger.debug(
-                    "Batch checkpointed",
-                    extra={
-                        "partition_id": partition_id,
-                        "batch_size": len(batch),
-                        "duration_ms": round(duration * 1000, 2),
-                        "checkpoint_errors": checkpoint_errors,
-                    },
-                )
+                self._batch_checkpoint_count += 1
+                if self._batch_checkpoint_count % 100 == 0:
+                    logger.info(
+                        "Batch checkpoint heartbeat",
+                        extra={
+                            "partition_id": partition_id,
+                            "batch_size": len(batch),
+                            "total_batches_checkpointed": self._batch_checkpoint_count,
+                            "consumer_group": self.consumer_group,
+                        },
+                    )
+                else:
+                    logger.debug(
+                        "Batch checkpointed",
+                        extra={
+                            "partition_id": partition_id,
+                            "batch_size": len(batch),
+                            "duration_ms": round(duration * 1000, 2),
+                            "checkpoint_errors": checkpoint_errors,
+                        },
+                    )
             else:
                 logger.info(
                     "Batch checkpoint skipped (handler returned False) - messages will be redelivered",

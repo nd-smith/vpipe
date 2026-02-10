@@ -51,6 +51,11 @@ class BlobDedupStore:
                     exc_info=False,
                 )
 
+        logger.info(
+            "Blob storage connectivity verified for dedup store",
+            extra={"container_name": self.container_name},
+        )
+
     async def check_duplicate(
         self,
         worker_name: str,

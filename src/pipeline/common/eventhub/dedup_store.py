@@ -285,7 +285,10 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
 
         logger.info(
             "BlobDedupStore initialized successfully",
-            extra={"container_name": container_name},
+            extra={
+                "container_name": container_name,
+                "ttl_seconds": config.get("ttl_seconds", 86400),
+            },
         )
 
         return store

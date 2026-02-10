@@ -167,7 +167,7 @@ async def get_checkpoint_store() -> Any:
             _checkpoint_store = _create_json_store(config)
             return _checkpoint_store
         elif store_type == "blob":
-            _checkpoint_store = _create_blob_store(config)
+            _checkpoint_store = await _create_blob_store(config)
             return _checkpoint_store
         else:
             raise ValueError(
@@ -184,7 +184,7 @@ def _create_json_store(config: dict) -> Any:
     return JsonCheckpointStore(storage_path=storage_path)
 
 
-def _create_blob_store(config: dict) -> Any:
+async def _create_blob_store(config: dict) -> Any:
     """Create a BlobCheckpointStore from config, or None if not configured."""
     from azure.eventhub.extensions.checkpointstoreblobaio import BlobCheckpointStore
 
@@ -219,10 +219,21 @@ def _create_blob_store(config: dict) -> Any:
             container_name=container_name,
         )
 
-        logger.info(
-            "BlobCheckpointStore initialized successfully",
-            extra={"container_name": container_name},
+        # Smoke test: verify connection string and permissions work
+        from azure.storage.blob.aio import ContainerClient
+
+        container_client = ContainerClient.from_connection_string(
+            conn_str=connection_string,
+            container_name=container_name,
         )
+        try:
+            await container_client.get_container_properties()
+            logger.info(
+                "Blob storage connectivity verified for checkpoint store",
+                extra={"container_name": container_name},
+            )
+        finally:
+            await container_client.close()
 
         return store
 

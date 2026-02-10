@@ -275,6 +275,11 @@ class BlobPollerCheckpointStore:
             # Container already exists, which is fine
             pass
 
+        logger.info(
+            "Blob storage connectivity verified for poller checkpoint store",
+            extra={"container_name": self._container_name},
+        )
+
         self._blob_client = self._container_client.get_blob_client(self._blob_name)
 
     async def load(self) -> PollerCheckpoint | None:
