@@ -640,23 +640,22 @@ class KQLEventPoller:
         return f"{table} {extend} {where} {upper} | {order} | take {limit}"
 
     async def _process_filtered_results(self, rows: list[dict]) -> int:
-        """Processes rows and writes to configured sink."""
+        """Processes rows and writes to configured sink as a batch."""
+        messages = []
         for row in rows:
             event = self._event_schema_class.from_eventhouse_row(row)
-            # Use configured column if available, otherwise rely on schema generation
             if self._trace_id_col and row.get(self._trace_id_col):
                 eid = str(row.get(self._trace_id_col))
             else:
-                # Use schema-generated or default ID
-                # Note: use 'or' to handle None values since getattr returns None
-                # when the attribute exists but has value None
                 eid = (
                     getattr(event, "event_id", None)
                     or getattr(event, "trace_id", None)
                     or str(hash(str(event)))
                 )
+            messages.append((eid, event))
 
-            await self._sink.write(key=eid, event=event)
+        if messages:
+            await self._sink.write_batch(messages)
         return len(rows)
 
     @property
