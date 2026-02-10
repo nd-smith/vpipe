@@ -335,16 +335,6 @@ class DeltaEventsWorker:
         async with self._batch_lock:
             self._batch.append(message_data)
 
-            logger.debug(
-                "Added event to batch",
-                extra={
-                    "trace_id": message_data.get("traceId"),
-                    "event_id": message_data.get("eventId"),
-                    "batch_size": len(self._batch),
-                    "batch_threshold": self.batch_size,
-                },
-            )
-
             # Flush batch if full
             if len(self._batch) >= self.batch_size:
                 await self._flush_batch()

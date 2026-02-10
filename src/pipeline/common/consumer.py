@@ -303,13 +303,6 @@ class MessageConsumer:
             key=message.key.decode("utf-8") if message.key else None,
             consumer_group=self.group_id,
         ):
-            logger.debug(
-                "Processing message",
-                extra={
-                    "message_size": len(message.value) if message.value else 0,
-                },
-            )
-
             start_time = time.perf_counter()
             message_size = len(message.value) if message.value else 0
 
@@ -329,13 +322,6 @@ class MessageConsumer:
                 self._update_partition_metrics(message)
 
                 record_message_consumed(message.topic, self.group_id, message_size, success=True)
-
-                logger.debug(
-                    "Message processed successfully",
-                    extra={
-                        "duration_ms": round(duration * 1000, 2),
-                    },
-                )
 
             except Exception as e:
                 duration = time.perf_counter() - start_time

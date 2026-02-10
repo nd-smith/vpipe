@@ -477,11 +477,6 @@ class EventHubConsumer:
             key=message.key.decode("utf-8") if message.key else None,
             consumer_group=self.consumer_group,
         ):
-            logger.debug(
-                "Processing message",
-                extra={"message_size": len(message.value) if message.value else 0},
-            )
-
             start_time = time.perf_counter()
             message_size = len(message.value) if message.value else 0
 
@@ -495,11 +490,6 @@ class EventHubConsumer:
 
                 record_message_consumed(
                     message.topic, self.consumer_group, message_size, success=True
-                )
-
-                logger.debug(
-                    "Message processed successfully",
-                    extra={"duration_ms": round(duration * 1000, 2)},
                 )
 
             except Exception as e:
