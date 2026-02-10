@@ -267,7 +267,8 @@ class BlobPollerCheckpointStore:
             self._container_name
         )
 
-        # Ensure container exists
+        # Ensure container exists (timeout to fail fast when blob storage
+        # is unreachable instead of hanging for minutes)
         try:
             await asyncio.wait_for(
                 self._container_client.create_container(),
@@ -278,9 +279,10 @@ class BlobPollerCheckpointStore:
                 extra={"container_name": self._container_name},
             )
         except Exception as e:
-            # Container already exists, timeout, or connectivity issue — not fatal
-            print(f"[checkpoint] create_container: {type(e).__name__}: {e}")
-            pass
+            if "ContainerAlreadyExists" in str(e):
+                logger.debug(f"Checkpoint container already exists: {self._container_name}")
+            else:
+                raise
 
         logger.info(
             "Blob storage connectivity verified for poller checkpoint store",
@@ -326,7 +328,6 @@ class BlobPollerCheckpointStore:
             return None
 
         except Exception as e:
-            print(f"[checkpoint] load failed: {type(e).__name__}: {e}")
             logger.warning(
                 "Failed to load checkpoint from blob storage, starting fresh",
                 extra={
@@ -362,7 +363,6 @@ class BlobPollerCheckpointStore:
             return True
 
         except Exception as e:
-            print(f"[checkpoint] save failed: {type(e).__name__}: {e}")
             logger.error(
                 "Failed to save checkpoint to blob storage",
                 extra={
