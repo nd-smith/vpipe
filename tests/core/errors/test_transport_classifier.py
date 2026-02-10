@@ -6,10 +6,12 @@ import pytest
 
 from core.errors.exceptions import (
     AuthError,
+    ConnectionError,
     KafkaError,
     PermanentError,
     PipelineError,
     ThrottlingError,
+    TimeoutError,
     TransientError,
 )
 from core.errors.transport_classifier import (
@@ -263,33 +265,35 @@ class TestConsumerErrorClassification:
         result = TransportErrorClassifier.classify_consumer_error(error)
         assert isinstance(result, AuthError)
 
-    def test_fallback_timeout_from_string_raises_due_to_missing_import(self):
-        # BUG: transport_classifier.py doesn't import TimeoutError from core.errors.exceptions,
-        # so the fallback path uses builtins.TimeoutError which rejects keyword arguments.
+    def test_fallback_timeout_from_string(self):
         error = Exception("operation timed out after timeout period")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_consumer_error(error)
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, TimeoutError)
+        assert result.category.value == "transient"
 
-    def test_fallback_connection_from_string_raises_due_to_missing_import(self):
-        # BUG: Same issue -- builtins.ConnectionError used instead of core.errors.exceptions.ConnectionError
+    def test_fallback_connection_from_string(self):
         error = Exception("lost connection to remote host")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_consumer_error(error)
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
-    def test_fallback_broker_from_string_raises_due_to_missing_import(self):
+    def test_fallback_broker_from_string(self):
         error = Exception("broker is not responding")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_consumer_error(error)
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
-    def test_fallback_network_from_string_raises_due_to_missing_import(self):
+    def test_fallback_network_from_string(self):
         error = Exception("network unreachable")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_consumer_error(error)
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
-    def test_fallback_node_not_ready_from_string_raises_due_to_missing_import(self):
+    def test_fallback_node_not_ready_from_string(self):
         error = Exception("node not ready yet")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_consumer_error(error)
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
     # -- Default --
 
@@ -467,33 +471,35 @@ class TestProducerErrorClassification:
         result = TransportErrorClassifier.classify_producer_error(error)
         assert isinstance(result, AuthError)
 
-    def test_fallback_timeout_from_string_raises_due_to_missing_import(self):
-        # BUG: transport_classifier.py doesn't import TimeoutError from core.errors.exceptions,
-        # so the fallback path uses builtins.TimeoutError which rejects keyword arguments.
+    def test_fallback_timeout_from_string(self):
         error = Exception("send timeout after 60 seconds")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_producer_error(error)
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, TimeoutError)
+        assert result.category.value == "transient"
 
-    def test_fallback_connection_from_string_raises_due_to_missing_import(self):
-        # BUG: Same issue -- builtins.ConnectionError used instead of core.errors.exceptions.ConnectionError
+    def test_fallback_connection_from_string(self):
         error = Exception("lost connection to kafka cluster")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_producer_error(error)
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
-    def test_fallback_broker_from_string_raises_due_to_missing_import(self):
+    def test_fallback_broker_from_string(self):
         error = Exception("broker not responding to produce")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_producer_error(error)
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
-    def test_fallback_network_from_string_raises_due_to_missing_import(self):
+    def test_fallback_network_from_string(self):
         error = Exception("network error during send")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_producer_error(error)
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
-    def test_fallback_leader_from_string_raises_due_to_missing_import(self):
+    def test_fallback_leader_from_string(self):
         error = Exception("leader not available for partition")
-        with pytest.raises(TypeError):
-            TransportErrorClassifier.classify_producer_error(error)
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, ConnectionError)
+        assert result.category.value == "transient"
 
     # -- Default --
 

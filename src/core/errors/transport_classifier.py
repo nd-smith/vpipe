@@ -7,10 +7,12 @@ mapping them to typed PipelineError hierarchy with retry decisions.
 
 from core.errors.exceptions import (
     AuthError,
+    ConnectionError,
     KafkaError,
     PermanentError,
     PipelineError,
     ThrottlingError,
+    TimeoutError,
     TransientError,
     wrap_exception,
 )

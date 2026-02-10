@@ -428,7 +428,8 @@ class MessageConsumer:
 
         else:
             logger.error(
-                "Unknown error category - applying conservative retry",
+                f"Unhandled error category '{error_category.value}' - "
+                f"applying conservative retry: {type(error).__name__}: {error}",
                 extra={**common_context},
                 exc_info=True,
             )
