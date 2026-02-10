@@ -760,9 +760,24 @@ class EventHubConsumer:
                 exc_info=True,
             )
 
+        elif error_category == ErrorCategory.AUTH:
+            logger.warning(
+                "Authentication error - will reprocess after token refresh",
+                extra=common_context,
+                exc_info=True,
+            )
+
+        elif error_category == ErrorCategory.CIRCUIT_OPEN:
+            logger.warning(
+                "Circuit breaker open - will reprocess when circuit closes",
+                extra=common_context,
+                exc_info=True,
+            )
+
         else:
             logger.error(
-                "Unknown error category - applying conservative retry",
+                f"Unhandled error category '{error_category.value}' - "
+                f"applying conservative retry: {type(error).__name__}: {error}",
                 extra=common_context,
                 exc_info=True,
             )
