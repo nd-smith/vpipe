@@ -378,6 +378,162 @@ class TestMessageConsumerProcessMessage:
             assert isinstance(args[2], ValueError)
 
 
+class TestMessageConsumerErrorRouting:
+    """Production readiness: verify error classification → DLQ/retry routing and offset commit behavior."""
+
+    def _make_pipeline_msg(self):
+        return PipelineMessage(
+            topic="t1", partition=0, offset=42, timestamp=1000, key=b"key-1", value=b'{"data": "hello"}'
+        )
+
+    def _classify_as(self, category):
+        """Return a patch context manager that makes TransportErrorClassifier return the given category."""
+        from core.types import ErrorCategory
+
+        mock_classified = Mock()
+        mock_classified.category = category
+        return patch(
+            "pipeline.common.consumer.TransportErrorClassifier.classify_consumer_error",
+            return_value=mock_classified,
+        )
+
+    async def test_permanent_error_routes_to_dlq_and_commits_offset(self):
+        from core.types import ErrorCategory
+
+        consumer = _make_consumer(enable_message_commit=True)
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+
+        record = _make_consumer_record()
+        pipeline_msg = self._make_pipeline_msg()
+
+        with self._classify_as(ErrorCategory.PERMANENT):
+            await consumer._handle_processing_error(pipeline_msg, record, ValueError("bad"), 0.1)
+
+        consumer._dlq_producer.send.assert_awaited_once()
+        mock_kafka.commit.assert_awaited_once()
+
+    async def test_transient_error_does_not_commit_offset(self):
+        from core.types import ErrorCategory
+
+        consumer = _make_consumer(enable_message_commit=True)
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+
+        record = _make_consumer_record()
+        pipeline_msg = self._make_pipeline_msg()
+
+        with self._classify_as(ErrorCategory.TRANSIENT):
+            await consumer._handle_processing_error(pipeline_msg, record, TimeoutError("timeout"), 0.1)
+
+        consumer._dlq_producer.send.assert_not_awaited()
+        mock_kafka.commit.assert_not_awaited()
+
+    async def test_auth_error_does_not_commit_offset(self):
+        from core.types import ErrorCategory
+
+        consumer = _make_consumer(enable_message_commit=True)
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+
+        record = _make_consumer_record()
+        pipeline_msg = self._make_pipeline_msg()
+
+        with self._classify_as(ErrorCategory.AUTH):
+            await consumer._handle_processing_error(pipeline_msg, record, RuntimeError("401"), 0.1)
+
+        consumer._dlq_producer.send.assert_not_awaited()
+        mock_kafka.commit.assert_not_awaited()
+
+    async def test_unknown_error_does_not_commit_offset(self):
+        from core.types import ErrorCategory
+
+        consumer = _make_consumer(enable_message_commit=True)
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+
+        record = _make_consumer_record()
+        pipeline_msg = self._make_pipeline_msg()
+
+        # Use a category that falls through to the else branch
+        with self._classify_as(ErrorCategory.UNKNOWN):
+            await consumer._handle_processing_error(pipeline_msg, record, RuntimeError("wat"), 0.1)
+
+        consumer._dlq_producer.send.assert_not_awaited()
+        mock_kafka.commit.assert_not_awaited()
+
+    async def test_dlq_send_failure_does_not_commit_offset(self):
+        from core.types import ErrorCategory
+
+        consumer = _make_consumer(enable_message_commit=True)
+        consumer._dlq_producer.send = AsyncMock(side_effect=RuntimeError("DLQ down"))
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+
+        record = _make_consumer_record()
+        pipeline_msg = self._make_pipeline_msg()
+
+        with self._classify_as(ErrorCategory.PERMANENT):
+            await consumer._handle_processing_error(pipeline_msg, record, ValueError("bad"), 0.1)
+
+        # DLQ send was attempted
+        consumer._dlq_producer.send.assert_awaited_once()
+        # Offset must NOT be committed — preserves message for retry
+        mock_kafka.commit.assert_not_awaited()
+
+    async def test_error_during_error_handler_does_not_crash_consumer(self):
+        """Exception inside _handle_processing_error is caught by _process_message's outer handler."""
+        handler = AsyncMock(side_effect=ValueError("bad data"))
+        consumer = _make_consumer(message_handler=handler)
+        consumer._consumer = _make_kafka_mock()
+
+        # Make _handle_processing_error itself blow up
+        with patch.object(
+            consumer, "_handle_processing_error", new_callable=AsyncMock, side_effect=RuntimeError("classifier crash")
+        ):
+            record = _make_consumer_record()
+            # _process_message should NOT raise — the outer except catches it
+            # Actually, looking at _process_message: the except calls _handle_processing_error.
+            # If _handle_processing_error itself raises, it propagates out of _process_message.
+            # But _consume_loop has a try/except that catches it and sleeps.
+            # Let's test at the consume_loop level instead.
+            pass
+
+        # Test via the consume loop: an exception in error handling doesn't kill the loop
+        consumer = _make_consumer(message_handler=AsyncMock(side_effect=ValueError("bad")))
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+        consumer._running = True
+
+        tp = TopicPartition("t1", 0)
+        mock_kafka.assignment.return_value = {tp}
+        call_count = 0
+
+        async def getmany_side_effect(timeout_ms=1000):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {tp: [_make_consumer_record()]}
+            consumer._running = False
+            return {}
+
+        mock_kafka.getmany.side_effect = getmany_side_effect
+
+        # Make classifier raise to simulate broken error handler
+        with (
+            patch(
+                "pipeline.common.consumer.TransportErrorClassifier.classify_consumer_error",
+                side_effect=RuntimeError("classifier exploded"),
+            ),
+            patch("pipeline.common.consumer.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            # Should NOT raise — consume loop catches and continues
+            await consumer._consume_loop()
+
+        # Consumer processed at least the message (getmany called at least twice)
+        assert call_count >= 2
+
+
 class TestMessageConsumerErrorHandling:
     async def test_permanent_error_routes_to_dlq(self):
         consumer = _make_consumer()

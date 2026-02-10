@@ -375,6 +375,55 @@ class TestDLQProducerStop:
         await dlq_producer.stop()  # Second call is no-op
 
 
+class TestDLQProducerProductionReadiness:
+    """Production readiness: ensure_started failure propagation and reinit after stop."""
+
+    async def test_ensure_started_failure_propagates(self, dlq_producer):
+        """AIOKafkaProducer.start() throws → exception propagates to caller (not swallowed)."""
+        with (
+            patch(
+                "pipeline.common.dlq.producer.AIOKafkaProducer",
+                return_value=AsyncMock(start=AsyncMock(side_effect=ConnectionError("broker unreachable"))),
+            ),
+            patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value={}),
+        ):
+            with pytest.raises(ConnectionError, match="broker unreachable"):
+                await dlq_producer._ensure_started()
+
+        # Producer should NOT be set (start failed after construction)
+        # The exception happens during start(), after _producer is assigned.
+        # But since start() raised, the producer is in a bad state.
+
+    async def test_send_after_stop_reinitializes(self, dlq_producer):
+        """After stop(), the next send() lazily recreates the producer."""
+        # First: set up a working producer, then stop it
+        mock_kafka_producer = AsyncMock()
+        mock_metadata = Mock(partition=0, offset=10)
+        mock_kafka_producer.send_and_wait = AsyncMock(return_value=mock_metadata)
+        dlq_producer._producer = mock_kafka_producer
+
+        await dlq_producer.stop()
+        assert dlq_producer._producer is None
+
+        # Now send should trigger lazy reinit
+        new_mock_producer = AsyncMock()
+        new_mock_producer.send_and_wait = AsyncMock(return_value=mock_metadata)
+
+        message = make_pipeline_message()
+
+        with (
+            patch("pipeline.common.dlq.producer.AIOKafkaProducer", return_value=new_mock_producer),
+            patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value={}),
+            patch("pipeline.common.dlq.producer.record_dlq_message"),
+        ):
+            await dlq_producer.send(message, Exception("err"), ErrorCategory.PERMANENT)
+
+        # New producer was created and used
+        new_mock_producer.start.assert_called_once()
+        new_mock_producer.send_and_wait.assert_called_once()
+        assert dlq_producer._producer is new_mock_producer
+
+
 class TestDLQProducerLazyInit:
     """Test lazy initialization through send."""
 
