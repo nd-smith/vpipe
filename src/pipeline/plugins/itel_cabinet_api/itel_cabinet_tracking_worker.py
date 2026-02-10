@@ -20,26 +20,24 @@ Environment Variables:
 """
 
 import asyncio
+import json
 import logging
 import os
 import signal
 import sys
 from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 
 from config.config import MessageConfig
 from core.logging import log_worker_startup, setup_logging
+from pipeline.common.health import HealthCheckServer
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
-from pipeline.plugins.shared.connections import (
-    AuthType,
-    ConnectionConfig,
-    ConnectionManager,
-)
+from pipeline.plugins.shared.config import load_connections, load_yaml_config
+from pipeline.plugins.shared.connections import ConnectionManager
 
-from .delta import ItelCabinetDeltaWriter
+from .delta import ItelAttachmentsDeltaWriter, ItelSubmissionsDeltaWriter
 from .pipeline import ItelCabinetPipeline
 
 # Project root directory (where .env file is located)
@@ -68,38 +66,28 @@ class ItelCabinetTrackingWorker:
 
     def __init__(
         self,
-        kafka_config: dict,
+        transport_config: dict,
         connection_manager: ConnectionManager,
         pipeline: ItelCabinetPipeline,
     ):
-        """
-        Initialize worker.
-
-        Args:
-            kafka_config: Kafka consumer configuration
-            connection_manager: For API connections
-            pipeline: Processing pipeline
-        """
-        self.kafka_config = kafka_config
+        self.transport_config = transport_config
         self.connections = connection_manager
         self.pipeline = pipeline
 
         self.consumer = None
         self.running = False
 
+        # Health server for Kubernetes liveness/readiness probes
+        self.health_server = HealthCheckServer(port=8096, worker_name="itel-cabinet-tracking")
+
         # Shutdown handling
         self._shutdown_event = asyncio.Event()
 
     async def _handle_message(self, record: PipelineMessage) -> None:
-        """
-        Process a single message from the transport layer.
-
-        Args:
-            record: PipelineMessage from consumer
-        """
+        """Process a single message from the transport layer."""
         try:
-            # Process message through pipeline
-            result = await self.pipeline.process(record.value)
+            message_data = json.loads(record.value.decode("utf-8"))
+            result = await self.pipeline.process(message_data)
 
             logger.info(
                 "Message processed successfully",
@@ -111,27 +99,22 @@ class ItelCabinetTrackingWorker:
             )
 
         except ValueError as e:
-            # Validation error - log and skip message
             logger.error(
                 f"Validation error: {e}",
                 extra={"offset": getattr(record, "offset", "unknown")},
             )
-            # Message handler exceptions are caught by transport layer
 
         except Exception as e:
-            # Processing error - log and raise to trigger transport layer error handling
             logger.exception(
                 f"Failed to process message: {e}",
                 extra={"offset": getattr(record, "offset", "unknown")},
             )
-            # Re-raise to let transport layer handle retry/DLQ
             raise
 
     async def start(self):
         """Start the worker using transport layer."""
         logger.info("Starting iTel Cabinet Tracking Worker")
 
-        # Initialize telemetry
         import os
 
         from pipeline.common.telemetry import initialize_telemetry
@@ -141,32 +124,32 @@ class ItelCabinetTrackingWorker:
             environment=os.getenv("ENVIRONMENT", "development"),
         )
 
-        # Create minimal KafkaConfig for transport layer
-        config = MessageConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
+        config = MessageConfig(bootstrap_servers=self.transport_config["bootstrap_servers"])
 
-        # Create consumer via transport layer
         self.consumer = await create_consumer(
             config=config,
             domain="plugins",
             worker_name="itel_cabinet_tracking_worker",
-            topics=[self.kafka_config["input_topic"]],
+            topics=[self.transport_config["input_topic"]],
             message_handler=self._handle_message,
             enable_message_commit=True,
             topic_key="itel_cabinet_pending",
         )
 
+        await self.health_server.start()
         await self.consumer.start()
 
         logger.info(
             "Consumer started via transport layer",
             extra={
-                "topic": self.kafka_config["input_topic"],
-                "group": self.kafka_config["consumer_group"],
+                "topic": self.transport_config["input_topic"],
+                "group": self.transport_config["consumer_group"],
                 "transport_layer": "enabled",
             },
         )
 
         self.running = True
+        self.health_server.set_ready(consumer_connected=True)
 
     async def run(self):
         """
@@ -178,7 +161,6 @@ class ItelCabinetTrackingWorker:
         logger.info("Worker running - transport layer consuming messages")
 
         try:
-            # Wait for shutdown signal
             await self._shutdown_event.wait()
             logger.info("Shutdown signal received")
 
@@ -196,20 +178,7 @@ class ItelCabinetTrackingWorker:
             await self.consumer.stop()
             logger.info("Consumer stopped")
 
-    def signal_handler(self, signum, frame):
-        """Handle shutdown signals."""
-        logger.info("Received signal %s", signum)
-        self._shutdown_event.set()
-
-
-def load_yaml_config(path: Path) -> dict:
-    """Load YAML configuration file."""
-    if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
-
-    logger.info("Loading configuration from %s", path)
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        await self.health_server.stop()
 
 
 def load_worker_config() -> dict:
@@ -223,103 +192,27 @@ def load_worker_config() -> dict:
     return workers["itel_cabinet_tracking"]
 
 
-def load_connections() -> list[ConnectionConfig]:
-    """Load connection configurations."""
-    config_data = load_yaml_config(CONNECTIONS_CONFIG_PATH)
+async def build_tracking_worker() -> tuple:
+    """Build a configured tracking worker and its resources.
 
-    connections = []
-    for conn_name, conn_data in config_data.get("connections", {}).items():
-        if not conn_data or not conn_data.get("base_url"):
-            continue
+    Returns:
+        Tuple of (worker, connection_manager, producer) for lifecycle management.
+    """
+    worker_config = load_worker_config()
+    connections_list = load_connections(CONNECTIONS_CONFIG_PATH)
 
-        # Expand environment variables
-        base_url = os.path.expandvars(conn_data["base_url"])
-        auth_token = os.path.expandvars(conn_data.get("auth_token", ""))
-
-        # Validate that environment variables were actually expanded
-        if "${" in base_url:
-            raise ValueError(
-                f"Environment variable not expanded in base_url for connection '{conn_name}': {base_url}. "
-                f"Check that all required environment variables are set in .env file."
-            )
-        if auth_token and "${" in auth_token:
-            raise ValueError(
-                f"Environment variable not expanded in auth_token for connection '{conn_name}'. "
-                f"Check that all required environment variables are set in .env file."
-            )
-
-        auth_type = conn_data.get("auth_type", "none")
-        if isinstance(auth_type, str):
-            auth_type = AuthType(auth_type)
-
-        conn = ConnectionConfig(
-            name=conn_data.get("name", conn_name),
-            base_url=base_url,
-            auth_type=auth_type,
-            auth_token=auth_token,
-            auth_header=conn_data.get("auth_header"),
-            timeout_seconds=conn_data.get("timeout_seconds", 30),
-            max_retries=conn_data.get("max_retries", 3),
-            retry_backoff_base=conn_data.get("retry_backoff_base", 2),
-            retry_backoff_max=conn_data.get("retry_backoff_max", 60),
-            headers=conn_data.get("headers", {}),
-        )
-        connections.append(conn)
-        logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)
-
-    return connections
-
-
-async def main():
-    """Main entry point."""
-    # Load environment variables from .env file before any config access
-    load_dotenv(PROJECT_ROOT / ".env")
-
-    # Setup logging
-    setup_logging(
-        name="itel_cabinet_tracking",
-        domain="itel_cabinet_api",
-        stage="tracking",
-        log_dir=Path("logs"),
-        json_format=True,
-        console_level=logging.INFO,
-        file_level=logging.DEBUG,
-    )
-
-    # Load configuration
-    try:
-        worker_config = load_worker_config()
-        connections_list = load_connections()
-    except (FileNotFoundError, ValueError) as e:
-        logger.error("Configuration error: %s", e)
-        sys.exit(1)
-
-    # Setup Kafka configuration
-    kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
-    kafka_config = {
-        "bootstrap_servers": kafka_servers,
-        "input_topic": worker_config["kafka"]["input_topic"],
-        "consumer_group": worker_config["kafka"]["consumer_group"],
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
+    transport_config = {
+        "bootstrap_servers": bootstrap_servers,
+        "input_topic": worker_config["transport"]["input_topic"],
+        "consumer_group": worker_config["transport"]["consumer_group"],
     }
 
-    # Log startup with Kafka config (helps debug bootstrap server mismatches)
-    log_worker_startup(
-        logger=logger,
-        worker_name="iTel Cabinet Tracking Worker",
-        kafka_bootstrap_servers=kafka_servers,
-        input_topic=kafka_config["input_topic"],
-        output_topic=worker_config.get("pipeline", {}).get("output_topic"),
-        consumer_group=kafka_config["consumer_group"],
-    )
-
-    # Setup connection manager
     connection_manager = ConnectionManager()
     for conn in connections_list:
         connection_manager.add_connection(conn)
 
-    # Setup producer via transport layer (supports both Kafka and Event Hub)
-    # Create minimal MessageConfig for transport layer
-    config = MessageConfig(bootstrap_servers=kafka_servers)
+    config = MessageConfig(bootstrap_servers=bootstrap_servers)
     producer = create_producer(
         config=config,
         domain="plugins",
@@ -328,7 +221,6 @@ async def main():
     )
     await producer.start()
 
-    # Setup Delta writer - table paths from environment variables
     submissions_path = os.environ.get("ITEL_DELTA_FORMS_TABLE")
     attachments_path = os.environ.get("ITEL_DELTA_ATTACHMENTS_TABLE")
 
@@ -342,35 +234,61 @@ async def main():
     logger.info("Delta submissions table: %s", submissions_path)
     logger.info("Delta attachments table: %s", attachments_path)
 
-    delta_writer = ItelCabinetDeltaWriter(
-        submissions_table_path=submissions_path,
-        attachments_table_path=attachments_path,
-    )
+    submissions_writer = ItelSubmissionsDeltaWriter(submissions_path)
+    attachments_writer = ItelAttachmentsDeltaWriter(attachments_path)
 
-    # Create pipeline
     pipeline = ItelCabinetPipeline(
         connection_manager=connection_manager,
-        delta_writer=delta_writer,
-        kafka_producer=producer,
+        submissions_writer=submissions_writer,
+        attachments_writer=attachments_writer,
+        producer=producer,
         config=worker_config.get("pipeline", {}),
     )
 
-    # Create and run worker
     worker = ItelCabinetTrackingWorker(
-        kafka_config=kafka_config,
+        transport_config=transport_config,
         connection_manager=connection_manager,
         pipeline=pipeline,
     )
 
-    # Setup signal handlers (Windows-compatible)
+    return worker, connection_manager, producer
+
+
+async def main():
+    """Main entry point for standalone execution."""
+    load_dotenv(PROJECT_ROOT / ".env")
+
+    setup_logging(
+        name="itel_cabinet_tracking",
+        domain="itel_cabinet_api",
+        stage="tracking",
+        log_dir=Path("logs"),
+        json_format=True,
+        console_level=logging.INFO,
+        file_level=logging.DEBUG,
+    )
+
+    try:
+        worker, connection_manager, producer = await build_tracking_worker()
+    except (FileNotFoundError, ValueError) as e:
+        logger.error("Configuration error: %s", e)
+        sys.exit(1)
+
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
+    log_worker_startup(
+        logger=logger,
+        worker_name="iTel Cabinet Tracking Worker",
+        kafka_bootstrap_servers=bootstrap_servers,
+        input_topic=worker.transport_config["input_topic"],
+        output_topic=worker.pipeline.output_topic,
+        consumer_group=worker.transport_config["consumer_group"],
+    )
+
     loop = asyncio.get_event_loop()
     try:
-        # Unix signal handling
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
     except NotImplementedError:
-        # Windows doesn't support add_signal_handler
-        # Use signal.signal instead (less graceful but works)
         def signal_handler(signum, frame):
             logger.info("Received signal %s, initiating shutdown", signum)
             asyncio.create_task(worker.stop())

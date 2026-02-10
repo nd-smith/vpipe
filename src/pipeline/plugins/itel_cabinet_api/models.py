@@ -37,9 +37,8 @@ class TaskEvent:
     task_completed_at: str | None = None
 
     @classmethod
-    def from_kafka_message(cls, raw: dict) -> "TaskEvent":
-        """
-        Parse Kafka message into typed TaskEvent.
+    def from_message(cls, raw: dict) -> "TaskEvent":
+        """Parse transport message into typed TaskEvent.
 
         Raises:
             ValueError: If required fields are missing
@@ -60,7 +59,7 @@ class TaskEvent:
                 task_completed_at=raw.get("task", {}).get("completed_at"),
             )
         except KeyError as e:
-            raise ValueError(f"Missing required field in Kafka message: {e}") from e
+            raise ValueError(f"Missing required field in message: {e}") from e
 
 
 @dataclass

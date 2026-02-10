@@ -1,8 +1,8 @@
 """
-Delta table writer for iTel Cabinet data.
+Delta table writers for iTel Cabinet data.
 
-Writes submissions and attachments to Delta tables with explicit schemas
-to ensure type compatibility and prevent NULL type coercion errors.
+Separate writer per table — no path-swapping needed.
+Each writer wraps BaseDeltaWriter for one Delta table with an explicit schema.
 """
 
 import logging
@@ -101,230 +101,76 @@ ATTACHMENTS_SCHEMA: dict[str, pl.DataType] = {
 }
 
 
-class ItelCabinetDeltaWriter(BaseDeltaWriter):
+def _process_row(row: dict, schema: dict[str, pl.DataType]) -> dict:
+    """Pre-process a row dict to match a Polars schema.
+
+    Handles datetime parsing, numeric/boolean coercion, and null defaults.
     """
-    Writes to both iTel Cabinet Delta tables with explicit schema handling.
+    processed = {}
 
-    Uses pre-defined schemas to ensure type compatibility and prevent
-    NULL type coercion errors during Delta merge operations.
-    """
+    for col_name, col_type in schema.items():
+        val = row.get(col_name)
 
-    def __init__(self, submissions_table_path: str, attachments_table_path: str):
-        """
-        Initialize writers for both tables.
+        if val is None:
+            processed[col_name] = None
+        elif col_type == pl.Datetime("us", "UTC"):
+            if isinstance(val, str):
+                processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+            elif isinstance(val, datetime):
+                if val.tzinfo is None:
+                    processed[col_name] = val.replace(tzinfo=UTC)
+                else:
+                    processed[col_name] = val
+            else:
+                processed[col_name] = None
+        elif col_type == pl.Int64 or col_type == pl.Int32:
+            processed[col_name] = int(val) if val is not None else None
+        elif col_type == pl.Boolean:
+            if isinstance(val, bool):
+                processed[col_name] = val
+            elif isinstance(val, str):
+                processed[col_name] = val.lower() in ("yes", "true", "1")
+            else:
+                processed[col_name] = bool(val) if val is not None else None
+        elif col_type == pl.Utf8:
+            processed[col_name] = str(val) if val is not None else None
+        else:
+            processed[col_name] = val
 
-        Args:
-            submissions_table_path: Full path to submissions Delta table
-            attachments_table_path: Full path to attachments Delta table
-        """
-        self.submissions_table_path = submissions_table_path
-        self.attachments_table_path = attachments_table_path
+    return processed
 
-        # Initialize base class with submissions table (for logging context)
-        super().__init__(submissions_table_path, timestamp_column="updated_at")
 
-        logger.info(
-            "Initialized iTel Cabinet Delta writers",
-            extra={
-                "submissions_table": submissions_table_path,
-                "attachments_table": attachments_table_path,
-            },
+class ItelSubmissionsDeltaWriter(BaseDeltaWriter):
+    """Writes to the claimx_itel_forms Delta table."""
+
+    def __init__(self, table_path: str):
+        super().__init__(table_path, timestamp_column="updated_at")
+        logger.info("Initialized iTel submissions Delta writer", extra={"table_path": table_path})
+
+    async def write(self, row: dict) -> bool:
+        processed = _process_row(row, SUBMISSIONS_SCHEMA)
+        df = pl.DataFrame([processed], schema=SUBMISSIONS_SCHEMA)
+        return await self._async_merge(
+            df,
+            merge_keys=["assignment_id"],
+            preserve_columns=["created_at"],
         )
 
-    def _process_submission_row(self, row: dict) -> dict:
-        """
-        Pre-process submission row to ensure correct types.
 
-        Handles datetime parsing, type conversion, and null defaults.
-        """
-        processed = {}
+class ItelAttachmentsDeltaWriter(BaseDeltaWriter):
+    """Writes to the claimx_itel_attachments Delta table."""
 
-        for col_name, col_type in SUBMISSIONS_SCHEMA.items():
-            val = row.get(col_name)
+    def __init__(self, table_path: str):
+        super().__init__(table_path, timestamp_column="created_at")
+        logger.info("Initialized iTel attachments Delta writer", extra={"table_path": table_path})
 
-            if val is None:
-                processed[col_name] = None
-            elif col_type == pl.Datetime("us", "UTC"):
-                # Handle datetime conversion
-                if isinstance(val, str):
-                    processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-                elif isinstance(val, datetime):
-                    if val.tzinfo is None:
-                        processed[col_name] = val.replace(tzinfo=UTC)
-                    else:
-                        processed[col_name] = val
-                else:
-                    processed[col_name] = None
-            elif col_type == pl.Int64 or col_type == pl.Int32:
-                processed[col_name] = int(val) if val is not None else None
-            elif col_type == pl.Boolean:
-                if isinstance(val, bool):
-                    processed[col_name] = val
-                elif isinstance(val, str):
-                    processed[col_name] = val.lower() in ("yes", "true", "1")
-                else:
-                    processed[col_name] = bool(val) if val is not None else None
-            elif col_type == pl.Utf8:
-                processed[col_name] = str(val) if val is not None else None
-            else:
-                processed[col_name] = val
-
-        return processed
-
-    def _process_attachment_row(self, row: dict) -> dict:
-        """
-        Pre-process attachment row to ensure correct types.
-        """
-        processed = {}
-
-        for col_name, col_type in ATTACHMENTS_SCHEMA.items():
-            val = row.get(col_name)
-
-            if val is None:
-                processed[col_name] = None
-            elif col_type == pl.Datetime("us", "UTC"):
-                if isinstance(val, str):
-                    processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-                elif isinstance(val, datetime):
-                    if val.tzinfo is None:
-                        processed[col_name] = val.replace(tzinfo=UTC)
-                    else:
-                        processed[col_name] = val
-                else:
-                    processed[col_name] = None
-            elif col_type == pl.Int64 or col_type == pl.Int32:
-                processed[col_name] = int(val) if val is not None else None
-            elif col_type == pl.Boolean:
-                if isinstance(val, bool):
-                    processed[col_name] = val
-                elif isinstance(val, str):
-                    processed[col_name] = val.lower() in ("yes", "true", "1")
-                else:
-                    processed[col_name] = bool(val) if val is not None else None
-            elif col_type == pl.Utf8:
-                processed[col_name] = str(val) if val is not None else None
-            else:
-                processed[col_name] = val
-
-        return processed
-
-    async def write_submission(self, submission_row: dict) -> bool:
-        """
-        Write submission to Delta table using MERGE (upsert on assignment_id).
-
-        Args:
-            submission_row: Submission data dict
-
-        Returns:
-            True if successful
-        """
-        # Pre-process row with explicit type conversion
-        processed = self._process_submission_row(submission_row)
-
-        # Create DataFrame with explicit schema
-        df = pl.DataFrame([processed], schema=SUBMISSIONS_SCHEMA)
-
-        # Temporarily switch table path for this operation
-        # IMPORTANT: Must update both self.table_path AND _delta_writer.table_path
-        # The _delta_writer uses its own table_path for schema alignment and merge
-        original_path = self.table_path
-        original_writer_path = self._delta_writer.table_path
-        self.table_path = self.submissions_table_path
-        self._delta_writer.table_path = self.submissions_table_path
-
-        try:
-            # Merge into Delta table
-            success = await self._async_merge(
-                df,
-                merge_keys=["assignment_id"],
-                preserve_columns=["created_at"],
-            )
-
-            if success:
-                logger.info(
-                    "Successfully wrote submission to Delta",
-                    extra={
-                        "assignment_id": submission_row.get("assignment_id"),
-                        "table_path": self.submissions_table_path,
-                    },
-                )
-
-            return success
-
-        except Exception as e:
-            logger.error(
-                "Failed to write submission to Delta",
-                extra={
-                    "assignment_id": submission_row.get("assignment_id"),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            return False
-
-        finally:
-            # Always restore original paths
-            self.table_path = original_path
-            self._delta_writer.table_path = original_writer_path
-
-    async def write_attachments(self, attachment_rows: list[dict]) -> bool:
-        """
-        Write attachments to Delta table using MERGE.
-
-        Args:
-            attachment_rows: List of attachment dicts
-
-        Returns:
-            True if successful
-        """
-        if not attachment_rows:
+    async def write(self, rows: list[dict]) -> bool:
+        if not rows:
             return True
-
-        # Pre-process all rows with explicit type conversion
-        processed_rows = [self._process_attachment_row(row) for row in attachment_rows]
-
-        # Create DataFrame with explicit schema
-        df = pl.DataFrame(processed_rows, schema=ATTACHMENTS_SCHEMA)
-
-        # Temporarily switch table path for this operation
-        # IMPORTANT: Must update both self.table_path AND _delta_writer.table_path
-        # The _delta_writer uses its own table_path for schema alignment and merge
-        original_path = self.table_path
-        original_writer_path = self._delta_writer.table_path
-        self.table_path = self.attachments_table_path
-        self._delta_writer.table_path = self.attachments_table_path
-
-        try:
-            # Merge into Delta table
-            success = await self._async_merge(
-                df,
-                merge_keys=["assignment_id", "media_id"],
-                preserve_columns=["created_at"],
-            )
-
-            if success:
-                logger.info(
-                    "Successfully wrote attachments to Delta",
-                    extra={
-                        "attachment_count": len(attachment_rows),
-                        "table_path": self.attachments_table_path,
-                    },
-                )
-
-            return success
-
-        except Exception as e:
-            logger.error(
-                "Failed to write attachments to Delta",
-                extra={
-                    "attachment_count": len(attachment_rows),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            return False
-
-        finally:
-            # Always restore original paths
-            self.table_path = original_path
-            self._delta_writer.table_path = original_writer_path
+        processed = [_process_row(r, ATTACHMENTS_SCHEMA) for r in rows]
+        df = pl.DataFrame(processed, schema=ATTACHMENTS_SCHEMA)
+        return await self._async_merge(
+            df,
+            merge_keys=["assignment_id", "media_id"],
+            preserve_columns=["created_at"],
+        )

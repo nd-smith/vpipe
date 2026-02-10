@@ -387,7 +387,7 @@ class DataBuilder:
         if not api_obj:
             return {}
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         form_row = {
             "assignment_id": api_obj.assignment_id,
             "task_id": api_obj.task_id,
@@ -455,7 +455,7 @@ class DataBuilder:
         if not api_obj:
             return []
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         attachments_rows = []
 
         if api_obj.response and api_obj.response.groups:

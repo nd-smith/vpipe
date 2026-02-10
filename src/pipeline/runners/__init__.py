@@ -4,5 +4,6 @@ This package contains:
 - common: Shared worker execution patterns and utilities
 - verisk_runners: Verisk domain worker runners
 - claimx_runners: ClaimX domain worker runners
+- plugin_runners: Plugin worker runners (iTel Cabinet, etc.)
 - registry: Worker registry for mapping CLI commands to runner functions
 """

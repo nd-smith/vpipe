@@ -26,20 +26,19 @@ import logging
 import os
 import signal
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
 from dotenv import load_dotenv
 
 from config.config import MessageConfig
 from core.logging import setup_logging
+from pipeline.common.health import HealthCheckServer
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
+from pipeline.plugins.shared.config import load_connections, load_yaml_config
 from pipeline.plugins.shared.connections import (
-    AuthType,
-    ConnectionConfig,
     ConnectionManager,
     is_http_error,
 )
@@ -95,21 +94,12 @@ class ItelCabinetApiWorker:
 
     def __init__(
         self,
-        kafka_config: dict,
+        transport_config: dict,
         api_config: dict,
         connection_manager: ConnectionManager,
         simulation_config: Any | None = None,
     ):
-        """
-        Initialize API worker.
-
-        Args:
-            kafka_config: Kafka consumer configuration
-            api_config: API configuration (connection, endpoint, test mode)
-            connection_manager: For API connections
-            simulation_config: Optional simulation configuration (if enabled at startup)
-        """
-        self.kafka_config = kafka_config
+        self.transport_config = transport_config
         self.api_config = api_config
         self.connections = connection_manager
         self.simulation_config = simulation_config
@@ -117,6 +107,9 @@ class ItelCabinetApiWorker:
         self.consumer = None
         self.running = False
         self._shutdown_event = asyncio.Event()
+
+        # Health server for Kubernetes liveness/readiness probes
+        self.health_server = HealthCheckServer(port=8097, worker_name="itel-cabinet-api")
 
         # Setup simulation mode if config provided
         if self.simulation_config:
@@ -143,14 +136,9 @@ class ItelCabinetApiWorker:
         )
 
     async def _handle_message(self, record: PipelineMessage) -> None:
-        """
-        Process a single message from the transport layer.
-
-        Args:
-            record: PipelineMessage from consumer
-        """
+        """Process a single message from the transport layer."""
         try:
-            payload = record.value
+            payload = json.loads(record.value.decode("utf-8"))
 
             # Transform to iTel API format
             api_payload = self._transform_to_api_format(payload)
@@ -184,7 +172,6 @@ class ItelCabinetApiWorker:
         """Start the worker using transport layer."""
         logger.info("Starting iTel Cabinet API Worker")
 
-        # Initialize telemetry
         import os
 
         from pipeline.common.telemetry import initialize_telemetry
@@ -194,31 +181,32 @@ class ItelCabinetApiWorker:
             environment=os.getenv("ENVIRONMENT", "development"),
         )
 
-        # Create minimal KafkaConfig for transport layer
-        config = MessageConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
+        config = MessageConfig(bootstrap_servers=self.transport_config["bootstrap_servers"])
 
-        # Create consumer via transport layer
         self.consumer = await create_consumer(
             config=config,
             domain="plugins",
             worker_name="itel_cabinet_api_worker",
-            topics=[self.kafka_config["input_topic"]],
+            topics=[self.transport_config["input_topic"]],
             message_handler=self._handle_message,
             enable_message_commit=True,
+            topic_key="itel_cabinet_completed",
         )
 
+        await self.health_server.start()
         await self.consumer.start()
 
         logger.info(
             "Consumer started via transport layer",
             extra={
-                "topic": self.kafka_config["input_topic"],
-                "group": self.kafka_config["consumer_group"],
+                "topic": self.transport_config["input_topic"],
+                "group": self.transport_config["consumer_group"],
                 "transport_layer": "enabled",
             },
         )
 
         self.running = True
+        self.health_server.set_ready(consumer_connected=True)
 
     async def run(self):
         """
@@ -230,7 +218,6 @@ class ItelCabinetApiWorker:
         logger.info("Worker running - transport layer consuming messages")
 
         try:
-            # Wait for shutdown signal
             await self._shutdown_event.wait()
             logger.info("Shutdown signal received")
 
@@ -508,7 +495,7 @@ class ItelCabinetApiWorker:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         assignment_id = api_payload.get("integration_test_id", "unknown")
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         # Write the transformed API payload
         api_filename = f"payload_{assignment_id}_{timestamp}.json"
@@ -517,7 +504,7 @@ class ItelCabinetApiWorker:
         with open(api_output_path, "w") as f:
             json.dump(api_payload, f, indent=2, default=str)
 
-        # Also write the original Kafka payload for debugging
+        # Also write the original payload for debugging
         original_filename = f"original_{assignment_id}_{timestamp}.json"
         original_output_path = output_dir / original_filename
 
@@ -546,13 +533,13 @@ class ItelCabinetApiWorker:
 
         Args:
             api_payload: Transformed payload for iTel API (vendor schema format)
-            original_payload: Original Kafka message payload
+            original_payload: Original message payload
         """
         # Extract assignment_id from new vendor schema
         assignment_id = api_payload.get("integration_test_id", "unknown")
 
         # Create filename with timestamp for uniqueness
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
         filename = f"itel_submission_{assignment_id}_{timestamp}.json"
         filepath = self.output_dir / filename
 
@@ -560,7 +547,7 @@ class ItelCabinetApiWorker:
         submission_data = {
             **api_payload,  # Include full vendor payload
             # Add simulation metadata
-            "submitted_at": datetime.utcnow().isoformat(),
+            "submitted_at": datetime.now(UTC).isoformat(),
             "simulation_mode": True,
             "source": "itel_cabinet_api_worker",
         }
@@ -589,15 +576,7 @@ class ItelCabinetApiWorker:
             await self.consumer.stop()
             logger.info("Consumer stopped")
 
-
-def load_yaml_config(path: Path) -> dict:
-    """Load YAML configuration file."""
-    if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
-
-    logger.info("Loading configuration from %s", path)
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        await self.health_server.stop()
 
 
 def load_worker_config() -> dict:
@@ -611,58 +590,57 @@ def load_worker_config() -> dict:
     return workers["itel_cabinet_api"]
 
 
-def load_connections() -> list[ConnectionConfig]:
-    """Load connection configurations."""
-    config_data = load_yaml_config(CONNECTIONS_CONFIG_PATH)
+async def build_api_worker(dev_mode: bool = False) -> tuple:
+    """Build a configured API worker and its resources.
 
-    connections = []
-    for conn_name, conn_data in config_data.get("connections", {}).items():
-        if not conn_data or not conn_data.get("base_url"):
-            continue
+    Args:
+        dev_mode: If True, enable test mode (write to files instead of API)
 
-        base_url = os.path.expandvars(conn_data["base_url"])
-        auth_token = os.path.expandvars(conn_data.get("auth_token", ""))
+    Returns:
+        Tuple of (worker, connection_manager) for lifecycle management.
+    """
+    worker_config = load_worker_config()
+    connections_list = load_connections(CONNECTIONS_CONFIG_PATH)
 
-        # Validate that environment variables were actually expanded
-        if "${" in base_url:
-            raise ValueError(
-                f"Environment variable not expanded in base_url for connection '{conn_name}': {base_url}. "
-                f"Check that all required environment variables are set in .env file."
-            )
-        if auth_token and "${" in auth_token:
-            raise ValueError(
-                f"Environment variable not expanded in auth_token for connection '{conn_name}'. "
-                f"Check that all required environment variables are set in .env file."
-            )
+    if dev_mode:
+        worker_config["api"]["test_mode"] = True
 
-        auth_type = conn_data.get("auth_type", "none")
-        if isinstance(auth_type, str):
-            auth_type = AuthType(auth_type)
+    connection_manager = ConnectionManager()
+    for conn in connections_list:
+        connection_manager.add_connection(conn)
 
-        conn = ConnectionConfig(
-            name=conn_data.get("name", conn_name),
-            base_url=base_url,
-            auth_type=auth_type,
-            auth_token=auth_token,
-            auth_header=conn_data.get("auth_header"),
-            timeout_seconds=conn_data.get("timeout_seconds", 30),
-            max_retries=conn_data.get("max_retries", 3),
-            retry_backoff_base=conn_data.get("retry_backoff_base", 2),
-            retry_backoff_max=conn_data.get("retry_backoff_max", 60),
-            headers=conn_data.get("headers", {}),
-        )
-        connections.append(conn)
-        logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
+    transport_config = {
+        "bootstrap_servers": bootstrap_servers,
+        "input_topic": worker_config["transport"]["input_topic"],
+        "consumer_group": worker_config["transport"]["consumer_group"],
+    }
 
-    return connections
+    # Check for simulation mode
+    simulation_config = None
+    try:
+        from pipeline.simulation import get_simulation_config, is_simulation_mode
+
+        if is_simulation_mode():
+            simulation_config = get_simulation_config()
+            logger.info("Simulation mode detected - worker will write to local files")
+    except ImportError:
+        pass
+
+    worker = ItelCabinetApiWorker(
+        transport_config=transport_config,
+        api_config=worker_config["api"],
+        connection_manager=connection_manager,
+        simulation_config=simulation_config,
+    )
+
+    return worker, connection_manager
 
 
 async def main():
-    """Main entry point."""
-    # Load environment variables from .env file before any config access
+    """Main entry point for standalone execution."""
     load_dotenv(PROJECT_ROOT / ".env")
 
-    # Parse arguments
     parser = argparse.ArgumentParser(
         description="iTel Cabinet API Worker - Sends completed tasks to iTel Cabinet API"
     )
@@ -673,7 +651,6 @@ async def main():
     )
     args = parser.parse_args()
 
-    # Setup logging
     setup_logging(
         name="itel_cabinet_api",
         domain="itel_cabinet_api",
@@ -690,64 +667,22 @@ async def main():
         logger.info("DEV MODE: Payloads will be written to test directory")
     logger.info("=" * 70)
 
-    # Load configuration
     try:
-        worker_config = load_worker_config()
-        connections_list = load_connections()
+        worker, connection_manager = await build_api_worker(dev_mode=args.dev)
     except (FileNotFoundError, ValueError) as e:
         logger.error("Configuration error: %s", e)
         sys.exit(1)
 
-    # Override test mode if --dev flag
-    if args.dev:
-        worker_config["api"]["test_mode"] = True
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
+    logger.info("Bootstrap servers: %s", bootstrap_servers)
+    logger.info("Input topic: %s", worker.transport_config["input_topic"])
+    logger.info("Consumer group: %s", worker.transport_config["consumer_group"])
 
-    # Setup connection manager
-    connection_manager = ConnectionManager()
-    for conn in connections_list:
-        connection_manager.add_connection(conn)
-
-    # Kafka configuration
-    kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
-    kafka_config = {
-        "bootstrap_servers": kafka_servers,
-        "input_topic": worker_config["kafka"]["input_topic"],
-        "consumer_group": worker_config["kafka"]["consumer_group"],
-    }
-
-    logger.info("Kafka bootstrap servers: %s", kafka_servers)
-    logger.info("Input topic: %s", kafka_config["input_topic"])
-    logger.info("Consumer group: %s", kafka_config["consumer_group"])
-
-    # Check for simulation mode
-    simulation_config = None
-    try:
-        from pipeline.simulation import get_simulation_config, is_simulation_mode
-
-        if is_simulation_mode():
-            simulation_config = get_simulation_config()
-            logger.info("Simulation mode detected - worker will write to local files")
-    except ImportError:
-        # Simulation module not available
-        pass
-
-    # Create and run worker
-    worker = ItelCabinetApiWorker(
-        kafka_config=kafka_config,
-        api_config=worker_config["api"],
-        connection_manager=connection_manager,
-        simulation_config=simulation_config,
-    )
-
-    # Setup signal handlers (Windows-compatible)
     loop = asyncio.get_event_loop()
     try:
-        # Unix signal handling
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
     except NotImplementedError:
-        # Windows doesn't support add_signal_handler
-        # Use signal.signal instead (less graceful but works)
         def signal_handler(signum, frame):
             logger.info("Received signal %s, initiating shutdown", signum)
             asyncio.create_task(worker.stop())

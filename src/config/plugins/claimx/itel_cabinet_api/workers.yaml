@@ -26,8 +26,8 @@ workers:
   #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
   # ===========================================================================
   itel_cabinet_tracking:
-    # Kafka settings
-    kafka:
+    # Transport settings (Event Hub or Kafka)
+    transport:
       input_topic: pcesdopodappv1-itel-cabinet-pending
       consumer_group: itel_cabinet_tracking_group
 
@@ -53,8 +53,8 @@ workers:
   #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
   # ===========================================================================
   itel_cabinet_api:
-    # Kafka settings
-    kafka:
+    # Transport settings (Event Hub or Kafka)
+    transport:
       input_topic: pcesdopodappv1-itel-cabinet-completed
       consumer_group: itel_cabinet_api_group
 

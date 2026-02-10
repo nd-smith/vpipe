@@ -10,7 +10,7 @@ import asyncio
 import inspect
 from typing import Any
 
-from pipeline.runners import claimx_runners, verisk_runners
+from pipeline.runners import claimx_runners, plugin_runners, verisk_runners
 
 
 def _filter_kwargs(func, kwargs):
@@ -94,6 +94,13 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "claimx-entity-writer": {
         "runner": claimx_runners.run_claimx_entity_delta_worker,
+    },
+    # Plugin workers
+    "itel-cabinet-tracking": {
+        "runner": plugin_runners.run_itel_cabinet_tracking,
+    },
+    "itel-cabinet-api": {
+        "runner": plugin_runners.run_itel_cabinet_api,
     },
 }
 

@@ -15,7 +15,7 @@ from pipeline.plugins.itel_cabinet_api.models import (
 
 
 class TestTaskEvent:
-    def test_from_kafka_message_minimal(self):
+    def test_from_message_minimal(self):
         raw = {
             "event_id": "evt-1",
             "event_type": "CUSTOM_TASK_COMPLETED",
@@ -26,7 +26,7 @@ class TestTaskEvent:
             "task_name": "Cabinet Repair",
             "task_status": "COMPLETED",
         }
-        event = TaskEvent.from_kafka_message(raw)
+        event = TaskEvent.from_message(raw)
 
         assert event.event_id == "evt-1"
         assert event.event_type == "CUSTOM_TASK_COMPLETED"
@@ -41,7 +41,7 @@ class TestTaskEvent:
         assert event.task_created_at is None
         assert event.task_completed_at is None
 
-    def test_from_kafka_message_with_task_details(self):
+    def test_from_message_with_task_details(self):
         raw = {
             "event_id": "evt-2",
             "event_type": "CUSTOM_TASK_ASSIGNED",
@@ -58,14 +58,14 @@ class TestTaskEvent:
                 "completed_at": None,
             },
         }
-        event = TaskEvent.from_kafka_message(raw)
+        event = TaskEvent.from_message(raw)
 
         assert event.assigned_to_user_id == 100
         assert event.assigned_by_user_id == 200
         assert event.task_created_at == "2024-06-14T08:00:00Z"
         assert event.task_completed_at is None
 
-    def test_from_kafka_message_missing_required_field(self):
+    def test_from_message_missing_required_field(self):
         raw = {
             "event_id": "evt-3",
             # "event_type" is missing
@@ -77,12 +77,12 @@ class TestTaskEvent:
             "task_status": "COMPLETED",
         }
         try:
-            TaskEvent.from_kafka_message(raw)
+            TaskEvent.from_message(raw)
             raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "event_type" in str(e)
 
-    def test_from_kafka_message_no_task_key(self):
+    def test_from_message_no_task_key(self):
         raw = {
             "event_id": "evt-4",
             "event_type": "CUSTOM_TASK_COMPLETED",
@@ -93,7 +93,7 @@ class TestTaskEvent:
             "task_name": "Task",
             "task_status": "COMPLETED",
         }
-        event = TaskEvent.from_kafka_message(raw)
+        event = TaskEvent.from_message(raw)
         assert event.assigned_to_user_id is None
 
 

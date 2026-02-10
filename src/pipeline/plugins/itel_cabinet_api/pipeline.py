@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiohttp
 
@@ -34,13 +34,15 @@ class ItelCabinetPipeline:
     def __init__(
         self,
         connection_manager: ConnectionManager,
-        delta_writer,  # ItelCabinetDeltaWriter
-        kafka_producer,
+        submissions_writer,  # ItelSubmissionsDeltaWriter
+        attachments_writer,  # ItelAttachmentsDeltaWriter
+        producer,
         config: dict,
     ):
         self.connections = connection_manager
-        self.delta = delta_writer
-        self.kafka = kafka_producer
+        self.submissions_writer = submissions_writer
+        self.attachments_writer = attachments_writer
+        self.producer = producer
         self.config = config
         self.claimx_connection = config.get("claimx_connection", "claimx_api")
         self.output_topic = config.get("output_topic", "pcesdopodappv1-itel-cabinet-completed")
@@ -60,7 +62,7 @@ class ItelCabinetPipeline:
         3. Write to Delta (always)
         4. Publish to API worker (COMPLETED tasks only)
         """
-        event = TaskEvent.from_kafka_message(raw_message)
+        event = TaskEvent.from_message(raw_message)
         logger.info(
             "Processing iTel cabinet event",
             extra={
@@ -325,10 +327,10 @@ class ItelCabinetPipeline:
         logger.info("Writing to Delta tables", extra={"assignment_id": event.assignment_id})
         submission_row = submission.to_dict() if submission else self._build_metadata_row(event)
 
-        await self.delta.write_submission(submission_row)
+        await self.submissions_writer.write(submission_row)
         if attachments:
             attachment_rows = [att.to_dict() for att in attachments]
-            await self.delta.write_attachments(attachment_rows)
+            await self.attachments_writer.write(attachment_rows)
 
         logger.info(
             "Delta write complete",
@@ -341,7 +343,7 @@ class ItelCabinetPipeline:
 
     def _build_metadata_row(self, event: TaskEvent) -> dict:
         """Build minimal submission row for non-completed statuses."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         return {
             "assignment_id": event.assignment_id,
@@ -386,10 +388,10 @@ class ItelCabinetPipeline:
             "submission": submission.to_dict(),
             "attachments": [att.to_dict() for att in attachments],
             "readable_report": readable_report,
-            "published_at": datetime.utcnow().isoformat(),
+            "published_at": datetime.now(UTC).isoformat(),
             "source": "itel_cabinet_tracking_worker",
         }
-        await self.kafka.send(
+        await self.producer.send(
             topic=self.output_topic,
             value=json.dumps(payload).encode("utf-8"),
             key=event.event_id.encode("utf-8"),
