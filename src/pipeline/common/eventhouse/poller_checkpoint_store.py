@@ -34,6 +34,7 @@ Usage:
     await store.close()
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -41,6 +42,8 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+
+CHECKPOINT_TIMEOUT_SECONDS = 30
 
 logger = logging.getLogger(__name__)
 
@@ -266,13 +269,17 @@ class BlobPollerCheckpointStore:
 
         # Ensure container exists
         try:
-            await self._container_client.create_container()
+            await asyncio.wait_for(
+                self._container_client.create_container(),
+                timeout=CHECKPOINT_TIMEOUT_SECONDS,
+            )
             logger.info(
                 "Created checkpoint container",
                 extra={"container_name": self._container_name},
             )
-        except Exception:
-            # Container already exists, which is fine
+        except Exception as e:
+            # Container already exists, timeout, or connectivity issue — not fatal
+            print(f"[checkpoint] create_container: {type(e).__name__}: {e}")
             pass
 
         logger.info(
@@ -287,7 +294,12 @@ class BlobPollerCheckpointStore:
         await self._ensure_client()
 
         try:
-            download_stream = await self._blob_client.download_blob()
+            from azure.core.exceptions import ResourceNotFoundError
+
+            download_stream = await asyncio.wait_for(
+                self._blob_client.download_blob(),
+                timeout=CHECKPOINT_TIMEOUT_SECONDS,
+            )
             content = await download_stream.readall()
             data = json.loads(content.decode("utf-8"))
 
@@ -303,13 +315,24 @@ class BlobPollerCheckpointStore:
             )
             return checkpoint
 
-        except Exception as e:
-            # Blob doesn't exist or other error - start fresh
+        except ResourceNotFoundError:
             logger.info(
                 "No checkpoint found in blob storage, starting fresh",
                 extra={
                     "container": self._container_name,
                     "blob": self._blob_name,
+                },
+            )
+            return None
+
+        except Exception as e:
+            print(f"[checkpoint] load failed: {type(e).__name__}: {e}")
+            logger.warning(
+                "Failed to load checkpoint from blob storage, starting fresh",
+                extra={
+                    "container": self._container_name,
+                    "blob": self._blob_name,
+                    "error_type": type(e).__name__,
                     "error": str(e),
                 },
             )
@@ -323,9 +346,9 @@ class BlobPollerCheckpointStore:
             checkpoint.updated_at = datetime.now(UTC).isoformat()
             content = json.dumps(checkpoint.to_dict(), indent=2)
 
-            await self._blob_client.upload_blob(
-                content,
-                overwrite=True,
+            await asyncio.wait_for(
+                self._blob_client.upload_blob(content, overwrite=True),
+                timeout=CHECKPOINT_TIMEOUT_SECONDS,
             )
 
             logger.debug(
@@ -339,11 +362,13 @@ class BlobPollerCheckpointStore:
             return True
 
         except Exception as e:
+            print(f"[checkpoint] save failed: {type(e).__name__}: {e}")
             logger.error(
                 "Failed to save checkpoint to blob storage",
                 extra={
                     "container": self._container_name,
                     "blob": self._blob_name,
+                    "error_type": type(e).__name__,
                     "error": str(e),
                 },
                 exc_info=True,
