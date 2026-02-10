@@ -85,7 +85,7 @@ def extract_log_context(obj: Any) -> dict[str, Any]:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def with_api_error_handling[F: Callable[..., Any]](func: F) -> F:
+def with_api_error_handling(func: F) -> F:
     """
     Decorator for API error handling with logging.
 
