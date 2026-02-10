@@ -232,12 +232,44 @@ class TestEventHubConsumer:
         # Should not raise
         await consumer.commit()
 
-    async def test_commit_when_consumer_started(self):
+    async def test_commit_when_consumer_started_with_no_events(self):
         consumer = self._make_consumer()
         consumer._consumer = MagicMock()
 
-        # Should not raise
+        # No events tracked — should return without error
         await consumer.commit()
+
+    async def test_commit_checkpoints_each_partition(self):
+        consumer = self._make_consumer()
+        consumer._consumer = MagicMock()
+
+        ctx_0 = AsyncMock()
+        ctx_1 = AsyncMock()
+        event_0 = MagicMock(name="event-p0")
+        event_1 = MagicMock(name="event-p1")
+
+        consumer._current_partition_context = {"0": ctx_0, "1": ctx_1}
+        consumer._last_partition_event = {"0": event_0, "1": event_1}
+
+        await consumer.commit()
+
+        ctx_0.update_checkpoint.assert_awaited_once_with(event_0)
+        ctx_1.update_checkpoint.assert_awaited_once_with(event_1)
+        assert consumer._checkpoint_count == 2
+        assert consumer._last_partition_event == {}
+
+    async def test_commit_skips_partition_without_context(self):
+        consumer = self._make_consumer()
+        consumer._consumer = MagicMock()
+
+        event_0 = MagicMock(name="event-p0")
+        consumer._current_partition_context = {}  # no context for partition "0"
+        consumer._last_partition_event = {"0": event_0}
+
+        await consumer.commit()
+
+        # No checkpoint call since context is missing
+        assert consumer._checkpoint_count == 0
 
 
 # =============================================================================

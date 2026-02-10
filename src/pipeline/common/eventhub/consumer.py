@@ -160,6 +160,7 @@ class EventHubConsumer:
         self._enable_message_commit = enable_message_commit
         self._dlq_producer: EventHubProducer | None = None
         self._current_partition_context = {}  # Track partition contexts for checkpointing
+        self._last_partition_event = {}  # Track last event per partition for batch commit
         self._checkpoint_count = 0  # Total checkpoints since startup
 
         # Generate unique worker ID using coolnames for easier tracing in logs
@@ -321,18 +322,36 @@ class EventHubConsumer:
             await asyncio.sleep(0.250)
 
     async def commit(self) -> None:
-        """Commit offsets for processed messages.
+        """Checkpoint each partition using its last-received event.
 
-        For Event Hub, this is handled by checkpointing in the partition context.
-        This method is called after successful batch processing.
+        Called by batch workers after successful batch processing to persist
+        offsets to the checkpoint store (blob storage).
         """
         if self._consumer is None:
             logger.warning("Cannot commit: consumer not started")
             return
 
+        if not self._last_partition_event:
+            logger.debug("No events to checkpoint")
+            return
+
+        # Snapshot and clear — events arriving during commit go into next batch
+        events = dict(self._last_partition_event)
+        self._last_partition_event.clear()
+
+        for partition_id, event in events.items():
+            context = self._current_partition_context.get(partition_id)
+            if context is None:
+                continue
+            await context.update_checkpoint(event)
+            self._checkpoint_count += 1
+
         logger.debug(
             "Committed checkpoints",
-            extra={"consumer_group": self.consumer_group},
+            extra={
+                "consumer_group": self.consumer_group,
+                "partitions_checkpointed": len(events),
+            },
         )
 
     async def _consume_loop(self) -> None:
@@ -356,6 +375,7 @@ class EventHubConsumer:
                 return
 
             self._current_partition_context[partition_id] = partition_context
+            self._last_partition_event[partition_id] = event
 
             record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
             message = record_adapter.to_pipeline_message()
@@ -415,6 +435,7 @@ class EventHubConsumer:
                 },
             )
             self._current_partition_context.pop(partition_id, None)
+            self._last_partition_event.pop(partition_id, None)
             update_assigned_partitions(self.consumer_group, len(self._current_partition_context))
 
         async def on_error(partition_context, error):
