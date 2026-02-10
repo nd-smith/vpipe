@@ -122,7 +122,9 @@ class DownloadWorker:
 
         # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
-            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
+            self.worker_id = (
+                f"{self.WORKER_NAME}-{instance_id}"  # e.g., "download_worker-happy-tiger"
+            )
         else:
             self.worker_id = self.WORKER_NAME
 
@@ -142,12 +144,8 @@ class DownloadWorker:
         self._initialized = False
 
         # Worker-specific processing config
-        processing_config = config.get_worker_config(
-            domain, self.WORKER_NAME, "processing"
-        )
-        self.concurrency = processing_config.get(
-            "concurrency", WorkerDefaults.CONCURRENCY
-        )
+        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
         self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
         self.timeout_seconds = processing_config.get("timeout_seconds", 60)
 
@@ -273,9 +271,7 @@ class DownloadWorker:
             instance_id=self.instance_id,
             topic_key="downloads_pending",
         )
-        self._consumer_group = self.config.get_consumer_group(
-            self.domain, self.WORKER_NAME
-        )
+        self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
         self._running = True
         self._initialized = True
@@ -324,9 +320,7 @@ class DownloadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -440,9 +434,7 @@ class DownloadWorker:
 
         # Check for circuit breaker errors
         circuit_errors = [
-            r
-            for r in processed_results
-            if r and r.error and isinstance(r.error, CircuitOpenError)
+            r for r in processed_results if r and r.error and isinstance(r.error, CircuitOpenError)
         ]
 
         # Log stats
@@ -564,20 +556,14 @@ class DownloadWorker:
                     outcome=outcome,
                     processing_time_ms=processing_time_ms,
                     success=False,
-                    error=(
-                        CircuitOpenError("download_worker", 60.0)
-                        if is_circuit_error
-                        else None
-                    ),
+                    error=(CircuitOpenError("download_worker", 60.0) if is_circuit_error else None),
                 )
 
         finally:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-    def _convert_to_download_task(
-        self, task_message: DownloadTaskMessage
-    ) -> DownloadTask:
+    def _convert_to_download_task(self, task_message: DownloadTaskMessage) -> DownloadTask:
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.trace_id / destination_filename
 
@@ -744,11 +730,7 @@ class DownloadWorker:
                 exc_info=True,
             )
 
-        status = (
-            "failed_permanent"
-            if error_category == ErrorCategory.PERMANENT
-            else "failed"
-        )
+        status = "failed_permanent" if error_category == ErrorCategory.PERMANENT else "failed"
 
         result_message = DownloadResultMessage(
             media_id=task_message.media_id,

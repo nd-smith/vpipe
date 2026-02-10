@@ -9,17 +9,16 @@ Tests cover:
 - Batch metrics tracking (size and latency)
 """
 
-import asyncio
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
 
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.writers.delta_inventory import (
-    DeltaInventoryWriter,
     DeltaFailedAttachmentsWriter,
+    DeltaInventoryWriter,
 )
 
 
@@ -37,7 +36,7 @@ def sample_result():
         status="completed",
         http_status=200,
         bytes_downloaded=12345,
-        created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
     )
 
 
@@ -113,7 +112,7 @@ class TestDeltaInventoryWriter:
                 status="completed",
                 http_status=200,
                 bytes_downloaded=1000 * i,
-                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
             )
             for i in range(3)
         ]
@@ -157,7 +156,7 @@ class TestDeltaInventoryWriter:
                 status="completed",
                 http_status=200,
                 bytes_downloaded=1000 * i,
-                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
             )
             for i in range(5)
         ]
@@ -186,9 +185,7 @@ class TestDeltaInventoryWriter:
     async def test_write_result_failure(self, delta_writer, sample_result):
         """Test write failure handling."""
         # Mock append to raise an exception
-        delta_writer._delta_writer.append = MagicMock(
-            side_effect=Exception("Delta append failed")
-        )
+        delta_writer._delta_writer.append = MagicMock(side_effect=Exception("Delta append failed"))
 
         result = await delta_writer.write_result(sample_result)
 
@@ -220,7 +217,7 @@ class TestDeltaInventoryWriter:
         delta_writer._delta_writer.append = MagicMock(return_value=1)
 
         # Mock the logger to capture calls
-        with patch.object(delta_writer, 'logger') as mock_logger:
+        with patch.object(delta_writer, "logger") as mock_logger:
             await delta_writer.write_result(sample_result)
 
             # Verify logger was called with latency_ms and batch_size
@@ -233,9 +230,9 @@ class TestDeltaInventoryWriter:
 
     def test_created_at_timestamp(self, delta_writer, sample_result):
         """Test that created_at is set to current UTC time."""
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         df = delta_writer._results_to_dataframe([sample_result])
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         created_at = df["created_at"][0]
 
@@ -244,14 +241,14 @@ class TestDeltaInventoryWriter:
 
     def test_event_date_field(self, delta_writer, sample_result):
         """Test that event_date is set to current UTC date."""
-        before_date = datetime.now(timezone.utc).date()
+        before_date = datetime.now(UTC).date()
         df = delta_writer._results_to_dataframe([sample_result])
-        after_date = datetime.now(timezone.utc).date()
+        after_date = datetime.now(UTC).date()
 
         event_date = df["event_date"][0]
 
         # event_date should be today's date
-        assert event_date == before_date or event_date == after_date
+        assert event_date in (before_date, after_date)
 
     def test_timezone_handling(self, delta_writer, sample_result):
         """Test that all timestamps are timezone-aware (UTC)."""
@@ -272,9 +269,7 @@ class TestDeltaInventoryWriter:
 @pytest.mark.asyncio
 async def test_delta_writer_integration():
     """Integration test with actual Delta writer (mocked storage)."""
-    with patch(
-        "pipeline.common.writers.base.DeltaTableWriter"
-    ) as mock_delta_writer_class:
+    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_writer_class:
         # Setup mock
         mock_writer_instance = MagicMock()
         mock_writer_instance.append = MagicMock(return_value=1)
@@ -296,7 +291,7 @@ async def test_delta_writer_integration():
             status="completed",
             http_status=200,
             bytes_downloaded=54321,
-            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         write_result = await writer.write_result(result)
@@ -333,7 +328,7 @@ def sample_failed_result():
         http_status=404,
         bytes_downloaded=0,
         error_message="File not found: 404 response",
-        created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
     )
 
 
@@ -406,7 +401,7 @@ class TestDeltaFailedAttachmentsWriter:
                 http_status=404,
                 bytes_downloaded=0,
                 error_message=f"Error {i}",
-                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
             )
             for i in range(3)
         ]
@@ -431,7 +426,7 @@ class TestDeltaFailedAttachmentsWriter:
             http_status=500,
             bytes_downloaded=0,
             error_message=None,  # Null
-            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         df = failed_writer._results_to_dataframe([result])
@@ -471,9 +466,7 @@ class TestDeltaFailedAttachmentsWriter:
     @pytest.mark.asyncio
     async def test_write_result_failure(self, failed_writer, sample_failed_result):
         """Test write failure handling."""
-        failed_writer._delta_writer.merge = MagicMock(
-            side_effect=Exception("Delta merge failed")
-        )
+        failed_writer._delta_writer.merge = MagicMock(side_effect=Exception("Delta merge failed"))
 
         result = await failed_writer.write_result(sample_failed_result)
 
@@ -494,9 +487,7 @@ class TestDeltaFailedAttachmentsWriter:
 @pytest.mark.asyncio
 async def test_failed_writer_integration():
     """Integration test for DeltaFailedAttachmentsWriter."""
-    with patch(
-        "pipeline.common.writers.base.DeltaTableWriter"
-    ) as mock_delta_writer_class:
+    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_writer_class:
         mock_writer_instance = MagicMock()
         mock_writer_instance.merge = MagicMock(return_value=1)
         mock_delta_writer_class.return_value = mock_writer_instance
@@ -517,7 +508,7 @@ async def test_failed_writer_integration():
             http_status=500,
             bytes_downloaded=0,
             error_message="Integration test error",
-            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         write_result = await writer.write_result(result)

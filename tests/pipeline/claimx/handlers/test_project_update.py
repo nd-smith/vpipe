@@ -1,17 +1,13 @@
 """Tests for ClaimX project update event handler."""
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers.project_update import ProjectUpdateHandler
-from pipeline.claimx.schemas.entities import EntityRowsMessage
 
 from .conftest import make_event, make_project_api_response
-
 
 # ============================================================================
 # POLICYHOLDER_INVITED
@@ -19,11 +15,8 @@ from .conftest import make_event, make_project_api_response
 
 
 class TestProjectUpdatePolicyholderInvited:
-
     async def test_policyholder_invited_with_verification(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectUpdateHandler(mock_client)
         event = make_event(event_type="POLICYHOLDER_INVITED")
 
@@ -57,11 +50,8 @@ class TestProjectUpdatePolicyholderInvited:
 
 
 class TestProjectUpdatePolicyholderJoined:
-
     async def test_policyholder_joined_adds_timestamp(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectUpdateHandler(mock_client)
         event = make_event(event_type="POLICYHOLDER_JOINED")
 
@@ -79,7 +69,6 @@ class TestProjectUpdatePolicyholderJoined:
 
 
 class TestProjectUpdateXALinkingFail:
-
     async def test_xa_linking_fail_creates_minimal_row(self, mock_client):
         handler = ProjectUpdateHandler(mock_client)
         event = make_event(event_type="PROJECT_AUTO_XA_LINKING_UNSUCCESSFUL", project_id="789")
@@ -111,7 +100,6 @@ class TestProjectUpdateXALinkingFail:
 
 
 class TestProjectUpdateUnknownEvent:
-
     async def test_unknown_event_type_returns_failure(self, mock_client):
         handler = ProjectUpdateHandler(mock_client)
         # Bypass the event_types check by constructing event directly
@@ -130,7 +118,6 @@ class TestProjectUpdateUnknownEvent:
 
 
 class TestProjectUpdateErrors:
-
     async def test_api_error_returns_failure(self, mock_client):
         mock_client.get_project = AsyncMock(
             side_effect=ClaimXApiError(
@@ -151,9 +138,7 @@ class TestProjectUpdateErrors:
         assert result.api_calls == 1
 
     async def test_unexpected_error_returns_transient(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            side_effect=RuntimeError("unexpected")
-        )
+        mock_client.get_project = AsyncMock(side_effect=RuntimeError("unexpected"))
         handler = ProjectUpdateHandler(mock_client)
         event = make_event(event_type="POLICYHOLDER_JOINED")
 

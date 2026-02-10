@@ -1,5 +1,4 @@
 import os
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,14 +17,12 @@ from config.config import (
     set_config,
 )
 
-
 # =========================================================================
 # load_yaml
 # =========================================================================
 
 
 class TestLoadYaml:
-
     def test_returns_empty_dict_for_nonexistent_file(self):
         result = load_yaml(Path("/nonexistent/path/config.yaml"))
         assert result == {}
@@ -49,7 +46,6 @@ class TestLoadYaml:
 
 
 class TestGetConfigValue:
-
     def test_prefers_env_var_over_yaml(self):
         with patch.dict(os.environ, {"MY_VAR": "from_env"}):
             result = get_config_value("MY_VAR", "from_yaml", "default")
@@ -83,7 +79,6 @@ class TestGetConfigValue:
 
 
 class TestExpandEnvVars:
-
     def test_expands_simple_variable(self):
         with patch.dict(os.environ, {"MY_VAR": "hello"}):
             result = _expand_env_vars("prefix-${MY_VAR}-suffix")
@@ -138,7 +133,6 @@ class TestExpandEnvVars:
 
 
 class TestDeepMerge:
-
     def test_merges_flat_dicts(self):
         base = {"a": 1, "b": 2}
         overlay = {"b": 3, "c": 4}
@@ -176,7 +170,6 @@ class TestDeepMerge:
 
 
 class TestMessageConfig:
-
     def test_default_values(self):
         config = MessageConfig()
         assert config.bootstrap_servers == ""
@@ -241,11 +234,7 @@ class TestMessageConfig:
 
     def test_get_consumer_group_from_config(self):
         config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "consumer": {"group_id": "custom-group"}
-                }
-            }
+            verisk={"download_worker": {"consumer": {"group_id": "custom-group"}}}
         )
         result = config.get_consumer_group("verisk", "download_worker")
         assert result == "custom-group"
@@ -261,9 +250,7 @@ class TestMessageConfig:
         assert result == "myprefix-download_worker"
 
     def test_get_consumer_group_default_prefix(self):
-        config = MessageConfig(
-            verisk={"download_worker": {"consumer": {}}}
-        )
+        config = MessageConfig(verisk={"download_worker": {"consumer": {}}})
         result = config.get_consumer_group("verisk", "download_worker")
         assert result == "verisk-download_worker"
 
@@ -298,7 +285,6 @@ class TestMessageConfig:
 
 
 class TestMessageConfigValidation:
-
     def test_validates_empty_config(self):
         config = MessageConfig()
         config.validate()  # Should not raise
@@ -318,46 +304,22 @@ class TestMessageConfigValidation:
         config.validate()
 
     def test_rejects_concurrency_out_of_range(self):
-        config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "processing": {"concurrency": 100}
-                }
-            }
-        )
+        config = MessageConfig(verisk={"download_worker": {"processing": {"concurrency": 100}}})
         with pytest.raises(ValueError, match="concurrency"):
             config.validate()
 
     def test_rejects_concurrency_zero(self):
-        config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "processing": {"concurrency": 0}
-                }
-            }
-        )
+        config = MessageConfig(verisk={"download_worker": {"processing": {"concurrency": 0}}})
         with pytest.raises(ValueError, match="concurrency"):
             config.validate()
 
     def test_rejects_negative_batch_size(self):
-        config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "processing": {"batch_size": 0}
-                }
-            }
-        )
+        config = MessageConfig(verisk={"download_worker": {"processing": {"batch_size": 0}}})
         with pytest.raises(ValueError, match="batch_size"):
             config.validate()
 
     def test_rejects_zero_timeout(self):
-        config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "processing": {"timeout_seconds": 0}
-                }
-            }
-        )
+        config = MessageConfig(verisk={"download_worker": {"processing": {"timeout_seconds": 0}}})
         with pytest.raises(ValueError, match="timeout_seconds"):
             config.validate()
 
@@ -380,9 +342,7 @@ class TestMessageConfigValidation:
             config.validate()
 
     def test_skips_retry_delays_during_validation(self):
-        config = MessageConfig(
-            verisk={"retry_delays": [100, 200]}
-        )
+        config = MessageConfig(verisk={"retry_delays": [100, 200]})
         config.validate()  # Should not raise even though retry_delays is not a worker
 
 
@@ -392,7 +352,6 @@ class TestMessageConfigValidation:
 
 
 class TestLoadConfig:
-
     def _write_config(self, tmp_path, data):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(yaml.dump(data))
@@ -415,15 +374,7 @@ class TestLoadConfig:
         assert config.claimx == {}
 
     def test_loads_verisk_domain_config(self, tmp_path):
-        data = {
-            "pipeline": {
-                "verisk": {
-                    "download_worker": {
-                        "processing": {"concurrency": 3}
-                    }
-                }
-            }
-        }
+        data = {"pipeline": {"verisk": {"download_worker": {"processing": {"concurrency": 3}}}}}
         config_file = self._write_config(tmp_path, data)
         config = load_config(config_file)
         assert config.verisk["download_worker"]["processing"]["concurrency"] == 3
@@ -445,11 +396,7 @@ class TestLoadConfig:
         assert config.temp_dir == "/my/temp"
 
     def test_applies_overrides(self, tmp_path):
-        data = {
-            "pipeline": {
-                "verisk": {"retry_delays": [100, 200]}
-            }
-        }
+        data = {"pipeline": {"verisk": {"retry_delays": [100, 200]}}}
         config_file = self._write_config(tmp_path, data)
         overrides = {"verisk": {"retry_delays": [10, 20]}}
         config = load_config(config_file, overrides=overrides)
@@ -509,13 +456,7 @@ class TestLoadConfig:
         assert config.logging_config["log_to_stdout"] is True
 
     def test_expands_env_vars_in_yaml(self, tmp_path):
-        data = {
-            "pipeline": {
-                "storage": {
-                    "onelake_base_path": "${TEST_LAKE_PATH}"
-                }
-            }
-        }
+        data = {"pipeline": {"storage": {"onelake_base_path": "${TEST_LAKE_PATH}"}}}
         config_file = self._write_config(tmp_path, data)
         with patch.dict(os.environ, {"TEST_LAKE_PATH": "/expanded/path"}, clear=True):
             config = load_config(config_file)
@@ -528,7 +469,6 @@ class TestLoadConfig:
 
 
 class TestConfigSingleton:
-
     def setup_method(self):
         reset_config()
 

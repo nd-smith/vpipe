@@ -293,9 +293,7 @@ class ConsoleFormatter(logging.Formatter):
         trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
 
         if batch_id and trace_id:
-            return (
-                f"{prefix} - [batch:{batch_id}] [{trace_id[:8]}] {record.getMessage()}"
-            )
+            return f"{prefix} - [batch:{batch_id}] [{trace_id[:8]}] {record.getMessage()}"
         elif batch_id:
             return f"{prefix} - [batch:{batch_id}] {record.getMessage()}"
         elif trace_id:

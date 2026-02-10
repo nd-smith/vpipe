@@ -7,7 +7,6 @@ import aiohttp
 from core.oauth2.exceptions import (
     InvalidConfigurationError,
     TokenAcquisitionError,
-    TokenRefreshError,
 )
 from core.oauth2.models import OAuth2Config, OAuth2Token
 from core.oauth2.providers.base import BaseOAuth2Provider
@@ -36,9 +35,7 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
         super().__init__(config.provider_name)
 
         if not all([config.client_id, config.client_secret, config.token_url]):
-            raise InvalidConfigurationError(
-                "client_id, client_secret, and token_url are required"
-            )
+            raise InvalidConfigurationError("client_id, client_secret, and token_url are required")
 
         self.config = config
         self._session: aiohttp.ClientSession | None = None
@@ -92,9 +89,7 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
                         f"HTTP {response.status}",
                         extra={"error": error_text[:200]},
                     )
-                    raise TokenAcquisitionError(
-                        f"HTTP {response.status}: {error_text[:200]}"
-                    )
+                    raise TokenAcquisitionError(f"HTTP {response.status}: {error_text[:200]}")
 
                 response_data = await response.json()
 
@@ -107,10 +102,12 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
 
         except aiohttp.ClientError as e:
             logger.error(f"HTTP error during token acquisition for '{self.provider_name}': {e}")
-            raise TokenAcquisitionError(f"HTTP error: {e}")
+            raise TokenAcquisitionError(f"HTTP error: {e}") from e
         except Exception as e:
-            logger.error(f"Unexpected error during token acquisition for '{self.provider_name}': {e}")
-            raise TokenAcquisitionError(f"Token acquisition failed: {e}")
+            logger.error(
+                f"Unexpected error during token acquisition for '{self.provider_name}': {e}"
+            )
+            raise TokenAcquisitionError(f"Token acquisition failed: {e}") from e
 
     async def refresh_token(self, token: OAuth2Token) -> OAuth2Token:
         """
@@ -148,7 +145,7 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 if response.status != 200:
-                    error_text = await response.text()
+                    await response.text()
                     logger.warning(
                         f"Token refresh failed for '{self.provider_name}', "
                         f"will acquire new token: HTTP {response.status}"
@@ -164,8 +161,7 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
 
         except Exception as e:
             logger.warning(
-                f"Token refresh failed for '{self.provider_name}', "
-                f"will acquire new token: {e}"
+                f"Token refresh failed for '{self.provider_name}', will acquire new token: {e}"
             )
             # Fall back to acquiring new token
             return await self.acquire_token()

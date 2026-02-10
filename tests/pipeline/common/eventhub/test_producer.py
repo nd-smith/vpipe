@@ -5,12 +5,11 @@ start/stop lifecycle, and error handling.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pipeline.common.types import ProduceResult
-
 
 # =============================================================================
 # EventHubRecordMetadata
@@ -289,9 +288,7 @@ class TestEventHubProducerSend:
     @patch("pipeline.common.eventhub.producer.record_message_produced")
     @patch("pipeline.common.eventhub.producer.record_producer_error")
     @patch("pipeline.common.eventhub.producer.EventData")
-    async def test_send_records_failure_on_exception(
-        self, MockEventData, mock_error, mock_record
-    ):
+    async def test_send_records_failure_on_exception(self, MockEventData, mock_error, mock_record):
         producer, mock_client, mock_batch = self._make_started_producer()
         mock_event = MagicMock()
         mock_event.properties = {}
@@ -318,6 +315,7 @@ class TestEventHubProducerSend:
 
         # Need to make isinstance check work for BaseModel
         from pydantic import BaseModel
+
         mock_model.__class__ = type("MockModel", (BaseModel,), {"__annotations__": {}})
 
         result = await producer.send(value=mock_model)
@@ -361,9 +359,7 @@ class TestEventHubProducerSendBatch:
 
     @patch("pipeline.common.eventhub.producer.record_message_produced")
     @patch("pipeline.common.eventhub.producer.message_processing_duration_seconds")
-    async def test_send_batch_empty_messages_returns_empty_list(
-        self, mock_duration, mock_record
-    ):
+    async def test_send_batch_empty_messages_returns_empty_list(self, mock_duration, mock_record):
         producer, _, _ = self._make_started_producer()
 
         result = await producer.send_batch(messages=[])
@@ -475,9 +471,7 @@ class TestEventHubProducerSendBatch:
     @patch("pipeline.common.eventhub.producer.record_message_produced")
     @patch("pipeline.common.eventhub.producer.message_processing_duration_seconds")
     @patch("pipeline.common.eventhub.producer.EventData")
-    async def test_send_batch_with_headers(
-        self, MockEventData, mock_duration, mock_record
-    ):
+    async def test_send_batch_with_headers(self, MockEventData, mock_duration, mock_record):
         producer, mock_client, mock_batch = self._make_started_producer()
 
         mock_event = MagicMock()

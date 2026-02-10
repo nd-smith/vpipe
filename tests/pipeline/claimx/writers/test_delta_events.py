@@ -8,8 +8,7 @@ Tests cover:
 - Error handling
 """
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import polars as pl
@@ -52,7 +51,7 @@ class TestClaimXEventsDeltaWriter:
     @pytest.mark.asyncio
     async def test_write_events_multiple(self, claimx_events_writer):
         """Test writing multiple events in batch."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         events = [
             {
                 "event_id": f"evt-{i}",
@@ -120,7 +119,7 @@ class TestClaimXEventsDeltaWriter:
             "event_id": "evt-date-test",
             "event_type": "PROJECT_CREATED",
             "project_id": "123456",
-            "ingested_at": datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc),
+            "ingested_at": datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC),
         }
 
         result = await claimx_events_writer.write_events([event])
@@ -132,6 +131,7 @@ class TestClaimXEventsDeltaWriter:
 
         # Verify event_date was derived correctly
         from datetime import date
+
         event_date_value = df_written["event_date"][0]
         assert event_date_value == date(2024, 6, 15)
 
@@ -145,9 +145,9 @@ class TestClaimXEventsDeltaWriter:
             # ingested_at is intentionally missing
         }
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         result = await claimx_events_writer.write_events([event])
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         assert result is True
 
@@ -165,13 +165,13 @@ class TestClaimXEventsDeltaWriter:
                 "event_id": "valid-evt",
                 "event_type": "PROJECT_CREATED",
                 "project_id": "123456",
-                "ingested_at": datetime.now(timezone.utc),
+                "ingested_at": datetime.now(UTC),
             },
             {
                 "event_id": None,  # This should be dropped
                 "event_type": "PROJECT_CREATED",
                 "project_id": "123456",
-                "ingested_at": datetime.now(timezone.utc),
+                "ingested_at": datetime.now(UTC),
             },
         ]
 
@@ -194,13 +194,13 @@ class TestClaimXEventsDeltaWriter:
                 "event_id": "evt-with-type",
                 "event_type": "PROJECT_CREATED",
                 "project_id": "123456",
-                "ingested_at": datetime.now(timezone.utc),
+                "ingested_at": datetime.now(UTC),
             },
             {
                 "event_id": "evt-no-type",
                 "event_type": None,  # This should be dropped
                 "project_id": "123456",
-                "ingested_at": datetime.now(timezone.utc),
+                "ingested_at": datetime.now(UTC),
             },
         ]
 
@@ -310,7 +310,7 @@ async def test_claimx_events_writer_integration():
             "event_type": "PROJECT_FILE_ADDED",
             "project_id": "123456",
             "media_id": "media-789",
-            "ingested_at": datetime.now(timezone.utc),
+            "ingested_at": datetime.now(UTC),
         }
 
         result = await writer.write_events([event])

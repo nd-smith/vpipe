@@ -35,11 +35,8 @@ Usage:
 """
 
 import asyncio
-import json
 import logging
 import os
-import time
-from pathlib import Path
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
@@ -150,12 +147,8 @@ def _load_dedup_config() -> dict:
         config["blob_storage_connection_string"] = dedup_config.get(
             "blob_storage_connection_string", ""
         )
-        config["container_name"] = dedup_config.get(
-            "container_name", "eventhub-dedup-cache"
-        )
-        config["storage_path"] = dedup_config.get(
-            "storage_path", "./data/eventhub-dedup-cache"
-        )
+        config["container_name"] = dedup_config.get("container_name", "eventhub-dedup-cache")
+        config["storage_path"] = dedup_config.get("storage_path", "./data/eventhub-dedup-cache")
         config["ttl_seconds"] = dedup_config.get("ttl_seconds", 86400)
     else:
         # Fallback to environment variables
@@ -227,10 +220,7 @@ async def get_dedup_store() -> DedupStoreProtocol | None:
             _dedup_store = await _create_blob_store(config)
             return _dedup_store
         else:
-            raise ValueError(
-                f"Unknown dedup store type: '{store_type}'. "
-                f"Must be 'blob' or 'json'."
-            )
+            raise ValueError(f"Unknown dedup store type: '{store_type}'. Must be 'blob' or 'json'.")
 
 
 def _create_json_store(config: dict) -> DedupStoreProtocol:

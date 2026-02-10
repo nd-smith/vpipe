@@ -209,9 +209,7 @@ class AzureAuth:
         """Fetch fresh token from Azure CLI."""
         az_path = shutil.which("az")
         if not az_path:
-            raise AzureAuthError(
-                "Azure CLI not found. Ensure 'az' is installed and in PATH."
-            )
+            raise AzureAuthError("Azure CLI not found. Ensure 'az' is installed and in PATH.")
 
         cmd = [az_path, "account", "get-access-token", "--resource", resource]
         if self.tenant_id:
@@ -399,9 +397,7 @@ def get_storage_options(force_refresh: bool = False) -> dict[str, str]:
             extra={"token_prefix": _mask_credential(token)},
         )
     elif auth_mode == "none":
-        logger.warning(
-            "No Azure credentials configured - operations will fail with 403"
-        )
+        logger.warning("No Azure credentials configured - operations will fail with 403")
 
     # Also log the option keys being returned
     if opts:

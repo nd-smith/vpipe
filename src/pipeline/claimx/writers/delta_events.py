@@ -113,8 +113,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             valid_events = [
                 event
                 for event in processed_events
-                if event.get("event_id") is not None
-                and event.get("event_type") is not None
+                if event.get("event_id") is not None and event.get("event_type") is not None
             ]
 
             if len(valid_events) < len(processed_events):

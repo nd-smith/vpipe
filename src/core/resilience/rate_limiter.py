@@ -78,8 +78,7 @@ CLAIMX_API_RATE_CONFIG = RateLimiterConfig(
 EXTERNAL_DOWNLOAD_RATE_CONFIG = RateLimiterConfig(
     calls_per_second=float(os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_PER_SECOND", "5")),
     burst_capacity=None,
-    enabled=os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_ENABLED", "false").lower()
-    == "true",
+    enabled=os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_ENABLED", "false").lower() == "true",
     name="external_download",
 )
 
@@ -174,9 +173,7 @@ class RateLimiter:
             elapsed = now - self._last_update
 
             # Add tokens for elapsed time (up to burst capacity)
-            self._tokens = min(
-                self._burst_capacity, self._tokens + elapsed * self._rate
-            )
+            self._tokens = min(self._burst_capacity, self._tokens + elapsed * self._rate)
             self._last_update = now
 
             # If not enough tokens, calculate wait time

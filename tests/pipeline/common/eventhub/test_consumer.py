@@ -4,16 +4,12 @@ Covers EventHubConsumerRecord and EventHubConsumer, including message conversion
 start/stop lifecycle, DLQ routing, and error handling.
 """
 
-import asyncio
-import json
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from pipeline.common.types import PipelineMessage
-
 
 # =============================================================================
 # EventHubConsumerRecord
@@ -40,7 +36,7 @@ class TestEventHubConsumerRecord:
 
         event = self._make_event_data(
             body=b'{"key": "value"}',
-            enqueued_time=datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            enqueued_time=datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC),
             offset="42",
         )
 
@@ -205,25 +201,21 @@ class TestEventHubConsumer:
 
     @patch("pipeline.common.eventhub.consumer.update_connection_status")
     @patch("pipeline.common.eventhub.consumer.update_assigned_partitions")
-    async def test_stop_closes_consumer_and_updates_metrics(
-        self, mock_partitions, mock_connection
-    ):
+    async def test_stop_closes_consumer_and_updates_metrics(self, mock_partitions, mock_connection):
         consumer = self._make_consumer()
         consumer._running = True
         consumer._consumer = AsyncMock()
 
         await consumer.stop()
 
-        consumer._consumer is None
+        assert consumer._consumer is None
         mock_connection.assert_called_with("consumer", connected=False)
         mock_partitions.assert_called_with("$Default", 0)
         assert consumer._running is False
 
     @patch("pipeline.common.eventhub.consumer.update_connection_status")
     @patch("pipeline.common.eventhub.consumer.update_assigned_partitions")
-    async def test_stop_flushes_and_stops_dlq_producer(
-        self, mock_partitions, mock_connection
-    ):
+    async def test_stop_flushes_and_stops_dlq_producer(self, mock_partitions, mock_connection):
         consumer = self._make_consumer()
         consumer._running = True
         consumer._consumer = AsyncMock()
@@ -231,7 +223,7 @@ class TestEventHubConsumer:
 
         await consumer.stop()
 
-        consumer._dlq_producer is None
+        assert consumer._dlq_producer is None
 
     async def test_commit_when_consumer_not_started(self):
         consumer = self._make_consumer()
@@ -329,7 +321,6 @@ class TestProcessMessage:
     async def test_process_message_handles_handler_error(
         self, mock_proc_error, mock_duration, mock_consumed
     ):
-        from core.errors.exceptions import ErrorCategory
 
         handler = AsyncMock(side_effect=ValueError("bad data"))
         consumer = self._make_consumer(handler=handler)
@@ -567,7 +558,7 @@ class TestHandleProcessingError:
     @patch("pipeline.common.eventhub.consumer.record_processing_error")
     @patch("pipeline.common.eventhub.consumer.TransportErrorClassifier")
     async def test_permanent_error_routes_to_dlq(self, MockClassifier, mock_record):
-        from core.errors.exceptions import ErrorCategory, PermanentError
+        from core.errors.exceptions import PermanentError
 
         consumer = self._make_consumer()
         consumer._send_to_dlq = AsyncMock(return_value=True)
@@ -587,7 +578,7 @@ class TestHandleProcessingError:
     @patch("pipeline.common.eventhub.consumer.record_processing_error")
     @patch("pipeline.common.eventhub.consumer.TransportErrorClassifier")
     async def test_permanent_error_reraises_when_dlq_fails(self, MockClassifier, mock_record):
-        from core.errors.exceptions import ErrorCategory, PermanentError
+        from core.errors.exceptions import PermanentError
 
         consumer = self._make_consumer()
         consumer._send_to_dlq = AsyncMock(return_value=False)

@@ -18,11 +18,11 @@ import time
 import pytest
 
 from core.resilience.rate_limiter import (
+    CLAIMX_API_RATE_CONFIG,
     RateLimiter,
     RateLimiterConfig,
     get_rate_limiter,
     rate_limited,
-    CLAIMX_API_RATE_CONFIG,
 )
 
 

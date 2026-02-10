@@ -17,8 +17,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import polars as pl
-from deltalake import DeltaTable
-from deltalake import write_deltalake
+from deltalake import DeltaTable, write_deltalake
 
 from core.resilience.circuit_breaker import CircuitBreakerConfig
 from pipeline.common.auth import get_auth, get_storage_options
@@ -216,9 +215,7 @@ class DeltaTableReader:
                         col_expr = col_expr.cast(pl.Int64, strict=False).fill_null(0)
                     elif isinstance(value, float):
                         # Cast to float, fill nulls with 0.0
-                        col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(
-                            0.0
-                        )
+                        col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(0.0)
 
                     if op == "=":
                         lf = lf.filter(col_expr == value)
@@ -344,14 +341,10 @@ class DeltaTableWriter:
         """Cast NULL-typed columns to target type to avoid Delta Lake errors."""
         for col in df.columns:
             if df[col].dtype == pl.Null:
-                df = df.with_columns(
-                    pl.col(col).cast(target_type, strict=False).alias(col)
-                )
+                df = df.with_columns(pl.col(col).cast(target_type, strict=False).alias(col))
         return df
 
-    def _align_schema_with_target(
-        self, df: pl.DataFrame, opts: dict[str, str]
-    ) -> pl.DataFrame:
+    def _align_schema_with_target(self, df: pl.DataFrame, opts: dict[str, str]) -> pl.DataFrame:
         """Aligns DataFrame schema with target table to prevent type coercion errors during merge."""
         try:
             dt = DeltaTable(self.table_path, storage_options=opts)
@@ -403,35 +396,25 @@ class DeltaTableWriter:
                                     if target_tz is None:
                                         # Remove timezone
                                         cast_exprs.append(
-                                            pl.col(col)
-                                            .dt.replace_time_zone(None)
-                                            .alias(col)
+                                            pl.col(col).dt.replace_time_zone(None).alias(col)
                                         )
                                     elif source_tz is None:
                                         # Add timezone
                                         cast_exprs.append(
-                                            pl.col(col)
-                                            .dt.replace_time_zone(target_tz)
-                                            .alias(col)
+                                            pl.col(col).dt.replace_time_zone(target_tz).alias(col)
                                         )
                                     else:
                                         # Convert between timezones
                                         cast_exprs.append(
-                                            pl.col(col)
-                                            .dt.convert_time_zone(target_tz)
-                                            .alias(col)
+                                            pl.col(col).dt.convert_time_zone(target_tz).alias(col)
                                         )
                                 else:
                                     cast_exprs.append(
-                                        pl.col(col)
-                                        .cast(polars_type, strict=False)
-                                        .alias(col)
+                                        pl.col(col).cast(polars_type, strict=False).alias(col)
                                     )
                             else:
                                 cast_exprs.append(
-                                    pl.col(col)
-                                    .cast(polars_type, strict=False)
-                                    .alias(col)
+                                    pl.col(col).cast(polars_type, strict=False).alias(col)
                                 )
                         else:
                             cast_exprs.append(pl.col(col))
@@ -611,9 +594,7 @@ class DeltaTableWriter:
                 partition_by = existing_partitions if existing_partitions else None
             except Exception:
                 # Fall back to configured partition column
-                partition_by = (
-                    [self.partition_column] if self.partition_column else None
-                )
+                partition_by = [self.partition_column] if self.partition_column else None
         else:
             partition_by = [self.partition_column] if self.partition_column else None
 
@@ -627,7 +608,9 @@ class DeltaTableWriter:
                 "partition_by": partition_by,
                 "partition_column_config": self.partition_column,
                 "df_columns": df.columns,
-                "df_schema": {col: str(dtype) for col, dtype in zip(df.columns, df.dtypes)},
+                "df_schema": {
+                    col: str(dtype) for col, dtype in zip(df.columns, df.dtypes, strict=False)
+                },
                 "rows_to_write": len(df),
                 "first_row_sample": df.head(1).to_dicts()[0] if not df.is_empty() else {},
             },
@@ -782,9 +765,7 @@ class DeltaTableWriter:
         predicate = " AND ".join(f"target.{k} = source.{k}" for k in merge_keys)
 
         # Build update dict - all columns except merge keys and preserved
-        update_cols = [
-            c for c in df.columns if c not in merge_keys and c not in preserve_columns
-        ]
+        update_cols = [c for c in df.columns if c not in merge_keys and c not in preserve_columns]
         update_dict = {c: f"source.{c}" for c in update_cols}
 
         # Build insert dict - all columns
@@ -887,9 +868,7 @@ class DeltaTableWriter:
         )
 
         rows_merged = 0
-        for batch_num, batch_start in enumerate(
-            range(0, total_rows, batch_size), start=1
-        ):
+        for batch_num, batch_start in enumerate(range(0, total_rows, batch_size), start=1):
             batch_end = min(batch_start + batch_size, total_rows)
             batch_df = df.slice(batch_start, batch_end - batch_start)
 
@@ -1081,9 +1060,7 @@ class EventsTableReader(DeltaTableReader):
         # Optional attachments filter - push into query instead of post-filtering
         if require_attachments:
             row_filter = (
-                row_filter
-                & pl.col("attachments").is_not_null()
-                & (pl.col("attachments") != "")
+                row_filter & pl.col("attachments").is_not_null() & (pl.col("attachments") != "")
             )
 
         # Apply filters - partition filter first for better optimization hints

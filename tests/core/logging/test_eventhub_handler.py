@@ -1,24 +1,23 @@
 """Tests for EventHubLogHandler."""
 
-import asyncio
 import logging
-import queue
 import threading
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 # Mock azure.eventhub before importing the handler
-with patch.dict("sys.modules", {
-    "azure.eventhub": MagicMock(),
-    "azure.eventhub.aio": MagicMock(),
-}):
+with patch.dict(
+    "sys.modules",
+    {
+        "azure.eventhub": MagicMock(),
+        "azure.eventhub.aio": MagicMock(),
+    },
+):
     from core.logging.eventhub_handler import EventHubLogHandler
 
 
 class TestEventHubLogHandlerInit:
-
     @patch.object(EventHubLogHandler, "_start_sender")
     def test_stores_configuration(self, mock_start):
         handler = EventHubLogHandler(
@@ -72,7 +71,6 @@ class TestEventHubLogHandlerInit:
 
 
 class TestEventHubLogHandlerEmit:
-
     @patch.object(EventHubLogHandler, "_start_sender")
     def test_queues_formatted_log(self, mock_start):
         handler = EventHubLogHandler(
@@ -82,8 +80,13 @@ class TestEventHubLogHandlerEmit:
         handler.setFormatter(logging.Formatter("%(message)s"))
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="test message", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test message",
+            args=(),
+            exc_info=None,
         )
 
         handler.emit(record)
@@ -100,8 +103,13 @@ class TestEventHubLogHandlerEmit:
         handler._circuit_open = True
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="test", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test",
+            args=(),
+            exc_info=None,
         )
 
         handler.emit(record)
@@ -119,8 +127,13 @@ class TestEventHubLogHandlerEmit:
         handler.setFormatter(logging.Formatter("%(message)s"))
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="test", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test",
+            args=(),
+            exc_info=None,
         )
 
         # Fill the queue
@@ -142,8 +155,13 @@ class TestEventHubLogHandlerEmit:
         handler.handleError = MagicMock()
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="test", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test",
+            args=(),
+            exc_info=None,
         )
 
         # Make format raise
@@ -154,7 +172,6 @@ class TestEventHubLogHandlerEmit:
 
 
 class TestEventHubLogHandlerCircuitBreaker:
-
     @patch.object(EventHubLogHandler, "_start_sender")
     def test_opens_circuit_after_threshold_failures(self, mock_start):
         handler = EventHubLogHandler(
@@ -198,7 +215,6 @@ class TestEventHubLogHandlerCircuitBreaker:
 
 
 class TestEventHubLogHandlerGetStats:
-
     @patch.object(EventHubLogHandler, "_start_sender")
     def test_returns_stats_dict(self, mock_start):
         handler = EventHubLogHandler(
@@ -220,7 +236,6 @@ class TestEventHubLogHandlerGetStats:
 
 
 class TestEventHubLogHandlerClose:
-
     @patch.object(EventHubLogHandler, "_start_sender")
     def test_sets_shutdown_event(self, mock_start):
         handler = EventHubLogHandler(
@@ -248,7 +263,6 @@ class TestEventHubLogHandlerClose:
 
 
 class TestEventHubLogHandlerSendBatch:
-
     @pytest.mark.asyncio
     @patch.object(EventHubLogHandler, "_start_sender")
     async def test_sends_batch_to_producer(self, mock_start):
@@ -381,7 +395,6 @@ class TestEventHubLogHandlerSendBatch:
 
 
 class TestEventHubLogHandlerStartSender:
-
     def test_sender_thread_is_daemon(self):
         with patch.object(threading.Thread, "start"):
             handler = EventHubLogHandler(

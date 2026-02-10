@@ -95,9 +95,7 @@ class KQLEventPoller:
         self._backfill_stop_time: datetime | None = None
 
         if config.backfill_start_stamp:
-            self._backfill_start_time = self._parse_timestamp(
-                config.backfill_start_stamp
-            )
+            self._backfill_start_time = self._parse_timestamp(config.backfill_start_stamp)
         if config.backfill_stop_stamp:
             self._backfill_stop_time = self._parse_timestamp(config.backfill_stop_stamp)
 
@@ -171,54 +169,54 @@ class KQLEventPoller:
 
     async def start(self) -> None:
         """Initialize all components."""
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("[POLLER STARTUP] Starting KQLEventPoller components")
-        print("="*80)
+        print("=" * 80)
         logger.info("Starting KQLEventPoller components")
 
         print("[POLLER STARTUP] Step 1/6: Starting health check server...")
         await self.health_server.start()
-        print(f"[POLLER STARTUP] Health check server started on port {self.health_server.actual_port}")
+        print(
+            f"[POLLER STARTUP] Health check server started on port {self.health_server.actual_port}"
+        )
 
-        print(f"\n[POLLER STARTUP] Step 2/6: Initializing checkpoint store")
+        print("\n[POLLER STARTUP] Step 2/6: Initializing checkpoint store")
         if self._checkpoint_store is None:
-            self._checkpoint_store = await create_poller_checkpoint_store(
-                domain=self.config.domain
-            )
+            self._checkpoint_store = await create_poller_checkpoint_store(domain=self.config.domain)
             self._owns_checkpoint_store = True
         print(f"[POLLER STARTUP]   - Type: {type(self._checkpoint_store).__name__}")
 
-        print(f"[POLLER STARTUP] Loading checkpoint...")
+        print("[POLLER STARTUP] Loading checkpoint...")
         await self._load_checkpoint()
         if self._last_ingestion_time:
             print(f"[POLLER STARTUP]   - Resuming from: {self._last_ingestion_time.isoformat()}")
         else:
-            print(f"[POLLER STARTUP]   - No checkpoint found, starting fresh")
+            print("[POLLER STARTUP]   - No checkpoint found, starting fresh")
 
-        print(f"\n[POLLER STARTUP] Step 3/6: Creating KQLClient for Eventhouse")
+        print("\n[POLLER STARTUP] Step 3/6: Creating KQLClient for Eventhouse")
         print(f"[POLLER STARTUP]   - Cluster: {self.config.eventhouse.cluster_url}")
         print(f"[POLLER STARTUP]   - Database: {self.config.eventhouse.database}")
         print(f"[POLLER STARTUP]   - Source table: {self.config.source_table}")
         self._kql_client = KQLClient(self.config.eventhouse)
 
-        print(f"\n[POLLER STARTUP] Step 4/6: Connecting to Eventhouse...")
+        print("\n[POLLER STARTUP] Step 4/6: Connecting to Eventhouse...")
         await self._kql_client.connect()
         print("[POLLER STARTUP] KQLClient connection initialized (client created)")
 
         # Test eventhouse connectivity before initializing Kafka sink
-        print(f"\n[POLLER STARTUP] Step 5/6: Testing Eventhouse connectivity")
+        print("\n[POLLER STARTUP] Step 5/6: Testing Eventhouse connectivity")
         print(f"[POLLER STARTUP]   - Will query: {self.config.source_table} | take 10")
-        print(f"[POLLER STARTUP]   - This is the FIRST ACTUAL NETWORK REQUEST")
+        print("[POLLER STARTUP]   - This is the FIRST ACTUAL NETWORK REQUEST")
         print("[POLLER STARTUP]   - This will authenticate and establish TCP connection")
         await self._test_eventhouse_connectivity()
         print("[POLLER STARTUP] Connectivity test passed! Eventhouse connection confirmed.")
 
         # Use provided sink or create default MessageSink
-        print(f"\n[POLLER STARTUP] Step 6/6: Initializing output sink")
+        print("\n[POLLER STARTUP] Step 6/6: Initializing output sink")
         if self._sink is None:
             if self.config.kafka is None:
                 raise ValueError("Either sink or kafka config must be provided")
-            print(f"[POLLER STARTUP]   - Creating message sink")
+            print("[POLLER STARTUP]   - Creating message sink")
             print(f"[POLLER STARTUP]   - Domain: {self.config.domain}")
             self._sink = create_message_sink(
                 message_config=self.config.kafka,
@@ -229,21 +227,23 @@ class KQLEventPoller:
 
         print(f"[POLLER STARTUP] Starting sink ({type(self._sink).__name__})...")
         await self._sink.start()
-        print(f"[POLLER STARTUP] Sink started successfully")
+        print("[POLLER STARTUP] Sink started successfully")
 
         self._running = True
 
         # Mark health server as ready after successful startup
         self.health_server.set_ready(kafka_connected=True)
 
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("[POLLER STARTUP] All components started successfully!")
         print(f"[POLLER STARTUP]   - Health server: port {self.health_server.actual_port}")
         print(f"[POLLER STARTUP]   - Checkpoint store: {type(self._checkpoint_store).__name__}")
-        print(f"[POLLER STARTUP]   - Eventhouse: {self.config.eventhouse.cluster_url}/{self.config.eventhouse.database}")
+        print(
+            f"[POLLER STARTUP]   - Eventhouse: {self.config.eventhouse.cluster_url}/{self.config.eventhouse.database}"
+        )
         print(f"[POLLER STARTUP]   - Source table: {self.config.source_table}")
         print(f"[POLLER STARTUP]   - Output sink: {type(self._sink).__name__}")
-        print("="*80 + "\n")
+        print("=" * 80 + "\n")
 
         logger.info(
             "KQLEventPoller started",
@@ -265,16 +265,16 @@ class KQLEventPoller:
         table = self.config.source_table
         query = f"{table} | take {test_limit}"
 
-        print("\n" + "#"*80)
+        print("\n" + "#" * 80)
         print("[CONNECTIVITY TEST] Starting Eventhouse connectivity test")
-        print("#"*80)
+        print("#" * 80)
         print(f"[CONNECTIVITY TEST] Domain: {self.config.domain}")
         print(f"[CONNECTIVITY TEST] Cluster: {self.config.eventhouse.cluster_url}")
         print(f"[CONNECTIVITY TEST] Database: {self.config.eventhouse.database}")
         print(f"[CONNECTIVITY TEST] Source table: {table}")
         print(f"[CONNECTIVITY TEST] Test query: {query}")
         print(f"[CONNECTIVITY TEST] Sample size: {test_limit} rows")
-        print("#"*80)
+        print("#" * 80)
 
         logger.info(
             "=== Eventhouse Connectivity Test ===",
@@ -297,8 +297,8 @@ class KQLEventPoller:
             print("[CONNECTIVITY TEST] >>>   3. Execute the test query")
             print("[CONNECTIVITY TEST] >>> Waiting for response...\n")
             result = await self._kql_client.execute_query(query)
-            print(f"\n[CONNECTIVITY TEST] ✓ Test query completed successfully!")
-            print(f"[CONNECTIVITY TEST] ✓ Network connection established and working!")
+            print("\n[CONNECTIVITY TEST] ✓ Test query completed successfully!")
+            print("[CONNECTIVITY TEST] ✓ Network connection established and working!")
 
             if not result.rows:
                 logger.warning(
@@ -309,11 +309,11 @@ class KQLEventPoller:
                         "query_duration_ms": round(result.query_duration_ms, 2),
                     },
                 )
-                print("\n" + "#"*80)
-                print(f"[CONNECTIVITY TEST] ✓ Connected to Eventhouse successfully!")
+                print("\n" + "#" * 80)
+                print("[CONNECTIVITY TEST] ✓ Connected to Eventhouse successfully!")
                 print(f"[CONNECTIVITY TEST] Table '{table}' returned 0 rows (may be empty)")
                 print(f"[CONNECTIVITY TEST] Query duration: {result.query_duration_ms:.0f}ms")
-                print("#"*80 + "\n")
+                print("#" * 80 + "\n")
                 return
 
             logger.info(
@@ -324,12 +324,12 @@ class KQLEventPoller:
                     "source_table": table,
                 },
             )
-            print("\n" + "#"*80)
-            print(f"[CONNECTIVITY TEST] ✓ SUCCESS!")
+            print("\n" + "#" * 80)
+            print("[CONNECTIVITY TEST] ✓ SUCCESS!")
             print(f"[CONNECTIVITY TEST] Read {len(result.rows)} records from '{table}'")
             print(f"[CONNECTIVITY TEST] Query duration: {result.query_duration_ms:.0f}ms")
             print(f"[CONNECTIVITY TEST] Columns: {list(result.rows[0].keys())}")
-            print("#"*80)
+            print("#" * 80)
 
             print("\n[CONNECTIVITY TEST] Sample records:")
             for i, row in enumerate(result.rows):
@@ -339,9 +339,9 @@ class KQLEventPoller:
                 )
                 print(f"[CONNECTIVITY TEST]   Record {i + 1}: {json.dumps(row, default=str)}")
 
-            print("\n" + "#"*80)
+            print("\n" + "#" * 80)
             print("[CONNECTIVITY TEST] Eventhouse connectivity test COMPLETE ✓")
-            print("#"*80 + "\n")
+            print("#" * 80 + "\n")
 
             logger.info("=== Eventhouse Connectivity Test Complete ===")
 
@@ -354,12 +354,12 @@ class KQLEventPoller:
                     "error_type": type(e).__name__,
                 },
             )
-            print("\n" + "#"*80)
-            print(f"[CONNECTIVITY TEST] ✗ FAILED")
+            print("\n" + "#" * 80)
+            print("[CONNECTIVITY TEST] ✗ FAILED")
             print(f"[CONNECTIVITY TEST] Could not read from table '{table}'")
             print(f"[CONNECTIVITY TEST] Error type: {type(e).__name__}")
             print(f"[CONNECTIVITY TEST] Error message: {str(e)[:500]}")
-            print("#"*80 + "\n")
+            print("#" * 80 + "\n")
             raise
 
     # FIXED: Restored Asynchronous Context Manager Protocol
@@ -407,6 +407,7 @@ class KQLEventPoller:
                 pass
             except Exception as e:
                 import traceback
+
                 print(f"[POLLER ERROR] Error in poll cycle: {type(e).__name__}: {e}")
                 traceback.print_exc()
                 logger.error(f"Error in poll cycle: {e}", exc_info=True)
@@ -538,9 +539,7 @@ class KQLEventPoller:
             filtered.append(r)
         return filtered
 
-    def _resolve_batch_boundary(
-        self, rows: list[dict]
-    ) -> tuple[list[dict], datetime | None]:
+    def _resolve_batch_boundary(self, rows: list[dict]) -> tuple[list[dict], datetime | None]:
         """Decide which rows to process and where to checkpoint.
 
         Handles three cases for timestamp-only pagination:
@@ -572,9 +571,7 @@ class KQLEventPoller:
         safe = [r for r in rows if self._parse_row_time(r) < last_time]
         return safe, self._parse_row_time(safe[-1])
 
-    async def _drain_timestamp(
-        self, timestamp: datetime, upper_bound: datetime
-    ) -> list[dict]:
+    async def _drain_timestamp(self, timestamp: datetime, upper_bound: datetime) -> list[dict]:
         """Fetch ALL rows at a specific timestamp.
 
         Used when a full batch contains only one timestamp, meaning the

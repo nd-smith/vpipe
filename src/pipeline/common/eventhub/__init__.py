@@ -28,18 +28,14 @@ def __getattr__(name):
             EventHubRecordMetadata,
         )
 
-        return (
-            EventHubProducer if name == "EventHubProducer" else EventHubRecordMetadata
-        )
+        return EventHubProducer if name == "EventHubProducer" else EventHubRecordMetadata
     if name in ("EventHubConsumer", "EventHubConsumerRecord"):
         from pipeline.common.eventhub.consumer import (
             EventHubConsumer,
             EventHubConsumerRecord,
         )
 
-        return (
-            EventHubConsumer if name == "EventHubConsumer" else EventHubConsumerRecord
-        )
+        return EventHubConsumer if name == "EventHubConsumer" else EventHubConsumerRecord
     if name in (
         "get_checkpoint_store",
         "close_checkpoint_store",

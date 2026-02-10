@@ -53,9 +53,7 @@ class CachedDownloadMessage(BaseModel):
         ... )
     """
 
-    trace_id: str = Field(
-        ..., description="Unique event identifier for correlation", min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier for correlation", min_length=1)
     media_id: str = Field(
         ..., description="Unique deterministic ID for the attachment", min_length=1
     )
@@ -70,18 +68,12 @@ class CachedDownloadMessage(BaseModel):
         description="Absolute path to cached file on local filesystem",
         min_length=1,
     )
-    bytes_downloaded: int = Field(
-        ..., description="Size of the downloaded file in bytes", ge=0
-    )
+    bytes_downloaded: int = Field(..., description="Size of the downloaded file in bytes", ge=0)
     content_type: str | None = Field(
         default=None, description="MIME type of the downloaded file (if available)"
     )
-    event_type: str = Field(
-        ..., description="Type of the originating event", min_length=1
-    )
-    event_subtype: str = Field(
-        ..., description="Subtype of the originating event", min_length=1
-    )
+    event_type: str = Field(..., description="Type of the originating event", min_length=1)
+    event_subtype: str = Field(..., description="Subtype of the originating event", min_length=1)
     status_subtype: str = Field(
         ...,
         description="Event status subtype (e.g., 'documentsReceived')",
@@ -92,12 +84,8 @@ class CachedDownloadMessage(BaseModel):
         description="File type extracted from URL extension (e.g., 'pdf', 'esx')",
         min_length=1,
     )
-    assignment_id: str = Field(
-        ..., description="Assignment ID from event payload", min_length=1
-    )
-    original_timestamp: datetime = Field(
-        ..., description="Timestamp from the original event"
-    )
+    assignment_id: str = Field(..., description="Assignment ID from event payload", min_length=1)
+    original_timestamp: datetime = Field(..., description="Timestamp from the original event")
     downloaded_at: datetime = Field(
         ..., description="Timestamp when the file was downloaded to cache"
     )

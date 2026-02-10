@@ -2,8 +2,6 @@
 Tests for error classification and storage error classifiers.
 """
 
-import pytest
-
 from core.errors import (
     AZURE_ERROR_CODES,
     AuthError,
@@ -12,7 +10,6 @@ from core.errors import (
     ThrottlingError,
     TransientError,
     classify_azure_error_code,
-    wrap_exception,
 )
 from core.errors.exceptions import (
     ConnectionError,
@@ -26,7 +23,6 @@ from core.errors.exceptions import (
 
 
 class TestAzureErrorCodeClassification:
-
     def test_auth_errors(self):
         auth_codes = AZURE_ERROR_CODES["auth_errors"]
         for code in auth_codes:
@@ -57,13 +53,17 @@ class TestAzureErrorCodeClassification:
         storage_codes = AZURE_ERROR_CODES["storage_errors"]
         for code, expected_category in storage_codes.items():
             result = classify_azure_error_code(code)
-            assert result == expected_category, f"Expected '{expected_category}' for {code}, got {result}"
+            assert result == expected_category, (
+                f"Expected '{expected_category}' for {code}, got {result}"
+            )
 
     def test_kusto_sql_errors(self):
         kusto_codes = AZURE_ERROR_CODES["kusto_sql_errors"]
         for code, expected_category in kusto_codes.items():
             result = classify_azure_error_code(code)
-            assert result == expected_category, f"Expected '{expected_category}' for {code}, got {result}"
+            assert result == expected_category, (
+                f"Expected '{expected_category}' for {code}, got {result}"
+            )
 
     def test_permanent_errors(self):
         assert classify_azure_error_code("403") == "permanent"
@@ -196,12 +196,9 @@ class TestCommonPatterns:
 
 
 class TestKustoErrorClassifier:
-
     def test_throttling_with_retry_after_ms_header(self):
         error = Exception("429 Too Many Requests")
-        response = type("Response", (), {
-            "headers": {"x-ms-retry-after-ms": "5000"}
-        })()
+        response = type("Response", (), {"headers": {"x-ms-retry-after-ms": "5000"}})()
         error.response = response
         result = StorageErrorClassifier.classify_kusto_error(error)
         assert isinstance(result, ThrottlingError)
@@ -210,9 +207,7 @@ class TestKustoErrorClassifier:
 
     def test_throttling_with_retry_after_seconds_header(self):
         error = Exception("429 Too Many Requests")
-        response = type("Response", (), {
-            "headers": {"retry-after": "10"}
-        })()
+        response = type("Response", (), {"headers": {"retry-after": "10"}})()
         error.response = response
         result = StorageErrorClassifier.classify_kusto_error(error)
         assert isinstance(result, ThrottlingError)
@@ -221,9 +216,7 @@ class TestKustoErrorClassifier:
 
     def test_throttling_with_invalid_retry_after_header(self):
         error = Exception("429 Too Many Requests")
-        response = type("Response", (), {
-            "headers": {"x-ms-retry-after-ms": "not-a-number"}
-        })()
+        response = type("Response", (), {"headers": {"x-ms-retry-after-ms": "not-a-number"}})()
         error.response = response
         result = StorageErrorClassifier.classify_kusto_error(error)
         assert isinstance(result, ThrottlingError)
@@ -313,7 +306,6 @@ class TestKustoErrorClassifier:
 
 
 class TestDeltaErrorClassifier:
-
     def test_default_delta_error(self):
         error = Exception("something went wrong with delta")
         result = StorageErrorClassifier.classify_delta_error(error)
@@ -344,7 +336,6 @@ class TestDeltaErrorClassifier:
 
 
 class TestOneLakeErrorClassifier:
-
     def test_default_onelake_error(self):
         error = Exception("onelake storage issue")
         result = StorageErrorClassifier.classify_onelake_error(error)
@@ -375,7 +366,6 @@ class TestOneLakeErrorClassifier:
 
 
 class TestStorageErrorRouting:
-
     def test_routes_to_kusto(self):
         error = Exception("some kusto error")
         result = StorageErrorClassifier.classify_storage_error(error, "kusto")

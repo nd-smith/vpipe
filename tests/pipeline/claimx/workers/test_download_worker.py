@@ -15,12 +15,11 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import json
-import pytest
-from datetime import UTC, datetime
+import contextlib
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
-from dataclasses import dataclass
+
+import pytest
 
 from config.config import MessageConfig
 from core.download.models import DownloadOutcome
@@ -96,18 +95,14 @@ class TestClaimXDownloadWorkerInitialization:
     def test_initialization_with_custom_domain(self, mock_config, tmp_path):
         """Worker initializes with custom domain."""
         with patch("pipeline.claimx.workers.download_worker.create_producer"):
-            worker = ClaimXDownloadWorker(
-                config=mock_config, domain="custom", temp_dir=tmp_path
-            )
+            worker = ClaimXDownloadWorker(config=mock_config, domain="custom", temp_dir=tmp_path)
 
             assert worker.domain == "custom"
 
     def test_initialization_with_instance_id(self, mock_config, tmp_path):
         """Worker uses instance ID for worker_id suffix."""
         with patch("pipeline.claimx.workers.download_worker.create_producer"):
-            worker = ClaimXDownloadWorker(
-                config=mock_config, instance_id="3", temp_dir=tmp_path
-            )
+            worker = ClaimXDownloadWorker(config=mock_config, instance_id="3", temp_dir=tmp_path)
 
             assert worker.worker_id == "download_worker-3"
             assert worker.instance_id == "3"
@@ -160,13 +155,18 @@ class TestClaimXDownloadWorkerLifecycle:
         assert worker._semaphore is None
         assert worker._shutdown_event is None
 
-        with patch("pipeline.claimx.workers.download_worker.create_producer") as mock_create_producer, \
-             patch("pipeline.claimx.workers.download_worker.create_batch_consumer") as mock_create_consumer, \
-             patch("pipeline.claimx.workers.download_worker.ClaimXApiClient"), \
-             patch("pipeline.claimx.workers.download_worker.DownloadRetryHandler"), \
-             patch("pipeline.common.telemetry.initialize_worker_telemetry"), \
-             patch("aiohttp.ClientSession"):
-
+        with (
+            patch(
+                "pipeline.claimx.workers.download_worker.create_producer"
+            ) as mock_create_producer,
+            patch(
+                "pipeline.claimx.workers.download_worker.create_batch_consumer"
+            ) as mock_create_consumer,
+            patch("pipeline.claimx.workers.download_worker.ClaimXApiClient"),
+            patch("pipeline.claimx.workers.download_worker.DownloadRetryHandler"),
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+            patch("aiohttp.ClientSession"),
+        ):
             # Setup mocks
             mock_producer = AsyncMock()
             mock_producer.start = AsyncMock()
@@ -179,10 +179,8 @@ class TestClaimXDownloadWorkerLifecycle:
             # Prevent blocking on consumer.start
             mock_consumer.start.side_effect = Exception("Stop")
 
-            try:
+            with contextlib.suppress(Exception):
                 await worker.start()
-            except Exception:
-                pass
 
             # After start, these should be initialized
             assert worker._semaphore is not None
@@ -283,9 +281,7 @@ class TestClaimXDownloadWorkerMessageProcessing:
     """Test message parsing and processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(
-        self, mock_config, sample_message, tmp_path
-    ):
+    async def test_valid_message_parsed_successfully(self, mock_config, sample_message, tmp_path):
         """Worker parses valid download task message."""
         with patch("pipeline.claimx.workers.download_worker.create_producer"):
             worker = ClaimXDownloadWorker(config=mock_config, temp_dir=tmp_path)
@@ -407,9 +403,7 @@ class TestClaimXDownloadWorkerBatchProcessing:
             success=True,
         )
 
-        worker._process_single_task = AsyncMock(
-            side_effect=[mock_result, Exception("Test error")]
-        )
+        worker._process_single_task = AsyncMock(side_effect=[mock_result, Exception("Test error")])
         worker.retry_handler = AsyncMock()
         worker.retry_handler.route_to_retry_or_dlq = AsyncMock()
 
@@ -493,9 +487,7 @@ class TestClaimXDownloadWorkerInFlightTracking:
     """Test in-flight task tracking."""
 
     @pytest.mark.asyncio
-    async def test_in_flight_tasks_tracked(
-        self, mock_config, sample_message, tmp_path
-    ):
+    async def test_in_flight_tasks_tracked(self, mock_config, sample_message, tmp_path):
         """Worker tracks in-flight tasks during processing."""
         with patch("pipeline.claimx.workers.download_worker.create_producer"):
             worker = ClaimXDownloadWorker(config=mock_config, temp_dir=tmp_path)

@@ -7,10 +7,8 @@ destructor warning for both DeltaTableReader and DeltaTableWriter.
 
 import asyncio
 import gc
-import logging
 import warnings
-from typing import Generator
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
@@ -58,7 +56,6 @@ class TestFileDescriptorMonitoring:
 
     def test_get_open_file_descriptors_on_linux(self):
         """Test file descriptor counting on Linux systems."""
-        import os
         import sys
 
         # Only run this test on Linux
@@ -88,9 +85,7 @@ class TestDeltaTableReaderResourceCleanup:
 
         # Patch the read method to avoid actual Delta operations
         with patch.object(DeltaTableReader, "read", return_value=pl.DataFrame()):
-            async with DeltaTableReader(
-                table_path, storage_options=mock_storage_options
-            ) as reader:
+            async with DeltaTableReader(table_path, storage_options=mock_storage_options) as reader:
                 assert reader is not None
                 assert reader.table_path == table_path
                 assert not reader._closed
@@ -164,9 +159,7 @@ class TestDeltaTableReaderResourceCleanup:
         reader._delta_table = MagicMock()
 
         # Try to close from multiple coroutines simultaneously
-        await asyncio.gather(
-            reader.close(), reader.close(), reader.close(), reader.close()
-        )
+        await asyncio.gather(reader.close(), reader.close(), reader.close(), reader.close())
 
         # Should be closed exactly once
         assert reader._closed
@@ -271,9 +264,7 @@ class TestDeltaTableWriterResourceCleanup:
         writer._delta_table = MagicMock()
 
         # Try to close from multiple coroutines simultaneously
-        await asyncio.gather(
-            writer.close(), writer.close(), writer.close(), writer.close()
-        )
+        await asyncio.gather(writer.close(), writer.close(), writer.close(), writer.close())
 
         # Should be closed exactly once
         assert writer._closed
@@ -309,20 +300,22 @@ class TestResourceCleanupIntegration:
     @pytest.mark.asyncio
     async def test_nested_context_managers(self):
         """Test using reader and writer in nested context managers."""
-        with patch.object(DeltaTableReader, "read", return_value=pl.DataFrame()):
-            with patch.object(DeltaTableWriter, "append", return_value=0):
-                async with DeltaTableReader("test://source") as reader:
-                    async with DeltaTableWriter("test://dest") as writer:
-                        # Both should be open
-                        assert not reader._closed
-                        assert not writer._closed
+        with (
+            patch.object(DeltaTableReader, "read", return_value=pl.DataFrame()),
+            patch.object(DeltaTableWriter, "append", return_value=0),
+        ):
+            async with DeltaTableReader("test://source") as reader:
+                async with DeltaTableWriter("test://dest") as writer:
+                    # Both should be open
+                    assert not reader._closed
+                    assert not writer._closed
 
-                    # Writer should be closed
-                    assert writer._closed
-
-                # Both should be closed
-                assert reader._closed
+                # Writer should be closed
                 assert writer._closed
+
+            # Both should be closed
+            assert reader._closed
+            assert writer._closed
 
     @pytest.mark.asyncio
     async def test_file_descriptor_tracking_with_multiple_tables(self):
@@ -355,21 +348,23 @@ class TestResourceCleanupIntegration:
         table_path = "test://lifecycle_test"
 
         # Mock the Delta operations
-        with patch.object(DeltaTableWriter, "append", return_value=len(sample_dataframe)):
-            with patch.object(DeltaTableReader, "read", return_value=sample_dataframe):
-                # Create writer, write data, close
-                async with DeltaTableWriter(table_path) as writer:
-                    rows_written = writer.append(sample_dataframe)
-                    assert rows_written == 3
+        with (
+            patch.object(DeltaTableWriter, "append", return_value=len(sample_dataframe)),
+            patch.object(DeltaTableReader, "read", return_value=sample_dataframe),
+        ):
+            # Create writer, write data, close
+            async with DeltaTableWriter(table_path) as writer:
+                rows_written = writer.append(sample_dataframe)
+                assert rows_written == 3
 
-                assert writer._closed
+            assert writer._closed
 
-                # Create reader, read data, close
-                async with DeltaTableReader(table_path) as reader:
-                    df = reader.read()
-                    assert len(df) == 3
+            # Create reader, read data, close
+            async with DeltaTableReader(table_path) as reader:
+                df = reader.read()
+                assert len(df) == 3
 
-                assert reader._closed
+            assert reader._closed
 
     @pytest.mark.asyncio
     async def test_garbage_collection_triggers_warning(self):
@@ -385,7 +380,7 @@ class TestResourceCleanupIntegration:
             warnings.simplefilter("always", ResourceWarning)
 
             # Create and abandon reader
-            reader_id = create_unclosed_reader()
+            create_unclosed_reader()
 
             # Force garbage collection
             gc.collect()
@@ -393,9 +388,7 @@ class TestResourceCleanupIntegration:
             # Should have received at least one ResourceWarning
             # Note: Timing of __del__ calls is not guaranteed, so this test may be flaky
             # We're testing the mechanism exists, not the exact GC timing
-            resource_warnings = [
-                warn for warn in w if issubclass(warn.category, ResourceWarning)
-            ]
+            [warn for warn in w if issubclass(warn.category, ResourceWarning)]
             # Comment: In real scenarios, this warning will appear, but GC timing in tests is unpredictable
             # The key is that the __del__ method exists and will warn when called
 
@@ -411,10 +404,10 @@ class TestResourceCleanupPerformance:
         iterations = 100
 
         for i in range(iterations):
-            async with DeltaTableReader(f"test://table_{i}") as reader:
+            async with DeltaTableReader(f"test://table_{i}"):
                 pass  # Just open and close
 
-            async with DeltaTableWriter(f"test://table_{i}") as writer:
+            async with DeltaTableWriter(f"test://table_{i}"):
                 pass  # Just open and close
 
         # If we get here without errors, test passed
@@ -425,11 +418,11 @@ class TestResourceCleanupPerformance:
         """Test opening and closing many tables concurrently."""
 
         async def open_and_close_reader(i: int):
-            async with DeltaTableReader(f"test://table_{i}") as reader:
+            async with DeltaTableReader(f"test://table_{i}"):
                 await asyncio.sleep(0.01)  # Simulate some work
 
         async def open_and_close_writer(i: int):
-            async with DeltaTableWriter(f"test://table_{i}") as writer:
+            async with DeltaTableWriter(f"test://table_{i}"):
                 await asyncio.sleep(0.01)  # Simulate some work
 
         # Create 50 concurrent readers and writers

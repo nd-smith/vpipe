@@ -52,9 +52,7 @@ class ClaimXUploadResultMessage(BaseModel):
         ... )
     """
 
-    media_id: str = Field(
-        ..., description="Media file identifier from ClaimX", min_length=1
-    )
+    media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     download_url: str = Field(
         ...,
@@ -184,9 +182,7 @@ class FailedEnrichmentMessage(BaseModel):
         ...,
         description="Classification of error (transient, permanent, auth, circuit_open, unknown)",
     )
-    retry_count: int = Field(
-        ..., description="Number of retry attempts before reaching DLQ", ge=0
-    )
+    retry_count: int = Field(..., description="Number of retry attempts before reaching DLQ", ge=0)
     failed_at: datetime = Field(..., description="Timestamp when task was moved to DLQ")
 
     @field_validator("event_id", "event_type", "project_id")
@@ -259,22 +255,16 @@ class FailedDownloadMessage(BaseModel):
         failed_at: Timestamp when task was moved to DLQ
     """
 
-    media_id: str = Field(
-        ..., description="Media file identifier from ClaimX", min_length=1
-    )
+    media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
-    download_url: str = Field(
-        ..., description="Original S3 presigned URL", min_length=1
-    )
+    download_url: str = Field(..., description="Original S3 presigned URL", min_length=1)
     original_task: ClaimXDownloadTask = Field(
         ..., description="Complete original download task for replay capability"
     )
     error_category: str = Field(
         ..., description="Classification of error (transient, permanent, auth, etc.)"
     )
-    retry_count: int = Field(
-        ..., description="Number of retry attempts before reaching DLQ", ge=0
-    )
+    retry_count: int = Field(..., description="Number of retry attempts before reaching DLQ", ge=0)
     failed_at: datetime = Field(..., description="Timestamp when task was moved to DLQ")
 
     @field_validator("media_id", "project_id", "download_url")

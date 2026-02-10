@@ -131,12 +131,8 @@ class UploadWorker:
             )
 
         # Get worker-specific processing config
-        processing_config = config.get_worker_config(
-            domain, self.WORKER_NAME, "processing"
-        )
-        self.concurrency = processing_config.get(
-            "concurrency", WorkerDefaults.CONCURRENCY
-        )
+        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
         self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
 
         # Topic to consume from
@@ -325,9 +321,7 @@ class UploadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -417,14 +411,9 @@ class UploadWorker:
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
-        tasks = [
-            asyncio.create_task(self._process_single_with_semaphore(msg))
-            for msg in messages
-        ]
+        tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
 
-        results: list[UploadResult] = await asyncio.gather(
-            *tasks, return_exceptions=True
-        )
+        results: list[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Handle any exceptions
         for upload_result in results:
@@ -457,9 +446,7 @@ class UploadWorker:
 
         return True
 
-    async def _process_single_with_semaphore(
-        self, message: PipelineMessage
-    ) -> UploadResult:
+    async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
@@ -620,9 +607,7 @@ class UploadWorker:
             try:
                 # Re-parse message in case it wasn't parsed yet (e.g., JSON parsing failed)
                 if cached_message is None:
-                    cached_message = CachedDownloadMessage.model_validate_json(
-                        message.value
-                    )
+                    cached_message = CachedDownloadMessage.model_validate_json(message.value)
 
                 result_message = DownloadResultMessage(
                     media_id=cached_message.media_id,

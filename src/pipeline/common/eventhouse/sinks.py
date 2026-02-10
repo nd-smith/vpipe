@@ -212,7 +212,7 @@ class JsonFileSink:
         else:
             self._current_size = 0
 
-        self._file = open(self._current_path, "a", encoding="utf-8")
+        self._file = open(self._current_path, "a", encoding="utf-8")  # noqa: SIM115
 
         # Start periodic flush task
         self._flush_task = asyncio.create_task(self._periodic_flush())
@@ -324,7 +324,7 @@ class JsonFileSink:
         self._file_index += 1
         self._current_path = self._get_output_path()
         self._current_size = 0
-        self._file = open(self._current_path, "a", encoding="utf-8")
+        self._file = open(self._current_path, "a", encoding="utf-8")  # noqa: SIM115
 
         logger.info(
             "Rotated output file",

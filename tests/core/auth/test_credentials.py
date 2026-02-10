@@ -15,14 +15,12 @@ from core.auth.credentials import (
 )
 from core.auth.token_cache import TokenCache
 
-
 # ---------------------------------------------------------------------------
 # AzureCredentialProvider.__init__
 # ---------------------------------------------------------------------------
 
 
 class TestCredentialProviderInit:
-
     def test_creates_default_cache_when_none_provided(self):
         provider = AzureCredentialProvider(token_file="/tmp/fake")
         assert isinstance(provider._cache, TokenCache)
@@ -82,11 +80,8 @@ class TestCredentialProviderInit:
 
 
 class TestCredentialProviderProperties:
-
     def test_has_spn_credentials_true(self):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         assert provider.has_spn_credentials is True
 
     def test_has_spn_credentials_false_missing_secret(self):
@@ -102,9 +97,7 @@ class TestCredentialProviderProperties:
         assert provider.auth_mode == "file"
 
     def test_auth_mode_spn_secret(self):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         assert provider.auth_mode == "spn_secret"
 
     def test_auth_mode_none(self):
@@ -127,33 +120,24 @@ class TestCredentialProviderProperties:
 
 
 class TestGetAzureCredential:
-
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", False)
     def test_raises_when_azure_identity_not_installed(self):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         with pytest.raises(AzureAuthError, match="azure-identity library not installed"):
             provider._get_azure_credential()
 
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.auth.credentials.ClientSecretCredential")
     def test_creates_credential_with_spn(self, mock_csc):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         result = provider._get_azure_credential()
-        mock_csc.assert_called_once_with(
-            tenant_id="tid", client_id="cid", client_secret="cs"
-        )
+        mock_csc.assert_called_once_with(tenant_id="tid", client_id="cid", client_secret="cs")
         assert result is mock_csc.return_value
 
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.auth.credentials.ClientSecretCredential")
     def test_reuses_cached_credential(self, mock_csc):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         first = provider._get_azure_credential()
         second = provider._get_azure_credential()
         assert first is second
@@ -163,9 +147,7 @@ class TestGetAzureCredential:
     @patch("core.auth.credentials.ClientSecretCredential")
     @patch.dict("os.environ", {"SSL_CERT_FILE": "/path/to/ca.pem"})
     def test_passes_ca_bundle_from_ssl_cert_file(self, mock_csc):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         provider._get_azure_credential()
         mock_csc.assert_called_once_with(
             tenant_id="tid",
@@ -184,12 +166,11 @@ class TestGetAzureCredential:
     def test_passes_ca_bundle_from_requests_ca_bundle(self, mock_csc):
         # Clear SSL_CERT_FILE to test fallback
         import os
+
         os.environ.pop("SSL_CERT_FILE", None)
         os.environ.pop("CURL_CA_BUNDLE", None)
 
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         provider._get_azure_credential()
         mock_csc.assert_called_once_with(
             tenant_id="tid",
@@ -211,16 +192,13 @@ class TestGetAzureCredential:
 
 
 class TestReadTokenFile:
-
     def test_raises_when_token_file_not_set(self):
         provider = AzureCredentialProvider(client_id="cid")
         with pytest.raises(AzureAuthError, match="AZURE_TOKEN_FILE not set"):
             provider._read_token_file("https://storage.azure.com/")
 
     def test_raises_when_file_not_found(self, tmp_path):
-        provider = AzureCredentialProvider(
-            token_file=str(tmp_path / "nonexistent.json")
-        )
+        provider = AzureCredentialProvider(token_file=str(tmp_path / "nonexistent.json"))
         with pytest.raises(AzureAuthError, match="Token file not found"):
             provider._read_token_file("https://storage.azure.com/")
 
@@ -281,9 +259,11 @@ class TestReadTokenFile:
         token_file.write_text("content")
         provider = AzureCredentialProvider(token_file=str(token_file))
 
-        with patch("pathlib.Path.read_text", side_effect=OSError("Permission denied")):
-            with pytest.raises(AzureAuthError, match="Failed to read token file"):
-                provider._read_token_file("https://storage.azure.com/")
+        with (
+            patch("pathlib.Path.read_text", side_effect=OSError("Permission denied")),
+            pytest.raises(AzureAuthError, match="Failed to read token file"),
+        ):
+            provider._read_token_file("https://storage.azure.com/")
 
     def test_reads_json_with_whitespace_only_content_as_empty(self, tmp_path):
         token_file = tmp_path / "token.txt"
@@ -299,7 +279,6 @@ class TestReadTokenFile:
 
 
 class TestGetTokenForResource:
-
     def test_returns_token_from_file(self, tmp_path):
         token_file = tmp_path / "token.txt"
         token_file.write_text("test-file-tok")
@@ -356,9 +335,7 @@ class TestGetTokenForResource:
             client_id="cid", client_secret="cs", tenant_id="tid", cache=cache
         )
 
-        result = provider.get_token_for_resource(
-            "https://storage.azure.com/", force_refresh=True
-        )
+        result = provider.get_token_for_resource("https://storage.azure.com/", force_refresh=True)
         assert result == "test-fresh-tok"
 
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", True)
@@ -368,9 +345,7 @@ class TestGetTokenForResource:
         mock_access_token.token = "test-spn-tok"
         mock_csc.return_value.get_token.return_value = mock_access_token
 
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         result = provider.get_token_for_resource("https://storage.azure.com/")
         assert result == "test-spn-tok"
         mock_csc.return_value.get_token.assert_called_once_with(
@@ -403,13 +378,9 @@ class TestGetTokenForResource:
         mock_access_token.token = "token"
         mock_csc.return_value.get_token.return_value = mock_access_token
 
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         provider.get_token_for_resource("https://storage.azure.com/")
-        mock_csc.return_value.get_token.assert_called_with(
-            "https://storage.azure.com/.default"
-        )
+        mock_csc.return_value.get_token.assert_called_with("https://storage.azure.com/.default")
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +389,6 @@ class TestGetTokenForResource:
 
 
 class TestConvenienceMethods:
-
     def test_get_storage_token_delegates(self):
         cache = TokenCache()
         cache.set(STORAGE_RESOURCE, "storage_tok")
@@ -427,9 +397,7 @@ class TestConvenienceMethods:
         assert provider.get_storage_token() == "storage_tok"
 
     def test_get_storage_options_returns_spn_creds_when_available(self):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         opts = provider.get_storage_options()
         assert opts == {
             "azure_client_id": "cid",
@@ -469,7 +437,6 @@ class TestConvenienceMethods:
 
 
 class TestCacheAndDiagnostics:
-
     def test_clear_cache_specific_resource(self):
         cache = TokenCache()
         cache.set("res1", "tok1")
@@ -498,9 +465,7 @@ class TestCacheAndDiagnostics:
         assert diag["spn_configured"] is False
 
     def test_get_diagnostics_spn_mode(self):
-        provider = AzureCredentialProvider(
-            client_id="cid", client_secret="cs", tenant_id="tid"
-        )
+        provider = AzureCredentialProvider(client_id="cid", client_secret="cs", tenant_id="tid")
         diag = provider.get_diagnostics()
         assert diag["auth_mode"] == "spn_secret"
         assert diag["spn_configured"] is True
@@ -525,10 +490,10 @@ class TestCacheAndDiagnostics:
 
 
 class TestModuleLevelFunctions:
-
     def setup_method(self):
         # Reset the module-level singleton
         import core.auth.credentials as mod
+
         mod._default_provider = None
 
     @patch.dict("os.environ", {"AZURE_CLIENT_ID": "env_cid"}, clear=False)

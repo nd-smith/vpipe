@@ -6,8 +6,6 @@ import pytest
 
 from core.security.exceptions import FileValidationError
 from core.security.file_validation import (
-    ALLOWED_CONTENT_TYPES,
-    ALLOWED_EXTENSIONS,
     extract_extension,
     is_allowed_content_type,
     is_allowed_extension,

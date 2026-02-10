@@ -4,7 +4,7 @@ Mocks Azure SDK modules so tests can run without azure-eventhub installed.
 """
 
 import sys
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

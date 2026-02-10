@@ -85,7 +85,7 @@ def extract_log_context(obj: Any) -> dict[str, Any]:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def with_api_error_handling(func: F) -> F:
+def with_api_error_handling[F: Callable[..., Any]](func: F) -> F:
     """
     Decorator for API error handling with logging.
 
@@ -101,9 +101,7 @@ def with_api_error_handling(func: F) -> F:
 
         @functools.wraps(func)
         async def async_wrapper(self, *args, **kwargs):
-            _logger = getattr(self, "_logger", None) or get_logger(
-                self.__class__.__module__
-            )
+            _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
             try:
                 return await func(self, *args, **kwargs)
             except Exception as e:
@@ -115,9 +113,7 @@ def with_api_error_handling(func: F) -> F:
 
         @functools.wraps(func)
         def sync_wrapper(self, *args, **kwargs):
-            _logger = getattr(self, "_logger", None) or get_logger(
-                self.__class__.__module__
-            )
+            _logger = getattr(self, "_logger", None) or get_logger(self.__class__.__module__)
             try:
                 return func(self, *args, **kwargs)
             except Exception as e:

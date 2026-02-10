@@ -12,14 +12,11 @@ def _make_config(**overrides):
     config.sasl_mechanism = overrides.get("sasl_mechanism", "PLAIN")
     config.sasl_plain_username = overrides.get("sasl_plain_username", "user")
     config.sasl_plain_password = overrides.get("sasl_plain_password", "p")
-    config.sasl_kerberos_service_name = overrides.get(
-        "sasl_kerberos_service_name", "kafka"
-    )
+    config.sasl_kerberos_service_name = overrides.get("sasl_kerberos_service_name", "kafka")
     return config
 
 
 class TestBuildKafkaSecurityConfigPlaintext:
-
     def test_returns_empty_dict_for_plaintext(self):
         config = _make_config(security_protocol="PLAINTEXT")
         result = build_kafka_security_config(config)
@@ -27,7 +24,6 @@ class TestBuildKafkaSecurityConfigPlaintext:
 
 
 class TestBuildKafkaSecurityConfigSASLPlain:
-
     def test_sasl_plain_includes_username_and_password(self):
         config = _make_config(
             security_protocol="SASL_PLAINTEXT",
@@ -59,7 +55,6 @@ class TestBuildKafkaSecurityConfigSASLPlain:
 
 
 class TestBuildKafkaSecurityConfigOAuthBearer:
-
     @patch("pipeline.common.kafka_config.create_eventhub_oauth_callback")
     def test_oauthbearer_sets_token_provider(self, mock_create_callback):
         mock_provider = Mock()
@@ -89,7 +84,6 @@ class TestBuildKafkaSecurityConfigOAuthBearer:
 
 
 class TestBuildKafkaSecurityConfigGSSAPI:
-
     def test_gssapi_sets_kerberos_service_name(self):
         config = _make_config(
             security_protocol="SASL_PLAINTEXT",
@@ -104,7 +98,6 @@ class TestBuildKafkaSecurityConfigGSSAPI:
 
 
 class TestBuildKafkaSecurityConfigSSL:
-
     def test_ssl_protocol_creates_ssl_context(self):
         config = _make_config(
             security_protocol="SSL",

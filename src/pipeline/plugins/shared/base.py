@@ -9,7 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel
@@ -85,14 +85,14 @@ async def resolve_claimx_project_id(
     return None
 
 
-class Domain(str, Enum):
+class Domain(StrEnum):
     """Pipeline domains."""
 
     VERISK = "verisk"
     CLAIMX = "claimx"
 
 
-class PipelineStage(str, Enum):
+class PipelineStage(StrEnum):
     """
     Pipeline stages where plugins can execute.
 
@@ -118,7 +118,7 @@ class PipelineStage(str, Enum):
     ERROR = "error"
 
 
-class ActionType(str, Enum):
+class ActionType(StrEnum):
     """Available plugin action types."""
 
     PUBLISH_TO_TOPIC = "publish_to_topic"
@@ -218,9 +218,7 @@ class PluginResult:
             success=True,
             terminate_pipeline=True,
             message=f"Filtered: {reason}",
-            actions=[
-                PluginAction(action_type=ActionType.FILTER, params={"reason": reason})
-            ],
+            actions=[PluginAction(action_type=ActionType.FILTER, params={"reason": reason})],
         )
 
     @classmethod
@@ -288,9 +286,7 @@ class PluginResult:
 
         return cls(
             success=True,
-            actions=[
-                PluginAction(action_type=ActionType.CREATE_CLAIMX_TASK, params=params)
-            ],
+            actions=[PluginAction(action_type=ActionType.CREATE_CLAIMX_TASK, params=params)],
         )
 
 

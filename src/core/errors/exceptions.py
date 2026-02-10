@@ -299,11 +299,7 @@ def classify_os_error(error: OSError) -> ErrorCategory:
     import errno
 
     permanent_errnos = (errno.ENOSPC, errno.EROFS, errno.EACCES, errno.EPERM)
-    return (
-        ErrorCategory.PERMANENT
-        if error.errno in permanent_errnos
-        else ErrorCategory.TRANSIENT
-    )
+    return ErrorCategory.PERMANENT if error.errno in permanent_errnos else ErrorCategory.TRANSIENT
 
 
 def classify_exception(exc: Exception) -> ErrorCategory:

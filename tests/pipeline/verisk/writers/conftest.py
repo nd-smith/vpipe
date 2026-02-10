@@ -6,7 +6,6 @@ Sets up environment for testing without requiring /var/log access.
 
 import os
 import tempfile
-from unittest.mock import MagicMock, patch
 
 import pytest
 

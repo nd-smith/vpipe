@@ -1,6 +1,6 @@
 """Tests for GenericOAuth2Provider - standard OAuth2 client credentials flow."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
@@ -55,7 +55,6 @@ def _error_response(status, text="error"):
 
 
 class TestGenericProviderInit:
-
     def test_creates_provider_with_valid_config(self):
         config = _make_config()
         provider = GenericOAuth2Provider(config)
@@ -89,7 +88,6 @@ class TestGenericProviderInit:
 
 
 class TestEnsureSession:
-
     async def test_creates_session_when_none(self):
         provider = GenericOAuth2Provider(_make_config())
         session = await provider._ensure_session()
@@ -119,15 +117,16 @@ class TestEnsureSession:
 
 
 class TestAcquireToken:
-
     async def test_returns_token_on_success(self):
         provider = GenericOAuth2Provider(_make_config())
 
-        resp = _ok_response({
-            "access_token": "test-acquired-tok",
-            "token_type": "Bearer",
-            "expires_in": 3600,
-        })
+        resp = _ok_response(
+            {
+                "access_token": "test-acquired-tok",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            }
+        )
         session = _mock_session_with_response(resp)
         provider._session = session
 
@@ -230,9 +229,9 @@ class TestAcquireToken:
 
 
 class TestRefreshToken:
-
     def _make_token(self, refresh_token=None):
         from datetime import UTC, datetime, timedelta
+
         return OAuth2Token(
             access_token="test-old-tok",
             token_type="Bearer",
@@ -291,9 +290,7 @@ class TestRefreshToken:
 
         session = MagicMock()
         session.closed = False
-        session.post = MagicMock(
-            side_effect=[aiohttp.ClientError("conn reset"), success_resp]
-        )
+        session.post = MagicMock(side_effect=[aiohttp.ClientError("conn reset"), success_resp])
         provider._session = session
 
         token = self._make_token(refresh_token="test-some-ref")
@@ -307,7 +304,6 @@ class TestRefreshToken:
 
 
 class TestClose:
-
     async def test_closes_open_session(self):
         provider = GenericOAuth2Provider(_make_config())
         session = await provider._ensure_session()

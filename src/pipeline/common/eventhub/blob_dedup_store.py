@@ -32,9 +32,7 @@ class BlobDedupStore:
 
     async def initialize(self) -> None:
         """Initialize blob client and ensure container exists."""
-        self._client = BlobServiceClient.from_connection_string(
-            self.connection_string
-        )
+        self._client = BlobServiceClient.from_connection_string(self.connection_string)
         self._container = self._client.get_container_client(self.container_name)
 
         # Create container if it doesn't exist (15s timeout to fail fast
@@ -92,7 +90,7 @@ class BlobDedupStore:
             if age_seconds < ttl_seconds:
                 # Still valid
                 logger.debug(
-                    f"Found duplicate in blob storage",
+                    "Found duplicate in blob storage",
                     extra={
                         "worker": worker_name,
                         "key": key,
@@ -103,7 +101,7 @@ class BlobDedupStore:
             else:
                 # Expired - clean up asynchronously
                 logger.debug(
-                    f"Found expired entry in blob storage",
+                    "Found expired entry in blob storage",
                     extra={
                         "worker": worker_name,
                         "key": key,
@@ -120,7 +118,7 @@ class BlobDedupStore:
                 logger.debug(f"Key not found in blob storage: {worker_name}/{key}")
             else:
                 logger.warning(
-                    f"Error checking blob storage for duplicate",
+                    "Error checking blob storage for duplicate",
                     extra={"worker": worker_name, "key": key, "error": str(e)},
                     exc_info=False,
                 )
@@ -157,13 +155,13 @@ class BlobDedupStore:
                 content_type="application/json",
             )
             logger.debug(
-                f"Marked key as processed in blob storage",
+                "Marked key as processed in blob storage",
                 extra={"worker": worker_name, "key": key},
             )
 
         except Exception as e:
             logger.warning(
-                f"Error marking key as processed in blob storage",
+                "Error marking key as processed in blob storage",
                 extra={"worker": worker_name, "key": key, "error": str(e)},
                 exc_info=True,
             )
@@ -208,7 +206,7 @@ class BlobDedupStore:
                         await blob_client.delete_blob()
                         removed_count += 1
                         logger.debug(
-                            f"Removed expired blob",
+                            "Removed expired blob",
                             extra={
                                 "worker": worker_name,
                                 "blob": blob.name,
@@ -218,7 +216,7 @@ class BlobDedupStore:
 
                 except Exception as e:
                     logger.warning(
-                        f"Error cleaning up blob",
+                        "Error cleaning up blob",
                         extra={"worker": worker_name, "blob": blob.name, "error": str(e)},
                         exc_info=False,
                     )
@@ -226,13 +224,13 @@ class BlobDedupStore:
 
             if removed_count > 0:
                 logger.info(
-                    f"Cleaned up expired dedup entries",
+                    "Cleaned up expired dedup entries",
                     extra={"worker": worker_name, "removed_count": removed_count},
                 )
 
         except Exception as e:
             logger.error(
-                f"Error during cleanup_expired",
+                "Error during cleanup_expired",
                 extra={"worker": worker_name, "error": str(e)},
                 exc_info=True,
             )

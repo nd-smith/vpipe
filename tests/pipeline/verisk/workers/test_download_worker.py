@@ -15,20 +15,21 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import json
-import pytest
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from config.config import MessageConfig
 from core.download.models import DownloadOutcome
 from core.types import ErrorCategory
-from pipeline.verisk.schemas.tasks import DownloadTaskMessage
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.download_worker import DownloadWorker, TaskResult
-from pipeline.common.types import PipelineMessage
+from pipeline.verisk.schemas.tasks import DownloadTaskMessage
+from pipeline.verisk.workers.download_worker import DownloadWorker
 
 
 @pytest.fixture
@@ -166,31 +167,26 @@ class TestDownloadWorkerLifecycle:
     """Test worker lifecycle (start/stop)."""
 
     @pytest.mark.asyncio
-    async def test_start_initializes_semaphore_and_shutdown_event(
-        self, mock_config, tmp_path
-    ):
+    async def test_start_initializes_semaphore_and_shutdown_event(self, mock_config, tmp_path):
         """Worker start initializes concurrency controls."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
 
-            with patch(
-                "pipeline.verisk.workers.download_worker.create_batch_consumer"
-            ) as mock_create_consumer, patch(
-                "pipeline.verisk.workers.download_worker.initialize_worker_telemetry"
-            ), patch.object(
-                worker.health_server, "start", new_callable=AsyncMock
-            ), patch.object(
-                worker.producer, "start", new_callable=AsyncMock
+            with (
+                patch(
+                    "pipeline.verisk.workers.download_worker.create_batch_consumer"
+                ) as mock_create_consumer,
+                patch("pipeline.verisk.workers.download_worker.initialize_worker_telemetry"),
+                patch.object(worker.health_server, "start", new_callable=AsyncMock),
+                patch.object(worker.producer, "start", new_callable=AsyncMock),
             ):
                 # Setup mock consumer
                 mock_consumer = AsyncMock()
                 mock_consumer.start = AsyncMock(side_effect=Exception("Stop"))
                 mock_create_consumer.return_value = mock_consumer
 
-                try:
+                with contextlib.suppress(Exception):
                     await worker.start()
-                except Exception:
-                    pass
 
                 # Verify semaphore and shutdown event were created
                 assert worker._semaphore is not None
@@ -262,9 +258,7 @@ class TestDownloadWorkerLifecycle:
             assert worker._running is False
 
     @pytest.mark.asyncio
-    async def test_wait_for_in_flight_returns_when_no_tasks(
-        self, mock_config, tmp_path
-    ):
+    async def test_wait_for_in_flight_returns_when_no_tasks(self, mock_config, tmp_path):
         """Worker wait completes when no in-flight tasks."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
@@ -292,9 +286,7 @@ class TestDownloadWorkerMessageProcessing:
     """Test message parsing and processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(
-        self, mock_config, tmp_path, sample_message
-    ):
+    async def test_valid_message_parsed_successfully(self, mock_config, tmp_path, sample_message):
         """Worker parses valid download task message."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
@@ -353,9 +345,7 @@ class TestDownloadWorkerBatchProcessing:
     """Test batch processing with concurrency."""
 
     @pytest.mark.asyncio
-    async def test_process_batch_executes_concurrently(
-        self, mock_config, tmp_path, sample_message
-    ):
+    async def test_process_batch_executes_concurrently(self, mock_config, tmp_path, sample_message):
         """Worker processes batch of messages concurrently."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
@@ -385,16 +375,12 @@ class TestDownloadWorkerBatchProcessing:
                 assert worker._records_succeeded == 3
 
     @pytest.mark.asyncio
-    async def test_process_batch_handles_exceptions(
-        self, mock_config, tmp_path, sample_message
-    ):
+    async def test_process_batch_handles_exceptions(self, mock_config, tmp_path, sample_message):
         """Worker handles exceptions during batch processing."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
             worker._semaphore = AsyncMock()
-            worker._semaphore.__aenter__ = AsyncMock(
-                side_effect=Exception("Processing error")
-            )
+            worker._semaphore.__aenter__ = AsyncMock(side_effect=Exception("Processing error"))
             worker._semaphore.__aexit__ = AsyncMock()
             worker._consumer_group = "verisk-download-worker"
 
@@ -428,9 +414,7 @@ class TestDownloadWorkerSuccessHandling:
 
             # Mock file operations
             with patch("asyncio.to_thread", new_callable=AsyncMock):
-                await worker._handle_success(
-                    sample_download_task, outcome, processing_time_ms=100
-                )
+                await worker._handle_success(sample_download_task, outcome, processing_time_ms=100)
 
                 # Verify cached message was produced
                 assert worker.producer.send.called
@@ -465,12 +449,8 @@ class TestDownloadWorkerFailureHandling:
             )
 
             # Mock record_processing_error to avoid parameter issues
-            with patch(
-                "pipeline.verisk.workers.download_worker.record_processing_error"
-            ):
-                await worker._handle_failure(
-                    sample_download_task, outcome, processing_time_ms=100
-                )
+            with patch("pipeline.verisk.workers.download_worker.record_processing_error"):
+                await worker._handle_failure(sample_download_task, outcome, processing_time_ms=100)
 
                 # Verify retry handler was called
                 assert worker.retry_handler.handle_failure.called
@@ -489,9 +469,7 @@ class TestDownloadWorkerInFlightTracking:
     """Test in-flight task tracking."""
 
     @pytest.mark.asyncio
-    async def test_in_flight_tasks_tracked(
-        self, mock_config, tmp_path, sample_message
-    ):
+    async def test_in_flight_tasks_tracked(self, mock_config, tmp_path, sample_message):
         """Worker tracks in-flight tasks correctly."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)

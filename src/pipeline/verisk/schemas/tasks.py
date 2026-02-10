@@ -24,23 +24,15 @@ class XACTEnrichmentTask(BaseModel):
     assignment_id: str = Field(..., min_length=1)
     estimate_version: str | None = None
     attachments: list[str] = Field(default_factory=list)
-    retry_count: int = Field(
-        default=0, description="Number of retry attempts (starts at 0)", ge=0
-    )
-    created_at: datetime = Field(
-        ..., description="Timestamp when this enrichment task was created"
-    )
-    original_timestamp: datetime = Field(
-        ..., description="Timestamp from the original event"
-    )
+    retry_count: int = Field(default=0, description="Number of retry attempts (starts at 0)", ge=0)
+    created_at: datetime = Field(..., description="Timestamp when this enrichment task was created")
+    original_timestamp: datetime = Field(..., description="Timestamp from the original event")
     metadata: dict[str, Any] | None = Field(
         default=None,
         description="Metadata for enrichment tracking (error context, retry info, etc.)",
     )
 
-    @field_validator(
-        "event_id", "trace_id", "event_type", "status_subtype", "assignment_id"
-    )
+    @field_validator("event_id", "trace_id", "event_type", "status_subtype", "assignment_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, _info) -> str:
         """Strip whitespace from string fields."""
@@ -143,35 +135,23 @@ class DownloadTaskMessage(BaseModel):
         ... )
     """
 
-    trace_id: str = Field(
-        ..., description="Unique event identifier (from traceId)", min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier (from traceId)", min_length=1)
     media_id: str = Field(
         ...,
         description="Unique deterministic ID for the attachment (UUID5 of trace_id + url)",
         min_length=1,
     )
-    attachment_url: str = Field(
-        ..., description="URL of the attachment to download", min_length=1
-    )
-    blob_path: str = Field(
-        ..., description="Target path in OneLake/blob storage", min_length=1
-    )
+    attachment_url: str = Field(..., description="URL of the attachment to download", min_length=1)
+    blob_path: str = Field(..., description="Target path in OneLake/blob storage", min_length=1)
     status_subtype: str = Field(
         ..., description="Event status subtype (last part of event type)", min_length=1
     )
-    file_type: str = Field(
-        ..., description="File type extracted from URL extension", min_length=1
-    )
-    assignment_id: str = Field(
-        ..., description="Assignment ID from event payload", min_length=1
-    )
+    file_type: str = Field(..., description="File type extracted from URL extension", min_length=1)
+    assignment_id: str = Field(..., description="Assignment ID from event payload", min_length=1)
     estimate_version: str | None = Field(
         default=None, description="Estimate version from event payload (optional)"
     )
-    retry_count: int = Field(
-        default=0, description="Number of retry attempts (starts at 0)", ge=0
-    )
+    retry_count: int = Field(default=0, description="Number of retry attempts (starts at 0)", ge=0)
     event_type: str = Field(
         ..., description="Type of the originating event (e.g., 'verisk')", min_length=1
     )
@@ -180,9 +160,7 @@ class DownloadTaskMessage(BaseModel):
         description="Subtype of the originating event (e.g., 'documentsReceived')",
         min_length=1,
     )
-    original_timestamp: datetime = Field(
-        ..., description="Timestamp from the original Kafka event"
-    )
+    original_timestamp: datetime = Field(..., description="Timestamp from the original Kafka event")
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context passed through from original event",
@@ -227,9 +205,7 @@ class DownloadTaskMessage(BaseModel):
         from pipeline.verisk.schemas.models import Task
 
         return Task(
-            media_id=getattr(
-                self, "media_id", None
-            ),  # Pass if verisk Task has been updated
+            media_id=getattr(self, "media_id", None),  # Pass if verisk Task has been updated
             trace_id=self.trace_id,
             attachment_url=self.attachment_url,
             blob_path=self.blob_path,
@@ -252,9 +228,7 @@ class DownloadTaskMessage(BaseModel):
             DownloadTaskMessage instance
         """
         return cls(
-            media_id=getattr(
-                task, "media_id", "unknown"
-            ),  # Default if verisk Task not updated
+            media_id=getattr(task, "media_id", "unknown"),  # Default if verisk Task not updated
             trace_id=task.trace_id,
             attachment_url=task.attachment_url,
             blob_path=task.blob_path,

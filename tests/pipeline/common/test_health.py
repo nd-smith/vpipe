@@ -15,9 +15,8 @@ Test Coverage:
 No infrastructure required - all tests use real HTTP endpoints.
 """
 
-import pytest
 import aiohttp
-from unittest.mock import patch
+import pytest
 
 from pipeline.common.health import HealthCheckServer
 
@@ -74,11 +73,11 @@ class TestHealthCheckServerLifecycle:
             assert server.actual_port > 0
 
             # Verify we can hit the endpoints
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/live"
-                ) as resp:
-                    assert resp.status == 200
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/live") as resp,
+            ):
+                assert resp.status == 200
 
         finally:
             await server.stop()
@@ -162,18 +161,18 @@ class TestHealthCheckServerLivenessEndpoint:
         await server.start()
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/live"
-                ) as resp:
-                    assert resp.status == 200
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/live") as resp,
+            ):
+                assert resp.status == 200
 
-                    data = await resp.json()
-                    assert data["status"] == "alive"
-                    assert data["worker"] == "test-worker"
-                    assert "uptime_seconds" in data
-                    assert "timestamp" in data
-                    assert data["uptime_seconds"] >= 0
+                data = await resp.json()
+                assert data["status"] == "alive"
+                assert data["worker"] == "test-worker"
+                assert "uptime_seconds" in data
+                assert "timestamp" in data
+                assert data["uptime_seconds"] >= 0
 
         finally:
             await server.stop()
@@ -188,11 +187,11 @@ class TestHealthCheckServerLivenessEndpoint:
             # Set not ready
             server.set_ready(kafka_connected=False)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/live"
-                ) as resp:
-                    assert resp.status == 200
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/live") as resp,
+            ):
+                assert resp.status == 200
 
         finally:
             await server.stop()
@@ -209,16 +208,16 @@ class TestHealthCheckServerReadinessEndpoint:
 
         try:
             # Default state is not ready
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/ready"
-                ) as resp:
-                    assert resp.status == 503
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/ready") as resp,
+            ):
+                assert resp.status == 503
 
-                    data = await resp.json()
-                    assert data["status"] == "not_ready"
-                    assert data["worker"] == "test-worker"
-                    assert "kafka_disconnected" in data["reasons"]
+                data = await resp.json()
+                assert data["status"] == "not_ready"
+                assert data["worker"] == "test-worker"
+                assert "kafka_disconnected" in data["reasons"]
 
         finally:
             await server.stop()
@@ -233,18 +232,18 @@ class TestHealthCheckServerReadinessEndpoint:
             # Set ready
             server.set_ready(kafka_connected=True)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/ready"
-                ) as resp:
-                    assert resp.status == 200
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/ready") as resp,
+            ):
+                assert resp.status == 200
 
-                    data = await resp.json()
-                    assert data["status"] == "ready"
-                    assert data["worker"] == "test-worker"
-                    assert data["checks"]["kafka_connected"] is True
-                    assert data["checks"]["api_reachable"] is True
-                    assert data["checks"]["circuit_closed"] is True
+                data = await resp.json()
+                assert data["status"] == "ready"
+                assert data["worker"] == "test-worker"
+                assert data["checks"]["kafka_connected"] is True
+                assert data["checks"]["api_reachable"] is True
+                assert data["checks"]["circuit_closed"] is True
 
         finally:
             await server.stop()
@@ -258,15 +257,15 @@ class TestHealthCheckServerReadinessEndpoint:
         try:
             server.set_ready(kafka_connected=False)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/ready"
-                ) as resp:
-                    assert resp.status == 503
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/ready") as resp,
+            ):
+                assert resp.status == 503
 
-                    data = await resp.json()
-                    assert "kafka_disconnected" in data["reasons"]
-                    assert data["checks"]["kafka_connected"] is False
+                data = await resp.json()
+                assert "kafka_disconnected" in data["reasons"]
+                assert data["checks"]["kafka_connected"] is False
 
         finally:
             await server.stop()
@@ -280,15 +279,15 @@ class TestHealthCheckServerReadinessEndpoint:
         try:
             server.set_ready(kafka_connected=True, api_reachable=False)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/ready"
-                ) as resp:
-                    assert resp.status == 503
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/ready") as resp,
+            ):
+                assert resp.status == 503
 
-                    data = await resp.json()
-                    assert "api_unreachable" in data["reasons"]
-                    assert data["checks"]["api_reachable"] is False
+                data = await resp.json()
+                assert "api_unreachable" in data["reasons"]
+                assert data["checks"]["api_reachable"] is False
 
         finally:
             await server.stop()
@@ -302,15 +301,15 @@ class TestHealthCheckServerReadinessEndpoint:
         try:
             server.set_ready(kafka_connected=True, circuit_open=True)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/ready"
-                ) as resp:
-                    assert resp.status == 503
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/ready") as resp,
+            ):
+                assert resp.status == 503
 
-                    data = await resp.json()
-                    assert "circuit_open" in data["reasons"]
-                    assert data["checks"]["circuit_closed"] is False
+                data = await resp.json()
+                assert "circuit_open" in data["reasons"]
+                assert data["checks"]["circuit_closed"] is False
 
         finally:
             await server.stop()
@@ -324,17 +323,17 @@ class TestHealthCheckServerReadinessEndpoint:
         try:
             server.set_error("Configuration error")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{server.actual_port}/health/ready"
-                ) as resp:
-                    # Returns 200 to allow deployment to complete
-                    assert resp.status == 200
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://localhost:{server.actual_port}/health/ready") as resp,
+            ):
+                # Returns 200 to allow deployment to complete
+                assert resp.status == 200
 
-                    data = await resp.json()
-                    assert data["status"] == "error"
-                    assert data["error"] == "Configuration error"
-                    assert "configuration_error" in data["reasons"]
+                data = await resp.json()
+                assert data["status"] == "error"
+                assert data["error"] == "Configuration error"
+                assert "configuration_error" in data["reasons"]
 
         finally:
             await server.stop()
@@ -442,9 +441,7 @@ class TestHealthCheckServerProperties:
         enabled_server = HealthCheckServer(port=8080, worker_name="test-worker")
         assert enabled_server.is_enabled is True
 
-        disabled_server = HealthCheckServer(
-            port=8080, worker_name="test-worker", enabled=False
-        )
+        disabled_server = HealthCheckServer(port=8080, worker_name="test-worker", enabled=False)
         assert disabled_server.is_enabled is False
 
     def test_error_message_property(self):

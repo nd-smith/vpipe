@@ -1,6 +1,6 @@
 """Tests for plugin registry and orchestration."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import BaseModel
@@ -22,7 +22,6 @@ from pipeline.plugins.shared.registry import (
     get_global_registry,
     reset_plugin_registry,
 )
-
 
 # --- Helpers ---
 
@@ -49,14 +48,14 @@ def _make_plugin(name="p1", domains=None, stages=None, event_types=None, priorit
 
 
 def _make_context(**overrides):
-    defaults = dict(
-        domain=Domain.CLAIMX,
-        stage=PipelineStage.ENRICHMENT_COMPLETE,
-        message=DummyMessage(),
-        event_id="evt-1",
-        event_type="CUSTOM_TASK_COMPLETED",
-        project_id="proj-1",
-    )
+    defaults = {
+        "domain": Domain.CLAIMX,
+        "stage": PipelineStage.ENRICHMENT_COMPLETE,
+        "message": DummyMessage(),
+        "event_id": "evt-1",
+        "event_type": "CUSTOM_TASK_COMPLETED",
+        "project_id": "proj-1",
+    }
     defaults.update(overrides)
     return PluginContext(**defaults)
 
@@ -255,9 +254,7 @@ class TestPluginOrchestrator:
             params={"level": "info", "message": "test"},
         )
         plugin = _make_plugin("with_action", stages=[PipelineStage.ENRICHMENT_COMPLETE])
-        plugin.execute = AsyncMock(
-            return_value=PluginResult(success=True, actions=[action])
-        )
+        plugin.execute = AsyncMock(return_value=PluginResult(success=True, actions=[action]))
         registry.register(plugin)
 
         executor = AsyncMock()
@@ -272,9 +269,7 @@ class TestPluginOrchestrator:
         registry = PluginRegistry()
         p1 = _make_plugin("terminator", stages=[PipelineStage.ENRICHMENT_COMPLETE], priority=1)
         p1.execute = AsyncMock(
-            return_value=PluginResult(
-                success=True, terminate_pipeline=True, message="stop"
-            )
+            return_value=PluginResult(success=True, terminate_pipeline=True, message="stop")
         )
 
         p2 = _make_plugin("after", stages=[PipelineStage.ENRICHMENT_COMPLETE], priority=2)
@@ -311,6 +306,7 @@ class TestPluginOrchestrator:
             async def _exec(ctx):
                 call_order.append(name)
                 return PluginResult.success(name)
+
             return _exec
 
         p1 = _make_plugin("first", stages=[PipelineStage.ENRICHMENT_COMPLETE], priority=10)
@@ -437,9 +433,7 @@ class TestActionExecutor:
         http_client = MagicMock()
         response_ctx = AsyncMock()
         response_ctx.status = 200
-        http_client.request.return_value.__aenter__ = AsyncMock(
-            return_value=response_ctx
-        )
+        http_client.request.return_value.__aenter__ = AsyncMock(return_value=response_ctx)
         http_client.request.return_value.__aexit__ = AsyncMock(return_value=False)
 
         executor = ActionExecutor(http_client=http_client)
@@ -576,16 +570,12 @@ class TestActionExecutor:
         ctx = _make_context()
 
         # Missing value
-        action = PluginAction(
-            action_type=ActionType.ADD_HEADER, params={"key": "x-test"}
-        )
+        action = PluginAction(action_type=ActionType.ADD_HEADER, params={"key": "x-test"})
         await executor.execute(action, ctx)
         assert "x-test" not in ctx.headers
 
         # Missing key
-        action = PluginAction(
-            action_type=ActionType.ADD_HEADER, params={"value": "val"}
-        )
+        action = PluginAction(action_type=ActionType.ADD_HEADER, params={"value": "val"})
         await executor.execute(action, ctx)
 
     async def test_metric_action(self):

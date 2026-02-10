@@ -96,9 +96,7 @@ class ClaimXResultProcessor:
         self.batch_timeout_seconds = batch_timeout_seconds or self.BATCH_TIMEOUT_SECONDS
 
         # Get topic from hierarchical config or use provided/default
-        self.results_topic = results_topic or config.get_topic(
-            self.domain, "downloads_results"
-        )
+        self.results_topic = results_topic or config.get_topic(self.domain, "downloads_results")
         self.consumer = None
 
         # Consumer group from hierarchical config
@@ -136,9 +134,7 @@ class ClaimXResultProcessor:
         self._running = False
 
         # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(
-            self.domain, self.worker_name, "processing"
-        )
+        processing_config = config.get_worker_config(self.domain, self.worker_name, "processing")
         health_port = processing_config.get("health_port", 8087)
         self.health_server = HealthCheckServer(
             port=health_port,

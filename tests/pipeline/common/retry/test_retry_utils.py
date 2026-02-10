@@ -13,21 +13,20 @@ Test Coverage:
     - record_dlq_metrics: delegates to record_dlq_message
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from core.types import ErrorCategory
 from pipeline.common.retry.retry_utils import (
-    should_send_to_dlq,
-    calculate_retry_timestamp,
-    create_retry_headers,
-    create_dlq_headers,
-    truncate_error_message,
     add_error_metadata_to_dict,
+    calculate_retry_timestamp,
+    create_dlq_headers,
+    create_retry_headers,
     log_retry_decision,
-    record_retry_metrics,
     record_dlq_metrics,
+    record_retry_metrics,
+    should_send_to_dlq,
+    truncate_error_message,
 )
 
 
@@ -36,31 +35,41 @@ class TestShouldSendToDlq:
 
     def test_permanent_error_always_goes_to_dlq(self):
         """Permanent errors go to DLQ regardless of retry count."""
-        should_dlq, reason = should_send_to_dlq(ErrorCategory.PERMANENT, retry_count=0, max_retries=5)
+        should_dlq, reason = should_send_to_dlq(
+            ErrorCategory.PERMANENT, retry_count=0, max_retries=5
+        )
         assert should_dlq is True
         assert reason == "permanent"
 
     def test_permanent_error_with_high_retry_count(self):
         """Permanent errors go to DLQ even at high retry count."""
-        should_dlq, reason = should_send_to_dlq(ErrorCategory.PERMANENT, retry_count=10, max_retries=5)
+        should_dlq, reason = should_send_to_dlq(
+            ErrorCategory.PERMANENT, retry_count=10, max_retries=5
+        )
         assert should_dlq is True
         assert reason == "permanent"
 
     def test_exhausted_retries_go_to_dlq(self):
         """Transient errors go to DLQ when retries are exhausted."""
-        should_dlq, reason = should_send_to_dlq(ErrorCategory.TRANSIENT, retry_count=5, max_retries=5)
+        should_dlq, reason = should_send_to_dlq(
+            ErrorCategory.TRANSIENT, retry_count=5, max_retries=5
+        )
         assert should_dlq is True
         assert reason == "exhausted"
 
     def test_over_max_retries_go_to_dlq(self):
         """Retries exceeding max also go to DLQ."""
-        should_dlq, reason = should_send_to_dlq(ErrorCategory.TRANSIENT, retry_count=6, max_retries=5)
+        should_dlq, reason = should_send_to_dlq(
+            ErrorCategory.TRANSIENT, retry_count=6, max_retries=5
+        )
         assert should_dlq is True
         assert reason == "exhausted"
 
     def test_transient_with_retries_remaining(self):
         """Transient errors with retries remaining do not go to DLQ."""
-        should_dlq, reason = should_send_to_dlq(ErrorCategory.TRANSIENT, retry_count=2, max_retries=5)
+        should_dlq, reason = should_send_to_dlq(
+            ErrorCategory.TRANSIENT, retry_count=2, max_retries=5
+        )
         assert should_dlq is False
         assert reason == ""
 
@@ -84,7 +93,9 @@ class TestShouldSendToDlq:
 
     def test_zero_max_retries_always_exhausted(self):
         """Zero max retries means first attempt is exhausted."""
-        should_dlq, reason = should_send_to_dlq(ErrorCategory.TRANSIENT, retry_count=0, max_retries=0)
+        should_dlq, reason = should_send_to_dlq(
+            ErrorCategory.TRANSIENT, retry_count=0, max_retries=0
+        )
         assert should_dlq is True
         assert reason == "exhausted"
 

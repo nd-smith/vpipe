@@ -91,9 +91,7 @@ def project_to_row(
         "primary_phone_country_code": primary_phone_country_code,
         "date_received": parse_timestamp(project.get("dateReceived")),
         "date_contacted": parse_timestamp(project.get("dateContacted")),
-        "planned_inspection_date": parse_timestamp(
-            project.get("plannedInspectionDate")
-        ),
+        "planned_inspection_date": parse_timestamp(project.get("plannedInspectionDate")),
         "date_inspected": parse_timestamp(project.get("dateInspected")),
         "appointment_date": parse_timestamp(project.get("appointmentDate")),
         "custom_attribute1": safe_str(project.get("customAttribute1")),
@@ -215,9 +213,7 @@ def task_to_row(
         "stp_started_date": parse_timestamp(data.get("stpStartedDate")),
         "mfn": safe_str(data.get("mfn")),
         "xactimate_exportable": safe_bool(data.get("xactimateExportable")),
-        "fraud_language_accepted_date": parse_timestamp(
-            data.get("fraudLanguageAcceptedDate")
-        ),
+        "fraud_language_accepted_date": parse_timestamp(data.get("fraudLanguageAcceptedDate")),
         "resubmit_task_assignment_id": safe_int(data.get("resubmitTaskAssignmentId")),
         "task_url": safe_str(data.get("url")),
     }
@@ -241,9 +237,7 @@ def template_to_row(
         "is_manual_delivery": safe_bool(template.get("isManualDelivery")),
         "is_external_link_delivery": safe_bool(template.get("isExternalLinkDelivery")),
         "provide_portal_access": safe_bool(template.get("providePortalAccess")),
-        "notify_assigned_send_recipient": safe_bool(
-            template.get("notifyAssignedSendRecipient")
-        ),
+        "notify_assigned_send_recipient": safe_bool(template.get("notifyAssignedSendRecipient")),
         "notify_assigned_send_recipient_sms": safe_bool(
             template.get("notifyAssignedSendRecipientSms")
         ),
@@ -352,9 +346,7 @@ def video_collab_to_row(
         full_name = " ".join(parts) if parts else None
 
     row = {
-        "video_collaboration_id": safe_int(
-            data.get("videoCollaborationId") or data.get("id")
-        ),
+        "video_collaboration_id": safe_int(data.get("videoCollaborationId") or data.get("id")),
         "claim_id": safe_int(data.get("claimId")),
         "mfn": safe_str(data.get("mfn")),
         "claim_number": safe_str(data.get("claimNumber")),

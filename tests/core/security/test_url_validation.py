@@ -5,7 +5,6 @@ import pytest
 
 from core.security.exceptions import URLValidationError
 from core.security.url_validation import (
-    BLOCKED_HOSTS,
     DEFAULT_ALLOWED_DOMAINS,
     extract_filename_from_url,
     get_allowed_domains,
@@ -15,44 +14,34 @@ from core.security.url_validation import (
     validate_download_url,
 )
 
-
 # =========================================================================
 # get_allowed_domains
 # =========================================================================
 
 
 class TestGetAllowedDomains:
-
     def test_returns_default_when_no_env_var(self):
         with patch.dict(os.environ, {}, clear=True):
             domains = get_allowed_domains()
             assert domains == DEFAULT_ALLOWED_DOMAINS
 
     def test_parses_env_var_comma_separated(self):
-        with patch.dict(
-            os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": "example.com,test.org"}
-        ):
+        with patch.dict(os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": "example.com,test.org"}):
             domains = get_allowed_domains()
             assert domains == {"example.com", "test.org"}
 
     def test_strips_whitespace_from_domains(self):
-        with patch.dict(
-            os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": " example.com , test.org "}
-        ):
+        with patch.dict(os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": " example.com , test.org "}):
             domains = get_allowed_domains()
             assert domains == {"example.com", "test.org"}
 
     def test_converts_domains_to_lowercase(self):
-        with patch.dict(
-            os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": "Example.COM,TEST.ORG"}
-        ):
+        with patch.dict(os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": "Example.COM,TEST.ORG"}):
             domains = get_allowed_domains()
             assert domains == {"example.com", "test.org"}
 
     def test_ignores_empty_entries(self):
-        with patch.dict(
-            os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": "example.com,,test.org,"}
-        ):
+        with patch.dict(os.environ, {"ALLOWED_ATTACHMENT_DOMAINS": "example.com,,test.org,"}):
             domains = get_allowed_domains()
             assert domains == {"example.com", "test.org"}
 
@@ -76,7 +65,6 @@ class TestGetAllowedDomains:
 
 
 class TestValidateDownloadUrl:
-
     def test_accepts_valid_https_url_with_default_domains(self):
         url = "https://claimxperience.com/path/to/file.pdf"
         validate_download_url(url)
@@ -197,7 +185,6 @@ class TestValidateDownloadUrl:
 
 
 class TestValidateDownloadUrlLocalhost:
-
     @patch.dict(os.environ, {}, clear=True)
     def test_accepts_localhost_when_allow_localhost_true(self):
         url = "http://localhost:8080/api/file"
@@ -283,7 +270,6 @@ class TestValidateDownloadUrlLocalhost:
 
 
 class TestIsProductionEnvironment:
-
     @patch.dict(os.environ, {}, clear=True)
     def test_returns_false_with_no_env_vars(self):
         from core.security.url_validation import _is_production_environment
@@ -333,7 +319,6 @@ class TestIsProductionEnvironment:
 
 
 class TestIsPrivateIp:
-
     def test_localhost_string(self):
         assert is_private_ip("localhost") is True
 
@@ -417,32 +402,23 @@ class TestIsPrivateIp:
 
 
 class TestExtractFilenameFromUrl:
-
     def test_extracts_filename_and_extension(self):
-        filename, file_type = extract_filename_from_url(
-            "https://example.com/path/to/document.pdf"
-        )
+        filename, file_type = extract_filename_from_url("https://example.com/path/to/document.pdf")
         assert filename == "document"
         assert file_type == "PDF"
 
     def test_extracts_jpeg_extension(self):
-        filename, file_type = extract_filename_from_url(
-            "https://example.com/photo.jpeg"
-        )
+        filename, file_type = extract_filename_from_url("https://example.com/photo.jpeg")
         assert filename == "photo"
         assert file_type == "JPEG"
 
     def test_handles_multiple_dots_in_filename(self):
-        filename, file_type = extract_filename_from_url(
-            "https://example.com/my.file.name.txt"
-        )
+        filename, file_type = extract_filename_from_url("https://example.com/my.file.name.txt")
         assert filename == "my.file.name"
         assert file_type == "TXT"
 
     def test_handles_no_extension(self):
-        filename, file_type = extract_filename_from_url(
-            "https://example.com/noextension"
-        )
+        filename, file_type = extract_filename_from_url("https://example.com/noextension")
         assert filename == "noextension"
         assert file_type == "UNKNOWN"
 
@@ -476,7 +452,6 @@ class TestExtractFilenameFromUrl:
 
 
 class TestSanitizeUrl:
-
     def test_returns_empty_string_for_empty_input(self):
         assert sanitize_url("") == ""
 
@@ -550,7 +525,6 @@ class TestSanitizeUrl:
 
 
 class TestSanitizeErrorMessage:
-
     def test_returns_empty_for_empty_input(self):
         assert sanitize_error_message("") == ""
 

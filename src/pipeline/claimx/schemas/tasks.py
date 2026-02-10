@@ -50,15 +50,9 @@ class ClaimXEnrichmentTask(BaseModel):
         description="Event type to process (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
         min_length=1,
     )
-    project_id: str = Field(
-        ..., description="ClaimX project ID to enrich via API", min_length=1
-    )
-    retry_count: int = Field(
-        default=0, description="Number of retry attempts (starts at 0)", ge=0
-    )
-    created_at: datetime = Field(
-        ..., description="Timestamp when this enrichment task was created"
-    )
+    project_id: str = Field(..., description="ClaimX project ID to enrich via API", min_length=1)
+    retry_count: int = Field(default=0, description="Number of retry attempts (starts at 0)", ge=0)
+    created_at: datetime = Field(..., description="Timestamp when this enrichment task was created")
     media_id: str | None = Field(
         default=None, description="Media file ID (for file-related events)"
     )
@@ -153,26 +147,18 @@ class ClaimXDownloadTask(BaseModel):
         ... )
     """
 
-    media_id: str = Field(
-        ..., description="Media file identifier from ClaimX", min_length=1
-    )
+    media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     download_url: str = Field(
         ..., description="S3 presigned URL to download the file", min_length=1
     )
-    blob_path: str = Field(
-        ..., description="Target path in OneLake/blob storage", min_length=1
-    )
-    file_type: str = Field(
-        default="", description="File type/extension (e.g., pdf, jpg, mp4)"
-    )
+    blob_path: str = Field(..., description="Target path in OneLake/blob storage", min_length=1)
+    file_type: str = Field(default="", description="File type/extension (e.g., pdf, jpg, mp4)")
     file_name: str = Field(default="", description="Original file name")
     source_event_id: str = Field(
         default="", description="ID of the event that triggered this download"
     )
-    retry_count: int = Field(
-        default=0, description="Number of retry attempts (starts at 0)", ge=0
-    )
+    retry_count: int = Field(default=0, description="Number of retry attempts (starts at 0)", ge=0)
     expires_at: str | None = Field(
         default=None, description="ISO datetime when presigned URL expires"
     )

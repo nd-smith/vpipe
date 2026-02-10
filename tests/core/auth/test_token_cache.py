@@ -10,19 +10,18 @@ Test Coverage:
     - Edge cases
 """
 
-import time
 import threading
-from datetime import datetime, timezone, timedelta
+import time
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 
 from core.auth.token_cache import (
-    TokenCache,
-    TOKEN_REFRESH_MINS,
     TOKEN_EXPIRY_MINS,
+    TOKEN_REFRESH_MINS,
+    TokenCache,
 )
-
 
 # NOTE: CachedToken dataclass was removed in refactor - tokens now managed internally by TokenCache
 # Tests for CachedToken removed as implementation detail no longer exposed
@@ -75,7 +74,7 @@ class TestTokenCache:
     def test_expired_token_returns_none(self, cache, storage_resource):
         """Expired token should return None."""
         # Mock an old acquisition time
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=51)
+        old_time = datetime.now(UTC) - timedelta(minutes=51)
         with patch("core.auth.token_cache.datetime") as mock_dt:
             mock_dt.now.return_value = old_time
             cache.set(storage_resource, "old_token")
@@ -308,7 +307,7 @@ class TestLocalDevelopmentIntegration:
         resource = "https://storage.azure.com/"
 
         # Cache initial token
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=51)
+        old_time = datetime.now(UTC) - timedelta(minutes=51)
         with patch("core.auth.token_cache.datetime") as mock_dt:
             mock_dt.now.return_value = old_time
             cache.set(resource, "old_token")

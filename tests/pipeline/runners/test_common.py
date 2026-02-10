@@ -102,12 +102,8 @@ class TestStartWithRetry:
             if call_count < 3:
                 raise ConnectionError("Failed to connect")
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
-            await _start_with_retry(
-                failing_start, "test_worker", max_retries=5, backoff_base=2
-            )
+        with patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await _start_with_retry(failing_start, "test_worker", max_retries=5, backoff_base=2)
 
         assert call_count == 3
         # Should have slept twice: 2*1=2s, 2*2=4s
@@ -126,9 +122,7 @@ class TestStartWithRetry:
             patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock),
             pytest.raises(ConnectionError, match="Always fails"),
         ):
-            await _start_with_retry(
-                always_fails, "test_worker", max_retries=3, backoff_base=1
-            )
+            await _start_with_retry(always_fails, "test_worker", max_retries=3, backoff_base=1)
 
     @pytest.mark.asyncio
     async def test_uses_default_config(self):
@@ -137,9 +131,10 @@ class TestStartWithRetry:
         async def always_fails():
             raise ConnectionError("Failed")
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, pytest.raises(ConnectionError):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            pytest.raises(ConnectionError),
+        ):
             await _start_with_retry(always_fails, "test_worker")
 
         # Should sleep DEFAULT_STARTUP_RETRIES - 1 times (last attempt doesn't sleep)
@@ -152,12 +147,14 @@ class TestStartWithRetry:
         async def always_fails():
             raise ConnectionError("Failed")
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, patch.dict(
-            "os.environ",
-            {"STARTUP_MAX_RETRIES": "2", "STARTUP_BACKOFF_SECONDS": "10"},
-        ), pytest.raises(ConnectionError):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch.dict(
+                "os.environ",
+                {"STARTUP_MAX_RETRIES": "2", "STARTUP_BACKOFF_SECONDS": "10"},
+            ),
+            pytest.raises(ConnectionError),
+        ):
             await _start_with_retry(always_fails, "test_worker")
 
         # Should sleep 1 time (2 attempts - 1 = 1 sleep)
@@ -171,9 +168,10 @@ class TestStartWithRetry:
         async def always_fails():
             raise ConnectionError("Failed")
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, pytest.raises(ConnectionError):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            pytest.raises(ConnectionError),
+        ):
             await _start_with_retry(
                 always_fails,
                 "test_worker",
@@ -194,9 +192,10 @@ class TestStartWithRetry:
         async def always_fails():
             raise ConnectionError("Failed")
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, pytest.raises(ConnectionError):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            pytest.raises(ConnectionError),
+        ):
             await _start_with_retry(
                 always_fails,
                 "test_worker",
@@ -258,9 +257,7 @@ class TestExecuteWorkerWithShutdown:
         shutdown_event.set()
 
         with patch("pipeline.runners.common.set_log_context") as mock_set_context:
-            await execute_worker_with_shutdown(
-                worker, "test-stage", shutdown_event, instance_id=5
-            )
+            await execute_worker_with_shutdown(worker, "test-stage", shutdown_event, instance_id=5)
 
         mock_set_context.assert_called_once_with(
             stage="test-stage", instance_id=5, worker_id="test-stage-5"
@@ -301,8 +298,10 @@ class TestExecuteWorkerWithShutdown:
         del worker.health_server
         shutdown_event = asyncio.Event()
 
-        with patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock), \
-             pytest.raises(RuntimeError, match="Start failed"):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(RuntimeError, match="Start failed"),
+        ):
             await execute_worker_with_shutdown(worker, "test-worker", shutdown_event)
 
         # Stop should still be called in finally block
@@ -329,9 +328,7 @@ class TestExecuteWorkerWithProducer:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "pipeline.common.transport.create_producer", return_value=mock_producer
-        ):
+        with patch("pipeline.common.transport.create_producer", return_value=mock_producer):
             worker_class.return_value = mock_worker
 
             await execute_worker_with_producer(
@@ -364,9 +361,7 @@ class TestExecuteWorkerWithProducer:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "pipeline.common.transport.create_producer", return_value=mock_producer
-        ):
+        with patch("pipeline.common.transport.create_producer", return_value=mock_producer):
             worker_class.return_value = mock_worker
 
             await execute_worker_with_producer(
@@ -402,9 +397,12 @@ class TestExecuteWorkerWithProducer:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "pipeline.common.transport.create_producer", return_value=mock_producer
-        ) as mock_create_producer, patch("pipeline.runners.common.set_log_context"):
+        with (
+            patch(
+                "pipeline.common.transport.create_producer", return_value=mock_producer
+            ) as mock_create_producer,
+            patch("pipeline.runners.common.set_log_context"),
+        ):
             worker_class.return_value = mock_worker
 
             await execute_worker_with_producer(
@@ -449,9 +447,7 @@ class TestExecuteWorkerWithProducer:
             await asyncio.sleep(0.05)
             shutdown_event.set()
 
-        with patch(
-            "pipeline.common.transport.create_producer", return_value=mock_producer
-        ):
+        with patch("pipeline.common.transport.create_producer", return_value=mock_producer):
             worker_class.return_value = mock_worker
 
             await asyncio.gather(
@@ -614,9 +610,10 @@ class TestExecutePollerWithShutdown:
         cm = PollerContextManager()
         poller_class.return_value = cm
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, pytest.raises(ConnectionError, match="Kusto timeout"):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            pytest.raises(ConnectionError, match="Kusto timeout"),
+        ):
             await execute_poller_with_shutdown(
                 poller_class=poller_class,
                 poller_config=poller_config,
@@ -663,15 +660,17 @@ class TestExecutePollerWithShutdown:
 
         poller_class.return_value = PollerContextManager()
 
-        with patch(
-            "pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, patch.dict(
-            "os.environ",
-            {
-                "POLLER_STARTUP_MAX_RETRIES": "3",
-                "POLLER_STARTUP_BACKOFF_SECONDS": "15",
-            },
-        ), pytest.raises(ConnectionError, match="Kusto timeout"):
+        with (
+            patch("pipeline.runners.common.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch.dict(
+                "os.environ",
+                {
+                    "POLLER_STARTUP_MAX_RETRIES": "3",
+                    "POLLER_STARTUP_BACKOFF_SECONDS": "15",
+                },
+            ),
+            pytest.raises(ConnectionError, match="Kusto timeout"),
+        ):
             await execute_poller_with_shutdown(
                 poller_class=poller_class,
                 poller_config=poller_config,

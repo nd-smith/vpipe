@@ -23,7 +23,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
@@ -32,7 +32,6 @@ from core.errors.exceptions import ErrorCategory
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
 from core.utils import generate_worker_id
-from typing import Any
 from pipeline.common.eventhub.diagnostics import (
     log_connection_attempt_details,
     log_connection_diagnostics,
@@ -68,9 +67,7 @@ class EventHubConsumerRecord:
     - EventData.properties (dict) -> PipelineMessage.headers (List[Tuple[str, bytes]])
     """
 
-    def __init__(
-        self, event_data: EventData, eventhub_name: str, partition: str
-    ) -> None:
+    def __init__(self, event_data: EventData, eventhub_name: str, partition: str) -> None:
         """Convert EventData to PipelineMessage.
 
         Args:
@@ -162,9 +159,7 @@ class EventHubConsumer:
         self._running = False
         self._enable_message_commit = enable_message_commit
         self._dlq_producer: EventHubProducer | None = None
-        self._current_partition_context = (
-            {}
-        )  # Track partition contexts for checkpointing
+        self._current_partition_context = {}  # Track partition contexts for checkpointing
         self._checkpoint_count = 0  # Total checkpoints since startup
 
         # Generate unique worker ID using coolnames for easier tracing in logs
@@ -184,9 +179,7 @@ class EventHubConsumer:
                 "entity": eventhub_name,
                 "consumer_group": consumer_group,
                 "enable_message_commit": enable_message_commit,
-                "checkpoint_persistence": (
-                    "blob_storage" if checkpoint_store else "in_memory"
-                ),
+                "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
             },
         )
 
@@ -364,9 +357,7 @@ class EventHubConsumer:
 
             self._current_partition_context[partition_id] = partition_context
 
-            record_adapter = EventHubConsumerRecord(
-                event, self.eventhub_name, partition_id
-            )
+            record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
             message = record_adapter.to_pipeline_message()
 
             try:
@@ -424,15 +415,11 @@ class EventHubConsumer:
                 },
             )
             self._current_partition_context.pop(partition_id, None)
-            update_assigned_partitions(
-                self.consumer_group, len(self._current_partition_context)
-            )
+            update_assigned_partitions(self.consumer_group, len(self._current_partition_context))
 
         async def on_error(partition_context, error):
             """Called when error occurs during consumption."""
-            partition_id = (
-                partition_context.partition_id if partition_context else "unknown"
-            )
+            partition_id = partition_context.partition_id if partition_context else "unknown"
             logger.error(
                 "Event Hub consumer error",
                 extra={
@@ -702,9 +689,7 @@ class EventHubConsumer:
         )
 
         error_category = classified_error.category
-        record_processing_error(
-            message.topic, self.consumer_group, error_category.value
-        )
+        record_processing_error(message.topic, self.consumer_group, error_category.value)
 
         common_context = {
             "error_category": error_category.value,

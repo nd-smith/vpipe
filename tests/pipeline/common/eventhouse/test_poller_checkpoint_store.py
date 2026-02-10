@@ -1,9 +1,7 @@
 """Tests for poller checkpoint store implementations and factory."""
 
 import json
-import os
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +12,6 @@ from pipeline.common.eventhouse.poller_checkpoint_store import (
     PollerCheckpoint,
     create_poller_checkpoint_store,
 )
-
 
 # =============================================================================
 # PollerCheckpoint tests
@@ -96,11 +93,15 @@ class TestJsonPollerCheckpointStoreLoad:
 
     async def test_load_returns_checkpoint_from_file(self, tmp_path):
         cp_file = tmp_path / "poller_test.json"
-        cp_file.write_text(json.dumps({
-            "last_ingestion_time": "2026-02-02T23:00:00+00:00",
-            "last_trace_id": "abc",
-            "updated_at": "2026-02-02T23:01:00+00:00",
-        }))
+        cp_file.write_text(
+            json.dumps(
+                {
+                    "last_ingestion_time": "2026-02-02T23:00:00+00:00",
+                    "last_trace_id": "abc",
+                    "updated_at": "2026-02-02T23:01:00+00:00",
+                }
+            )
+        )
 
         store = JsonPollerCheckpointStore(storage_path=tmp_path, domain="test")
         result = await store.load()
@@ -177,9 +178,7 @@ class TestJsonPollerCheckpointStoreSave:
         assert data["last_trace_id"] == "second"
 
     async def test_save_returns_false_on_os_error(self, tmp_path):
-        store = JsonPollerCheckpointStore(
-            storage_path="/nonexistent/readonly/path", domain="test"
-        )
+        store = JsonPollerCheckpointStore(storage_path="/nonexistent/readonly/path", domain="test")
         cp = PollerCheckpoint(
             last_ingestion_time="2026-01-01T00:00:00+00:00",
             last_trace_id="",
@@ -240,10 +239,13 @@ class TestBlobPollerCheckpointStoreEnsureClient:
         mock_bsc_cls = MagicMock()
         mock_bsc_cls.from_connection_string.return_value = mock_blob_svc
 
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(BlobServiceClient=mock_bsc_cls),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(BlobServiceClient=mock_bsc_cls),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -255,10 +257,13 @@ class TestBlobPollerCheckpointStoreEnsureClient:
         assert store._blob_client is mock_blob_client
 
     async def test_ensure_client_is_idempotent(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -274,21 +279,26 @@ class TestBlobPollerCheckpointStoreEnsureClient:
 
 class TestBlobPollerCheckpointStoreLoad:
     async def test_load_returns_checkpoint(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
                 domain="test",
             )
 
-        data = json.dumps({
-            "last_ingestion_time": "2026-02-02T23:00:00+00:00",
-            "last_trace_id": "abc",
-            "updated_at": "2026-02-02T23:01:00+00:00",
-        }).encode("utf-8")
+        data = json.dumps(
+            {
+                "last_ingestion_time": "2026-02-02T23:00:00+00:00",
+                "last_trace_id": "abc",
+                "updated_at": "2026-02-02T23:01:00+00:00",
+            }
+        ).encode("utf-8")
 
         mock_download = AsyncMock()
         mock_download.readall = AsyncMock(return_value=data)
@@ -301,10 +311,13 @@ class TestBlobPollerCheckpointStoreLoad:
         assert result.last_ingestion_time == "2026-02-02T23:00:00+00:00"
 
     async def test_load_returns_none_on_error(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -321,10 +334,13 @@ class TestBlobPollerCheckpointStoreLoad:
 
 class TestBlobPollerCheckpointStoreSave:
     async def test_save_uploads_blob(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -345,10 +361,13 @@ class TestBlobPollerCheckpointStoreSave:
         mock_blob_client.upload_blob.assert_awaited_once()
 
     async def test_save_returns_false_on_error(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -370,10 +389,13 @@ class TestBlobPollerCheckpointStoreSave:
 
 class TestBlobPollerCheckpointStoreClose:
     async def test_close_closes_service_client(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -386,10 +408,13 @@ class TestBlobPollerCheckpointStoreClose:
         mock_svc.close.assert_awaited_once()
 
     async def test_close_noop_when_no_client(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = BlobPollerCheckpointStore(
                 connection_string="connstr",
                 container_name="cp",
@@ -414,10 +439,13 @@ class TestCreatePollerCheckpointStore:
         assert isinstance(store, JsonPollerCheckpointStore)
 
     async def test_creates_blob_store(self):
-        with patch.dict("sys.modules", {
-            "azure.storage.blob.aio": MagicMock(),
-            "azure.storage.blob": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob.aio": MagicMock(),
+                "azure.storage.blob": MagicMock(),
+            },
+        ):
             store = await create_poller_checkpoint_store(
                 domain="test",
                 store_type="blob",
@@ -462,15 +490,20 @@ class TestCreatePollerCheckpointStore:
             "container_name": "my-cp",
             "storage_path": "/tmp/cp",
         }
-        with patch(
-            "pipeline.common.eventhouse.poller_checkpoint_store._load_poller_checkpoint_config",
-            return_value=fake_config,
+        with (
+            patch(
+                "pipeline.common.eventhouse.poller_checkpoint_store._load_poller_checkpoint_config",
+                return_value=fake_config,
+            ),
+            patch.dict(
+                "sys.modules",
+                {
+                    "azure.storage.blob.aio": MagicMock(),
+                    "azure.storage.blob": MagicMock(),
+                },
+            ),
         ):
-            with patch.dict("sys.modules", {
-                "azure.storage.blob.aio": MagicMock(),
-                "azure.storage.blob": MagicMock(),
-            }):
-                store = await create_poller_checkpoint_store(domain="test")
+            store = await create_poller_checkpoint_store(domain="test")
         assert isinstance(store, BlobPollerCheckpointStore)
 
     async def test_explicit_args_override_config(self):
@@ -481,19 +514,24 @@ class TestCreatePollerCheckpointStore:
             "container_name": "default-cp",
             "storage_path": "/tmp/cp",
         }
-        with patch(
-            "pipeline.common.eventhouse.poller_checkpoint_store._load_poller_checkpoint_config",
-            return_value=fake_config,
+        with (
+            patch(
+                "pipeline.common.eventhouse.poller_checkpoint_store._load_poller_checkpoint_config",
+                return_value=fake_config,
+            ),
+            patch.dict(
+                "sys.modules",
+                {
+                    "azure.storage.blob.aio": MagicMock(),
+                    "azure.storage.blob": MagicMock(),
+                },
+            ),
         ):
-            with patch.dict("sys.modules", {
-                "azure.storage.blob.aio": MagicMock(),
-                "azure.storage.blob": MagicMock(),
-            }):
-                store = await create_poller_checkpoint_store(
-                    domain="test",
-                    connection_string="explicit-conn-str",
-                    container_name="explicit-cp",
-                )
+            store = await create_poller_checkpoint_store(
+                domain="test",
+                connection_string="explicit-conn-str",
+                container_name="explicit-cp",
+            )
         assert isinstance(store, BlobPollerCheckpointStore)
         assert store._connection_string == "explicit-conn-str"
         assert store._container_name == "explicit-cp"

@@ -128,9 +128,7 @@ class TokenCredential:
 
     def __init__(self, token: str, expires_in_hours: int = 1):
         self._token = token
-        self._expires_on = int(
-            (datetime.now(UTC) + timedelta(hours=expires_in_hours)).timestamp()
-        )
+        self._expires_on = int((datetime.now(UTC) + timedelta(hours=expires_in_hours)).timestamp())
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
         return AccessToken(self._token, self._expires_on)
@@ -212,9 +210,7 @@ class FileBackedTokenCredential:
         self._cached_token = token
         self._token_acquired_at = datetime.now(UTC)
 
-        self._logger.debug(
-            "FileBackedTokenCredential refreshed token for %s", self._resource
-        )
+        self._logger.debug("FileBackedTokenCredential refreshed token for %s", self._resource)
         return token
 
     def get_token(self, *scopes, **kwargs) -> AccessToken:
@@ -275,9 +271,7 @@ class OneLakeClient:
         default_upload_max_single_put_mb = 64
 
         self._max_pool_size = (
-            max_pool_size
-            if max_pool_size is not None
-            else default_upload_max_concurrency
+            max_pool_size if max_pool_size is not None else default_upload_max_concurrency
         )
         self._upload_block_size_mb = default_upload_block_size_mb
         self._upload_max_single_put_mb = default_upload_max_single_put_mb
@@ -285,9 +279,7 @@ class OneLakeClient:
         self._connection_timeout = connection_timeout
         self._request_timeout = request_timeout
 
-        self.account_host, self.container, self.base_directory = parse_abfss_path(
-            base_path
-        )
+        self.account_host, self.container, self.base_directory = parse_abfss_path(base_path)
 
         self._service_client: DataLakeServiceClient | None = None
         self._file_system_client = None
@@ -369,9 +361,7 @@ class OneLakeClient:
             if auth.client_id is None:
                 raise RuntimeError("Azure client_id is required for SPN authentication")
             if auth.client_secret is None:
-                raise RuntimeError(
-                    "Azure client_secret is required for SPN authentication"
-                )
+                raise RuntimeError("Azure client_secret is required for SPN authentication")
 
             credential = ClientSecretCredential(
                 tenant_id=auth.tenant_id,
@@ -411,9 +401,7 @@ class OneLakeClient:
             transport=transport,
             connection_timeout=self._connection_timeout,
         )
-        self._file_system_client = self._service_client.get_file_system_client(
-            self.container
-        )
+        self._file_system_client = self._service_client.get_file_system_client(self.container)
 
         self._session = session
 
@@ -791,9 +779,7 @@ class OneLakeClient:
 
         with self._pool_stats_lock:
             stats = self._pool_stats.copy()
-            stats["uptime_seconds"] = (
-                datetime.now(UTC) - stats["last_reset"]
-            ).total_seconds()
+            stats["uptime_seconds"] = (datetime.now(UTC) - stats["last_reset"]).total_seconds()
             return stats
 
     def reset_pool_stats(self) -> None:

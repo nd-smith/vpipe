@@ -5,7 +5,7 @@ download and enrichment DLQ types without requiring Kafka infrastructure.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -59,7 +59,7 @@ def sample_enrichment_task():
         event_type="PROJECT_CREATED",
         project_id="proj_456",
         retry_count=2,
-        created_at=datetime(2024, 12, 25, 10, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2024, 12, 25, 10, 0, 0, tzinfo=UTC),
         metadata={"last_error": "API timeout"},
     )
 
@@ -167,7 +167,7 @@ class TestClaimXDLQHandlerParsingDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         dlq_msg = download_handler.parse_dlq_message(record)
@@ -179,9 +179,7 @@ class TestClaimXDLQHandlerParsingDownload:
         assert dlq_msg.error_category == "transient"
         assert dlq_msg.retry_count == 3
 
-    def test_parse_download_dlq_message_with_empty_value_raises_error(
-        self, download_handler
-    ):
+    def test_parse_download_dlq_message_with_empty_value_raises_error(self, download_handler):
         """Test parsing fails with empty message value."""
         record = PipelineMessage(
             topic="claimx-downloads-dlq",
@@ -190,7 +188,7 @@ class TestClaimXDLQHandlerParsingDownload:
             key=b"evt_789",
             value=b"",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -198,9 +196,7 @@ class TestClaimXDLQHandlerParsingDownload:
 
         assert "DLQ message value is empty" in str(exc_info.value)
 
-    def test_parse_download_dlq_message_with_none_value_raises_error(
-        self, download_handler
-    ):
+    def test_parse_download_dlq_message_with_none_value_raises_error(self, download_handler):
         """Test parsing fails with None message value."""
         record = PipelineMessage(
             topic="claimx-downloads-dlq",
@@ -209,7 +205,7 @@ class TestClaimXDLQHandlerParsingDownload:
             key=b"evt_789",
             value=None,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -217,9 +213,7 @@ class TestClaimXDLQHandlerParsingDownload:
 
         assert "DLQ message value is empty" in str(exc_info.value)
 
-    def test_parse_download_dlq_message_with_invalid_json_raises_error(
-        self, download_handler
-    ):
+    def test_parse_download_dlq_message_with_invalid_json_raises_error(self, download_handler):
         """Test parsing fails with malformed JSON."""
         record = PipelineMessage(
             topic="claimx-downloads-dlq",
@@ -228,7 +222,7 @@ class TestClaimXDLQHandlerParsingDownload:
             key=b"evt_789",
             value=b"{invalid json}",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -252,7 +246,7 @@ class TestClaimXDLQHandlerParsingDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -273,7 +267,7 @@ class TestClaimXDLQHandlerParsingDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         dlq_msg = download_handler.parse_dlq_message(record)
@@ -301,7 +295,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         dlq_msg = enrichment_handler.parse_dlq_message(record)
@@ -314,9 +308,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
         assert dlq_msg.error_category == "transient"
         assert dlq_msg.retry_count == 2
 
-    def test_parse_enrichment_dlq_message_with_empty_value_raises_error(
-        self, enrichment_handler
-    ):
+    def test_parse_enrichment_dlq_message_with_empty_value_raises_error(self, enrichment_handler):
         """Test parsing fails with empty message value."""
         record = PipelineMessage(
             topic="claimx-enrichment-dlq",
@@ -325,7 +317,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
             key=b"evt_123",
             value=b"",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -333,9 +325,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
 
         assert "DLQ message value is empty" in str(exc_info.value)
 
-    def test_parse_enrichment_dlq_message_with_invalid_json_raises_error(
-        self, enrichment_handler
-    ):
+    def test_parse_enrichment_dlq_message_with_invalid_json_raises_error(self, enrichment_handler):
         """Test parsing fails with malformed JSON."""
         record = PipelineMessage(
             topic="claimx-enrichment-dlq",
@@ -344,7 +334,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
             key=b"evt_123",
             value=b"not json",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -368,7 +358,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -401,7 +391,7 @@ class TestClaimXDLQHandlerReplayDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await download_handler.replay_message(record)
@@ -448,7 +438,7 @@ class TestClaimXDLQHandlerReplayDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await download_handler.replay_message(record)
@@ -475,7 +465,7 @@ class TestClaimXDLQHandlerReplayDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await download_handler.replay_message(record)
@@ -502,7 +492,7 @@ class TestClaimXDLQHandlerReplayDownload:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -523,7 +513,7 @@ class TestClaimXDLQHandlerReplayDownload:
             key=b"evt_789",
             value=b"invalid json",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError):
@@ -557,7 +547,7 @@ class TestClaimXDLQHandlerReplayEnrichment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await enrichment_handler.replay_message(record)
@@ -605,7 +595,7 @@ class TestClaimXDLQHandlerReplayEnrichment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await enrichment_handler.replay_message(record)
@@ -632,7 +622,7 @@ class TestClaimXDLQHandlerReplayEnrichment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await enrichment_handler.replay_message(record)
@@ -659,7 +649,7 @@ class TestClaimXDLQHandlerReplayEnrichment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -680,7 +670,7 @@ class TestClaimXDLQHandlerReplayEnrichment:
             key=b"evt_123",
             value=b"{malformed",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError):
@@ -724,7 +714,7 @@ class TestClaimXDLQHandlerAcknowledgment:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await download_handler_with_consumer.acknowledge_message(record)
@@ -745,7 +735,7 @@ class TestClaimXDLQHandlerAcknowledgment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         await enrichment_handler_with_consumer.acknowledge_message(record)
@@ -768,7 +758,7 @@ class TestClaimXDLQHandlerAcknowledgment:
             key=b"evt_789",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -792,7 +782,7 @@ class TestClaimXDLQHandlerAcknowledgment:
             key=b"evt_123",
             value=json_bytes,
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -813,7 +803,7 @@ class TestClaimXDLQHandlerAcknowledgment:
             key=b"evt_789",
             value=b"invalid",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError):
@@ -834,7 +824,7 @@ class TestClaimXDLQHandlerAcknowledgment:
             key=b"evt_123",
             value=b"not json",
             headers={},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         with pytest.raises(ValueError):

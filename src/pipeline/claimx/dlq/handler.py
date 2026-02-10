@@ -61,9 +61,7 @@ class ClaimXDLQHandler:
             ValueError: If dlq_type is not "download" or "enrichment"
         """
         if dlq_type not in ("download", "enrichment"):
-            raise ValueError(
-                f"Invalid dlq_type: {dlq_type}. Must be 'download' or 'enrichment'"
-            )
+            raise ValueError(f"Invalid dlq_type: {dlq_type}. Must be 'download' or 'enrichment'")
 
         self.config = config
         self.domain = "claimx"

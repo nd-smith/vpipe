@@ -6,8 +6,7 @@ methods: start, stop, run, _poll_cycle, _bulk_backfill, checkpoint, and sink
 interactions.
 """
 
-import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,25 +14,24 @@ import pytest
 from pipeline.common.eventhouse.kql_client import EventhouseConfig, KQLQueryResult
 from pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
 
 
 def _make_config(**overrides) -> PollerConfig:
-    defaults = dict(
-        eventhouse=EventhouseConfig(
+    defaults = {
+        "eventhouse": EventhouseConfig(
             cluster_url="https://test.kusto.windows.net",
             database="testdb",
         ),
-        kafka=None,
-        event_schema_class=None,
-        domain="test",
-        source_table="TestTable",
-        column_mapping={},
-        health_port=0,
-    )
+        "kafka": None,
+        "event_schema_class": None,
+        "domain": "test",
+        "source_table": "TestTable",
+        "column_mapping": {},
+        "health_port": 0,
+    }
     defaults.update(overrides)
     return PollerConfig(**defaults)
 
@@ -151,9 +149,7 @@ class TestLoadCheckpoint:
         store = AsyncMock()
         store.load = AsyncMock(
             return_value=MagicMock(
-                to_datetime=MagicMock(
-                    return_value=datetime(2026, 2, 1, tzinfo=UTC)
-                ),
+                to_datetime=MagicMock(return_value=datetime(2026, 2, 1, tzinfo=UTC)),
                 last_trace_id="tid123",
             )
         )
@@ -166,9 +162,7 @@ class TestLoadCheckpoint:
         store = AsyncMock()
         store.load = AsyncMock(
             return_value=MagicMock(
-                to_datetime=MagicMock(
-                    return_value=datetime(2026, 2, 1, tzinfo=UTC)
-                ),
+                to_datetime=MagicMock(return_value=datetime(2026, 2, 1, tzinfo=UTC)),
                 last_trace_id="",
             )
         )
@@ -263,12 +257,14 @@ class TestPollerStart:
             return_value=KQLQueryResult(rows=[{"col": "val"}], row_count=1)
         )
 
-        with patch(
-            "pipeline.common.eventhouse.poller.KQLClient",
-            return_value=mock_kql_client,
+        with (
+            patch(
+                "pipeline.common.eventhouse.poller.KQLClient",
+                return_value=mock_kql_client,
+            ),
+            pytest.raises(ValueError, match="Either sink or kafka"),
         ):
-            with pytest.raises(ValueError, match="Either sink or kafka"):
-                await poller.start()
+            await poller.start()
 
     async def test_start_creates_checkpoint_store_if_none(self):
         sink = AsyncMock()
@@ -279,20 +275,20 @@ class TestPollerStart:
         mock_store.load = AsyncMock(return_value=None)
 
         mock_kql_client = AsyncMock()
-        mock_kql_client.execute_query = AsyncMock(
-            return_value=KQLQueryResult(rows=[], row_count=0)
-        )
+        mock_kql_client.execute_query = AsyncMock(return_value=KQLQueryResult(rows=[], row_count=0))
 
-        with patch(
-            "pipeline.common.eventhouse.poller.KQLClient",
-            return_value=mock_kql_client,
-        ):
-            with patch(
+        with (
+            patch(
+                "pipeline.common.eventhouse.poller.KQLClient",
+                return_value=mock_kql_client,
+            ),
+            patch(
                 "pipeline.common.eventhouse.poller.create_poller_checkpoint_store",
                 new_callable=AsyncMock,
                 return_value=mock_store,
-            ):
-                await poller.start()
+            ),
+        ):
+            await poller.start()
 
         assert poller._checkpoint_store is mock_store
         assert poller._owns_checkpoint_store is True

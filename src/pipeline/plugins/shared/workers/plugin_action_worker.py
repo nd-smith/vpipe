@@ -316,9 +316,7 @@ class PluginActionWorker:
             response_body = await response.text()
 
             if status >= 400:
-                logger.error(
-                    f"API request failed with status {status}: {response_body[:200]}"
-                )
+                logger.error(f"API request failed with status {status}: {response_body[:200]}")
                 await self._handle_error(
                     original_message,
                     f"API error {status}: {response_body[:200]}",
@@ -369,9 +367,7 @@ class PluginActionWorker:
             error: Error description
         """
         if not self.config.error_topic or not self.producer:
-            logger.error(
-                "No error topic configured, dropping failed message: %s", error
-            )
+            logger.error("No error topic configured, dropping failed message: %s", error)
             return
 
         error_message = {

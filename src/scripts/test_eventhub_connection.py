@@ -40,9 +40,7 @@ def _get_connection_string() -> str:
     if not conn:
         return ""
     # Strip EntityPath (we pass eventhub_name separately)
-    parts = [
-        p for p in conn.split(";") if p.strip() and not p.startswith("EntityPath=")
-    ]
+    parts = [p for p in conn.split(";") if p.strip() and not p.startswith("EntityPath=")]
     return ";".join(parts)
 
 
@@ -112,9 +110,7 @@ def test_producer_sync(connection_string: str, eventhub_name: str):
         return False
 
 
-async def test_consumer_async(
-    connection_string: str, eventhub_name: str, consumer_group: str
-):
+async def test_consumer_async(connection_string: str, eventhub_name: str, consumer_group: str):
     """Test Event Hub consumer (async API)."""
     print("\n=== Testing Event Hub Consumer (Async) ===")
 
@@ -167,9 +163,7 @@ async def test_consumer_async(
                 f"  Error in partition {partition_context.partition_id if partition_context else 'unknown'}: {error}"
             )
 
-        print(
-            f"Waiting for up to {max_messages} messages (timeout: {timeout_seconds}s)..."
-        )
+        print(f"Waiting for up to {max_messages} messages (timeout: {timeout_seconds}s)...")
 
         try:
             async with consumer:
@@ -234,9 +228,7 @@ def main():
         sys.exit(1)
 
     eventhub_name = _get_eventhub_name(args.entity)
-    consumer_group = args.consumer_group or os.getenv(
-        "EVENTHUB_CONSUMER_GROUP", "$Default"
-    )
+    consumer_group = args.consumer_group or os.getenv("EVENTHUB_CONSUMER_GROUP", "$Default")
 
     # Extract connection info for display
     print("\nConnection Info:")

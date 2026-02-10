@@ -6,7 +6,7 @@ dependencies are mocked.
 """
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -154,11 +154,9 @@ class TestListDLQCounts:
         consumer = _make_kafka_consumer_mock()
         mock_consumer_cls.return_value = consumer
 
-        consumer.partitions_for_topic.side_effect = lambda t: (
-            {0, 1} if "enrichment" in t else {0}
-        )
-        consumer.end_offsets.side_effect = lambda tps: {tp: 100 for tp in tps}
-        consumer.beginning_offsets.side_effect = lambda tps: {tp: 50 for tp in tps}
+        consumer.partitions_for_topic.side_effect = lambda t: {0, 1} if "enrichment" in t else {0}
+        consumer.end_offsets.side_effect = lambda tps: dict.fromkeys(tps, 100)
+        consumer.beginning_offsets.side_effect = lambda tps: dict.fromkeys(tps, 50)
 
         counts = await manager.list_dlq_counts()
 
@@ -185,7 +183,9 @@ class TestListDLQCounts:
 
     @patch(SECURITY_PATCH, return_value={})
     @patch("pipeline.claimx.dlq.cli.AIOKafkaConsumer")
-    async def test_list_dlq_counts_stops_consumer_on_error(self, mock_consumer_cls, mock_security, manager):
+    async def test_list_dlq_counts_stops_consumer_on_error(
+        self, mock_consumer_cls, mock_security, manager
+    ):
         consumer = _make_kafka_consumer_mock()
         mock_consumer_cls.return_value = consumer
         consumer.partitions_for_topic.side_effect = Exception("Kafka error")
@@ -201,8 +201,8 @@ class TestListDLQCounts:
         consumer = _make_kafka_consumer_mock()
         mock_consumer_cls.return_value = consumer
         consumer.partitions_for_topic.return_value = {0}
-        consumer.end_offsets.side_effect = lambda tps: {tp: 0 for tp in tps}
-        consumer.beginning_offsets.side_effect = lambda tps: {tp: 0 for tp in tps}
+        consumer.end_offsets.side_effect = lambda tps: dict.fromkeys(tps, 0)
+        consumer.beginning_offsets.side_effect = lambda tps: dict.fromkeys(tps, 0)
 
         counts = await manager.list_dlq_counts()
 
@@ -225,7 +225,9 @@ class TestInspectDLQ:
     @patch("pipeline.claimx.dlq.cli.FailedEnrichmentMessage")
     @patch(SECURITY_PATCH, return_value={})
     @patch("pipeline.claimx.dlq.cli.AIOKafkaConsumer")
-    async def test_inspect_enrichment_dlq_empty(self, mock_consumer_cls, mock_security, mock_schema, manager):
+    async def test_inspect_enrichment_dlq_empty(
+        self, mock_consumer_cls, mock_security, mock_schema, manager
+    ):
         consumer = _make_async_iterator([])
         consumer.start = AsyncMock()
         consumer.stop = AsyncMock()
@@ -256,7 +258,7 @@ class TestInspectDLQ:
         mock_parsed.error_category = "transient"
         mock_parsed.final_error = "API timeout"
         mock_parsed.retry_count = 3
-        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=UTC)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
         consumer = _make_async_iterator([record])
@@ -299,7 +301,7 @@ class TestInspectDLQ:
         mock_parsed.final_error = "404 Not Found"
         mock_parsed.retry_count = 5
         mock_parsed.url_refresh_attempted = True
-        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=UTC)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
         consumer = _make_async_iterator([record])
@@ -340,7 +342,7 @@ class TestInspectDLQ:
         mock_parsed.error_category = "transient"
         mock_parsed.final_error = "err"
         mock_parsed.retry_count = 1
-        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=UTC)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
         consumer = _make_async_iterator(records)
@@ -363,7 +365,7 @@ class TestInspectDLQ:
         record.offset = 0
         record.timestamp = 1700000000000
         record.key = b"evt_bad"
-        record.value = b'bad json'
+        record.value = b"bad json"
 
         mock_schema_cls.model_validate_json.side_effect = Exception("parse error")
 
@@ -387,7 +389,7 @@ class TestInspectDLQ:
         record.offset = 0
         record.timestamp = 1700000000000
         record.key = None  # No key
-        record.value = b'{}'
+        record.value = b"{}"
 
         mock_parsed = Mock()
         mock_parsed.event_id = "evt_1"
@@ -396,7 +398,7 @@ class TestInspectDLQ:
         mock_parsed.error_category = "transient"
         mock_parsed.final_error = "err"
         mock_parsed.retry_count = 0
-        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_parsed.failed_at = datetime(2024, 1, 1, tzinfo=UTC)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
         consumer = _make_async_iterator([record])
@@ -466,16 +468,16 @@ class TestReplayMessages:
         self, mock_consumer_cls, mock_producer_cls, mock_security, mock_schema_cls, manager
     ):
         # Two records: one matching, one not
-        record_match = Mock(partition=0, offset=10, value=b'{}')
-        record_skip = Mock(partition=0, offset=11, value=b'{}')
+        record_match = Mock(partition=0, offset=10, value=b"{}")
+        record_skip = Mock(partition=0, offset=11, value=b"{}")
 
         task_match = Mock()
         task_match.model_copy.return_value = task_match
-        task_match.model_dump_json.return_value = '{}'
+        task_match.model_dump_json.return_value = "{}"
 
         task_skip = Mock()
         task_skip.model_copy.return_value = task_skip
-        task_skip.model_dump_json.return_value = '{}'
+        task_skip.model_dump_json.return_value = "{}"
 
         parsed_match = Mock(media_id="media_match", original_task=task_match)
         parsed_skip = Mock(media_id="media_skip", original_task=task_skip)
@@ -504,7 +506,7 @@ class TestReplayMessages:
     async def test_replay_skips_failed_messages(
         self, mock_consumer_cls, mock_producer_cls, mock_security, mock_schema_cls, manager
     ):
-        record = Mock(partition=0, offset=10, value=b'bad')
+        record = Mock(partition=0, offset=10, value=b"bad")
         mock_schema_cls.model_validate_json.side_effect = Exception("parse error")
 
         consumer = _make_async_iterator([record])
@@ -546,11 +548,11 @@ class TestReplayMessages:
     async def test_replay_sends_to_correct_pending_topic(
         self, mock_consumer_cls, mock_producer_cls, mock_security, mock_schema_cls, manager
     ):
-        record = Mock(partition=0, offset=10, value=b'{}')
+        record = Mock(partition=0, offset=10, value=b"{}")
 
         mock_original_task = Mock()
         mock_original_task.model_copy.return_value = mock_original_task
-        mock_original_task.model_dump_json.return_value = '{}'
+        mock_original_task.model_dump_json.return_value = "{}"
 
         mock_parsed = Mock(event_id="evt_123", original_task=mock_original_task)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
@@ -575,11 +577,11 @@ class TestReplayMessages:
     async def test_replay_sends_message_key_as_event_id(
         self, mock_consumer_cls, mock_producer_cls, mock_security, mock_schema_cls, manager
     ):
-        record = Mock(partition=0, offset=10, value=b'{}')
+        record = Mock(partition=0, offset=10, value=b"{}")
 
         mock_original_task = Mock()
         mock_original_task.model_copy.return_value = mock_original_task
-        mock_original_task.model_dump_json.return_value = '{}'
+        mock_original_task.model_dump_json.return_value = "{}"
 
         mock_parsed = Mock(event_id="evt_abc", original_task=mock_original_task)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
@@ -678,9 +680,7 @@ class TestPurgeDLQ:
 
     @patch(SECURITY_PATCH, return_value={})
     @patch("pipeline.claimx.dlq.cli.AIOKafkaConsumer")
-    async def test_purge_seeks_to_end_and_commits(
-        self, mock_consumer_cls, mock_security, manager
-    ):
+    async def test_purge_seeks_to_end_and_commits(self, mock_consumer_cls, mock_security, manager):
         consumer = _make_kafka_consumer_mock()
         consumer.partitions_for_topic.return_value = {0, 1}
         mock_consumer_cls.return_value = consumer
@@ -826,9 +826,7 @@ class TestCmdReplay:
         mock_manager.replay_messages.return_value = 5
         mock_manager_cls.return_value = mock_manager
 
-        args = argparse.Namespace(
-            dlq_type="enrichment", all=True, event_ids=None
-        )
+        args = argparse.Namespace(dlq_type="enrichment", all=True, event_ids=None)
         exit_code = await cmd_replay(args)
 
         assert exit_code == 0
@@ -846,9 +844,7 @@ class TestCmdReplay:
         mock_manager.replay_messages.return_value = 2
         mock_manager_cls.return_value = mock_manager
 
-        args = argparse.Namespace(
-            dlq_type="download", all=False, event_ids="media_1,media_2"
-        )
+        args = argparse.Namespace(dlq_type="download", all=False, event_ids="media_1,media_2")
         exit_code = await cmd_replay(args)
 
         assert exit_code == 0

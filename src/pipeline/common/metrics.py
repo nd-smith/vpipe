@@ -272,9 +272,7 @@ disk_usage_ratio_gauge = _create_gauge(
 # =============================================================================
 
 
-def record_message_produced(
-    topic: str, message_bytes: int, success: bool = True
-) -> None:
+def record_message_produced(topic: str, message_bytes: int, success: bool = True) -> None:
     """Record a produced message."""
     messages_produced_counter.labels(topic=topic).inc()
     if not success:
@@ -294,9 +292,7 @@ def record_message_consumed(
         ).inc()
 
 
-def record_processing_error(
-    topic: str, consumer_group: str, error_category: str
-) -> None:
+def record_processing_error(topic: str, consumer_group: str, error_category: str) -> None:
     """Record a message processing error."""
     processing_errors_counter.labels(
         topic=topic, consumer_group=consumer_group, error_category=error_category
@@ -308,18 +304,14 @@ def record_producer_error(topic: str, error_type: str) -> None:
     producer_errors_counter.labels(topic=topic, error_type=error_type).inc()
 
 
-def update_consumer_lag(
-    topic: str, partition: int, consumer_group: str, lag: int
-) -> None:
+def update_consumer_lag(topic: str, partition: int, consumer_group: str, lag: int) -> None:
     """Update consumer lag metric."""
     consumer_lag_gauge.labels(
         topic=topic, partition=str(partition), consumer_group=consumer_group
     ).set(lag)
 
 
-def update_consumer_offset(
-    topic: str, partition: int, consumer_group: str, offset: int
-) -> None:
+def update_consumer_offset(topic: str, partition: int, consumer_group: str, offset: int) -> None:
     """Update consumer offset metric."""
     consumer_offset_gauge.labels(
         topic=topic, partition=str(partition), consumer_group=consumer_group
@@ -338,9 +330,7 @@ def update_assigned_partitions(consumer_group: str, count: int) -> None:
 
 def record_delta_write(table: str, event_count: int, success: bool = True) -> None:
     """Record a Delta Lake write operation."""
-    delta_writes_counter.labels(
-        table=table, success="true" if success else "false"
-    ).inc()
+    delta_writes_counter.labels(table=table, success="true" if success else "false").inc()
 
 
 def record_dlq_message(domain: str, reason: str) -> None:

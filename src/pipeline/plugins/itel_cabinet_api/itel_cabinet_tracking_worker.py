@@ -49,12 +49,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
-WORKERS_CONFIG_PATH = (
-    CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
-)
-CONNECTIONS_CONFIG_PATH = (
-    CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
-)
+WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
+CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
 
 
 class ItelCabinetTrackingWorker:
@@ -222,9 +218,7 @@ def load_worker_config() -> dict:
     workers = config_data.get("workers", {})
 
     if "itel_cabinet_tracking" not in workers:
-        raise ValueError(
-            f"Worker 'itel_cabinet_tracking' not found in {WORKERS_CONFIG_PATH}"
-        )
+        raise ValueError(f"Worker 'itel_cabinet_tracking' not found in {WORKERS_CONFIG_PATH}")
 
     return workers["itel_cabinet_tracking"]
 

@@ -152,9 +152,7 @@ class DownloadRetryHandler:
                     "error": str(error)[:LOG_ERROR_TRUNCATE_SHORT],
                 },
             )
-            await self._send_to_dlq(
-                task, error, error_category, url_refresh_attempted=False
-            )
+            await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
 
         if retry_count >= self._max_retries:
@@ -166,9 +164,7 @@ class DownloadRetryHandler:
                     "max_retries": self._max_retries,
                 },
             )
-            await self._send_to_dlq(
-                task, error, error_category, url_refresh_attempted=False
-            )
+            await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
 
         # For transient/unknown errors, check if URL refresh is needed
@@ -200,17 +196,13 @@ class DownloadRetryHandler:
                         "retry_count": retry_count,
                     },
                 )
-                await self._send_to_dlq(
-                    task, error, error_category, url_refresh_attempted=True
-                )
+                await self._send_to_dlq(task, error, error_category, url_refresh_attempted=True)
                 return
 
         # Send to next retry topic
         await self._send_to_retry_topic(task, error, error_category)
 
-    def _should_refresh_url(
-        self, error: Exception, error_category: ErrorCategory
-    ) -> bool:
+    def _should_refresh_url(self, error: Exception, error_category: ErrorCategory) -> bool:
         """
         Determine if URL refresh should be attempted based on error.
 
@@ -236,9 +228,7 @@ class DownloadRetryHandler:
 
         return any(indicator in error_str for indicator in url_expiration_indicators)
 
-    async def _try_refresh_url(
-        self, task: ClaimXDownloadTask
-    ) -> ClaimXDownloadTask | None:
+    async def _try_refresh_url(self, task: ClaimXDownloadTask) -> ClaimXDownloadTask | None:
         """
         Attempt to refresh presigned URL from ClaimX API.
 
@@ -438,9 +428,7 @@ class DownloadRetryHandler:
 
         # Record DLQ routing metric
         # Determine reason: permanent error or exhausted retries
-        reason = (
-            "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
-        )
+        reason = "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
         record_dlq_message(domain="claimx", reason=reason)
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics

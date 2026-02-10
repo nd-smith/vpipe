@@ -134,9 +134,7 @@ class TransportErrorClassifier:
     """
 
     @staticmethod
-    def classify_consumer_error(
-        error: Exception, context: dict | None = None
-    ) -> PipelineError:
+    def classify_consumer_error(error: Exception, context: dict | None = None) -> PipelineError:
         """
         Classify a message consumer error into appropriate exception type.
 
@@ -222,8 +220,7 @@ class TransportErrorClassifier:
 
         # String-based fallback classification
         if any(
-            marker in error_str
-            for marker in ("unauthorized", "authentication", "authorization")
+            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
         ):
             return AuthError(
                 f"Kafka consumer auth error: {error}",
@@ -239,8 +236,7 @@ class TransportErrorClassifier:
             )
 
         if any(
-            marker in error_str
-            for marker in ("connection", "broker", "network", "node not ready")
+            marker in error_str for marker in ("connection", "broker", "network", "node not ready")
         ):
             return ConnectionError(
                 f"Kafka consumer connection error: {error}",
@@ -256,9 +252,7 @@ class TransportErrorClassifier:
         )
 
     @staticmethod
-    def classify_producer_error(
-        error: Exception, context: dict | None = None
-    ) -> PipelineError:
+    def classify_producer_error(error: Exception, context: dict | None = None) -> PipelineError:
         """
         Classify a message producer error into appropriate exception type.
 
@@ -344,8 +338,7 @@ class TransportErrorClassifier:
 
         # String-based fallback classification
         if any(
-            marker in error_str
-            for marker in ("unauthorized", "authentication", "authorization")
+            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
         ):
             return AuthError(
                 f"Kafka producer auth error: {error}",
@@ -360,10 +353,7 @@ class TransportErrorClassifier:
                 context=error_context,
             )
 
-        if any(
-            marker in error_str
-            for marker in ("connection", "broker", "network", "leader")
-        ):
+        if any(marker in error_str for marker in ("connection", "broker", "network", "leader")):
             return ConnectionError(
                 f"Kafka producer connection error: {error}",
                 cause=error,

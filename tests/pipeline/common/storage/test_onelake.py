@@ -15,38 +15,35 @@ Covers:
 """
 
 import socket
-import threading
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pipeline.common.storage.onelake import (
-    OneLakeClient,
-    WriteOperation,
-    TokenCredential,
-    FileBackedTokenCredential,
-    TCPKeepAliveAdapter,
-    parse_abfss_path,
-    _is_auth_error,
-    _classify_error,
-    _is_in_upload,
-    _set_in_upload,
-    _refresh_all_credentials,
-    _file_credential_registry,
-    _register_file_credential,
-    _clear_all_file_credentials,
     ONELAKE_RETRY_CONFIG,
-    AUTH_ERROR_MARKERS,
+    FileBackedTokenCredential,
+    OneLakeClient,
+    TCPKeepAliveAdapter,
+    TokenCredential,
+    WriteOperation,
+    _classify_error,
+    _clear_all_file_credentials,
+    _file_credential_registry,
+    _is_auth_error,
+    _is_in_upload,
+    _refresh_all_credentials,
+    _register_file_credential,
+    _set_in_upload,
+    parse_abfss_path,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_abfss_path
 # ---------------------------------------------------------------------------
 
-class TestParseAbfssPath:
 
+class TestParseAbfssPath:
     def test_parses_valid_abfss_path(self):
         host, container, directory = parse_abfss_path(
             "abfss://mycontainer@myaccount.dfs.fabric.microsoft.com/path/to/files"
@@ -64,9 +61,7 @@ class TestParseAbfssPath:
         assert directory == "Tables"
 
     def test_parses_path_with_trailing_slash(self):
-        _, _, directory = parse_abfss_path(
-            "abfss://ws@acct.dfs.fabric.microsoft.com/a/b/"
-        )
+        _, _, directory = parse_abfss_path("abfss://ws@acct.dfs.fabric.microsoft.com/a/b/")
         assert directory == "a/b/"
 
     def test_raises_on_non_abfss_scheme(self):
@@ -78,9 +73,7 @@ class TestParseAbfssPath:
             parse_abfss_path("abfss://noaccount.dfs.fabric.microsoft.com/path")
 
     def test_parses_empty_directory_path(self):
-        host, container, directory = parse_abfss_path(
-            "abfss://ws@acct.dfs.fabric.microsoft.com/"
-        )
+        host, container, directory = parse_abfss_path("abfss://ws@acct.dfs.fabric.microsoft.com/")
         assert directory == ""
 
 
@@ -88,8 +81,8 @@ class TestParseAbfssPath:
 # Error classification helpers
 # ---------------------------------------------------------------------------
 
-class TestIsAuthError:
 
+class TestIsAuthError:
     def test_detects_401_error(self):
         assert _is_auth_error(Exception("Server returned 401 Unauthorized"))
 
@@ -107,13 +100,13 @@ class TestIsAuthError:
 
 
 class TestClassifyError:
-
     def test_classifies_timeout_by_message(self):
         assert _classify_error(Exception("connection timed out")) == "timeout"
 
     def test_classifies_timeout_by_type_name(self):
         class TimeoutError(Exception):
             pass
+
         assert _classify_error(TimeoutError("oops")) == "timeout"
 
     def test_classifies_auth_error(self):
@@ -140,8 +133,8 @@ class TestClassifyError:
 # Upload recursion guard
 # ---------------------------------------------------------------------------
 
-class TestUploadRecursionGuard:
 
+class TestUploadRecursionGuard:
     def test_default_not_in_upload(self):
         # Reset thread-local state
         _set_in_upload(False)
@@ -162,8 +155,8 @@ class TestUploadRecursionGuard:
 # TokenCredential
 # ---------------------------------------------------------------------------
 
-class TestTokenCredential:
 
+class TestTokenCredential:
     def test_get_token_returns_access_token(self):
         cred = TokenCredential("my-token", expires_in_hours=2)
         result = cred.get_token("https://storage.azure.com/.default")
@@ -183,8 +176,8 @@ class TestTokenCredential:
 # FileBackedTokenCredential
 # ---------------------------------------------------------------------------
 
-class TestFileBackedTokenCredential:
 
+class TestFileBackedTokenCredential:
     def setup_method(self):
         # Clear the registry before each test
         _file_credential_registry.clear()
@@ -325,8 +318,8 @@ class TestFileBackedTokenCredential:
 # Credential registry helpers
 # ---------------------------------------------------------------------------
 
-class TestCredentialRegistry:
 
+class TestCredentialRegistry:
     def setup_method(self):
         _file_credential_registry.clear()
 
@@ -369,8 +362,8 @@ class TestCredentialRegistry:
 # TCPKeepAliveAdapter
 # ---------------------------------------------------------------------------
 
-class TestTCPKeepAliveAdapter:
 
+class TestTCPKeepAliveAdapter:
     def test_init_poolmanager_adds_keepalive_options(self):
         adapter = TCPKeepAliveAdapter()
         # Call init_poolmanager with mocked super
@@ -405,8 +398,8 @@ class TestTCPKeepAliveAdapter:
 # WriteOperation
 # ---------------------------------------------------------------------------
 
-class TestWriteOperation:
 
+class TestWriteOperation:
     def test_creates_write_operation(self):
         now = datetime.now(UTC)
         op = WriteOperation(
@@ -429,7 +422,6 @@ VALID_BASE_PATH = "abfss://myws@myaccount.dfs.fabric.microsoft.com/lakehouse/Fil
 
 
 class TestOneLakeClientInit:
-
     def test_parses_base_path_components(self):
         client = OneLakeClient(VALID_BASE_PATH)
         assert client.account_host == "myaccount.dfs.fabric.microsoft.com"
@@ -456,7 +448,6 @@ class TestOneLakeClientInit:
 
 
 class TestOneLakeClientPathHelpers:
-
     def test_full_path(self):
         client = OneLakeClient(VALID_BASE_PATH)
         result = client._full_path("claims/C-123/file.pdf")
@@ -479,8 +470,8 @@ class TestOneLakeClientPathHelpers:
 # OneLakeClient - idempotency
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientIdempotency:
 
+class TestOneLakeClientIdempotency:
     def test_is_duplicate_returns_false_initially(self):
         client = OneLakeClient(VALID_BASE_PATH)
         assert not client._is_duplicate("token-1")
@@ -502,8 +493,8 @@ class TestOneLakeClientIdempotency:
 # OneLakeClient - pool stats
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientPoolStats:
 
+class TestOneLakeClientPoolStats:
     def test_track_request_success(self):
         client = OneLakeClient(VALID_BASE_PATH)
         client.track_request(success=True)
@@ -549,8 +540,8 @@ class TestOneLakeClientPoolStats:
 # OneLakeClient - close / lifecycle
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientLifecycle:
 
+class TestOneLakeClientLifecycle:
     def test_close_when_no_clients_created(self):
         client = OneLakeClient(VALID_BASE_PATH)
         # Should not raise
@@ -620,8 +611,8 @@ class TestOneLakeClientLifecycle:
 # OneLakeClient - _ensure_client
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientEnsureClient:
 
+class TestOneLakeClientEnsureClient:
     def test_ensure_client_creates_when_none(self):
         client = OneLakeClient(VALID_BASE_PATH)
         assert client._file_system_client is None
@@ -641,8 +632,8 @@ class TestOneLakeClientEnsureClient:
 # OneLakeClient - credential refresh
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientCredentialRefresh:
 
+class TestOneLakeClientCredentialRefresh:
     def test_refresh_credential_with_file_backed(self):
         client = OneLakeClient(VALID_BASE_PATH)
         mock_file_cred = MagicMock()
@@ -672,10 +663,12 @@ class TestOneLakeClientCredentialRefresh:
         client._credential = MagicMock()
         client._file_credential = None
 
-        with patch.object(client, "_create_clients") as mock_create:
-            with patch("pipeline.common.storage.onelake.clear_token_cache"):
-                client._refresh_client()
-                mock_create.assert_called_once()
+        with (
+            patch.object(client, "_create_clients") as mock_create,
+            patch("pipeline.common.storage.onelake.clear_token_cache"),
+        ):
+            client._refresh_client()
+            mock_create.assert_called_once()
 
     def test_handle_auth_error_refreshes_on_auth(self):
         client = OneLakeClient(VALID_BASE_PATH)
@@ -694,8 +687,8 @@ class TestOneLakeClientCredentialRefresh:
 # OneLakeClient - upload_bytes
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientUploadBytes:
 
+class TestOneLakeClientUploadBytes:
     def _make_client_with_mock_fs(self):
         """Create a client with mocked file system client."""
         client = OneLakeClient(VALID_BASE_PATH)
@@ -760,16 +753,14 @@ class TestOneLakeClientUploadBytes:
 # OneLakeClient - upload_bytes_with_idempotency
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientUploadBytesWithIdempotency:
 
+class TestOneLakeClientUploadBytesWithIdempotency:
     def test_skips_duplicate_upload(self):
         client = OneLakeClient(VALID_BASE_PATH)
         existing_op = WriteOperation("tok-1", "path", datetime.now(UTC), 100)
         client._write_tokens["tok-1"] = existing_op
 
-        result = client.upload_bytes_with_idempotency(
-            "path", b"data", operation_token="tok-1"
-        )
+        result = client.upload_bytes_with_idempotency("path", b"data", operation_token="tok-1")
 
         assert result.token == "tok-1"
         assert result.bytes_written == 0
@@ -793,9 +784,7 @@ class TestOneLakeClientUploadBytesWithIdempotency:
         client._file_system_client = mock_fs
         _set_in_upload(False)
 
-        result = client.upload_bytes_with_idempotency(
-            "path", b"data", operation_token="new-tok"
-        )
+        result = client.upload_bytes_with_idempotency("path", b"data", operation_token="new-tok")
 
         assert "new-tok" in client._write_tokens
         assert result.bytes_written == 4
@@ -806,8 +795,8 @@ class TestOneLakeClientUploadBytesWithIdempotency:
 # OneLakeClient - download_bytes
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientDownloadBytes:
 
+class TestOneLakeClientDownloadBytes:
     def test_download_bytes_returns_content(self):
         client = OneLakeClient(VALID_BASE_PATH)
         mock_fs = MagicMock()
@@ -828,8 +817,8 @@ class TestOneLakeClientDownloadBytes:
 # OneLakeClient - exists
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientExists:
 
+class TestOneLakeClientExists:
     def test_exists_returns_true_when_file_exists(self):
         client = OneLakeClient(VALID_BASE_PATH)
         mock_fs = MagicMock()
@@ -867,8 +856,8 @@ class TestOneLakeClientExists:
 # OneLakeClient - delete
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientDelete:
 
+class TestOneLakeClientDelete:
     def test_delete_returns_true_on_success(self):
         client = OneLakeClient(VALID_BASE_PATH)
         mock_fs = MagicMock()
@@ -906,8 +895,8 @@ class TestOneLakeClientDelete:
 # OneLakeClient - get_file_properties
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientGetFileProperties:
 
+class TestOneLakeClientGetFileProperties:
     def test_returns_properties_dict(self):
         client = OneLakeClient(VALID_BASE_PATH)
         mock_fs = MagicMock()
@@ -959,8 +948,8 @@ class TestOneLakeClientGetFileProperties:
 # OneLakeClient - upload_file
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientUploadFile:
 
+class TestOneLakeClientUploadFile:
     @patch("builtins.open", create=True)
     @patch("os.path.getsize", return_value=2048)
     def test_upload_file_returns_full_path(self, mock_size, mock_open):
@@ -998,7 +987,7 @@ class TestOneLakeClientUploadFile:
         mock_file = mock_dir.get_file_client.return_value
         mock_file.upload_data.side_effect = RuntimeError("upload failed")
 
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="upload failed"):
             client.upload_file("file.txt", "/tmp/nonexistent.txt")
 
         assert not _is_in_upload()
@@ -1008,36 +997,37 @@ class TestOneLakeClientUploadFile:
 # OneLakeClient - async wrappers
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientAsyncWrappers:
 
+class TestOneLakeClientAsyncWrappers:
     async def test_async_upload_file(self):
         client = OneLakeClient(VALID_BASE_PATH)
-        with patch.object(client, "upload_file", return_value="abfss://path") as mock_uf:
+        with patch.object(client, "upload_file", return_value="abfss://path"):
             result = await client.async_upload_file("rel", "/tmp/f.txt")
             assert result == "abfss://path"
 
     async def test_async_upload_file_with_pathlib(self):
         from pathlib import Path
+
         client = OneLakeClient(VALID_BASE_PATH)
         with patch.object(client, "upload_file", return_value="abfss://path") as mock_uf:
-            result = await client.async_upload_file("rel", Path("/tmp/f.txt"))
+            await client.async_upload_file("rel", Path("/tmp/f.txt"))
             mock_uf.assert_called_once_with("rel", "/tmp/f.txt", True)
 
     async def test_async_upload_bytes(self):
         client = OneLakeClient(VALID_BASE_PATH)
-        with patch.object(client, "upload_bytes", return_value="abfss://path") as mock_ub:
+        with patch.object(client, "upload_bytes", return_value="abfss://path"):
             result = await client.async_upload_bytes("rel", b"data")
             assert result == "abfss://path"
 
     async def test_async_exists(self):
         client = OneLakeClient(VALID_BASE_PATH)
-        with patch.object(client, "exists", return_value=True) as mock_exists:
+        with patch.object(client, "exists", return_value=True):
             result = await client.async_exists("rel/path")
             assert result is True
 
     async def test_async_delete(self):
         client = OneLakeClient(VALID_BASE_PATH)
-        with patch.object(client, "delete", return_value=True) as mock_del:
+        with patch.object(client, "delete", return_value=True):
             result = await client.async_delete("rel/path")
             assert result is True
 
@@ -1046,8 +1036,8 @@ class TestOneLakeClientAsyncWrappers:
 # OneLakeClient - _create_clients
 # ---------------------------------------------------------------------------
 
-class TestOneLakeClientCreateClients:
 
+class TestOneLakeClientCreateClients:
     @patch("pipeline.common.storage.onelake.get_auth")
     @patch("pipeline.common.storage.onelake.DataLakeServiceClient")
     @patch("pipeline.common.storage.onelake.RequestsTransport")
@@ -1061,9 +1051,7 @@ class TestOneLakeClientCreateClients:
         auth_instance.STORAGE_RESOURCE = "https://storage.azure.com/"
         mock_auth.return_value = auth_instance
 
-        with patch(
-            "pipeline.common.storage.onelake.FileBackedTokenCredential"
-        ) as mock_fbt:
+        with patch("pipeline.common.storage.onelake.FileBackedTokenCredential") as mock_fbt:
             mock_fbt.return_value = MagicMock()
             client = OneLakeClient(VALID_BASE_PATH)
             client._create_clients()
@@ -1150,8 +1138,8 @@ class TestOneLakeClientCreateClients:
 # ONELAKE_RETRY_CONFIG values
 # ---------------------------------------------------------------------------
 
-class TestOnelakeRetryConfig:
 
+class TestOnelakeRetryConfig:
     def test_retry_config_values(self):
         assert ONELAKE_RETRY_CONFIG.max_attempts == 3
         assert ONELAKE_RETRY_CONFIG.base_delay == 1.0

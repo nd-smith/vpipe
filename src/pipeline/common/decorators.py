@@ -16,9 +16,7 @@ def set_log_context_from_message(func: Callable) -> Callable:
     """
 
     @wraps(func)
-    async def wrapper(
-        self: Any, message: PipelineMessage, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def wrapper(self: Any, message: PipelineMessage, *args: Any, **kwargs: Any) -> Any:
         set_message_context(
             topic=message.topic,
             partition=message.partition,

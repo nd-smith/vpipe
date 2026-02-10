@@ -243,8 +243,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
             current_time = time.time()
             time_since_flush = current_time - self._last_flush
             should_flush = (
-                len(self._batch) >= self.batch_size
-                or time_since_flush >= self.batch_timeout
+                len(self._batch) >= self.batch_size or time_since_flush >= self.batch_timeout
             )
 
             if should_flush:
@@ -266,9 +265,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
                 )
 
         except Exception as e:
-            error_msg = (
-                f"Failed to batch write to Delta table '{self.table_name}': {str(e)}"
-            )
+            error_msg = f"Failed to batch write to Delta table '{self.table_name}': {str(e)}"
             logger.exception(error_msg)
             return EnrichmentResult.failed(error_msg)
 
@@ -282,9 +279,7 @@ class DeltaTableBatchWriter(DeltaTableWriter):
             df = self.spark.createDataFrame(self._batch)
             self._write_to_delta(df)
 
-            logger.info(
-                f"Force flushed {len(self._batch)} records to {self.table_name}"
-            )
+            logger.info(f"Force flushed {len(self._batch)} records to {self.table_name}")
             self._batch.clear()
 
         except Exception as e:

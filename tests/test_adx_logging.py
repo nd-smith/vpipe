@@ -13,8 +13,8 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.logging.formatters import JSONFormatter
 from core.logging.context import set_log_context
+from core.logging.formatters import JSONFormatter
 
 
 def test_numeric_type_preservation():
@@ -26,6 +26,7 @@ def test_numeric_type_preservation():
 
     # Create string handler to capture output
     from io import StringIO
+
     stream = StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JSONFormatter())
@@ -33,10 +34,7 @@ def test_numeric_type_preservation():
 
     # Set some context
     set_log_context(
-        domain="verisk",
-        stage="download",
-        worker_id="test-worker",
-        trace_id="evt_test_123"
+        domain="verisk", stage="download", worker_id="test-worker", trace_id="evt_test_123"
     )
 
     # Log with various numeric fields
@@ -49,7 +47,7 @@ def test_numeric_type_preservation():
             "records_processed": 1000,
             "bytes_downloaded": 1048576,
             "http_status": 200,
-        }
+        },
     )
 
     # Get the JSON output
@@ -93,9 +91,9 @@ def test_numeric_type_preservation():
         if not (type_match and value_match):
             all_passed = False
             if not type_match:
-                print(f"   ⚠️  Type mismatch!")
+                print("   ⚠️  Type mismatch!")
             if not value_match:
-                print(f"   ⚠️  Value mismatch!")
+                print("   ⚠️  Value mismatch!")
         print()
 
     # Verify structured fields exist
@@ -115,6 +113,7 @@ def test_exception_structure():
     logger.setLevel(logging.ERROR)
 
     from io import StringIO
+
     stream = StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JSONFormatter())
@@ -163,6 +162,7 @@ def test_url_sanitization():
     logger.setLevel(logging.INFO)
 
     from io import StringIO
+
     stream = StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JSONFormatter())
@@ -174,7 +174,7 @@ def test_url_sanitization():
         extra={
             "download_url": "https://api.example.com/file?id=123&sig=test-val&other=value",
             "batch_size": 50,
-        }
+        },
     )
 
     output = stream.getvalue().strip()

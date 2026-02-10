@@ -10,24 +10,22 @@ Test Coverage:
     - Decorator behavior with various error types
 """
 
-import time
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch
 
 import pytest
 
 from core.errors.exceptions import (
-    ErrorCategory,
-    PipelineError,
     AuthError,
-    TransientError,
-    ThrottlingError,
+    ErrorCategory,
     PermanentError,
+    ThrottlingError,
+    TransientError,
 )
 from core.resilience.retry import (
+    AUTH_RETRY,
+    DEFAULT_RETRY,
     RetryConfig,
     with_retry,
-    DEFAULT_RETRY,
-    AUTH_RETRY,
 )
 
 
@@ -355,9 +353,7 @@ class TestWithRetryDecorator:
         """Uses server-provided retry_after for ThrottlingError."""
         call_count = 0
 
-        @with_retry(
-            config=RetryConfig(max_attempts=3, respect_retry_after=True, max_delay=10.0)
-        )
+        @with_retry(config=RetryConfig(max_attempts=3, respect_retry_after=True, max_delay=10.0))
         def func():
             nonlocal call_count
             call_count += 1

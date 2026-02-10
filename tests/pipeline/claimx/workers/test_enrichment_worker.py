@@ -16,17 +16,18 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
+import contextlib
 import json
-import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
-from pipeline.claimx.handlers.base import HandlerResult, EnrichmentResult
+from pipeline.claimx.handlers.base import HandlerResult
 from pipeline.claimx.schemas.entities import EntityRowsMessage
-from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.claimx.workers.enrichment_worker import ClaimXEnrichmentWorker
 from pipeline.common.types import PipelineMessage
@@ -156,9 +157,7 @@ class TestEnrichmentWorkerInitialization:
         """Worker accepts separate producer config."""
         with patch("pipeline.claimx.workers.enrichment_worker.ProjectCache"):
             producer_config = Mock(spec=MessageConfig)
-            worker = ClaimXEnrichmentWorker(
-                config=mock_config, producer_config=producer_config
-            )
+            worker = ClaimXEnrichmentWorker(config=mock_config, producer_config=producer_config)
 
             assert worker.consumer_config is mock_config
             assert worker.producer_config is producer_config
@@ -166,9 +165,7 @@ class TestEnrichmentWorkerInitialization:
     def test_initialization_with_injected_api_client(self, mock_config, mock_api_client):
         """Worker accepts injected API client for testing."""
         with patch("pipeline.claimx.workers.enrichment_worker.ProjectCache"):
-            worker = ClaimXEnrichmentWorker(
-                config=mock_config, api_client=mock_api_client
-            )
+            worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
             assert worker._injected_api_client is mock_api_client
 
@@ -201,9 +198,7 @@ class TestEnrichmentWorkerInitialization:
     def test_delta_writes_can_be_disabled(self, mock_config):
         """Worker respects enable_delta_writes flag."""
         with patch("pipeline.claimx.workers.enrichment_worker.ProjectCache"):
-            worker = ClaimXEnrichmentWorker(
-                config=mock_config, enable_delta_writes=False
-            )
+            worker = ClaimXEnrichmentWorker(config=mock_config, enable_delta_writes=False)
 
             assert worker.enable_delta_writes is False
 
@@ -212,16 +207,21 @@ class TestEnrichmentWorkerLifecycle:
     """Test worker lifecycle (start/stop)."""
 
     @pytest.mark.asyncio
-    async def test_start_initializes_components(self, mock_config, mock_api_client, patched_project_cache):
+    async def test_start_initializes_components(
+        self, mock_config, mock_api_client, patched_project_cache
+    ):
         """Worker start initializes all components."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
-        with patch("pipeline.claimx.workers.enrichment_worker.create_producer") as mock_create_producer, \
-             patch("pipeline.claimx.workers.enrichment_worker.create_consumer") as mock_create_consumer, \
-             patch("pipeline.common.telemetry.initialize_worker_telemetry"):
-
+        with (
+            patch(
+                "pipeline.claimx.workers.enrichment_worker.create_producer"
+            ) as mock_create_producer,
+            patch(
+                "pipeline.claimx.workers.enrichment_worker.create_consumer"
+            ) as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+        ):
             # Setup mocks
             mock_producer = AsyncMock()
             mock_producer.start = AsyncMock()
@@ -242,16 +242,21 @@ class TestEnrichmentWorkerLifecycle:
             assert mock_producer.start.called
 
     @pytest.mark.asyncio
-    async def test_start_uses_injected_api_client(self, mock_config, mock_api_client, patched_project_cache):
+    async def test_start_uses_injected_api_client(
+        self, mock_config, mock_api_client, patched_project_cache
+    ):
         """Worker uses injected API client instead of creating new one."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
-        with patch("pipeline.claimx.workers.enrichment_worker.create_producer") as mock_create_producer, \
-             patch("pipeline.claimx.workers.enrichment_worker.create_consumer") as mock_create_consumer, \
-             patch("pipeline.common.telemetry.initialize_worker_telemetry"):
-
+        with (
+            patch(
+                "pipeline.claimx.workers.enrichment_worker.create_producer"
+            ) as mock_create_producer,
+            patch(
+                "pipeline.claimx.workers.enrichment_worker.create_consumer"
+            ) as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+        ):
             mock_producer = AsyncMock()
             mock_producer.start = AsyncMock()
             mock_create_producer.return_value = mock_producer
@@ -263,21 +268,19 @@ class TestEnrichmentWorkerLifecycle:
             # Prevent blocking on consumer.start
             mock_consumer.start.side_effect = Exception("Stop")
 
-            try:
+            with contextlib.suppress(Exception):
                 await worker.start()
-            except Exception:
-                pass
 
             # Verify injected client was used
             assert worker.api_client is mock_api_client
             assert mock_api_client._ensure_session.called
 
     @pytest.mark.asyncio
-    async def test_stop_cleans_up_resources(self, mock_config, mock_api_client, patched_project_cache):
+    async def test_stop_cleans_up_resources(
+        self, mock_config, mock_api_client, patched_project_cache
+    ):
         """Worker stop cleans up all resources."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Setup mocked components
         worker.consumer = AsyncMock()
@@ -339,9 +342,7 @@ class TestEnrichmentWorkerMessageProcessing:
         self, mock_config, mock_api_client, sample_message, patched_project_cache
     ):
         """Worker parses valid enrichment task message."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Mock _process_single_task to avoid full execution
         worker._process_single_task = AsyncMock()
@@ -358,11 +359,11 @@ class TestEnrichmentWorkerMessageProcessing:
         assert worker._records_processed == 1
 
     @pytest.mark.asyncio
-    async def test_invalid_json_raises_error(self, mock_config, mock_api_client, patched_project_cache):
+    async def test_invalid_json_raises_error(
+        self, mock_config, mock_api_client, patched_project_cache
+    ):
         """Worker raises error on invalid JSON."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         invalid_message = PipelineMessage(
             topic="test.topic",
@@ -382,9 +383,7 @@ class TestEnrichmentWorkerMessageProcessing:
         self, mock_config, mock_api_client, patched_project_cache
     ):
         """Worker raises ValidationError on invalid task schema."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         invalid_message = PipelineMessage(
             topic="test.topic",
@@ -396,7 +395,7 @@ class TestEnrichmentWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
             await worker._handle_enrichment_task(invalid_message)
 
 
@@ -405,12 +404,10 @@ class TestEnrichmentWorkerHandlerRouting:
 
     @pytest.mark.asyncio
     async def test_handler_selected_for_event_type(
-        self, mock_config, mock_api_client, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, mock_api_client, sample_enrichment_task, patched_project_cache
+    ):
         """Worker selects correct handler for event type."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Mock handler class with __name__ attribute
         mock_handler_class = Mock()
@@ -433,30 +430,24 @@ class TestEnrichmentWorkerHandlerRouting:
         )
         mock_handler.process = AsyncMock(return_value=mock_result)
 
-        worker.handler_registry.get_handler_class = Mock(
-            return_value=mock_handler_class
-        )
+        worker.handler_registry.get_handler_class = Mock(return_value=mock_handler_class)
         worker._dispatch_entity_rows = AsyncMock()
         worker._dispatch_download_tasks = AsyncMock()
 
         await worker._process_single_task(sample_enrichment_task)
 
         # Verify handler was selected and created
-        worker.handler_registry.get_handler_class.assert_called_once_with(
-            "PROJECT_CREATED"
-        )
+        worker.handler_registry.get_handler_class.assert_called_once_with("PROJECT_CREATED")
         mock_handler_class.assert_called_once()
         assert mock_handler.process.called
         assert worker._records_succeeded == 1
 
     @pytest.mark.asyncio
     async def test_missing_handler_skips_event(
-        self, mock_config, mock_api_client, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, mock_api_client, sample_enrichment_task, patched_project_cache
+    ):
         """Worker skips event when no handler found."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # No handler for this event type
         worker.handler_registry.get_handler_class = Mock(return_value=None)
@@ -469,12 +460,10 @@ class TestEnrichmentWorkerHandlerRouting:
 
     @pytest.mark.asyncio
     async def test_handler_result_with_failures_routes_to_retry(
-        self, mock_config, mock_api_client, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, mock_api_client, sample_enrichment_task, patched_project_cache
+    ):
         """Worker routes failed handler results to retry."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Mock handler that returns failure
         mock_handler_class = Mock()
@@ -496,9 +485,7 @@ class TestEnrichmentWorkerHandlerRouting:
         )
         mock_handler.process = AsyncMock(return_value=mock_result)
 
-        worker.handler_registry.get_handler_class = Mock(
-            return_value=mock_handler_class
-        )
+        worker.handler_registry.get_handler_class = Mock(return_value=mock_handler_class)
         worker._handle_enrichment_failure = AsyncMock()
 
         await worker._process_single_task(sample_enrichment_task)
@@ -515,12 +502,10 @@ class TestEnrichmentWorkerErrorHandling:
 
     @pytest.mark.asyncio
     async def test_api_error_categorized_correctly(
-        self, mock_config, mock_api_client, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, mock_api_client, sample_enrichment_task, patched_project_cache
+    ):
         """Worker categorizes ClaimXApiError correctly."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Mock handler that raises API error
         mock_handler_class = Mock()
@@ -535,9 +520,7 @@ class TestEnrichmentWorkerErrorHandling:
         )
         mock_handler.process = AsyncMock(side_effect=api_error)
 
-        worker.handler_registry.get_handler_class = Mock(
-            return_value=mock_handler_class
-        )
+        worker.handler_registry.get_handler_class = Mock(return_value=mock_handler_class)
         worker._handle_enrichment_failure = AsyncMock()
 
         await worker._process_single_task(sample_enrichment_task)
@@ -550,12 +533,10 @@ class TestEnrichmentWorkerErrorHandling:
 
     @pytest.mark.asyncio
     async def test_unknown_error_categorized_as_transient(
-        self, mock_config, mock_api_client, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, mock_api_client, sample_enrichment_task, patched_project_cache
+    ):
         """Worker categorizes unknown errors as UNKNOWN."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Mock handler that raises unexpected error
         mock_handler_class = Mock()
@@ -565,9 +546,7 @@ class TestEnrichmentWorkerErrorHandling:
 
         mock_handler.process = AsyncMock(side_effect=ValueError("Unexpected"))
 
-        worker.handler_registry.get_handler_class = Mock(
-            return_value=mock_handler_class
-        )
+        worker.handler_registry.get_handler_class = Mock(return_value=mock_handler_class)
         worker._handle_enrichment_failure = AsyncMock()
 
         await worker._process_single_task(sample_enrichment_task)
@@ -583,8 +562,8 @@ class TestEnrichmentWorkerEntityDispatch:
 
     @pytest.mark.asyncio
     async def test_entity_rows_dispatched_when_delta_enabled(
-        self, mock_config, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, sample_enrichment_task, patched_project_cache
+    ):
         """Worker dispatches entity rows when delta writes enabled."""
         worker = ClaimXEnrichmentWorker(config=mock_config, enable_delta_writes=True)
         worker._produce_entity_rows = AsyncMock()
@@ -601,8 +580,8 @@ class TestEnrichmentWorkerEntityDispatch:
 
     @pytest.mark.asyncio
     async def test_entity_rows_not_dispatched_when_delta_disabled(
-        self, mock_config, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, sample_enrichment_task, patched_project_cache
+    ):
         """Worker skips entity dispatch when delta writes disabled."""
         worker = ClaimXEnrichmentWorker(config=mock_config, enable_delta_writes=False)
         worker._produce_entity_rows = AsyncMock()
@@ -617,8 +596,8 @@ class TestEnrichmentWorkerEntityDispatch:
 
     @pytest.mark.asyncio
     async def test_empty_entity_rows_not_dispatched(
-        self, mock_config, sample_enrichment_task
-    , patched_project_cache):
+        self, mock_config, sample_enrichment_task, patched_project_cache
+    ):
         """Worker skips dispatch for empty entity rows."""
         worker = ClaimXEnrichmentWorker(config=mock_config, enable_delta_writes=True)
         worker._produce_entity_rows = AsyncMock()
@@ -681,12 +660,10 @@ class TestEnrichmentWorkerProjectCache:
 
     @pytest.mark.asyncio
     async def test_ensure_projects_exist_is_noop(
-        self, mock_config, mock_api_client
-    , patched_project_cache):
+        self, mock_config, mock_api_client, patched_project_cache
+    ):
         """Worker's _ensure_projects_exist is disabled (no-op)."""
-        worker = ClaimXEnrichmentWorker(
-            config=mock_config, api_client=mock_api_client
-        )
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
         # Should not raise or do anything
         await worker._ensure_projects_exist(["proj-123"])

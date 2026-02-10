@@ -106,9 +106,7 @@ class ClaimXUploadWorker:
             )
 
         # Get worker-specific processing config
-        processing_config = config.get_worker_config(
-            domain, self.WORKER_NAME, "processing"
-        )
+        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
         self.concurrency = processing_config.get("concurrency", 10)
         self.batch_size = processing_config.get("batch_size", 20)
 
@@ -306,9 +304,7 @@ class ClaimXUploadWorker:
         except asyncio.CancelledError:
             logger.info("ClaimX upload worker cancelled")
         except Exception as e:
-            logger.error(
-                "ClaimX upload worker error", extra={"error": str(e)}, exc_info=True
-            )
+            logger.error("ClaimX upload worker error", extra={"error": str(e)}, exc_info=True)
             raise
         finally:
             self._running = False
@@ -328,9 +324,7 @@ class ClaimXUploadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -427,14 +421,9 @@ class ClaimXUploadWorker:
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
         # Process all messages concurrently
-        tasks = [
-            asyncio.create_task(self._process_single_with_semaphore(msg))
-            for msg in messages
-        ]
+        tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
 
-        results: list[UploadResult] = await asyncio.gather(
-            *tasks, return_exceptions=True
-        )
+        results: list[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
         # CRITICAL (Issue #38): Verify all uploads succeeded before committing offsets
         failed_count = 0
@@ -448,9 +437,7 @@ class ClaimXUploadWorker:
                     extra={"error": str(upload_result)},
                     exc_info=True,
                 )
-                record_processing_error(
-                    self.topics[0], consumer_group, "unexpected_error"
-                )
+                record_processing_error(self.topics[0], consumer_group, "unexpected_error")
                 exception_count += 1
             elif isinstance(upload_result, UploadResult):
                 if upload_result.success:
@@ -487,9 +474,7 @@ class ClaimXUploadWorker:
             )
             return False
 
-    async def _process_single_with_semaphore(
-        self, message: PipelineMessage
-    ) -> UploadResult:
+    async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
@@ -502,21 +487,15 @@ class ClaimXUploadWorker:
 
         try:
             # Parse message
-            cached_message = ClaimXCachedDownloadMessage.model_validate_json(
-                message.value
-            )
+            cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
             media_id = cached_message.media_id
 
             # Track in-flight
             async with self._in_flight_lock:
                 self._in_flight_tasks.add(media_id)
 
-            consumer_group = self.config.get_consumer_group(
-                self.domain, self.WORKER_NAME
-            )
-            record_message_consumed(
-                message.topic, consumer_group, len(message.value), success=True
-            )
+            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+            record_message_consumed(message.topic, consumer_group, len(message.value), success=True)
 
             # Track records processed
             self._records_processed += 1
@@ -528,9 +507,7 @@ class ClaimXUploadWorker:
 
             # Upload to OneLake (using claimx domain-specific path)
             if self.onelake_client is None:
-                raise RuntimeError(
-                    "OneLake client not initialized - call start() first"
-                )
+                raise RuntimeError("OneLake client not initialized - call start() first")
             blob_path = await self.onelake_client.async_upload_file(
                 relative_path=cached_message.destination_path,
                 local_path=cache_path,
@@ -608,9 +585,7 @@ class ClaimXUploadWorker:
                 project_id=project_id,
                 processing_time_ms=processing_time_ms,
             )
-            consumer_group = self.config.get_consumer_group(
-                self.domain, self.WORKER_NAME
-            )
+            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
             record_processing_error(message.topic, consumer_group, "upload_error")
             self._records_failed += 1
 
@@ -619,9 +594,7 @@ class ClaimXUploadWorker:
             try:
                 # Re-parse message in case it wasn't parsed yet
                 if "cached_message" not in locals() or cached_message is None:
-                    cached_message = ClaimXCachedDownloadMessage.model_validate_json(
-                        message.value
-                    )
+                    cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
 
                 result_message = ClaimXUploadResultMessage(
                     media_id=cached_message.media_id,

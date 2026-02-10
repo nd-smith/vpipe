@@ -553,9 +553,7 @@ class ClaimXEntityWriter:
                     if col_type == pl.Datetime("us", "UTC") and isinstance(val, str):
                         # Parse ISO timestamp string (e.g., "2026-01-09T01:58:32.556819Z")
                         # Handle both "Z" suffix and "+00:00" timezone formats
-                        converted_row[col_name] = datetime.fromisoformat(
-                            val.replace("Z", "+00:00")
-                        )
+                        converted_row[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
                     elif col_type == pl.Date and isinstance(val, str):
                         # Parse date string (e.g., "2026-01-09" or from ISO timestamp)
                         if "T" in val:

@@ -195,9 +195,8 @@ class TestMessageLogContext:
         """Test context is restored even when exception occurs."""
         set_message_context(topic="initial", partition=0)
 
-        with pytest.raises(ValueError):
-            with MessageLogContext(topic="temp", partition=1):
-                raise ValueError("test error")
+        with pytest.raises(ValueError), MessageLogContext(topic="temp", partition=1):
+            raise ValueError("test error")
 
         # Context should be restored
         ctx = get_message_context()

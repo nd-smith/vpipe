@@ -8,9 +8,9 @@ import asyncio
 import logging
 import os
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +52,7 @@ class TestCheckpointStoreConfiguration:
     def reset_module_state(self):
         """Reset module-level state before each test."""
         from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
+
         reset_checkpoint_store()
         yield
         reset_checkpoint_store()
@@ -86,7 +87,7 @@ class TestCheckpointStoreConfiguration:
             "eventhub": {
                 "checkpoint_store": {
                     "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test",
-                    "container_name": "my-checkpoints"
+                    "container_name": "my-checkpoints",
                 }
             }
         }
@@ -94,19 +95,26 @@ class TestCheckpointStoreConfiguration:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
 
-        with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
-            with patch("config.config.load_yaml", return_value=mock_config_data):
-                with patch("config.config._expand_env_vars", side_effect=lambda x: x):
-                    config = _load_checkpoint_config()
+        with (
+            patch("config.config.DEFAULT_CONFIG_FILE", mock_file),
+            patch("config.config.load_yaml", return_value=mock_config_data),
+            patch("config.config._expand_env_vars", side_effect=lambda x: x),
+        ):
+            config = _load_checkpoint_config()
 
-        assert config["blob_storage_connection_string"] == "DefaultEndpointsProtocol=https;AccountName=test"
+        assert (
+            config["blob_storage_connection_string"]
+            == "DefaultEndpointsProtocol=https;AccountName=test"
+        )
         assert config["container_name"] == "my-checkpoints"
 
     def test_load_config_from_env_vars(self):
         """Test loading configuration from environment variables when config file missing."""
         from pipeline.common.eventhub.checkpoint_store import _load_checkpoint_config
 
-        os.environ["EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING"] = "DefaultEndpointsProtocol=https;AccountName=envtest"
+        os.environ["EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING"] = (
+            "DefaultEndpointsProtocol=https;AccountName=envtest"
+        )
         os.environ["EVENTHUB_CHECKPOINT_CONTAINER_NAME"] = "env-checkpoints"
 
         mock_file = MagicMock()
@@ -115,7 +123,10 @@ class TestCheckpointStoreConfiguration:
         with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
             config = _load_checkpoint_config()
 
-        assert config["blob_storage_connection_string"] == "DefaultEndpointsProtocol=https;AccountName=envtest"
+        assert (
+            config["blob_storage_connection_string"]
+            == "DefaultEndpointsProtocol=https;AccountName=envtest"
+        )
         assert config["container_name"] == "env-checkpoints"
 
     def test_load_config_empty_when_not_configured(self):
@@ -146,10 +157,12 @@ class TestCheckpointStoreConfiguration:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
 
-        with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
-            with patch("config.config.load_yaml", return_value=mock_config_data):
-                with patch("config.config._expand_env_vars", side_effect=lambda x: x):
-                    config = _load_checkpoint_config()
+        with (
+            patch("config.config.DEFAULT_CONFIG_FILE", mock_file),
+            patch("config.config.load_yaml", return_value=mock_config_data),
+            patch("config.config._expand_env_vars", side_effect=lambda x: x),
+        ):
+            config = _load_checkpoint_config()
 
         assert config["container_name"] == "eventhub-checkpoints"
 
@@ -161,6 +174,7 @@ class TestCheckpointStoreFactory:
     def reset_module_state(self):
         """Reset module-level state before each test."""
         from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
+
         reset_checkpoint_store()
         yield
         reset_checkpoint_store()
@@ -171,10 +185,12 @@ class TestCheckpointStoreFactory:
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
         # Mock configuration with empty connection string
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "",
-                "container_name": "eventhub-checkpoints"
+                "container_name": "eventhub-checkpoints",
             }
 
             checkpoint_store = await get_checkpoint_store()
@@ -189,13 +205,17 @@ class TestCheckpointStoreFactory:
         mock_blob_store = MagicMock()
 
         # Mock configuration with valid connection string
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 checkpoint_store = await get_checkpoint_store()
@@ -205,7 +225,7 @@ class TestCheckpointStoreFactory:
         # Verify from_connection_string was called with correct parameters
         mock_blob_class.from_connection_string.assert_called_once_with(
             conn_str="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-            container_name="my-checkpoints"
+            container_name="my-checkpoints",
         )
 
     @pytest.mark.asyncio
@@ -215,13 +235,17 @@ class TestCheckpointStoreFactory:
 
         mock_blob_store = MagicMock()
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 # First call
@@ -250,12 +274,12 @@ class TestCheckpointStoreFactory:
         def mock_load_config():
             nonlocal call_count
             call_count += 1
-            return {
-                "blob_storage_connection_string": "",
-                "container_name": "eventhub-checkpoints"
-            }
+            return {"blob_storage_connection_string": "", "container_name": "eventhub-checkpoints"}
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config", side_effect=mock_load_config):
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config",
+            side_effect=mock_load_config,
+        ):
             # First call
             store1 = await get_checkpoint_store()
 
@@ -287,13 +311,17 @@ class TestCheckpointStoreFactory:
             # Simulate some delay
             return mock_blob_store
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.side_effect = mock_from_connection_string
 
                 # Make 10 concurrent calls
@@ -310,14 +338,20 @@ class TestCheckpointStoreFactory:
         """Test get_checkpoint_store raises exception when BlobCheckpointStore creation fails."""
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
-                mock_blob_class.from_connection_string.side_effect = RuntimeError("Azure connection failed")
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
+                mock_blob_class.from_connection_string.side_effect = RuntimeError(
+                    "Azure connection failed"
+                )
 
                 with pytest.raises(RuntimeError, match="Azure connection failed"):
                     await get_checkpoint_store()
@@ -329,21 +363,25 @@ class TestCheckpointStoreFactory:
 
         mock_blob_store = MagicMock()
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": ""  # Empty container name
+                "container_name": "",  # Empty container name
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
-                checkpoint_store = await get_checkpoint_store()
+                await get_checkpoint_store()
 
         # Should use default container name
         mock_blob_class.from_connection_string.assert_called_once_with(
             conn_str="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-            container_name="eventhub-checkpoints"
+            container_name="eventhub-checkpoints",
         )
 
 
@@ -354,6 +392,7 @@ class TestCheckpointStoreCleanup:
     def reset_module_state(self):
         """Reset module-level state before each test."""
         from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
+
         reset_checkpoint_store()
         yield
         reset_checkpoint_store()
@@ -362,20 +401,24 @@ class TestCheckpointStoreCleanup:
     async def test_close_checkpoint_store_closes_active_store(self):
         """Test close_checkpoint_store closes the active checkpoint store."""
         from pipeline.common.eventhub.checkpoint_store import (
+            close_checkpoint_store,
             get_checkpoint_store,
-            close_checkpoint_store
         )
 
         mock_blob_store = MagicMock()
         mock_blob_store.close = AsyncMock()
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 # Create checkpoint store
@@ -389,13 +432,17 @@ class TestCheckpointStoreCleanup:
         mock_blob_store.close.assert_called_once()
 
         # Verify state is reset (next call creates new instance)
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load2:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load2:
             mock_load2.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class2:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class2:
                 new_mock_store = MagicMock()
                 mock_blob_class2.from_connection_string.return_value = new_mock_store
 
@@ -416,20 +463,24 @@ class TestCheckpointStoreCleanup:
     async def test_close_checkpoint_store_safe_when_already_closed(self):
         """Test close_checkpoint_store is safe to call multiple times."""
         from pipeline.common.eventhub.checkpoint_store import (
+            close_checkpoint_store,
             get_checkpoint_store,
-            close_checkpoint_store
         )
 
         mock_blob_store = MagicMock()
         mock_blob_store.close = AsyncMock()
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 # Create checkpoint store
@@ -448,20 +499,24 @@ class TestCheckpointStoreCleanup:
     async def test_close_checkpoint_store_handles_close_error(self):
         """Test close_checkpoint_store handles errors during close gracefully."""
         from pipeline.common.eventhub.checkpoint_store import (
+            close_checkpoint_store,
             get_checkpoint_store,
-            close_checkpoint_store
         )
 
         mock_blob_store = MagicMock()
         mock_blob_store.close = AsyncMock(side_effect=RuntimeError("Close failed"))
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 # Create checkpoint store
@@ -477,20 +532,24 @@ class TestCheckpointStoreCleanup:
     async def test_close_checkpoint_store_without_close_method(self):
         """Test close_checkpoint_store handles stores without close method."""
         from pipeline.common.eventhub.checkpoint_store import (
+            close_checkpoint_store,
             get_checkpoint_store,
-            close_checkpoint_store
         )
 
         # Mock store without close method
         mock_blob_store = MagicMock(spec=[])  # Empty spec means no close method
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 # Create checkpoint store
@@ -501,12 +560,10 @@ class TestCheckpointStoreCleanup:
 
     def test_reset_checkpoint_store_clears_state(self):
         """Test reset_checkpoint_store clears singleton state for testing."""
+        import pipeline.common.eventhub.checkpoint_store as checkpoint_module
         from pipeline.common.eventhub.checkpoint_store import (
             reset_checkpoint_store,
-            _checkpoint_store,
-            _initialization_attempted
         )
-        import pipeline.common.eventhub.checkpoint_store as checkpoint_module
 
         # Set some state
         checkpoint_module._checkpoint_store = MagicMock()
@@ -521,8 +578,8 @@ class TestCheckpointStoreCleanup:
 
     def test_reset_checkpoint_store_does_not_close(self):
         """Test reset_checkpoint_store does not close the store (for testing only)."""
-        from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
         import pipeline.common.eventhub.checkpoint_store as checkpoint_module
+        from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
 
         # Set up mock store with close method
         mock_blob_store = MagicMock()
@@ -543,6 +600,7 @@ class TestCheckpointStoreLogging:
     def reset_module_state(self):
         """Reset module-level state before each test."""
         from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
+
         reset_checkpoint_store()
         yield
         reset_checkpoint_store()
@@ -552,10 +610,12 @@ class TestCheckpointStoreLogging:
         """Test appropriate INFO log when checkpoint store is not configured."""
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "",
-                "container_name": "eventhub-checkpoints"
+                "container_name": "eventhub-checkpoints",
             }
 
             with caplog.at_level(logging.INFO):
@@ -574,13 +634,17 @@ class TestCheckpointStoreLogging:
 
         mock_blob_store = MagicMock()
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": "my-checkpoints"
+                "container_name": "my-checkpoints",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 with caplog.at_level(logging.INFO):
@@ -600,20 +664,26 @@ class TestCheckpointStoreLogging:
 
         mock_blob_store = MagicMock()
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
-                "container_name": ""
+                "container_name": "",
             }
 
-            with patch("azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore") as mock_blob_class:
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
                 mock_blob_class.from_connection_string.return_value = mock_blob_store
 
                 with caplog.at_level(logging.WARNING):
                     await get_checkpoint_store()
 
         # Check for warning about empty container name
-        log_messages = [record.message for record in caplog.records if record.levelname == "WARNING"]
+        log_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
         assert any("container_name is empty" in msg for msg in log_messages)
 
 
@@ -624,6 +694,7 @@ class TestCheckpointStoreFactoryJsonType:
     def reset_module_state(self):
         """Reset module-level state before each test."""
         from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
+
         reset_checkpoint_store()
         yield
         reset_checkpoint_store()
@@ -634,7 +705,9 @@ class TestCheckpointStoreFactoryJsonType:
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
         from pipeline.common.eventhub.json_checkpoint_store import JsonCheckpointStore
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "type": "json",
                 "storage_path": str(tmp_path),
@@ -651,7 +724,9 @@ class TestCheckpointStoreFactoryJsonType:
         """Test factory defaults to blob type when type is not specified."""
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "blob_storage_connection_string": "",
                 "container_name": "eventhub-checkpoints",
@@ -667,7 +742,9 @@ class TestCheckpointStoreFactoryJsonType:
         """Test factory raises ValueError for unknown store type."""
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "type": "redis",
                 "blob_storage_connection_string": "",
@@ -686,7 +763,9 @@ class TestCheckpointStoreFactoryJsonType:
 
         custom_path = tmp_path / "custom-checkpoints"
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "type": "json",
                 "storage_path": str(custom_path),
@@ -704,7 +783,9 @@ class TestCheckpointStoreFactoryJsonType:
         """Test JSON store singleton: same instance returned on multiple calls."""
         from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
-        with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
             mock_load.return_value = {
                 "type": "json",
                 "storage_path": str(tmp_path),
@@ -736,10 +817,12 @@ class TestCheckpointStoreFactoryJsonType:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
 
-        with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
-            with patch("config.config.load_yaml", return_value=mock_config_data):
-                with patch("config.config._expand_env_vars", side_effect=lambda x: x):
-                    config = _load_checkpoint_config()
+        with (
+            patch("config.config.DEFAULT_CONFIG_FILE", mock_file),
+            patch("config.config.load_yaml", return_value=mock_config_data),
+            patch("config.config._expand_env_vars", side_effect=lambda x: x),
+        ):
+            config = _load_checkpoint_config()
 
         assert config["type"] == "json"
         assert config["storage_path"] == "/tmp/test-checkpoints"
@@ -760,9 +843,11 @@ class TestCheckpointStoreFactoryJsonType:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
 
-        with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
-            with patch("config.config.load_yaml", return_value=mock_config_data):
-                with patch("config.config._expand_env_vars", side_effect=lambda x: x):
-                    config = _load_checkpoint_config()
+        with (
+            patch("config.config.DEFAULT_CONFIG_FILE", mock_file),
+            patch("config.config.load_yaml", return_value=mock_config_data),
+            patch("config.config._expand_env_vars", side_effect=lambda x: x),
+        ):
+            config = _load_checkpoint_config()
 
         assert config["type"] == "blob"

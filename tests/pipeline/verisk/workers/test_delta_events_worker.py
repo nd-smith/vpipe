@@ -15,12 +15,15 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import pytest
+import contextlib
+import json
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from config.config import MessageConfig
-from pipeline.verisk.workers.delta_events_worker import DeltaEventsWorker
 from pipeline.common.types import PipelineMessage
+from pipeline.verisk.workers.delta_events_worker import DeltaEventsWorker
 
 
 @pytest.fixture
@@ -68,6 +71,7 @@ def sample_event_message():
     }
 
     import json
+
     return PipelineMessage(
         topic="xact.events.raw",
         partition=0,
@@ -113,6 +117,7 @@ class TestDeltaEventsWorkerInitialization:
 
     def test_initialization_with_max_batches(self, mock_config, mock_producer):
         """Worker accepts max_batches configuration."""
+
         # Override config to include max_batches
         def mock_get_worker_config(domain, worker_name, config_key=None):
             if config_key == "processing":
@@ -135,13 +140,15 @@ class TestDeltaEventsWorkerInitialization:
 
     def test_initialization_requires_table_path(self, mock_config, mock_producer):
         """Worker requires events_table_path."""
-        with patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"):
-            with pytest.raises(ValueError, match="events_table_path is required"):
-                DeltaEventsWorker(
-                    config=mock_config,
-                    producer=mock_producer,
-                    events_table_path="",
-                )
+        with (
+            patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"),
+            pytest.raises(ValueError, match="events_table_path is required"),
+        ):
+            DeltaEventsWorker(
+                config=mock_config,
+                producer=mock_producer,
+                events_table_path="",
+            )
 
     def test_metrics_initialized_to_zero(self, mock_config, mock_producer):
         """Worker initializes metrics to zero."""
@@ -170,26 +177,22 @@ class TestDeltaEventsWorkerLifecycle:
                 events_table_path="abfss://test/xact_events",
             )
 
-            with patch(
-                "pipeline.verisk.workers.delta_events_worker.create_consumer"
-            ) as mock_create_consumer, patch(
-                "pipeline.common.telemetry.initialize_worker_telemetry"
-            ), patch.object(
-                worker.health_server, "start", new_callable=AsyncMock
-            ), patch.object(
-                worker.retry_handler, "start", new_callable=AsyncMock
-            ), patch(
-                "pipeline.verisk.workers.delta_events_worker.PeriodicStatsLogger"
+            with (
+                patch(
+                    "pipeline.verisk.workers.delta_events_worker.create_consumer"
+                ) as mock_create_consumer,
+                patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+                patch.object(worker.health_server, "start", new_callable=AsyncMock),
+                patch.object(worker.retry_handler, "start", new_callable=AsyncMock),
+                patch("pipeline.verisk.workers.delta_events_worker.PeriodicStatsLogger"),
             ):
                 # Setup mock consumer
                 mock_consumer = AsyncMock()
                 mock_consumer.start = AsyncMock(side_effect=Exception("Stop"))
                 mock_create_consumer.return_value = mock_consumer
 
-                try:
+                with contextlib.suppress(Exception):
                     await worker.start()
-                except Exception:
-                    pass
 
                 # Verify components were initialized
                 assert worker._running is False  # Reset in finally
@@ -290,18 +293,18 @@ class TestDeltaEventsWorkerMessageProcessing:
             )
 
             # Should raise error
-            with patch("pipeline.verisk.workers.delta_events_worker.log_worker_error"):
-                with pytest.raises(Exception):
-                    await worker._handle_event_message(invalid_message)
+            with (
+                patch("pipeline.verisk.workers.delta_events_worker.log_worker_error"),
+                pytest.raises(json.JSONDecodeError),
+            ):
+                await worker._handle_event_message(invalid_message)
 
 
 class TestDeltaEventsWorkerBatching:
     """Test batch accumulation and flushing."""
 
     @pytest.mark.asyncio
-    async def test_batch_accumulates_events(
-        self, mock_producer, sample_event_message
-    ):
+    async def test_batch_accumulates_events(self, mock_producer, sample_event_message):
         """Worker accumulates events in batch."""
         # Create config with batch_size=10
         config = Mock(spec=MessageConfig)
@@ -331,9 +334,7 @@ class TestDeltaEventsWorkerBatching:
             assert worker._records_processed == 3
 
     @pytest.mark.asyncio
-    async def test_batch_flushes_on_size_threshold(
-        self, mock_producer, sample_event_message
-    ):
+    async def test_batch_flushes_on_size_threshold(self, mock_producer, sample_event_message):
         """Worker flushes batch when size threshold reached."""
         # Create config with batch_size=2
         config = Mock(spec=MessageConfig)
@@ -396,9 +397,7 @@ class TestDeltaEventsWorkerDeltaWrites:
             assert worker._records_succeeded == 1
 
     @pytest.mark.asyncio
-    async def test_flush_batch_routes_to_retry_on_failure(
-        self, mock_config, mock_producer
-    ):
+    async def test_flush_batch_routes_to_retry_on_failure(self, mock_config, mock_producer):
         """Worker routes batch to retry handler on Delta write failure."""
         with patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"):
             worker = DeltaEventsWorker(
@@ -423,9 +422,7 @@ class TestDeltaEventsWorkerDeltaWrites:
             assert worker._batches_written == 0  # Not incremented on failure
 
     @pytest.mark.asyncio
-    async def test_flush_batch_with_empty_batch_is_noop(
-        self, mock_config, mock_producer
-    ):
+    async def test_flush_batch_with_empty_batch_is_noop(self, mock_config, mock_producer):
         """Worker handles empty batch flush gracefully."""
         with patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"):
             worker = DeltaEventsWorker(

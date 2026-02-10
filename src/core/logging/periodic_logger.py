@@ -1,6 +1,7 @@
 """Periodic statistics logging utility for workers."""
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -54,10 +55,8 @@ class PeriodicStatsLogger:
             return
 
         self._task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await self._task
-        except asyncio.CancelledError:
-            pass
         self._task = None
 
     async def _run(self) -> None:

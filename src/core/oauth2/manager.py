@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Any
 
-from core.oauth2.exceptions import OAuth2Error, TokenAcquisitionError
+from core.oauth2.exceptions import TokenAcquisitionError
 from core.oauth2.models import OAuth2Token
 from core.oauth2.providers.base import BaseOAuth2Provider
 
@@ -71,9 +71,7 @@ class OAuth2TokenManager:
         """
         with self._lock:
             if provider.provider_name in self._providers:
-                raise ValueError(
-                    f"Provider '{provider.provider_name}' already exists"
-                )
+                raise ValueError(f"Provider '{provider.provider_name}' already exists")
 
             self._providers[provider.provider_name] = provider
             self._refresh_locks[provider.provider_name] = asyncio.Lock()
@@ -128,9 +126,7 @@ class OAuth2TokenManager:
         if not force_refresh:
             with self._lock:
                 cached_token = self._tokens.get(provider_name)
-                if cached_token and not cached_token.is_expired(
-                    self.refresh_buffer_seconds
-                ):
+                if cached_token and not cached_token.is_expired(self.refresh_buffer_seconds):
                     logger.debug(
                         f"Using cached token for '{provider_name}' "
                         f"(expires in {cached_token.remaining_lifetime.total_seconds()}s)"
@@ -144,9 +140,7 @@ class OAuth2TokenManager:
             if not force_refresh:
                 with self._lock:
                     cached_token = self._tokens.get(provider_name)
-                    if cached_token and not cached_token.is_expired(
-                        self.refresh_buffer_seconds
-                    ):
+                    if cached_token and not cached_token.is_expired(self.refresh_buffer_seconds):
                         logger.debug(
                             f"Token was refreshed by another coroutine for '{provider_name}'"
                         )
@@ -169,8 +163,7 @@ class OAuth2TokenManager:
                     self._tokens[provider_name] = new_token
 
                 logger.info(
-                    f"Token for '{provider_name}' valid until "
-                    f"{new_token.expires_at.isoformat()}"
+                    f"Token for '{provider_name}' valid until {new_token.expires_at.isoformat()}"
                 )
 
                 return new_token.access_token
@@ -179,7 +172,7 @@ class OAuth2TokenManager:
                 logger.error(f"Failed to get token for '{provider_name}': {e}")
                 raise TokenAcquisitionError(
                     f"Failed to get token for '{provider_name}': {e}"
-                )
+                ) from e
 
     async def refresh_all(self) -> dict[str, bool]:
         """
@@ -256,9 +249,7 @@ class OAuth2TokenManager:
                     try:
                         await provider.close()
                     except Exception as e:
-                        logger.warning(
-                            f"Error closing provider '{provider.provider_name}': {e}"
-                        )
+                        logger.warning(f"Error closing provider '{provider.provider_name}': {e}")
 
             self._tokens.clear()
             logger.info("OAuth2TokenManager closed")

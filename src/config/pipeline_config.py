@@ -15,9 +15,10 @@ Event Source Configuration:
     Set EVENT_SOURCE=eventhub (default) or EVENT_SOURCE=eventhouse
 """
 
+import contextlib
 import os
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -90,8 +91,7 @@ def _load_config_data(config_path: Path) -> dict[str, Any]:
     """
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n"
-            f"Expected file: config/config.yaml"
+            f"Configuration file not found: {config_path}\nExpected file: config/config.yaml"
         )
 
     # Load from single file
@@ -101,7 +101,7 @@ def _load_config_data(config_path: Path) -> dict[str, Any]:
     return _expand_env_vars(config_data)
 
 
-class EventSourceType(str, Enum):
+class EventSourceType(StrEnum):
     """Type of event source for the pipeline."""
 
     EVENTHUB = "eventhub"
@@ -164,9 +164,7 @@ class EventHubConfig:
             namespace_connection_string=namespace_conn or legacy_conn,
             bootstrap_servers=bootstrap_servers,
             sasl_password=legacy_conn or namespace_conn,
-            events_topic=os.getenv(
-                "EVENTHUB_EVENTS_TOPIC", "verisk_events"
-            ),
+            events_topic=os.getenv("EVENTHUB_EVENTS_TOPIC", "verisk_events"),
             consumer_group=os.getenv("EVENTHUB_CONSUMER_GROUP", "xact-event-ingester"),
             auto_offset_reset=os.getenv("EVENTHUB_AUTO_OFFSET_RESET", "earliest"),
         )
@@ -183,9 +181,7 @@ class EventHubConfig:
                 "events": self.events_topic,
             },
             "consumer_group_prefix": (
-                self.consumer_group.rsplit("-", 1)[0]
-                if "-" in self.consumer_group
-                else "verisk"
+                self.consumer_group.rsplit("-", 1)[0] if "-" in self.consumer_group else "verisk"
             ),
             "event_ingester": {
                 "consumer": {
@@ -312,9 +308,7 @@ class EventhouseSourceConfig:
                     str(poller_data.get("poll_interval_seconds", 30)),
                 )
             ),
-            batch_size=int(
-                os.getenv("POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))
-            ),
+            batch_size=int(os.getenv("POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))),
             query_timeout_seconds=int(
                 os.getenv(
                     "EVENTHOUSE_QUERY_TIMEOUT",
@@ -337,9 +331,7 @@ class EventhouseSourceConfig:
                 )
             ),
             overlap_minutes=int(
-                os.getenv(
-                    "DEDUP_OVERLAP_MINUTES", str(dedup_data.get("overlap_minutes", 5))
-                )
+                os.getenv("DEDUP_OVERLAP_MINUTES", str(dedup_data.get("overlap_minutes", 5)))
             ),
             # Backfill configuration
             backfill_start_stamp=os.getenv(
@@ -393,9 +385,7 @@ class ClaimXEventhouseSourceConfig:
     kql_start_stamp: str | None = None
 
     @classmethod
-    def load_config(
-        cls, config_path: Path | None = None
-    ) -> "ClaimXEventhouseSourceConfig":
+    def load_config(cls, config_path: Path | None = None) -> "ClaimXEventhouseSourceConfig":
         """Load ClaimX Eventhouse configuration from config directory and environment variables.
 
         Configuration priority (highest to lowest):
@@ -459,9 +449,7 @@ class ClaimXEventhouseSourceConfig:
                 )
             ),
             batch_size=int(
-                os.getenv(
-                    "CLAIMX_POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000))
-                )
+                os.getenv("CLAIMX_POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))
             ),
             query_timeout_seconds=int(
                 os.getenv(
@@ -492,9 +480,7 @@ class ClaimXEventhouseSourceConfig:
             ),
             events_topic=os.getenv(
                 "CLAIMX_EVENTS_TOPIC",
-                poller_data.get(
-                    "events_topic", "claimx_events"
-                ),
+                poller_data.get("events_topic", "claimx_events"),
             ),
             # Backfill configuration
             backfill_start_stamp=os.getenv(
@@ -574,9 +560,7 @@ class PipelineConfig:
         yaml_data = _load_config_data(resolved_path)
 
         # Get event source from config files first, then env var override
-        source_str = os.getenv(
-            "EVENT_SOURCE", yaml_data.get("event_source", "eventhub")
-        ).lower()
+        source_str = os.getenv("EVENT_SOURCE", yaml_data.get("event_source", "eventhub")).lower()
 
         try:
             event_source = EventSourceType(source_str)
@@ -605,13 +589,8 @@ class PipelineConfig:
             or os.getenv("CLAIMX_DELTA_EVENTS_TABLE")
         )
         if has_claimx_config:
-            try:
-                claimx_eventhouse_config = ClaimXEventhouseSourceConfig.load_config(
-                    resolved_path
-                )
-            except ValueError:
-                # ClaimX config not fully specified, leave as None
-                pass
+            with contextlib.suppress(ValueError):
+                claimx_eventhouse_config = ClaimXEventhouseSourceConfig.load_config(resolved_path)
 
         # Load delta configuration from yaml with env var override
         delta_config = yaml_data.get("delta", {})

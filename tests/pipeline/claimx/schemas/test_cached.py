@@ -4,7 +4,7 @@ Tests for ClaimXCachedDownloadMessage schema.
 Validates Pydantic model behavior for cached download messages.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -17,7 +17,7 @@ class TestClaimXCachedDownloadMessageCreation:
 
     def test_create_with_required_fields(self):
         """ClaimXCachedDownloadMessage can be created with required fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="media_111",
             project_id="proj_456",
@@ -25,7 +25,7 @@ class TestClaimXCachedDownloadMessageCreation:
             destination_path="claimx/proj_456/media/photo.jpg",
             local_cache_path="/tmp/cache/media_111/photo.jpg",
             bytes_downloaded=2048576,
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.media_id == "media_111"
@@ -42,7 +42,7 @@ class TestClaimXCachedDownloadMessageCreation:
 
     def test_create_with_all_fields(self):
         """ClaimXCachedDownloadMessage can be created with all fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="media_111",
             project_id="proj_456",
@@ -54,7 +54,7 @@ class TestClaimXCachedDownloadMessageCreation:
             file_type="jpg",
             file_name="photo.jpg",
             source_event_id="evt_123",
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.content_type == "image/jpeg"
@@ -64,7 +64,7 @@ class TestClaimXCachedDownloadMessageCreation:
 
     def test_create_with_zero_bytes(self):
         """ClaimXCachedDownloadMessage can handle zero-byte files."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="media_empty",
             project_id="proj_456",
@@ -72,20 +72,20 @@ class TestClaimXCachedDownloadMessageCreation:
             destination_path="claimx/proj_456/media/empty.txt",
             local_cache_path="/tmp/cache/media_empty/empty.txt",
             bytes_downloaded=0,
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.bytes_downloaded == 0
 
     def test_create_with_various_content_types(self):
         """ClaimXCachedDownloadMessage can handle various content types."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         content_types = [
             ("image/jpeg", "jpg"),
             ("image/png", "png"),
             ("video/mp4", "mp4"),
             ("application/pdf", "pdf"),
-            ("text/plain", "txt")
+            ("text/plain", "txt"),
         ]
 
         for content_type, file_type in content_types:
@@ -98,7 +98,7 @@ class TestClaimXCachedDownloadMessageCreation:
                 bytes_downloaded=1024,
                 content_type=content_type,
                 file_type=file_type,
-                downloaded_at=now
+                downloaded_at=now,
             )
 
             assert cached.content_type == content_type
@@ -110,7 +110,7 @@ class TestClaimXCachedDownloadMessageValidation:
 
     def test_missing_media_id_raises_error(self):
         """Missing media_id raises ValidationError."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXCachedDownloadMessage(
                 project_id="proj_456",
@@ -118,15 +118,15 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=2048576,
-                downloaded_at=now
+                downloaded_at=now,
             )
 
         errors = exc_info.value.errors()
-        assert any('media_id' in str(e) for e in errors)
+        assert any("media_id" in str(e) for e in errors)
 
     def test_empty_media_id_raises_error(self):
         """Empty media_id raises ValidationError."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXCachedDownloadMessage(
                 media_id="",
@@ -135,15 +135,15 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=2048576,
-                downloaded_at=now
+                downloaded_at=now,
             )
 
         errors = exc_info.value.errors()
-        assert any('media_id' in str(e) for e in errors)
+        assert any("media_id" in str(e) for e in errors)
 
     def test_negative_bytes_downloaded_raises_error(self):
         """Negative bytes_downloaded raises ValidationError."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXCachedDownloadMessage(
                 media_id="media_111",
@@ -152,15 +152,15 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=-1,
-                downloaded_at=now
+                downloaded_at=now,
             )
 
         errors = exc_info.value.errors()
-        assert any('bytes_downloaded' in str(e) for e in errors)
+        assert any("bytes_downloaded" in str(e) for e in errors)
 
     def test_empty_download_url_raises_error(self):
         """Empty download_url raises ValidationError."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXCachedDownloadMessage(
                 media_id="media_111",
@@ -169,15 +169,15 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=2048576,
-                downloaded_at=now
+                downloaded_at=now,
             )
 
         errors = exc_info.value.errors()
-        assert any('download_url' in str(e) for e in errors)
+        assert any("download_url" in str(e) for e in errors)
 
     def test_whitespace_is_trimmed(self):
         """Leading/trailing whitespace is trimmed from validated fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="  media_111  ",
             project_id="  proj_456  ",
@@ -185,7 +185,7 @@ class TestClaimXCachedDownloadMessageValidation:
             destination_path="  claimx/proj_456/media/photo.jpg  ",
             local_cache_path="  /tmp/cache/photo.jpg  ",
             bytes_downloaded=2048576,
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.media_id == "media_111"
@@ -200,7 +200,7 @@ class TestClaimXCachedDownloadMessageSerialization:
 
     def test_serialize_to_json(self):
         """ClaimXCachedDownloadMessage serializes to JSON correctly."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="media_111",
             project_id="proj_456",
@@ -211,7 +211,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             content_type="image/jpeg",
             file_type="jpg",
             file_name="photo.jpg",
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         json_str = cached.model_dump_json()
@@ -222,7 +222,7 @@ class TestClaimXCachedDownloadMessageSerialization:
 
     def test_downloaded_at_serializes_as_iso(self):
         """downloaded_at field serializes as ISO 8601 string."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="media_111",
             project_id="proj_456",
@@ -230,15 +230,15 @@ class TestClaimXCachedDownloadMessageSerialization:
             destination_path="claimx/proj_456/media/photo.jpg",
             local_cache_path="/tmp/cache/photo.jpg",
             bytes_downloaded=2048576,
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         json_str = cached.model_dump_json()
-        assert now.isoformat() in json_str or now.isoformat().replace('+00:00', 'Z') in json_str
+        assert now.isoformat() in json_str or now.isoformat().replace("+00:00", "Z") in json_str
 
     def test_deserialize_from_json(self):
         """ClaimXCachedDownloadMessage deserializes from JSON correctly."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         json_data = {
             "media_id": "media_111",
             "project_id": "proj_456",
@@ -248,7 +248,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             "bytes_downloaded": 2048576,
             "content_type": "image/jpeg",
             "file_type": "jpg",
-            "downloaded_at": now.isoformat()
+            "downloaded_at": now.isoformat(),
         }
 
         cached = ClaimXCachedDownloadMessage.model_validate(json_data)
@@ -258,7 +258,7 @@ class TestClaimXCachedDownloadMessageSerialization:
 
     def test_round_trip_serialization(self):
         """ClaimXCachedDownloadMessage round-trips through JSON correctly."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         original = ClaimXCachedDownloadMessage(
             media_id="media_111",
             project_id="proj_456",
@@ -270,7 +270,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             file_type="jpg",
             file_name="photo.jpg",
             source_event_id="evt_123",
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         json_str = original.model_dump_json()
@@ -293,7 +293,7 @@ class TestClaimXCachedDownloadMessageEdgeCases:
 
     def test_large_file_size(self):
         """ClaimXCachedDownloadMessage handles large file sizes."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         large_size = 10 * 1024 * 1024 * 1024  # 10 GB
         cached = ClaimXCachedDownloadMessage(
             media_id="media_large",
@@ -303,14 +303,14 @@ class TestClaimXCachedDownloadMessageEdgeCases:
             local_cache_path="/tmp/cache/large_video.mp4",
             bytes_downloaded=large_size,
             file_type="mp4",
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.bytes_downloaded == large_size
 
     def test_unicode_file_names(self):
         """ClaimXCachedDownloadMessage handles Unicode file names."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cached = ClaimXCachedDownloadMessage(
             media_id="media_unicode",
             project_id="proj_456",
@@ -319,14 +319,14 @@ class TestClaimXCachedDownloadMessageEdgeCases:
             local_cache_path="/tmp/cache/файл.jpg",
             bytes_downloaded=1024,
             file_name="файл.jpg",
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.file_name == "файл.jpg"
 
     def test_long_paths(self):
         """ClaimXCachedDownloadMessage handles long file paths."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         long_path = "claimx/" + "/".join(["very"] * 50) + "/long/path/to/file.jpg"
         cached = ClaimXCachedDownloadMessage(
             media_id="media_long_path",
@@ -335,7 +335,7 @@ class TestClaimXCachedDownloadMessageEdgeCases:
             destination_path=long_path,
             local_cache_path="/tmp/cache/file.jpg",
             bytes_downloaded=1024,
-            downloaded_at=now
+            downloaded_at=now,
         )
 
         assert cached.destination_path == long_path

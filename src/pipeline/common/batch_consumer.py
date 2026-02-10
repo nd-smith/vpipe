@@ -109,9 +109,7 @@ class MessageBatchConsumer:
     async def start(self) -> None:
         """Start the message batch consumer."""
         if self._running:
-            logger.warning(
-                "Batch consumer already running, ignoring duplicate start call"
-            )
+            logger.warning("Batch consumer already running, ignoring duplicate start call")
             return
 
         logger.info(
@@ -138,19 +136,11 @@ class MessageBatchConsumer:
 
         kafka_consumer_config.update(
             {
-                "enable_auto_commit": self.consumer_config.get(
-                    "enable_auto_commit", False
-                ),
-                "auto_offset_reset": self.consumer_config.get(
-                    "auto_offset_reset", "earliest"
-                ),
+                "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
+                "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
                 "max_poll_records": self.batch_size,  # Use batch_size for max_poll_records
-                "max_poll_interval_ms": self.consumer_config.get(
-                    "max_poll_interval_ms", 300000
-                ),
-                "session_timeout_ms": self.consumer_config.get(
-                    "session_timeout_ms", 30000
-                ),
+                "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
+                "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
             }
         )
 
@@ -159,17 +149,13 @@ class MessageBatchConsumer:
                 "heartbeat_interval_ms"
             ]
         if "fetch_min_bytes" in self.consumer_config:
-            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config[
-                "fetch_min_bytes"
-            ]
+            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config["fetch_min_bytes"]
         if "fetch_max_wait_ms" in self.consumer_config:
-            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config[
-                "fetch_max_wait_ms"
-            ]
+            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config["fetch_max_wait_ms"]
         if "partition_assignment_strategy" in self.consumer_config:
-            kafka_consumer_config["partition_assignment_strategy"] = (
-                self.consumer_config["partition_assignment_strategy"]
-            )
+            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config[
+                "partition_assignment_strategy"
+            ]
 
         kafka_consumer_config.update(build_kafka_security_config(self.config))
 
@@ -266,10 +252,7 @@ class MessageBatchConsumer:
         while self._running and self._consumer:
             try:
                 # Check max_batches limit
-                if (
-                    self.max_batches is not None
-                    and self._batch_count >= self.max_batches
-                ):
+                if self.max_batches is not None and self._batch_count >= self.max_batches:
                     logger.info(
                         "Reached max_batches limit, stopping consumer",
                         extra={
@@ -316,9 +299,7 @@ class MessageBatchConsumer:
                 # Flatten to single list of PipelineMessages
                 messages: list[PipelineMessage] = []
                 for partition_messages in data.values():
-                    messages.extend(
-                        [from_consumer_record(record) for record in partition_messages]
-                    )
+                    messages.extend([from_consumer_record(record) for record in partition_messages])
 
                 if not messages:
                     continue

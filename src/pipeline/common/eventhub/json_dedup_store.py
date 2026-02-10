@@ -49,7 +49,7 @@ class JsonDedupStore:
             return False, None
 
         try:
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 metadata = json.load(f)
 
             # Check TTL
@@ -60,7 +60,7 @@ class JsonDedupStore:
             if age_seconds < ttl_seconds:
                 # Still valid
                 logger.debug(
-                    f"Found duplicate in JSON store",
+                    "Found duplicate in JSON store",
                     extra={
                         "worker": worker_name,
                         "key": key,
@@ -71,7 +71,7 @@ class JsonDedupStore:
             else:
                 # Expired - delete it
                 logger.debug(
-                    f"Found expired entry in JSON store",
+                    "Found expired entry in JSON store",
                     extra={
                         "worker": worker_name,
                         "key": key,
@@ -83,7 +83,7 @@ class JsonDedupStore:
 
         except Exception as e:
             logger.warning(
-                f"Error checking JSON store for duplicate",
+                "Error checking JSON store for duplicate",
                 extra={"worker": worker_name, "key": key, "error": str(e)},
                 exc_info=False,
             )
@@ -116,13 +116,13 @@ class JsonDedupStore:
                 json.dump(metadata, f)
 
             logger.debug(
-                f"Marked key as processed in JSON store",
+                "Marked key as processed in JSON store",
                 extra={"worker": worker_name, "key": key},
             )
 
         except Exception as e:
             logger.warning(
-                f"Error marking key as processed in JSON store",
+                "Error marking key as processed in JSON store",
                 extra={"worker": worker_name, "key": key, "error": str(e)},
                 exc_info=True,
             )
@@ -152,7 +152,7 @@ class JsonDedupStore:
         try:
             for file_path in worker_dir.glob("*.json"):
                 try:
-                    with open(file_path, "r") as f:
+                    with open(file_path) as f:
                         metadata = json.load(f)
 
                     stored_timestamp = metadata.get("timestamp", 0)
@@ -163,7 +163,7 @@ class JsonDedupStore:
                         file_path.unlink()
                         removed_count += 1
                         logger.debug(
-                            f"Removed expired file",
+                            "Removed expired file",
                             extra={
                                 "worker": worker_name,
                                 "file": file_path.name,
@@ -173,7 +173,7 @@ class JsonDedupStore:
 
                 except Exception as e:
                     logger.warning(
-                        f"Error cleaning up file",
+                        "Error cleaning up file",
                         extra={
                             "worker": worker_name,
                             "file": file_path.name,
@@ -185,13 +185,13 @@ class JsonDedupStore:
 
             if removed_count > 0:
                 logger.info(
-                    f"Cleaned up expired dedup entries",
+                    "Cleaned up expired dedup entries",
                     extra={"worker": worker_name, "removed_count": removed_count},
                 )
 
         except Exception as e:
             logger.error(
-                f"Error during cleanup_expired",
+                "Error during cleanup_expired",
                 extra={"worker": worker_name, "error": str(e)},
                 exc_info=True,
             )

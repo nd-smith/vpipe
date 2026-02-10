@@ -20,7 +20,6 @@ from pipeline.common.auth import (
 
 
 class TestCachedToken:
-
     def test_fresh_token_is_valid(self):
         token = CachedToken(value="abc", acquired_at=datetime.now(UTC))
         assert token.is_valid() is True
@@ -38,7 +37,6 @@ class TestCachedToken:
 
 
 class TestTokenCache:
-
     def test_get_returns_none_for_missing(self):
         cache = TokenCache()
         assert cache.get("https://storage.azure.com/") is None
@@ -52,9 +50,9 @@ class TestTokenCache:
         cache = TokenCache()
         cache.set("https://storage.azure.com/", "old-token")
         # Manipulate the acquired_at to be old
-        cache._tokens["https://storage.azure.com/"].acquired_at = datetime.now(
-            UTC
-        ) - timedelta(minutes=55)
+        cache._tokens["https://storage.azure.com/"].acquired_at = datetime.now(UTC) - timedelta(
+            minutes=55
+        )
         assert cache.get("https://storage.azure.com/") is None
 
     def test_clear_specific_resource(self):
@@ -79,7 +77,6 @@ class TestTokenCache:
 
 
 class TestAzureAuthMode:
-
     def test_mode_file_when_token_file_set(self, monkeypatch):
         monkeypatch.setenv("AZURE_TOKEN_FILE", "/tmp/token.txt")
         monkeypatch.delenv("AZURE_AUTH_INTERACTIVE", raising=False)
@@ -122,7 +119,6 @@ class TestAzureAuthMode:
 
 
 class TestAzureAuthReadTokenFile:
-
     def test_reads_plain_text_token(self, tmp_path):
         token_file = tmp_path / "token.txt"
         token_file.write_text("my-plain-token")
@@ -204,7 +200,6 @@ class TestAzureAuthReadTokenFile:
 
 
 class TestAzureAuthTokenFileModified:
-
     def test_first_check_always_returns_true(self, tmp_path):
         token_file = tmp_path / "token.txt"
         token_file.write_text("token")
@@ -236,15 +231,16 @@ class TestAzureAuthTokenFileModified:
 
 
 class TestAzureAuthFetchCliToken:
-
     def test_fetches_token_from_cli(self):
         auth = AzureAuth()
         auth.tenant_id = None
 
-        with patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"):
-            with patch("pipeline.common.auth.subprocess.run") as mock_run:
-                mock_run.return_value = Mock(returncode=0, stdout="cli-token\n", stderr="")
-                result = auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"),
+            patch("pipeline.common.auth.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(returncode=0, stdout="cli-token\n", stderr="")
+            result = auth._fetch_cli_token("https://storage.azure.com/")
 
         assert result == "cli-token"
 
@@ -252,10 +248,12 @@ class TestAzureAuthFetchCliToken:
         auth = AzureAuth()
         auth.tenant_id = "my-tenant"
 
-        with patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"):
-            with patch("pipeline.common.auth.subprocess.run") as mock_run:
-                mock_run.return_value = Mock(returncode=0, stdout="token\n", stderr="")
-                auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"),
+            patch("pipeline.common.auth.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(returncode=0, stdout="token\n", stderr="")
+            auth._fetch_cli_token("https://storage.azure.com/")
 
         cmd = mock_run.call_args[0][0]
         assert "--tenant" in cmd
@@ -263,51 +261,56 @@ class TestAzureAuthFetchCliToken:
 
     def test_raises_when_az_not_found(self):
         auth = AzureAuth()
-        with patch("pipeline.common.auth.shutil.which", return_value=None):
-            with pytest.raises(AzureAuthError, match="Azure CLI not found"):
-                auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value=None),
+            pytest.raises(AzureAuthError, match="Azure CLI not found"),
+        ):
+            auth._fetch_cli_token("https://storage.azure.com/")
 
     def test_raises_on_cli_failure(self):
         auth = AzureAuth()
-        with patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"):
-            with patch("pipeline.common.auth.subprocess.run") as mock_run:
-                mock_run.return_value = Mock(
-                    returncode=1, stdout="", stderr="AADSTS something failed"
-                )
-                with pytest.raises(AzureAuthError, match="Azure CLI failed"):
-                    auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"),
+            patch("pipeline.common.auth.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(returncode=1, stdout="", stderr="AADSTS something failed")
+            with pytest.raises(AzureAuthError, match="Azure CLI failed"):
+                auth._fetch_cli_token("https://storage.azure.com/")
 
     def test_raises_on_expired_session(self):
         auth = AzureAuth()
-        with patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"):
-            with patch("pipeline.common.auth.subprocess.run") as mock_run:
-                mock_run.return_value = Mock(
-                    returncode=1, stdout="", stderr="Please run 'az login'"
-                )
-                with pytest.raises(AzureAuthError, match="az login"):
-                    auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"),
+            patch("pipeline.common.auth.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(returncode=1, stdout="", stderr="Please run 'az login'")
+            with pytest.raises(AzureAuthError, match="az login"):
+                auth._fetch_cli_token("https://storage.azure.com/")
 
     def test_raises_on_empty_token(self):
         auth = AzureAuth()
-        with patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"):
-            with patch("pipeline.common.auth.subprocess.run") as mock_run:
-                mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-                with pytest.raises(AzureAuthError, match="empty token"):
-                    auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"),
+            patch("pipeline.common.auth.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+            with pytest.raises(AzureAuthError, match="empty token"):
+                auth._fetch_cli_token("https://storage.azure.com/")
 
     def test_raises_on_timeout(self):
         auth = AzureAuth()
         import subprocess
 
-        with patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"):
-            with patch("pipeline.common.auth.subprocess.run") as mock_run:
-                mock_run.side_effect = subprocess.TimeoutExpired(cmd="az", timeout=60)
-                with pytest.raises(AzureAuthError, match="timed out"):
-                    auth._fetch_cli_token("https://storage.azure.com/")
+        with (
+            patch("pipeline.common.auth.shutil.which", return_value="/usr/bin/az"),
+            patch("pipeline.common.auth.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="az", timeout=60)
+            with pytest.raises(AzureAuthError, match="timed out"):
+                auth._fetch_cli_token("https://storage.azure.com/")
 
 
 class TestAzureAuthGetStorageToken:
-
     def test_returns_cached_token_in_file_mode(self, tmp_path, monkeypatch):
         token_file = tmp_path / "token.txt"
         token_file.write_text("file-token")
@@ -382,9 +385,7 @@ class TestAzureAuthGetStorageToken:
         monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
 
         auth = AzureAuth()
-        with patch.object(
-            auth, "_fetch_cli_token", side_effect=AzureAuthError("CLI failed")
-        ):
+        with patch.object(auth, "_fetch_cli_token", side_effect=AzureAuthError("CLI failed")):
             token = auth.get_storage_token()
         assert token is None
 
@@ -421,7 +422,6 @@ class TestAzureAuthGetStorageToken:
 
 
 class TestAzureAuthGetStorageOptions:
-
     def test_returns_token_in_file_mode(self, tmp_path, monkeypatch):
         token_file = tmp_path / "token.txt"
         token_file.write_text("my-token")
@@ -479,7 +479,6 @@ class TestAzureAuthGetStorageOptions:
 
 
 class TestAzureAuthClearCache:
-
     def test_clear_cache_delegates_to_token_cache(self):
         cache = TokenCache()
         cache.set("https://storage.azure.com/", "token")
@@ -500,7 +499,6 @@ class TestAzureAuthClearCache:
 
 
 class TestMaskCredential:
-
     def test_masks_long_value(self):
         result = _mask_credential("abcdefghij")
         assert result == "abcd...(10 chars)"
@@ -523,7 +521,6 @@ class TestMaskCredential:
 
 
 class TestGetAuthSingleton:
-
     def test_returns_same_instance(self, monkeypatch):
         import pipeline.common.auth as auth_module
 
@@ -544,7 +541,6 @@ class TestGetAuthSingleton:
 
 
 class TestGetStorageOptionsFunction:
-
     def test_delegates_to_auth_instance(self, monkeypatch):
         import pipeline.common.auth as auth_module
 
@@ -563,7 +559,6 @@ class TestGetStorageOptionsFunction:
 
 
 class TestClearTokenCacheFunction:
-
     def test_clears_via_singleton(self, monkeypatch):
         import pipeline.common.auth as auth_module
 

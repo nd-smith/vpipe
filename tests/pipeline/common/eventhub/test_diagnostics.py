@@ -7,9 +7,7 @@ test_dns_resolution, log_connection_diagnostics, and log_connection_attempt_deta
 import logging
 import os
 import socket
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from pipeline.common.eventhub.diagnostics import (
     extract_namespace_host,
@@ -19,7 +17,6 @@ from pipeline.common.eventhub.diagnostics import (
     parse_connection_string,
     test_dns_resolution,
 )
-
 
 # =============================================================================
 # mask_connection_string
@@ -56,10 +53,7 @@ class TestMaskConnectionString:
         assert "***MASKED***" in result
 
     def test_key_with_special_characters(self):
-        conn = (
-            "Endpoint=sb://x.net/;"
-            "SharedAccessKey=test+key/val=1"
-        )
+        conn = "Endpoint=sb://x.net/;SharedAccessKey=test+key/val=1"
         result = mask_connection_string(conn)
         assert "test+key/val=1" not in result
         assert "***MASKED***" in result

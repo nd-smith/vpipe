@@ -66,10 +66,12 @@ class TestLoadDedupConfig:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
 
-        with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
-            with patch("config.config.load_yaml", return_value=mock_data):
-                with patch("config.config._expand_env_vars", side_effect=lambda x: x):
-                    config = dedup_module._load_dedup_config()
+        with (
+            patch("config.config.DEFAULT_CONFIG_FILE", mock_file),
+            patch("config.config.load_yaml", return_value=mock_data),
+            patch("config.config._expand_env_vars", side_effect=lambda x: x),
+        ):
+            config = dedup_module._load_dedup_config()
 
         assert config["type"] == "json"
         assert config["blob_storage_connection_string"] == "conn-str"
@@ -113,10 +115,12 @@ class TestLoadDedupConfig:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
 
-        with patch("config.config.DEFAULT_CONFIG_FILE", mock_file):
-            with patch("config.config.load_yaml", return_value=mock_data):
-                with patch("config.config._expand_env_vars", side_effect=lambda x: x):
-                    config = dedup_module._load_dedup_config()
+        with (
+            patch("config.config.DEFAULT_CONFIG_FILE", mock_file),
+            patch("config.config.load_yaml", return_value=mock_data),
+            patch("config.config._expand_env_vars", side_effect=lambda x: x),
+        ):
+            config = dedup_module._load_dedup_config()
 
         assert config["type"] == "blob"
         assert config["container_name"] == "eventhub-dedup-cache"
@@ -259,9 +263,7 @@ class TestGetDedupStore:
                 "ttl_seconds": 86400,
             }
 
-            with patch(
-                "pipeline.common.eventhub.blob_dedup_store.BlobDedupStore"
-            ) as MockBlobStore:
+            with patch("pipeline.common.eventhub.blob_dedup_store.BlobDedupStore") as MockBlobStore:
                 MockBlobStore.return_value = mock_blob_store
 
                 await dedup_module.get_dedup_store()

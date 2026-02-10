@@ -1,7 +1,6 @@
 """Tests for ClaimX handler utilities."""
 
 from datetime import UTC, date, datetime
-from decimal import Decimal
 
 from pipeline.claimx.handlers.utils import (
     elapsed_ms,
@@ -19,14 +18,12 @@ from pipeline.claimx.handlers.utils import (
     today_date,
 )
 
-
 # ============================================================================
 # safe_int
 # ============================================================================
 
 
 class TestSafeInt:
-
     def test_safe_int_returns_int_from_int(self):
         assert safe_int(42) == 42
 
@@ -62,7 +59,6 @@ class TestSafeInt:
 
 
 class TestSafeStr:
-
     def test_safe_str_returns_string(self):
         assert safe_str("hello") == "hello"
 
@@ -94,7 +90,6 @@ class TestSafeStr:
 
 
 class TestSafeStrId:
-
     def test_safe_str_id_returns_string_for_string(self):
         assert safe_str_id("abc") == "abc"
 
@@ -123,7 +118,6 @@ class TestSafeStrId:
 
 
 class TestSafeBool:
-
     def test_safe_bool_returns_none_for_none(self):
         assert safe_bool(None) is None
 
@@ -167,7 +161,6 @@ class TestSafeBool:
 
 
 class TestSafeFloat:
-
     def test_safe_float_returns_float_from_float(self):
         assert safe_float(3.14) == 3.14
 
@@ -193,7 +186,6 @@ class TestSafeFloat:
 
 
 class TestSafeDecimalStr:
-
     def test_safe_decimal_str_from_int(self):
         assert safe_decimal_str(42) == "42"
 
@@ -221,7 +213,6 @@ class TestSafeDecimalStr:
 
 
 class TestParseTimestamp:
-
     def test_parse_timestamp_returns_none_for_none(self):
         assert parse_timestamp(None) is None
 
@@ -258,7 +249,6 @@ class TestParseTimestamp:
 
 
 class TestParseTimestampDt:
-
     def test_parse_timestamp_dt_returns_none_for_none(self):
         assert parse_timestamp_dt(None) is None
 
@@ -296,7 +286,6 @@ class TestParseTimestampDt:
 
 
 class TestTimeUtilities:
-
     def test_now_iso_returns_iso_string(self):
         result = now_iso()
         assert isinstance(result, str)
@@ -319,7 +308,6 @@ class TestTimeUtilities:
 
 
 class TestElapsedMs:
-
     def test_elapsed_ms_returns_non_negative(self):
         start = datetime.now(UTC)
         result = elapsed_ms(start)
@@ -333,7 +321,6 @@ class TestElapsedMs:
 
 
 class TestInjectMetadata:
-
     def test_inject_metadata_adds_fields(self):
         row = {"key": "value"}
         result = inject_metadata(row, "evt_001")

@@ -13,7 +13,6 @@ Test Coverage:
 """
 
 import asyncio
-import inspect
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -48,7 +47,7 @@ class TestWorkerRegistry:
 
     def test_registry_entries_have_runner(self):
         """All non-deprecated workers have runner function."""
-        for worker_name, worker_def in WORKER_REGISTRY.items():
+        for _worker_name, worker_def in WORKER_REGISTRY.items():
             if worker_def.get("deprecated"):
                 continue
             assert "runner" in worker_def
@@ -57,9 +56,7 @@ class TestWorkerRegistry:
     def test_deprecated_workers_have_message(self):
         """Deprecated workers have deprecation message."""
         deprecated_workers = [
-            name
-            for name, def_ in WORKER_REGISTRY.items()
-            if def_.get("deprecated")
+            name for name, def_ in WORKER_REGISTRY.items() if def_.get("deprecated")
         ]
 
         for worker_name in deprecated_workers:
@@ -167,16 +164,18 @@ class TestRunWorkerFromRegistry:
         pipeline_config.event_source = EventSourceType.EVENTHUB  # Not EVENTHOUSE
         shutdown_event = asyncio.Event()
 
-        with patch.dict(
-            "pipeline.runners.registry.WORKER_REGISTRY",
-            {"test-poller": {"runner": mock_runner, "requires_eventhouse": True}},
+        with (
+            patch.dict(
+                "pipeline.runners.registry.WORKER_REGISTRY",
+                {"test-poller": {"runner": mock_runner, "requires_eventhouse": True}},
+            ),
+            pytest.raises(ValueError, match="requires EVENT_SOURCE=eventhouse"),
         ):
-            with pytest.raises(ValueError, match="requires EVENT_SOURCE=eventhouse"):
-                await run_worker_from_registry(
-                    worker_name="test-poller",
-                    pipeline_config=pipeline_config,
-                    shutdown_event=shutdown_event,
-                )
+            await run_worker_from_registry(
+                worker_name="test-poller",
+                pipeline_config=pipeline_config,
+                shutdown_event=shutdown_event,
+            )
 
     @pytest.mark.asyncio
     async def test_passes_instance_id(self):

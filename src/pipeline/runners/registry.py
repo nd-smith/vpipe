@@ -16,9 +16,7 @@ from pipeline.runners import claimx_runners, verisk_runners
 def _filter_kwargs(func, kwargs):
     """Filter kwargs to only those accepted by func's signature."""
     sig = inspect.signature(func)
-    has_var_keyword = any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    )
+    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     if has_var_keyword:
         return kwargs
     return {k: v for k, v in kwargs.items() if k in sig.parameters}
@@ -156,33 +154,24 @@ async def run_worker_from_registry(
     elif worker_name == "claimx-delta-writer":
         # Use delta config path (CLAIMX_DELTA_EVENTS_TABLE env var)
         # Falls back to eventhouse poller path if delta path not configured
-        kwargs["events_table_path"] = (
-            pipeline_config.claimx_events_table_path
-            or (
-                pipeline_config.claimx_eventhouse.claimx_events_table_path
-                if pipeline_config.claimx_eventhouse
-                else ""
-            )
+        kwargs["events_table_path"] = pipeline_config.claimx_events_table_path or (
+            pipeline_config.claimx_eventhouse.claimx_events_table_path
+            if pipeline_config.claimx_eventhouse
+            else ""
         )
     elif worker_name == "claimx-entity-writer":
         kwargs["projects_table_path"] = pipeline_config.claimx_projects_table_path
         kwargs["contacts_table_path"] = pipeline_config.claimx_contacts_table_path
         kwargs["media_table_path"] = pipeline_config.claimx_media_table_path
         kwargs["tasks_table_path"] = pipeline_config.claimx_tasks_table_path
-        kwargs["task_templates_table_path"] = (
-            pipeline_config.claimx_task_templates_table_path
-        )
-        kwargs["external_links_table_path"] = (
-            pipeline_config.claimx_external_links_table_path
-        )
+        kwargs["task_templates_table_path"] = pipeline_config.claimx_task_templates_table_path
+        kwargs["external_links_table_path"] = pipeline_config.claimx_external_links_table_path
         kwargs["video_collab_table_path"] = pipeline_config.claimx_video_collab_table_path
 
     # Run the worker, passing only kwargs that match the runner's signature
     runner = worker_def["runner"]
     sig = inspect.signature(runner)
-    has_var_keyword = any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    )
+    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     if has_var_keyword:
         filtered_kwargs = kwargs
     else:

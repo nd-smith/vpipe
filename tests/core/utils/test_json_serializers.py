@@ -23,7 +23,6 @@ class SampleObj:
 
 
 class TestJsonSerializer:
-
     def test_serializes_datetime_to_isoformat(self):
         dt = datetime(2025, 6, 15, 10, 30, 0)
         assert json_serializer(dt) == "2025-06-15T10:30:00"

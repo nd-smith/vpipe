@@ -1,12 +1,10 @@
 """Fixtures for ClaimX worker tests."""
 
 import os
-from datetime import datetime, timezone
 
 import pytest
 
 from config.config import MessageConfig
-
 
 # Set environment variables for all worker tests
 # These must be set before workers are instantiated

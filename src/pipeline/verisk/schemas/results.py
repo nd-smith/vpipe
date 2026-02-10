@@ -40,40 +40,28 @@ class DownloadResultMessage(BaseModel):
     Matches verisk_pipeline Task.to_tracking_row() output for xact_attachments table.
     """
 
-    trace_id: str = Field(
-        ..., description="Unique event identifier for correlation", min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier for correlation", min_length=1)
     media_id: str = Field(
         ..., description="Unique deterministic ID for the attachment", min_length=1
     )
     attachment_url: str = Field(
         ..., description="URL of the attachment that was processed", min_length=1
     )
-    blob_path: str = Field(
-        ..., description="Target path in OneLake/blob storage", min_length=1
-    )
+    blob_path: str = Field(..., description="Target path in OneLake/blob storage", min_length=1)
     status_subtype: str = Field(
         ..., description="Event status subtype (last part of event type)", min_length=1
     )
-    file_type: str = Field(
-        ..., description="File type extracted from URL extension", min_length=1
-    )
-    assignment_id: str = Field(
-        ..., description="Assignment ID from event payload", min_length=1
-    )
+    file_type: str = Field(..., description="File type extracted from URL extension", min_length=1)
+    assignment_id: str = Field(..., description="Assignment ID from event payload", min_length=1)
     status: Literal["completed", "failed", "failed_permanent"] = Field(
         ...,
         description="Outcome status: completed, failed (transient), or failed_permanent",
     )
-    http_status: int | None = Field(
-        default=None, description="HTTP response status code"
-    )
+    http_status: int | None = Field(default=None, description="HTTP response status code")
     bytes_downloaded: int = Field(
         default=0, description="Number of bytes downloaded (0 if failed)", ge=0
     )
-    retry_count: int = Field(
-        default=0, description="Number of retry attempts made", ge=0
-    )
+    retry_count: int = Field(default=0, description="Number of retry attempts made", ge=0)
     error_message: str | None = Field(
         default=None, description="Error description if failed (truncated to 500 chars)"
     )
@@ -196,21 +184,15 @@ class FailedDownloadMessage(BaseModel):
         failed_at: Timestamp when task was sent to DLQ
     """
 
-    trace_id: str = Field(
-        ..., description="Unique event identifier for correlation", min_length=1
-    )
-    attachment_url: str = Field(
-        ..., description="URL of the attachment that failed", min_length=1
-    )
+    trace_id: str = Field(..., description="Unique event identifier for correlation", min_length=1)
+    attachment_url: str = Field(..., description="URL of the attachment that failed", min_length=1)
     original_task: DownloadTaskMessage = Field(
         ..., description="Complete original task message for replay capability"
     )
     error_category: str = Field(
         ..., description="Error classification from final attempt", min_length=1
     )
-    retry_count: int = Field(
-        ..., description="Total number of retry attempts made", ge=0
-    )
+    retry_count: int = Field(..., description="Total number of retry attempts made", ge=0)
     failed_at: datetime = Field(..., description="Timestamp when task was sent to DLQ")
 
     @field_validator("trace_id", "attachment_url", "error_category")

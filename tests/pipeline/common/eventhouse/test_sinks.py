@@ -1,8 +1,5 @@
 """Tests for event sink implementations (MessageSink, JsonFileSink)."""
 
-import asyncio
-import json
-from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,7 +15,6 @@ from pipeline.common.eventhouse.sinks import (
     create_json_sink,
     create_message_sink,
 )
-
 
 # =============================================================================
 # Test helpers
@@ -37,9 +33,7 @@ class FakeEvent(BaseModel):
 
 class TestEventSinkProtocol:
     def test_message_sink_is_event_sink(self):
-        config = MessageSinkConfig(
-            message_config=MagicMock(), domain="test"
-        )
+        config = MessageSinkConfig(message_config=MagicMock(), domain="test")
         sink = MessageSink(config)
         assert isinstance(sink, EventSink)
 
@@ -64,9 +58,7 @@ class TestMessageSinkStart:
         msg_config = MagicMock()
         msg_config.get_topic.return_value = "test-events"
 
-        config = MessageSinkConfig(
-            message_config=msg_config, domain="verisk", worker_name="poller"
-        )
+        config = MessageSinkConfig(message_config=msg_config, domain="verisk", worker_name="poller")
         sink = MessageSink(config)
         await sink.start()
 
@@ -116,9 +108,7 @@ class TestMessageSinkWrite:
         event = FakeEvent()
         await sink.write(key="k1", event=event, headers={"h": "v"})
 
-        sink._producer.send.assert_awaited_once_with(
-            value=event, key="k1", headers={"h": "v"}
-        )
+        sink._producer.send.assert_awaited_once_with(value=event, key="k1", headers={"h": "v"})
 
     async def test_write_raises_when_not_started(self):
         config = MessageSinkConfig(message_config=MagicMock(), domain="test")

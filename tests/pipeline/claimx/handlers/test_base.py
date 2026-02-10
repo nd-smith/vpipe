@@ -1,25 +1,21 @@
 """Tests for ClaimX base handler classes and registry."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from core.types import ErrorCategory
 from pipeline.claimx.handlers.base import (
+    _HANDLERS,
     EnrichmentResult,
     EventHandler,
     HandlerRegistry,
     HandlerResult,
-    _HANDLERS,
     aggregate_results,
     register_handler,
 )
 from pipeline.claimx.schemas.entities import EntityRowsMessage
-from pipeline.claimx.schemas.events import ClaimXEventMessage
 
 from .conftest import make_event
-
 
 # ============================================================================
 # EnrichmentResult
@@ -27,7 +23,6 @@ from .conftest import make_event
 
 
 class TestEnrichmentResult:
-
     def test_enrichment_result_success(self):
         event = make_event()
         result = EnrichmentResult(event=event, success=True)
@@ -86,7 +81,6 @@ class TestEnrichmentResult:
 
 
 class TestHandlerResult:
-
     def test_handler_result_stores_all_fields(self):
         rows = EntityRowsMessage()
         result = HandlerResult(
@@ -119,7 +113,6 @@ class TestHandlerResult:
 
 
 class TestAggregateResults:
-
     def test_aggregate_results_counts_successes(self):
         event = make_event()
         results = [
@@ -137,12 +130,8 @@ class TestAggregateResults:
     def test_aggregate_results_counts_failures(self):
         event = make_event()
         results = [
-            EnrichmentResult(
-                event=event, success=False, error="fail1", is_retryable=True
-            ),
-            EnrichmentResult(
-                event=event, success=False, error="fail2", is_retryable=False
-            ),
+            EnrichmentResult(event=event, success=False, error="fail1", is_retryable=True),
+            EnrichmentResult(event=event, success=False, error="fail2", is_retryable=False),
         ]
         start = datetime.now(UTC)
         handler_result = aggregate_results("test", results, start)
@@ -223,7 +212,6 @@ class ConcreteHandler(EventHandler):
 
 
 class TestEventHandler:
-
     def test_handler_name_returns_class_name(self, mock_client):
         handler = ConcreteHandler(mock_client)
         assert handler.name == "ConcreteHandler"
@@ -242,7 +230,6 @@ class TestEventHandler:
 
 
 class TestEventHandlerProcess:
-
     async def test_process_returns_empty_result_for_no_events(self, mock_client):
         handler = ConcreteHandler(mock_client)
         result = await handler.process([])
@@ -272,7 +259,6 @@ class TestEventHandlerProcess:
 
 
 class TestEventHandlerHandleBatch:
-
     async def test_handle_batch_returns_empty_for_no_events(self, mock_client):
         handler = ConcreteHandler(mock_client)
         results = await handler.handle_batch([])
@@ -328,7 +314,6 @@ class TestEventHandlerHandleBatch:
 
 
 class TestEventHandlerEnsureProjectExists:
-
     async def test_ensure_project_exists_calls_project_handler(self, mock_client):
         handler = ConcreteHandler(mock_client)
 
@@ -352,7 +337,6 @@ class TestEventHandlerEnsureProjectExists:
 
 
 class TestHandlerRegistry:
-
     def test_get_handler_class_returns_registered_handler(self):
         registry = HandlerRegistry()
         # ProjectHandler is registered for PROJECT_CREATED
@@ -416,9 +400,8 @@ class TestHandlerRegistry:
 
 
 class TestRegisterHandler:
-
     def test_register_handler_adds_to_registry(self):
-        original_handlers = dict(_HANDLERS)
+        dict(_HANDLERS)
         try:
 
             @register_handler
@@ -435,7 +418,7 @@ class TestRegisterHandler:
             _HANDLERS.pop("__TEST_REGISTER__", None)
 
     def test_register_handler_returns_class(self):
-        original_handlers = dict(_HANDLERS)
+        dict(_HANDLERS)
         try:
 
             @register_handler

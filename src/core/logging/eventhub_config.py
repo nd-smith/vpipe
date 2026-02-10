@@ -35,7 +35,5 @@ def prepare_eventhub_logging_config(logging_config: dict) -> dict | None:
         "batch_size": int(eventhub_logging.get("batch_size", 100)),
         "batch_timeout_seconds": float(eventhub_logging.get("batch_timeout_seconds", 1.0)),
         "max_queue_size": int(eventhub_logging.get("max_queue_size", 10000)),
-        "circuit_breaker_threshold": int(eventhub_logging.get(
-            "circuit_breaker_threshold", 5
-        )),
+        "circuit_breaker_threshold": int(eventhub_logging.get("circuit_breaker_threshold", 5)),
     }

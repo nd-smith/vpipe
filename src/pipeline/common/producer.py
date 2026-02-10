@@ -105,9 +105,7 @@ class MessageProducer:
                 None if compression == "none" else compression
             )
         if "max_request_size" in self.producer_config:
-            kafka_producer_config["max_request_size"] = self.producer_config[
-                "max_request_size"
-            ]
+            kafka_producer_config["max_request_size"] = self.producer_config["max_request_size"]
         if "max_request_size" not in self.producer_config:
             kafka_producer_config["max_request_size"] = 10 * 1024 * 1024
         kafka_producer_config.update(build_kafka_security_config(self.config))
@@ -134,9 +132,7 @@ class MessageProducer:
             extra={
                 "bootstrap_servers": self.config.bootstrap_servers,
                 "acks": self.producer_config.get("acks", "all"),
-                "compression_type": self.producer_config.get(
-                    "compression_type", "none"
-                ),
+                "compression_type": self.producer_config.get("compression_type", "none"),
                 "enable_idempotence": enable_idempotence,
             },
         )
@@ -156,14 +152,10 @@ class MessageProducer:
             try:
                 loop = asyncio.get_running_loop()
                 if loop.is_closed():
-                    logger.warning(
-                        "Event loop is closed, skipping graceful producer shutdown"
-                    )
+                    logger.warning("Event loop is closed, skipping graceful producer shutdown")
                     return
             except RuntimeError:
-                logger.warning(
-                    "No running event loop, skipping graceful producer shutdown"
-                )
+                logger.warning("No running event loop, skipping graceful producer shutdown")
                 return
 
             # Only flush if the producer was fully started (connected successfully)
@@ -310,9 +302,7 @@ class MessageProducer:
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in results:
-                record_message_produced(
-                    topic, total_bytes // len(results), success=True
-                )
+                record_message_produced(topic, total_bytes // len(results), success=True)
 
             logger.info(
                 "Batch sent successfully",
@@ -330,9 +320,7 @@ class MessageProducer:
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(topic=topic).observe(duration)
             for _ in messages:
-                record_message_produced(
-                    topic, total_bytes // len(messages), success=False
-                )
+                record_message_produced(topic, total_bytes // len(messages), success=False)
             record_producer_error(topic, type(e).__name__)
             logger.error(
                 "Failed to send batch",

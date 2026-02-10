@@ -125,8 +125,7 @@ def validate_download_url(
     is_localhost = hostname_lower in ("localhost", "127.0.0.1")
     # In simulation mode, also treat Docker internal hostnames as localhost
     is_simulation_internal = allow_localhost and (
-        hostname_lower.endswith("-simulation")
-        or hostname_lower.startswith("pcesdopodappv1_")
+        hostname_lower.endswith("-simulation") or hostname_lower.startswith("pcesdopodappv1_")
     )
 
     # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
@@ -180,9 +179,7 @@ def _validate_localhost_url(url: str, parsed) -> None:
     # We allow https too for flexibility, but http is typical for local servers
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https"):
-        raise URLValidationError(
-            f"Localhost URLs must use http or https scheme, got: {scheme}"
-        )
+        raise URLValidationError(f"Localhost URLs must use http or https scheme, got: {scheme}")
 
     # Verify hostname is actually localhost, 127.0.0.1, or simulation internal hostname
     hostname_lower = (parsed.hostname or "").lower()
@@ -192,9 +189,7 @@ def _validate_localhost_url(url: str, parsed) -> None:
         or hostname_lower.startswith("pcesdopodappv1_")
     )
     if not is_valid_internal:
-        raise URLValidationError(
-            f"Invalid localhost/internal hostname: {hostname_lower}"
-        )
+        raise URLValidationError(f"Invalid localhost/internal hostname: {hostname_lower}")
 
     # Check for path traversal attempts
     if ".." in parsed.path:
@@ -223,9 +218,7 @@ def _validate_localhost_url(url: str, parsed) -> None:
                     "Blocked localhost URL with suspicious query parameter",
                     extra={"query_pattern": pattern},
                 )
-                raise URLValidationError(
-                    f"Suspicious query parameter detected: {pattern}"
-                )
+                raise URLValidationError(f"Suspicious query parameter detected: {pattern}")
 
     # Log localhost URL access for audit trail
     logger.debug(

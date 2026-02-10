@@ -91,23 +91,19 @@ class XACTEnrichmentWorker:
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.instance_id = instance_id
-        self.enrichment_topic = enrichment_topic or config.get_topic(
-            domain, "enrichment_pending"
-        )
-        self.download_topic = download_topic or config.get_topic(
-            domain, "downloads_pending"
-        )
+        self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
+        self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
 
         # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
-            self.worker_id = f"{self.WORKER_NAME}-{instance_id}"  # e.g., "enrichment_worker-happy-tiger"
+            self.worker_id = (
+                f"{self.WORKER_NAME}-{instance_id}"  # e.g., "enrichment_worker-happy-tiger"
+            )
         else:
             self.worker_id = self.WORKER_NAME
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
-        self.processing_config = config.get_worker_config(
-            domain, "enrichment_worker", "processing"
-        )
+        self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
@@ -142,9 +138,7 @@ class XACTEnrichmentWorker:
         self._last_cycle_failed = 0
 
         # UUID namespace for deterministic media_id generation
-        self.MEDIA_ID_NAMESPACE = uuid.uuid5(
-            uuid.NAMESPACE_URL, "http://xactPipeline/media_id"
-        )
+        self.MEDIA_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "http://xactPipeline/media_id")
 
         logger.info(
             "Initialized XACTEnrichmentWorker",
@@ -153,9 +147,7 @@ class XACTEnrichmentWorker:
                 "worker_id": self.worker_id,
                 "worker_name": "enrichment_worker",
                 "instance_id": instance_id,
-                "consumer_group": config.get_consumer_group(
-                    domain, "enrichment_worker"
-                ),
+                "consumer_group": config.get_consumer_group(domain, "enrichment_worker"),
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
                 "retry_delays": self._retry_delays,
@@ -202,9 +194,7 @@ class XACTEnrichmentWorker:
             import os
 
             if os.path.exists(plugins_dir):
-                loaded_plugins = load_plugins_from_directory(
-                    plugins_dir, self.plugin_registry
-                )
+                loaded_plugins = load_plugins_from_directory(plugins_dir, self.plugin_registry)
                 logger.info(
                     "Loaded plugins from directory",
                     extra={
@@ -363,9 +353,7 @@ class XACTEnrichmentWorker:
                 )
 
                 try:
-                    orchestrator_result = await self.plugin_orchestrator.execute(
-                        plugin_context
-                    )
+                    orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
 
                     if orchestrator_result.terminated:
                         logger.info(
@@ -472,9 +460,7 @@ class XACTEnrichmentWorker:
 
                 # Generate deterministic media_id
                 media_id = str(
-                    uuid.uuid5(
-                        self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}"
-                    )
+                    uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}")
                 )
 
                 # Create download task

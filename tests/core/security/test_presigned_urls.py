@@ -8,12 +8,12 @@ Covers:
 - Edge cases (missing params, invalid formats, empty URLs)
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from core.security.presigned_urls import (
+    PresignedUrlInfo,
     check_presigned_url,
     extract_expires_at_iso,
-    PresignedUrlInfo,
 )
 
 
@@ -23,7 +23,7 @@ class TestS3PresignedUrls:
     def test_valid_s3_url_not_expired(self):
         """Valid S3 URL that hasn't expired."""
         # Create URL signed now with 1 hour expiry
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
         url = f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}&X-Amz-Expires=3600"
 
@@ -42,7 +42,7 @@ class TestS3PresignedUrls:
     def test_valid_s3_url_expired(self):
         """Valid S3 URL that has expired."""
         # Create URL signed 2 hours ago with 1 hour expiry
-        past = datetime.now(timezone.utc) - timedelta(hours=2)
+        past = datetime.now(UTC) - timedelta(hours=2)
         amz_date = past.strftime("%Y%m%dT%H%M%SZ")
         url = f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}&X-Amz-Expires=3600"
 
@@ -56,7 +56,7 @@ class TestS3PresignedUrls:
 
     def test_s3_url_case_insensitive_params(self):
         """S3 URL params should be case-insensitive."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
         # Use lowercase parameter names
         url = f"https://bucket.s3.amazonaws.com/file.pdf?x-amz-date={amz_date}&x-amz-expires=3600"
@@ -80,7 +80,7 @@ class TestS3PresignedUrls:
 
     def test_s3_url_missing_expires(self):
         """S3 URL missing X-Amz-Expires."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
         url = f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}"
 
@@ -105,9 +105,11 @@ class TestS3PresignedUrls:
 
     def test_s3_url_invalid_expires_format(self):
         """S3 URL with non-numeric expires."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-        url = f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}&X-Amz-Expires=INVALID"
+        url = (
+            f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}&X-Amz-Expires=INVALID"
+        )
 
         info = check_presigned_url(url)
 
@@ -119,7 +121,7 @@ class TestS3PresignedUrls:
     def test_s3_url_expires_within_buffer(self):
         """Test expires_within for buffer logic."""
         # URL expires in 30 seconds
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
         url = f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}&X-Amz-Expires=30"
 
@@ -137,10 +139,12 @@ class TestClaimXUrls:
     def test_valid_claimx_url_not_expired(self):
         """Valid ClaimX URL that hasn't expired."""
         # Create URL signed now with 1 hour expiry
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         system_date_ms = int(now.timestamp() * 1000)
         expires_ms = 3600 * 1000  # 1 hour in milliseconds
-        url = f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires={expires_ms}"
+        url = (
+            f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires={expires_ms}"
+        )
 
         info = check_presigned_url(url)
 
@@ -157,10 +161,12 @@ class TestClaimXUrls:
     def test_valid_claimx_url_expired(self):
         """Valid ClaimX URL that has expired."""
         # Create URL signed 2 hours ago with 1 hour expiry
-        past = datetime.now(timezone.utc) - timedelta(hours=2)
+        past = datetime.now(UTC) - timedelta(hours=2)
         system_date_ms = int(past.timestamp() * 1000)
         expires_ms = 3600 * 1000
-        url = f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires={expires_ms}"
+        url = (
+            f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires={expires_ms}"
+        )
 
         info = check_presigned_url(url)
 
@@ -183,7 +189,7 @@ class TestClaimXUrls:
 
     def test_claimx_url_missing_expires(self):
         """ClaimX URL missing expires."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         system_date_ms = int(now.timestamp() * 1000)
         url = f"https://api.claimxperience.com/file?systemDate={system_date_ms}"
 
@@ -208,7 +214,7 @@ class TestClaimXUrls:
 
     def test_claimx_url_invalid_expires(self):
         """ClaimX URL with invalid expires."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         system_date_ms = int(now.timestamp() * 1000)
         url = f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires=INVALID"
 
@@ -272,7 +278,7 @@ class TestPresignedUrlInfoMethods:
 
     def test_time_remaining_positive(self):
         """Test time_remaining for non-expired URL."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(hours=1)
         info = PresignedUrlInfo(
             url="test",
@@ -288,7 +294,7 @@ class TestPresignedUrlInfoMethods:
 
     def test_time_remaining_negative(self):
         """Test time_remaining for expired URL."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now - timedelta(hours=1)
         info = PresignedUrlInfo(
             url="test",
@@ -316,7 +322,7 @@ class TestPresignedUrlInfoMethods:
 
     def test_expires_within_true(self):
         """Test expires_within when URL expires soon."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(seconds=30)
         info = PresignedUrlInfo(
             url="test",
@@ -330,7 +336,7 @@ class TestPresignedUrlInfoMethods:
 
     def test_expires_within_false(self):
         """Test expires_within when URL doesn't expire soon."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(hours=2)
         info = PresignedUrlInfo(
             url="test",
@@ -359,7 +365,7 @@ class TestExtractExpiresAtIso:
 
     def test_extract_valid_s3_url(self):
         """Extract ISO timestamp from valid S3 URL."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
         url = f"https://bucket.s3.amazonaws.com/file.pdf?X-Amz-Date={amz_date}&X-Amz-Expires=3600"
 
@@ -373,10 +379,12 @@ class TestExtractExpiresAtIso:
 
     def test_extract_valid_claimx_url(self):
         """Extract ISO timestamp from valid ClaimX URL."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         system_date_ms = int(now.timestamp() * 1000)
         expires_ms = 3600 * 1000
-        url = f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires={expires_ms}"
+        url = (
+            f"https://api.claimxperience.com/file?systemDate={system_date_ms}&expires={expires_ms}"
+        )
 
         iso_str = extract_expires_at_iso(url)
 

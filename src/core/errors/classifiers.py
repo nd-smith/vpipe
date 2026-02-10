@@ -131,9 +131,7 @@ class StorageErrorClassifier:
         Returns PipelineError if pattern matches, None if service-specific handling needed.
         """
         # Auth errors
-        if any(
-            m in error_str for m in ("401", "unauthorized", "authentication", "token")
-        ):
+        if any(m in error_str for m in ("401", "unauthorized", "authentication", "token")):
             return AuthError(
                 f"{service} authentication failed: {error}",
                 cause=error,
@@ -191,9 +189,7 @@ class StorageErrorClassifier:
         return None
 
     @staticmethod
-    def classify_kusto_error(
-        error: Exception, context: dict | None = None
-    ) -> PipelineError:
+    def classify_kusto_error(error: Exception, context: dict | None = None) -> PipelineError:
         """Classify a Kusto error into appropriate exception type."""
         error_str = str(error).lower()
         error_context = {"service": "kusto"}
@@ -249,9 +245,7 @@ class StorageErrorClassifier:
         )
 
     @staticmethod
-    def classify_delta_error(
-        error: Exception, context: dict | None = None
-    ) -> PipelineError:
+    def classify_delta_error(error: Exception, context: dict | None = None) -> PipelineError:
         """Classify a Delta table error into appropriate exception type."""
         error_str = str(error).lower()
         error_context = {"service": "delta"}
@@ -273,9 +267,7 @@ class StorageErrorClassifier:
         )
 
     @staticmethod
-    def classify_onelake_error(
-        error: Exception, context: dict | None = None
-    ) -> PipelineError:
+    def classify_onelake_error(error: Exception, context: dict | None = None) -> PipelineError:
         """Classify an OneLake error into appropriate exception type."""
         error_str = str(error).lower()
         error_context = {"service": "onelake"}

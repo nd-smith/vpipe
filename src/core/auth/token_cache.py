@@ -70,9 +70,7 @@ class TokenCache:
         self._tokens: dict[str, tuple[str, datetime]] = {}
         self._lock = threading.Lock()
 
-    def _is_valid(
-        self, acquired_at: datetime, buffer_mins: int = TOKEN_REFRESH_MINS
-    ) -> bool:
+    def _is_valid(self, acquired_at: datetime, buffer_mins: int = TOKEN_REFRESH_MINS) -> bool:
         """Check if token is still valid based on age."""
         age = datetime.now(UTC) - acquired_at
         return age < timedelta(minutes=buffer_mins)

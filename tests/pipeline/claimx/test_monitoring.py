@@ -7,14 +7,13 @@ disabled mode.
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
 from pipeline.claimx.monitoring import HealthCheckServer
-
 
 # ============================================================================
 # Initialization
@@ -498,9 +497,7 @@ class TestStartStop:
         async def try_start_side_effect(port):
             nonlocal call_count
             call_count += 1
-            if port == 8080:
-                return False  # Port in use
-            return True  # Dynamic port works
+            return port != 8080
 
         with patch.object(server, "_try_start_on_port", side_effect=try_start_side_effect):
             await server.start()
@@ -532,9 +529,7 @@ class TestStartStop:
         """Unexpected exceptions during start disable the server gracefully."""
         server = HealthCheckServer(port=8080)
 
-        with patch.object(
-            server, "_try_start_on_port", side_effect=RuntimeError("unexpected")
-        ):
+        with patch.object(server, "_try_start_on_port", side_effect=RuntimeError("unexpected")):
             await server.start()
 
         assert server._enabled is False
@@ -558,9 +553,11 @@ class TestTryStartOnPort:
         mock_site._server = Mock()
         mock_site._server.sockets = [mock_socket]
 
-        with patch("pipeline.claimx.monitoring.web.Application") as mock_app_cls, \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             result = await server._try_start_on_port(8080)
 
         assert result is True
@@ -575,9 +572,11 @@ class TestTryStartOnPort:
         os_error.errno = 98  # Address already in use (Linux)
         mock_site.start.side_effect = os_error
 
-        with patch("pipeline.claimx.monitoring.web.Application"), \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             result = await server._try_start_on_port(8080)
 
         assert result is False
@@ -595,9 +594,11 @@ class TestTryStartOnPort:
         os_error.errno = 13  # Permission denied
         mock_site.start.side_effect = os_error
 
-        with patch("pipeline.claimx.monitoring.web.Application"), \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             with pytest.raises(OSError) as exc_info:
                 await server._try_start_on_port(8080)
 
@@ -614,9 +615,11 @@ class TestTryStartOnPort:
         mock_site._server = Mock()
         mock_site._server.sockets = [mock_socket]
 
-        with patch("pipeline.claimx.monitoring.web.Application"), \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             result = await server._try_start_on_port(0)
 
         assert result is True
@@ -631,9 +634,11 @@ class TestTryStartOnPort:
         mock_site._server = Mock()
         mock_site._server.sockets = []
 
-        with patch("pipeline.claimx.monitoring.web.Application"), \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             result = await server._try_start_on_port(9999)
 
         assert result is True
@@ -647,9 +652,11 @@ class TestTryStartOnPort:
         mock_site = AsyncMock()
         mock_site._server = None
 
-        with patch("pipeline.claimx.monitoring.web.Application"), \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             result = await server._try_start_on_port(7777)
 
         assert result is True
@@ -665,9 +672,11 @@ class TestTryStartOnPort:
         os_error.errno = 10048
         mock_site.start.side_effect = os_error
 
-        with patch("pipeline.claimx.monitoring.web.Application"), \
-             patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner), \
-             patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site):
+        with (
+            patch("pipeline.claimx.monitoring.web.Application"),
+            patch("pipeline.claimx.monitoring.web.AppRunner", return_value=mock_runner),
+            patch("pipeline.claimx.monitoring.web.TCPSite", return_value=mock_site),
+        ):
             result = await server._try_start_on_port(8080)
 
         assert result is False

@@ -20,20 +20,18 @@ from unittest.mock import Mock
 import pytest
 
 from core.errors.exceptions import (
-    ErrorCategory,
-    TransientError,
     AuthError,
-    PermanentError,
     CircuitOpenError,
+    PermanentError,
+    TransientError,
 )
 from core.resilience.circuit_breaker import (
+    KUSTO_CIRCUIT_CONFIG,
     CircuitBreaker,
     CircuitBreakerConfig,
     CircuitState,
-    CircuitStats,
-    get_circuit_breaker,
     circuit_protected,
-    KUSTO_CIRCUIT_CONFIG,
+    get_circuit_breaker,
 )
 
 
@@ -148,9 +146,7 @@ class TestCircuitBreakerStates:
         """Successful calls in HALF_OPEN close the circuit."""
         breaker = CircuitBreaker(
             "test",
-            CircuitBreakerConfig(
-                failure_threshold=2, success_threshold=2, timeout_seconds=0.1
-            ),
+            CircuitBreakerConfig(failure_threshold=2, success_threshold=2, timeout_seconds=0.1),
         )
 
         # Open and transition to half-open
@@ -312,9 +308,7 @@ class TestCircuitBreakerStats:
         """Stats track state transitions."""
         breaker = CircuitBreaker(
             "test",
-            CircuitBreakerConfig(
-                failure_threshold=1, success_threshold=1, timeout_seconds=0.1
-            ),
+            CircuitBreakerConfig(failure_threshold=1, success_threshold=1, timeout_seconds=0.1),
         )
 
         initial_stats = breaker.stats

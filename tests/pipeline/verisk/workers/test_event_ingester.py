@@ -13,17 +13,18 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
+import contextlib
 import json
-import pytest
 import time
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from config.config import MessageConfig
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 from pipeline.verisk.workers.event_ingester import EventIngesterWorker
-from pipeline.common.types import PipelineMessage
 
 
 @pytest.fixture
@@ -47,11 +48,13 @@ def sample_event():
         version=1,
         utcDateTime="2024-12-25T10:30:00Z",
         traceId="trace-123",
-        data=json.dumps({
-            "assignmentId": "A12345",
-            "estimateVersion": "1.0",
-            "attachments": ["https://example.com/file.pdf"],
-        }),
+        data=json.dumps(
+            {
+                "assignmentId": "A12345",
+                "estimateVersion": "1.0",
+                "attachments": ["https://example.com/file.pdf"],
+            }
+        ),
     )
 
 
@@ -63,13 +66,15 @@ def sample_message(sample_event):
         partition=0,
         offset=1,
         key=b"trace-123",
-        value=json.dumps({
-            "type": sample_event.type,
-            "version": sample_event.version,
-            "utcDateTime": sample_event.utc_datetime,
-            "traceId": sample_event.trace_id,
-            "data": sample_event.data,
-        }).encode(),
+        value=json.dumps(
+            {
+                "type": sample_event.type,
+                "version": sample_event.version,
+                "utcDateTime": sample_event.utc_datetime,
+                "traceId": sample_event.trace_id,
+                "data": sample_event.data,
+            }
+        ).encode(),
         timestamp=None,
         headers=None,
     )
@@ -106,9 +111,7 @@ class TestEventIngesterWorkerInitialization:
         """Worker accepts separate producer config."""
         producer_config = Mock(spec=MessageConfig)
         producer_config.get_topic.return_value = "verisk.enrichment.pending"
-        worker = EventIngesterWorker(
-            config=mock_config, producer_config=producer_config
-        )
+        worker = EventIngesterWorker(config=mock_config, producer_config=producer_config)
 
         assert worker.consumer_config is mock_config
         assert worker.producer_config is producer_config
@@ -140,10 +143,11 @@ class TestEventIngesterWorkerLifecycle:
         """Worker start initializes all components."""
         worker = EventIngesterWorker(config=mock_config)
 
-        with patch("pipeline.verisk.workers.event_ingester.create_producer") as mock_create_producer, \
-             patch("pipeline.verisk.workers.event_ingester.create_consumer") as mock_create_consumer, \
-             patch("pipeline.common.telemetry.initialize_worker_telemetry"):
-
+        with (
+            patch("pipeline.verisk.workers.event_ingester.create_producer") as mock_create_producer,
+            patch("pipeline.verisk.workers.event_ingester.create_consumer") as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+        ):
             # Setup mocks
             mock_producer = AsyncMock()
             mock_producer.start = AsyncMock()
@@ -156,10 +160,8 @@ class TestEventIngesterWorkerLifecycle:
             # Prevent blocking on consumer.start
             mock_consumer.start.side_effect = Exception("Stop")
 
-            try:
+            with contextlib.suppress(Exception):
                 await worker.start()
-            except Exception:
-                pass
 
             # Verify components were initialized (even though _running is reset in finally)
             assert worker.producer is not None
@@ -210,9 +212,7 @@ class TestEventIngesterWorkerMessageProcessing:
     """Test message parsing and processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(
-        self, mock_config, sample_message
-    ):
+    async def test_valid_message_parsed_successfully(self, mock_config, sample_message):
         """Worker parses valid event message."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
@@ -263,7 +263,7 @@ class TestEventIngesterWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
             await worker._handle_event_message(invalid_message)
 
 
@@ -397,9 +397,7 @@ class TestEventIngesterWorkerEnrichmentTask:
     """Test enrichment task creation and dispatch."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_task_created_for_event(
-        self, mock_config, sample_message
-    ):
+    async def test_enrichment_task_created_for_event(self, mock_config, sample_message):
         """Worker creates enrichment task for valid event."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
@@ -437,13 +435,15 @@ class TestEventIngesterWorkerEnrichmentTask:
             partition=0,
             offset=1,
             key=b"trace-123",
-            value=json.dumps({
-                "type": "verisk.claims.property.xn.documentsReceived",
-                "version": 1,
-                "utcDateTime": "2024-12-25T10:30:00Z",
-                "traceId": "trace-123",
-                "data": json.dumps({}),  # No assignmentId
-            }).encode(),
+            value=json.dumps(
+                {
+                    "type": "verisk.claims.property.xn.documentsReceived",
+                    "version": 1,
+                    "utcDateTime": "2024-12-25T10:30:00Z",
+                    "traceId": "trace-123",
+                    "data": json.dumps({}),  # No assignmentId
+                }
+            ).encode(),
             timestamp=None,
             headers=None,
         )
@@ -488,8 +488,8 @@ class TestEventIngesterWorkerStats:
 
         # Verify message format
         assert "95" in msg  # succeeded
-        assert "3" in msg   # skipped
-        assert "2" in msg   # deduplicated
+        assert "3" in msg  # skipped
+        assert "2" in msg  # deduplicated
 
         # Verify extra data
         assert extra["records_processed"] == 100

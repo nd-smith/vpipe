@@ -1,6 +1,6 @@
 """Tests for plugin base classes."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,12 +11,10 @@ from pipeline.plugins.shared.base import (
     Domain,
     PipelineStage,
     Plugin,
-    PluginAction,
     PluginContext,
     PluginResult,
     resolve_claimx_project_id,
 )
-
 
 # --- Concrete Plugin for testing the ABC ---
 
@@ -37,14 +35,14 @@ class DummyMessage(BaseModel):
 
 
 def _make_context(**overrides):
-    defaults = dict(
-        domain=Domain.CLAIMX,
-        stage=PipelineStage.ENRICHMENT_COMPLETE,
-        message=DummyMessage(),
-        event_id="evt-1",
-        event_type="CUSTOM_TASK_COMPLETED",
-        project_id="proj-1",
-    )
+    defaults = {
+        "domain": Domain.CLAIMX,
+        "stage": PipelineStage.ENRICHMENT_COMPLETE,
+        "message": DummyMessage(),
+        "event_id": "evt-1",
+        "event_type": "CUSTOM_TASK_COMPLETED",
+        "project_id": "proj-1",
+    }
     defaults.update(overrides)
     return PluginContext(**defaults)
 
@@ -177,9 +175,7 @@ class TestPluginResult:
 
     def test_create_claimx_task_raises_without_id_or_claim(self):
         with pytest.raises(ValueError, match="project_id or claim_number"):
-            PluginResult.create_claimx_task(
-                task_type="CUSTOM_TASK", task_data={"name": "Task"}
-            )
+            PluginResult.create_claimx_task(task_type="CUSTOM_TASK", task_data={"name": "Task"})
 
 
 # =====================

@@ -24,6 +24,7 @@ DEFAULT_BACKUP_COUNT = 24  # Keep 24 hours of logs by default
 DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
 
+
 def _get_next_instance_id() -> str:
     """Generate unique human-readable instance ID using coolname."""
     from coolname import generate_slug
@@ -61,9 +62,7 @@ class LogArchiver:
             try:
                 shutil.move(str(rotated_file), str(archive_file))
             except Exception as e:
-                print(
-                    f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr
-                )
+                print(f"Warning: Failed to archive {rotated_file}: {e}", file=sys.stderr)
 
 
 class OneLakeLogUploader:
@@ -73,15 +72,11 @@ class OneLakeLogUploader:
         self.onelake_client = onelake_client
         self.log_retention_hours = log_retention_hours
 
-    def upload_and_cleanup(
-        self, archive_dir: Path, base_name: str, log_dir: Path
-    ) -> None:
+    def upload_and_cleanup(self, archive_dir: Path, base_name: str, log_dir: Path) -> None:
         """Upload archived rotated files to OneLake, delete after success."""
         for rotated_file in archive_dir.glob(f"{base_name}.*"):
             try:
-                relative_path = rotated_file.resolve().relative_to(
-                    log_dir.parent.parent
-                )
+                relative_path = rotated_file.resolve().relative_to(log_dir.parent.parent)
                 onelake_path = f"logs/{relative_path}"
                 self.onelake_client.upload_file(
                     relative_path=onelake_path,
@@ -89,9 +84,7 @@ class OneLakeLogUploader:
                     overwrite=True,
                 )
                 rotated_file.unlink()
-                print(
-                    f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr
-                )
+                print(f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr)
             except Exception as e:
                 print(
                     f"Warning: Failed to upload log {rotated_file}: {e}",
@@ -113,9 +106,7 @@ class OneLakeLogUploader:
                         log_file.unlink()
                         print(f"Cleaned up old log: {log_file.name}", file=sys.stderr)
                 except Exception as e:
-                    print(
-                        f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr
-                    )
+                    print(f"Warning: Failed to cleanup {log_file}: {e}", file=sys.stderr)
 
 
 class PipelineFileHandler(TimedRotatingFileHandler):
@@ -183,9 +174,7 @@ class PipelineFileHandler(TimedRotatingFileHandler):
             self.archiver.archive_rotated_files(log_dir, base_name)
 
         if self.uploader and self.archiver:
-            self.uploader.upload_and_cleanup(
-                self.archiver.archive_dir, base_name, log_dir
-            )
+            self.uploader.upload_and_cleanup(self.archiver.archive_dir, base_name, log_dir)
         elif self.uploader:
             self.uploader.cleanup_old_logs(log_dir, log_dir)
 
@@ -365,9 +354,7 @@ def setup_logging(
     # Console handler (always created)
     console_formatter = ConsoleFormatter()
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace"
-        )
+        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -416,9 +403,7 @@ def setup_logging(
         instance_id = _get_next_instance_id() if use_instance_id else None
 
         # Build log file path with subfolders
-        log_file = get_log_file_path(
-            log_dir, domain=domain, stage=stage, instance_id=instance_id
-        )
+        log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
 
         # Ensure directory exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -604,9 +589,7 @@ def setup_multi_worker_logging(
 
     # Add console handler (receives all logs)
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace"
-        )
+        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -803,8 +786,7 @@ def _do_crash_log_upload(reason: str) -> None:
         onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
         if not onelake_log_path:
             crash_logger.warning(
-                "No OneLake path configured for crash log upload "
-                "(set ONELAKE_LOG_PATH)"
+                "No OneLake path configured for crash log upload (set ONELAKE_LOG_PATH)"
             )
             return
 

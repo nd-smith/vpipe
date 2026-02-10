@@ -14,14 +14,15 @@ Test Coverage:
     - Queue length tracking
 """
 
-import json
 import base64
-import pytest
+import json
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from unittest.mock import patch
 
-from pipeline.common.retry.delay_queue import DelayQueue, DelayedMessage, EXPIRED_MESSAGE_GRACE_SECONDS
+from pipeline.common.retry.delay_queue import (
+    EXPIRED_MESSAGE_GRACE_SECONDS,
+    DelayedMessage,
+    DelayQueue,
+)
 
 
 def make_delayed_message(
@@ -54,12 +55,8 @@ class TestDelayedMessage:
 
     def test_ordering_by_scheduled_time(self):
         """Messages compare by scheduled_time for heap ordering."""
-        earlier = make_delayed_message(
-            scheduled_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        )
-        later = make_delayed_message(
-            scheduled_time=datetime(2024, 1, 1, 13, 0, 0, tzinfo=UTC)
-        )
+        earlier = make_delayed_message(scheduled_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC))
+        later = make_delayed_message(scheduled_time=datetime(2024, 1, 1, 13, 0, 0, tzinfo=UTC))
 
         assert earlier < later
         assert not later < earlier
@@ -201,9 +198,7 @@ class TestDelayQueueRequeue:
         """requeue_with_delay puts message back with updated scheduled_time."""
         queue = DelayQueue("verisk", tmp_path / "queue.json")
 
-        msg = make_delayed_message(
-            scheduled_time=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)
-        )
+        msg = make_delayed_message(scheduled_time=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC))
 
         queue.requeue_with_delay(msg, delay_seconds=10)
 
@@ -233,11 +228,13 @@ class TestDelayQueuePersistence:
         persistence_file = tmp_path / "queue.json"
         queue = DelayQueue("verisk", persistence_file)
 
-        queue.push(make_delayed_message(
-            scheduled_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-            message_key=b"test-key",
-            message_value=b"test-value",
-        ))
+        queue.push(
+            make_delayed_message(
+                scheduled_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                message_key=b"test-key",
+                message_value=b"test-value",
+            )
+        )
 
         queue.persist_to_disk()
 
@@ -248,7 +245,9 @@ class TestDelayQueuePersistence:
         assert len(data["messages"]) == 1
         assert data["messages"][0]["target_topic"] == "test.topic"
         assert data["messages"][0]["message_key"] == base64.b64encode(b"test-key").decode("utf-8")
-        assert data["messages"][0]["message_value"] == base64.b64encode(b"test-value").decode("utf-8")
+        assert data["messages"][0]["message_value"] == base64.b64encode(b"test-value").decode(
+            "utf-8"
+        )
 
     def test_persist_skips_empty_queue(self, tmp_path):
         """persist_to_disk does nothing for empty queue."""
@@ -285,12 +284,14 @@ class TestDelayQueuePersistence:
         queue = DelayQueue("verisk", persistence_file)
 
         scheduled_time = datetime.now(UTC) + timedelta(seconds=60)
-        queue.push(make_delayed_message(
-            scheduled_time=scheduled_time,
-            target_topic="restored.topic",
-            message_key=b"key-1",
-            message_value=b"value-1",
-        ))
+        queue.push(
+            make_delayed_message(
+                scheduled_time=scheduled_time,
+                target_topic="restored.topic",
+                message_key=b"key-1",
+                message_value=b"value-1",
+            )
+        )
         queue.persist_to_disk()
 
         # Create a new queue and restore
@@ -423,15 +424,17 @@ class TestDelayQueuePersistence:
         queue = DelayQueue("verisk", persistence_file)
 
         scheduled = datetime.now(UTC) + timedelta(seconds=120)
-        queue.push(make_delayed_message(
-            scheduled_time=scheduled,
-            target_topic="roundtrip.topic",
-            retry_count=3,
-            worker_type="enrichment",
-            message_key=b"rkey",
-            message_value=b'{"round": "trip"}',
-            headers={"retry_count": "3", "domain": "verisk"},
-        ))
+        queue.push(
+            make_delayed_message(
+                scheduled_time=scheduled,
+                target_topic="roundtrip.topic",
+                retry_count=3,
+                worker_type="enrichment",
+                message_key=b"rkey",
+                message_value=b'{"round": "trip"}',
+                headers={"retry_count": "3", "domain": "verisk"},
+            )
+        )
 
         queue.persist_to_disk()
 

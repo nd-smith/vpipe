@@ -10,11 +10,9 @@ Test Coverage:
       lag aggregation, worker-to-consumer-group matching
 """
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from pipeline.common.monitoring_service import (
@@ -22,14 +20,12 @@ from pipeline.common.monitoring_service import (
     PrometheusClient,
 )
 
-
 # =============================================================================
 # PrometheusClient — init and session management
 # =============================================================================
 
 
 class TestPrometheusClientInit:
-
     def test_strips_trailing_slash_from_url(self):
         client = PrometheusClient("http://prom:9090/")
         assert client.prometheus_url == "http://prom:9090"
@@ -45,7 +41,6 @@ class TestPrometheusClientInit:
 
 
 class TestPrometheusClientEnsureSession:
-
     async def test_creates_session_when_none(self):
         client = PrometheusClient("http://prom:9090")
         session = client._ensure_session()
@@ -72,7 +67,6 @@ class TestPrometheusClientEnsureSession:
 
 
 class TestPrometheusClientClose:
-
     async def test_closes_open_session(self):
         client = PrometheusClient("http://prom:9090")
         mock_session = AsyncMock()
@@ -107,17 +101,18 @@ class TestPrometheusClientClose:
 
 
 class TestPrometheusClientQuery:
-
     async def test_returns_data_on_success(self):
         client = PrometheusClient("http://prom:9090")
 
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value={
-            "status": "success",
-            "data": {"resultType": "vector", "result": []},
-        })
+        mock_response.json = AsyncMock(
+            return_value={
+                "status": "success",
+                "data": {"resultType": "vector", "result": []},
+            }
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=False)
 
@@ -137,10 +132,12 @@ class TestPrometheusClientQuery:
 
         mock_response = AsyncMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value={
-            "status": "error",
-            "error": "bad query",
-        })
+        mock_response.json = AsyncMock(
+            return_value={
+                "status": "error",
+                "error": "bad query",
+            }
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=False)
 
@@ -158,31 +155,32 @@ class TestPrometheusClientQuery:
 
 
 class TestPrometheusClientGetWorkerStatus:
-
     async def test_returns_workers_from_up_metric(self):
         client = PrometheusClient("http://prom:9090")
-        client.query = AsyncMock(return_value={
-            "result": [
-                {
-                    "metric": {
-                        "job": "download_worker",
-                        "instance": "worker-1:8000",
-                        "domain": "verisk",
-                        "worker_type": "download",
+        client.query = AsyncMock(
+            return_value={
+                "result": [
+                    {
+                        "metric": {
+                            "job": "download_worker",
+                            "instance": "worker-1:8000",
+                            "domain": "verisk",
+                            "worker_type": "download",
+                        },
+                        "value": [1234567890, "1"],
                     },
-                    "value": [1234567890, "1"],
-                },
-                {
-                    "metric": {
-                        "job": "upload_worker",
-                        "instance": "worker-2:8000",
-                        "domain": "verisk",
-                        "worker_type": "upload",
+                    {
+                        "metric": {
+                            "job": "upload_worker",
+                            "instance": "worker-2:8000",
+                            "domain": "verisk",
+                            "worker_type": "upload",
+                        },
+                        "value": [1234567890, "0"],
                     },
-                    "value": [1234567890, "0"],
-                },
-            ]
-        })
+                ]
+            }
+        )
 
         workers = await client.get_worker_status()
 
@@ -203,14 +201,16 @@ class TestPrometheusClientGetWorkerStatus:
 
     async def test_defaults_to_unknown_for_missing_labels(self):
         client = PrometheusClient("http://prom:9090")
-        client.query = AsyncMock(return_value={
-            "result": [
-                {
-                    "metric": {},
-                    "value": [1234567890, "1"],
-                }
-            ]
-        })
+        client.query = AsyncMock(
+            return_value={
+                "result": [
+                    {
+                        "metric": {},
+                        "value": [1234567890, "1"],
+                    }
+                ]
+            }
+        )
 
         workers = await client.get_worker_status()
 
@@ -226,21 +226,22 @@ class TestPrometheusClientGetWorkerStatus:
 
 
 class TestPrometheusClientGetConsumerLag:
-
     async def test_returns_lag_entries(self):
         client = PrometheusClient("http://prom:9090")
-        client.query = AsyncMock(return_value={
-            "result": [
-                {
-                    "metric": {
-                        "consumer_group": "verisk-download",
-                        "topic": "verisk-downloads-pending",
-                        "partition": "0",
+        client.query = AsyncMock(
+            return_value={
+                "result": [
+                    {
+                        "metric": {
+                            "consumer_group": "verisk-download",
+                            "topic": "verisk-downloads-pending",
+                            "partition": "0",
+                        },
+                        "value": [1234567890, "42"],
                     },
-                    "value": [1234567890, "42"],
-                },
-            ]
-        })
+                ]
+            }
+        )
 
         lags = await client.get_consumer_lag()
 
@@ -260,14 +261,16 @@ class TestPrometheusClientGetConsumerLag:
 
     async def test_defaults_for_missing_labels(self):
         client = PrometheusClient("http://prom:9090")
-        client.query = AsyncMock(return_value={
-            "result": [
-                {
-                    "metric": {},
-                    "value": [1234567890, "10"],
-                }
-            ]
-        })
+        client.query = AsyncMock(
+            return_value={
+                "result": [
+                    {
+                        "metric": {},
+                        "value": [1234567890, "10"],
+                    }
+                ]
+            }
+        )
 
         lags = await client.get_consumer_lag()
 
@@ -283,7 +286,6 @@ class TestPrometheusClientGetConsumerLag:
 
 
 class TestPrometheusClientCheckHealth:
-
     async def test_returns_true_when_healthy(self):
         client = PrometheusClient("http://prom:9090")
 
@@ -363,7 +365,6 @@ async def client(mock_prometheus):
 
 
 class TestHandleHealth:
-
     async def test_returns_200_when_all_workers_up(self, client):
         tc, prom = client
         prom.get_worker_status.return_value = [
@@ -426,12 +427,23 @@ class TestHandleHealth:
 
 
 class TestHandleWorkersHealth:
-
     async def test_returns_200_with_worker_details(self, client):
         tc, prom = client
         prom.get_worker_status.return_value = [
-            {"job": "w1", "instance": "i1", "domain": "verisk", "worker_type": "download", "status": "up"},
-            {"job": "w2", "instance": "i2", "domain": "verisk", "worker_type": "upload", "status": "down"},
+            {
+                "job": "w1",
+                "instance": "i1",
+                "domain": "verisk",
+                "worker_type": "download",
+                "status": "up",
+            },
+            {
+                "job": "w2",
+                "instance": "i2",
+                "domain": "verisk",
+                "worker_type": "upload",
+                "status": "down",
+            },
         ]
 
         resp = await tc.get("/health/workers")
@@ -460,7 +472,6 @@ class TestHandleWorkersHealth:
 
 
 class TestHandlePrometheusHealth:
-
     async def test_returns_200_when_prometheus_healthy(self, client):
         tc, prom = client
         prom.check_prometheus_health.return_value = True
@@ -500,11 +511,16 @@ class TestHandlePrometheusHealth:
 
 
 class TestHandleStatus:
-
     async def test_returns_workers_and_lag(self, client):
         tc, prom = client
         prom.get_worker_status.return_value = [
-            {"job": "w1", "instance": "i1", "domain": "verisk", "worker_type": "download", "status": "up"},
+            {
+                "job": "w1",
+                "instance": "i1",
+                "domain": "verisk",
+                "worker_type": "download",
+                "status": "up",
+            },
         ]
         prom.get_consumer_lag.return_value = [
             {"consumer_group": "verisk-download", "topic": "pending", "partition": 0, "lag": 10},
@@ -528,7 +544,13 @@ class TestHandleStatus:
     async def test_matches_worker_to_consumer_group(self, client):
         tc, prom = client
         prom.get_worker_status.return_value = [
-            {"job": "w1", "instance": "i1", "domain": "verisk", "worker_type": "download", "status": "up"},
+            {
+                "job": "w1",
+                "instance": "i1",
+                "domain": "verisk",
+                "worker_type": "download",
+                "status": "up",
+            },
         ]
         prom.get_consumer_lag.return_value = [
             {"consumer_group": "verisk-download", "topic": "pending", "partition": 0, "lag": 7},
@@ -544,7 +566,13 @@ class TestHandleStatus:
     async def test_worker_without_matching_consumer_group_has_null_lag(self, client):
         tc, prom = client
         prom.get_worker_status.return_value = [
-            {"job": "w1", "instance": "i1", "domain": "verisk", "worker_type": "download", "status": "up"},
+            {
+                "job": "w1",
+                "instance": "i1",
+                "domain": "verisk",
+                "worker_type": "download",
+                "status": "up",
+            },
         ]
         prom.get_consumer_lag.return_value = [
             {"consumer_group": "unrelated-group", "topic": "t", "partition": 0, "lag": 99},
@@ -623,7 +651,6 @@ class TestHandleStatus:
 
 
 class TestMonitoringServiceInit:
-
     def test_creates_app_with_all_routes(self):
         prom = _make_mock_prometheus()
         service = MonitoringService(prom, port=9091)

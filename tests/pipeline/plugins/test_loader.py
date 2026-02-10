@@ -4,10 +4,9 @@ Tests for plugin loader.
 Ensures plugins are loaded correctly from nested directory structures.
 """
 
-import pytest
-import tempfile
 import os
-from pathlib import Path
+
+import pytest
 
 from pipeline.plugins.shared.loader import load_plugins_from_directory
 from pipeline.plugins.shared.registry import PluginRegistry, reset_plugin_registry
@@ -228,4 +227,6 @@ class TestActualPluginDirectory:
         expected_plugins = {"claimx_mitigation_task", "itel_cabinet_api"}
         loaded_expected = expected_plugins & plugin_names
 
-        assert len(loaded_expected) > 0, f"Expected to load some of {expected_plugins}, but got {plugin_names}"
+        assert len(loaded_expected) > 0, (
+            f"Expected to load some of {expected_plugins}, but got {plugin_names}"
+        )

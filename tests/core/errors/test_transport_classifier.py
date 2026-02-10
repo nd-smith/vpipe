@@ -20,13 +20,12 @@ from core.errors.transport_classifier import (
     classify_kafka_error_type,
 )
 
-
 # ---------------------------------------------------------------------------
 # classify_kafka_error_type
 # ---------------------------------------------------------------------------
 
-class TestClassifyKafkaErrorType:
 
+class TestClassifyKafkaErrorType:
     @pytest.mark.parametrize("error_name", KAFKA_ERROR_MAPPINGS["transient"])
     def test_transient_errors(self, error_name):
         assert classify_kafka_error_type(error_name) == "transient"
@@ -57,8 +56,8 @@ class TestClassifyKafkaErrorType:
 # classify_error_type (combined Kafka + EventHub)
 # ---------------------------------------------------------------------------
 
-class TestClassifyErrorType:
 
+class TestClassifyErrorType:
     @pytest.mark.parametrize("error_name", KAFKA_ERROR_MAPPINGS["transient"])
     def test_kafka_transient(self, error_name):
         assert classify_error_type(error_name) == "transient"
@@ -105,8 +104,8 @@ class TestClassifyErrorType:
 # TransportErrorClassifier.classify_consumer_error
 # ---------------------------------------------------------------------------
 
-class TestConsumerErrorClassification:
 
+class TestConsumerErrorClassification:
     def test_pipeline_error_passed_through(self):
         original = AuthError("already classified")
         result = TransportErrorClassifier.classify_consumer_error(original)
@@ -305,8 +304,8 @@ class TestConsumerErrorClassification:
 # TransportErrorClassifier.classify_producer_error
 # ---------------------------------------------------------------------------
 
-class TestProducerErrorClassification:
 
+class TestProducerErrorClassification:
     def test_pipeline_error_passed_through(self):
         original = ThrottlingError("already classified")
         result = TransportErrorClassifier.classify_producer_error(original)
@@ -509,8 +508,8 @@ class TestProducerErrorClassification:
 # TransportErrorClassifier.classify_transport_error (routing)
 # ---------------------------------------------------------------------------
 
-class TestTransportErrorRouting:
 
+class TestTransportErrorRouting:
     def test_routes_to_consumer(self):
         error = Exception("something broke")
         result = TransportErrorClassifier.classify_transport_error(error, "consumer")
@@ -563,8 +562,8 @@ class TestTransportErrorRouting:
 # Edge cases
 # ---------------------------------------------------------------------------
 
-class TestTransportEdgeCases:
 
+class TestTransportEdgeCases:
     def test_pipeline_error_subclass_preserved_consumer(self):
         original = TransientError("transient thing")
         result = TransportErrorClassifier.classify_consumer_error(original)

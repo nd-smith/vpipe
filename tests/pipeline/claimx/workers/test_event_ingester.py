@@ -14,10 +14,12 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
+import contextlib
 import json
-import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from config.config import MessageConfig
 from pipeline.claimx.schemas.events import ClaimXEventMessage
@@ -98,18 +100,14 @@ class TestEventIngesterInitialization:
     def test_initialization_with_separate_producer_config(self, mock_config):
         """Worker accepts separate producer config."""
         producer_config = Mock(spec=MessageConfig)
-        worker = ClaimXEventIngesterWorker(
-            config=mock_config, producer_config=producer_config
-        )
+        worker = ClaimXEventIngesterWorker(config=mock_config, producer_config=producer_config)
 
         assert worker.consumer_config is mock_config
         assert worker.producer_config is producer_config
 
     def test_initialization_with_custom_enrichment_topic(self, mock_config):
         """Worker accepts custom enrichment topic."""
-        worker = ClaimXEventIngesterWorker(
-            config=mock_config, enrichment_topic="custom.enrichment"
-        )
+        worker = ClaimXEventIngesterWorker(config=mock_config, enrichment_topic="custom.enrichment")
 
         assert worker.enrichment_topic == "custom.enrichment"
 
@@ -139,10 +137,11 @@ class TestEventIngesterLifecycle:
         """Worker start initializes all components."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        with patch("pipeline.claimx.workers.event_ingester.create_producer") as mock_create_producer, \
-             patch("pipeline.claimx.workers.event_ingester.create_consumer") as mock_create_consumer, \
-             patch("pipeline.common.telemetry.initialize_worker_telemetry"):
-
+        with (
+            patch("pipeline.claimx.workers.event_ingester.create_producer") as mock_create_producer,
+            patch("pipeline.claimx.workers.event_ingester.create_consumer") as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+        ):
             # Setup mocks
             mock_producer = AsyncMock()
             mock_producer.start = AsyncMock()
@@ -155,10 +154,8 @@ class TestEventIngesterLifecycle:
             # Start worker (will block on consumer.start, so we cancel it)
             mock_consumer.start.side_effect = Exception("Stop")
 
-            try:
+            with contextlib.suppress(Exception):
                 await worker.start()
-            except Exception:
-                pass
 
             # Verify components initialized
             assert worker.producer is not None
@@ -223,9 +220,7 @@ class TestEventIngesterMessageProcessing:
     """Test event message parsing and processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(
-        self, mock_config, sample_message
-    ):
+    async def test_valid_message_parsed_successfully(self, mock_config, sample_message):
         """Worker parses valid event message."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker._create_enrichment_task = AsyncMock()
@@ -276,7 +271,7 @@ class TestEventIngesterMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
             await worker._handle_event_message(invalid_message)
 
 
@@ -291,6 +286,7 @@ class TestEventIngesterDeduplication:
 
         # Mark event as already processed (in cache with recent timestamp)
         import time
+
         worker._dedup_cache["evt-123"] = time.time()
 
         await worker._handle_event_message(sample_message)
@@ -317,9 +313,7 @@ class TestEventIngesterDeduplication:
         assert worker._records_deduplicated == 0
 
     @pytest.mark.asyncio
-    async def test_processed_event_marked_in_dedup_set(
-        self, mock_config, sample_message
-    ):
+    async def test_processed_event_marked_in_dedup_set(self, mock_config, sample_message):
         """Worker marks processed events in deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker._create_enrichment_task = AsyncMock()
@@ -334,6 +328,7 @@ class TestEventIngesterDeduplication:
         """_is_duplicate returns True for seen events."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         import time
+
         worker._dedup_cache["evt-123"] = time.time()
 
         assert await worker._is_duplicate("evt-123") is True

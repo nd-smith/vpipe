@@ -5,13 +5,15 @@ Tests PipelineMessage, ProduceResult, PartitionInfo, and conversion helpers.
 These are pure unit tests with no external dependencies.
 """
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 from aiokafka.structs import ConsumerRecord
 
 from pipeline.common.types import (
+    PartitionInfo,
     PipelineMessage,
     ProduceResult,
-    PartitionInfo,
     from_consumer_record,
 )
 
@@ -68,13 +70,13 @@ class TestPipelineMessage:
         )
 
         # Attempt to modify fields should raise FrozenInstanceError
-        with pytest.raises(Exception):  # dataclasses.FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             msg.topic = "modified-topic"
 
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             msg.partition = 999
 
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             msg.offset = 999
 
     def test_equality(self):
@@ -183,13 +185,13 @@ class TestProduceResult:
         )
 
         # Attempt to modify fields should raise FrozenInstanceError
-        with pytest.raises(Exception):  # dataclasses.FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             result.topic = "modified-topic"
 
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             result.partition = 999
 
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             result.offset = 999
 
     def test_equality(self):
@@ -230,10 +232,10 @@ class TestPartitionInfo:
         partition = PartitionInfo(topic="test-topic", partition=0)
 
         # Attempt to modify fields should raise FrozenInstanceError
-        with pytest.raises(Exception):  # dataclasses.FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             partition.topic = "modified-topic"
 
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             partition.partition = 999
 
     def test_equality(self):
@@ -454,7 +456,7 @@ class TestFromConsumerRecordEdgeCases:
 
     def test_conversion_with_large_headers(self):
         """Test conversion with many headers."""
-        headers = [(f"header-{i}", f"value-{i}".encode("utf-8")) for i in range(20)]
+        headers = [(f"header-{i}", f"value-{i}".encode()) for i in range(20)]
 
         record = ConsumerRecord(
             topic="test-topic",
@@ -478,8 +480,8 @@ class TestFromConsumerRecordEdgeCases:
     def test_conversion_with_unicode_headers(self):
         """Test conversion with unicode header values."""
         headers = [
-            ("header1", "Hello 世界".encode("utf-8")),
-            ("header2", "Привет мир".encode("utf-8")),
+            ("header1", "Hello 世界".encode()),
+            ("header2", "Привет мир".encode()),
         ]
 
         record = ConsumerRecord(
@@ -598,9 +600,7 @@ class TestTypeCompatibility:
 
         # Simulate producer confirmation logging
         confirmation_msg = (
-            f"Published to {result.topic} "
-            f"partition {result.partition} "
-            f"at offset {result.offset}"
+            f"Published to {result.topic} partition {result.partition} at offset {result.offset}"
         )
         assert confirmation_msg == "Published to events partition 3 at offset 12345"
 

@@ -133,9 +133,7 @@ class MediaHandler(EventHandler):
 
         return handler_result
 
-    async def handle_batch(
-        self, events: list[ClaimXEventMessage]
-    ) -> list[EnrichmentResult]:
+    async def handle_batch(self, events: list[ClaimXEventMessage]) -> list[EnrichmentResult]:
         """Process batch of media events for same project."""
         if not events:
             return []
@@ -146,9 +144,7 @@ class MediaHandler(EventHandler):
         start_time = datetime.now(UTC)
 
         try:
-            fetch_strategy = (
-                "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
-            )
+            fetch_strategy = "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
             logger.debug(
                 "Media fetch strategy selected",
                 extra={

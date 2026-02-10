@@ -4,8 +4,6 @@ Tests for core.paths.resolver module.
 Tests path generation for different event subtypes and OneLake path construction.
 """
 
-import pytest
-
 from core.paths.resolver import generate_blob_path, get_onelake_path_for_event
 
 
@@ -33,7 +31,10 @@ class TestGenerateBlobPath:
             download_url="https://example.com/fnol_report.pdf",
         )
 
-        assert blob_path == "firstNoticeOfLossReceived/assignment-456/trace-123/assignment-456_FNOL_fnol_report.pdf"
+        assert (
+            blob_path
+            == "firstNoticeOfLossReceived/assignment-456/trace-123/assignment-456_FNOL_fnol_report.pdf"
+        )
         assert file_type == "PDF"
 
     def test_estimate_package_with_version(self):
@@ -46,7 +47,10 @@ class TestGenerateBlobPath:
             estimate_version="v2.1",
         )
 
-        assert blob_path == "estimatePackageReceived/assignment-456/trace-123/assignment-456_v2.1_estimate.pdf"
+        assert (
+            blob_path
+            == "estimatePackageReceived/assignment-456/trace-123/assignment-456_v2.1_estimate.pdf"
+        )
         assert file_type == "PDF"
 
     def test_estimate_package_without_version(self):
@@ -58,7 +62,10 @@ class TestGenerateBlobPath:
             download_url="https://example.com/estimate.pdf",
         )
 
-        assert blob_path == "estimatePackageReceived/assignment-456/trace-123/assignment-456_unknown_estimate.pdf"
+        assert (
+            blob_path
+            == "estimatePackageReceived/assignment-456/trace-123/assignment-456_unknown_estimate.pdf"
+        )
         assert file_type == "PDF"
 
     def test_unknown_subtype_uses_default_pattern(self):

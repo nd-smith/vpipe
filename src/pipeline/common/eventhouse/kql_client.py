@@ -179,14 +179,14 @@ class KQLClient:
         if self._client is not None:
             return  # Already connected
 
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("[EVENTHOUSE CONNECTION] Starting Eventhouse connection process")
-        print("="*80)
+        print("=" * 80)
         print(f"[EVENTHOUSE CONNECTION] Target cluster: {self.config.cluster_url}")
         print(f"[EVENTHOUSE CONNECTION] Target database: {self.config.database}")
         print(f"[EVENTHOUSE CONNECTION] Query timeout: {self.config.query_timeout_seconds}s")
         print(f"[EVENTHOUSE CONNECTION] Max retries: {self.config.max_retries}")
-        print("="*80 + "\n")
+        print("=" * 80 + "\n")
 
         logger.info(
             "Connecting to Eventhouse",
@@ -206,11 +206,15 @@ class KQLClient:
             tenant_id = os.getenv("AZURE_TENANT_ID")
             has_spn = client_id and client_secret and tenant_id
 
-            print(f"[EVENTHOUSE CONNECTION] Authentication environment:")
-            print(f"[EVENTHOUSE CONNECTION]   - AZURE_TOKEN_FILE: {'Set' if token_file else 'Not set'}")
+            print("[EVENTHOUSE CONNECTION] Authentication environment:")
+            print(
+                f"[EVENTHOUSE CONNECTION]   - AZURE_TOKEN_FILE: {'Set' if token_file else 'Not set'}"
+            )
             if has_spn:
-                print(f"[EVENTHOUSE CONNECTION]   - SPN credentials: Available")
-                print(f"[EVENTHOUSE CONNECTION]   - AZURE_CLIENT_SECRET: {'Set (' + str(len(client_secret)) + ' chars)' if client_secret else 'Not set'}")
+                print("[EVENTHOUSE CONNECTION]   - SPN credentials: Available")
+                print(
+                    f"[EVENTHOUSE CONNECTION]   - AZURE_CLIENT_SECRET: {'Set (' + str(len(client_secret)) + ' chars)' if client_secret else 'Not set'}"
+                )
 
             auth_mode = "default"
             kcsb = None
@@ -218,8 +222,10 @@ class KQLClient:
             # Prioritize SPN with direct AAD app key auth (avoids token refresh warnings)
             if has_spn:
                 print("\n[EVENTHOUSE CONNECTION] Using Service Principal (SPN) authentication")
-                print(f"[EVENTHOUSE CONNECTION] Building connection string for: {self.config.cluster_url}")
-                print(f"[EVENTHOUSE CONNECTION]   - Method: AAD Application Key Authentication")
+                print(
+                    f"[EVENTHOUSE CONNECTION] Building connection string for: {self.config.cluster_url}"
+                )
+                print("[EVENTHOUSE CONNECTION]   - Method: AAD Application Key Authentication")
                 kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
                     self.config.cluster_url,
                     client_id,
@@ -233,7 +239,7 @@ class KQLClient:
                 )
             # Use token file only if SPN is not available
             elif token_file:
-                print(f"\n[EVENTHOUSE CONNECTION] Using token file authentication")
+                print("\n[EVENTHOUSE CONNECTION] Using token file authentication")
                 token_path = Path(token_file)
                 if token_path.exists():
                     print("[EVENTHOUSE CONNECTION] Token file exists, reading credentials...")
@@ -242,30 +248,36 @@ class KQLClient:
                             resource=KUSTO_RESOURCE,
                         )
                         auth_mode = "token_file"
-                        print(f"[EVENTHOUSE CONNECTION] Building connection string with token credential")
+                        print(
+                            "[EVENTHOUSE CONNECTION] Building connection string with token credential"
+                        )
                         print(f"[EVENTHOUSE CONNECTION]   - Target resource: {KUSTO_RESOURCE}")
                         kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
                             self.config.cluster_url,
                             self._credential,
                         )
-                        print("[EVENTHOUSE CONNECTION] Token file connection string builder created successfully")
+                        print(
+                            "[EVENTHOUSE CONNECTION] Token file connection string builder created successfully"
+                        )
                         logger.info(
                             "Using token file for Eventhouse authentication via unified auth",
                         )
                     except Exception as e:
                         print(f"[EVENTHOUSE CONNECTION] ERROR: Token file auth failed - {e}")
-                        print(f"[EVENTHOUSE CONNECTION] Falling back to DefaultAzureCredential...")
+                        print("[EVENTHOUSE CONNECTION] Falling back to DefaultAzureCredential...")
                         logger.warning(
                             "Token file auth failed, falling back to default",
                             extra={"error": str(e)[:200]},
                         )
                 else:
-                    print(f"[EVENTHOUSE CONNECTION] WARNING: Token file does not exist")
-                    print(f"[EVENTHOUSE CONNECTION] Falling back to DefaultAzureCredential...")
+                    print("[EVENTHOUSE CONNECTION] WARNING: Token file does not exist")
+                    print("[EVENTHOUSE CONNECTION] Falling back to DefaultAzureCredential...")
 
             # Fall back to DefaultAzureCredential
             if kcsb is None:
-                print("\n[EVENTHOUSE CONNECTION] Using DefaultAzureCredential (managed identity/CLI/etc.)")
+                print(
+                    "\n[EVENTHOUSE CONNECTION] Using DefaultAzureCredential (managed identity/CLI/etc.)"
+                )
                 print("[EVENTHOUSE CONNECTION] Attempting credential chain:")
                 print("[EVENTHOUSE CONNECTION]   1. Environment variables")
                 print("[EVENTHOUSE CONNECTION]   2. Managed Identity")
@@ -277,7 +289,9 @@ class KQLClient:
                     self._credential,
                 )
                 auth_mode = "default"
-                print("[EVENTHOUSE CONNECTION] DefaultAzureCredential connection string builder created")
+                print(
+                    "[EVENTHOUSE CONNECTION] DefaultAzureCredential connection string builder created"
+                )
 
             # Check for proxy configuration
             proxy_from_env = (
@@ -286,12 +300,14 @@ class KQLClient:
                 or os.getenv("HTTP_PROXY")
             )
             if proxy_from_env or self.config.proxy_url:
-                print(f"\n[EVENTHOUSE CONNECTION] Proxy configuration detected:")
+                print("\n[EVENTHOUSE CONNECTION] Proxy configuration detected:")
                 print(f"[EVENTHOUSE CONNECTION]   - Config proxy: {self.config.proxy_url}")
                 print(f"[EVENTHOUSE CONNECTION]   - Environment proxy: {proxy_from_env}")
 
             # Create client (sync client, will execute in thread pool)
-            print(f"\n[EVENTHOUSE CONNECTION] Creating KustoClient instance (auth_mode={auth_mode})")
+            print(
+                f"\n[EVENTHOUSE CONNECTION] Creating KustoClient instance (auth_mode={auth_mode})"
+            )
             print(f"[EVENTHOUSE CONNECTION]   - Cluster: {self.config.cluster_url}")
             print(f"[EVENTHOUSE CONNECTION]   - Database: {self.config.database}")
             self._client = KustoClient(kcsb)
@@ -307,8 +323,8 @@ class KQLClient:
                     extra={"proxy_url": self.config.proxy_url},
                 )
 
-            print(f"\n[EVENTHOUSE CONNECTION] Client initialization complete!")
-            print("="*80 + "\n")
+            print("\n[EVENTHOUSE CONNECTION] Client initialization complete!")
+            print("=" * 80 + "\n")
             logger.info(
                 "Connected to Eventhouse",
                 extra={
@@ -320,9 +336,9 @@ class KQLClient:
             )
 
         except Exception as e:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("[EVENTHOUSE CONNECTION] FAILED TO CONNECT")
-            print("="*80)
+            print("=" * 80)
             print(f"[EVENTHOUSE CONNECTION] Error type: {type(e).__name__}")
             print(f"[EVENTHOUSE CONNECTION] Error message: {str(e)[:500]}")
             print(f"[EVENTHOUSE CONNECTION] Cluster URL: {self.config.cluster_url}")
@@ -330,7 +346,7 @@ class KQLClient:
             if hasattr(e, "__cause__") and e.__cause__:
                 print(f"[EVENTHOUSE CONNECTION] Caused by: {type(e.__cause__).__name__}")
                 print(f"[EVENTHOUSE CONNECTION] Cause message: {str(e.__cause__)[:500]}")
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
 
             logger.error(
                 "Failed to connect to Eventhouse: %s",
@@ -341,9 +357,7 @@ class KQLClient:
                     "error": str(e)[:200],
                 },
             )
-            raise StorageErrorClassifier.classify_kusto_error(
-                e, {"operation": "connect"}
-            ) from e
+            raise StorageErrorClassifier.classify_kusto_error(e, {"operation": "connect"}) from e
 
     async def close(self) -> None:
         """Close connection and cleanup resources."""

@@ -64,12 +64,8 @@ class PluginRegistry:
             "Registered plugin",
             extra={
                 "plugin_name": plugin.name,
-                "domains": (
-                    [d.value for d in plugin.domains] if plugin.domains else ["all"]
-                ),
-                "stages": (
-                    [s.value for s in plugin.stages] if plugin.stages else ["all"]
-                ),
+                "domains": ([d.value for d in plugin.domains] if plugin.domains else ["all"]),
+                "stages": ([s.value for s in plugin.stages] if plugin.stages else ["all"]),
                 "event_types": plugin.event_types or ["all"],
                 "priority": plugin.priority,
             },
@@ -335,9 +331,7 @@ class ActionExecutor:
                 "topic": topic,
                 "event_id": context.event_id,
                 "project_id": context.project_id,
-                "payload_keys": (
-                    list(payload.keys()) if isinstance(payload, dict) else None
-                ),
+                "payload_keys": (list(payload.keys()) if isinstance(payload, dict) else None),
             },
         )
 
@@ -365,9 +359,7 @@ class ActionExecutor:
                     "event_id": context.event_id,
                     "event_type": context.event_type,
                     "project_id": context.project_id,
-                    "payload_keys": (
-                        list(payload.keys()) if isinstance(payload, dict) else None
-                    ),
+                    "payload_keys": (list(payload.keys()) if isinstance(payload, dict) else None),
                 },
             )
 
@@ -449,9 +441,7 @@ class ActionExecutor:
             # Legacy mode: direct URL with http_client
             url = params.get("url")
             if not url:
-                logger.error(
-                    "HTTP webhook action requires either 'connection' or 'url' parameter"
-                )
+                logger.error("HTTP webhook action requires either 'connection' or 'url' parameter")
                 return
 
             method = params.get("method", "POST")
@@ -672,9 +662,7 @@ class ActionExecutor:
         claim_number = params.get("claim_number")
         task_type = params.get("task_type")
         task_data = params.get("task_data", {})
-        use_primary_contact_as_sender = params.get(
-            "use_primary_contact_as_sender", True
-        )
+        use_primary_contact_as_sender = params.get("use_primary_contact_as_sender", True)
         sender_username = params.get("sender_username")
 
         # Resolve project_id from claim_number if needed
@@ -693,9 +681,7 @@ class ActionExecutor:
                     connection_name=connection_name,
                     method="GET",
                     path="/export/project/projectId",
-                    params={
-                        "projectNumber": claim_number
-                    },  # API uses projectNumber param
+                    params={"projectNumber": claim_number},  # API uses projectNumber param
                 )
 
                 if response.status >= 400:
@@ -717,9 +703,7 @@ class ActionExecutor:
                 if isinstance(response_data, int):
                     project_id = response_data
                 elif isinstance(response_data, dict):
-                    project_id = response_data.get("projectId") or response_data.get(
-                        "id"
-                    )
+                    project_id = response_data.get("projectId") or response_data.get("id")
 
                 if not project_id:
                     logger.warning(

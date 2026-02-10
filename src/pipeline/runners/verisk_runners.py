@@ -47,9 +47,7 @@ async def run_event_ingester(
     )
 
 
-async def run_eventhouse_poller(
-    pipeline_config, shutdown_event: asyncio.Event, local_kafka_config
-):
+async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event, local_kafka_config):
     """Polls Microsoft Fabric Eventhouse for events and produces to events.raw topic.
     Deduplication handled by daily Fabric maintenance job."""
     from pipeline.common.eventhouse.kql_client import EventhouseConfig
@@ -59,11 +57,9 @@ async def run_eventhouse_poller(
 
     eventhouse_source = pipeline_config.verisk_eventhouse
     if not eventhouse_source:
-        raise ValueError(
-            "Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse"
-        )
+        raise ValueError("Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse")
 
-    print(f"[XACT-POLLER] Eventhouse configuration:")
+    print("[XACT-POLLER] Eventhouse configuration:")
     print(f"[XACT-POLLER]   - Cluster URL: {eventhouse_source.cluster_url}")
     print(f"[XACT-POLLER]   - Database: {eventhouse_source.database}")
     print(f"[XACT-POLLER]   - Source table: {eventhouse_source.source_table}")
@@ -82,8 +78,8 @@ async def run_eventhouse_poller(
         query_timeout_seconds=eventhouse_source.query_timeout_seconds,
     )
 
-    print(f"[XACT-POLLER] Message configuration: Loaded")
-    print(f"[XACT-POLLER]   - Output topic: events.raw")
+    print("[XACT-POLLER] Message configuration: Loaded")
+    print("[XACT-POLLER]   - Output topic: events.raw")
 
     poller_config = PollerConfig(
         eventhouse=eventhouse_config,
@@ -321,9 +317,7 @@ async def run_result_processor(
             "when enable_delta_writes=True. Configure via DELTA_INVENTORY_TABLE_PATH "
             "environment variable or delta.xact.inventory_table_path in config.yaml."
         )
-        raise ValueError(
-            "inventory_table_path is required when delta writes are enabled"
-        )
+        raise ValueError("inventory_table_path is required when delta writes are enabled")
 
     await execute_worker_with_producer(
         worker_class=ResultProcessor,
@@ -333,9 +327,7 @@ async def run_result_processor(
         stage_name="xact-result-processor",
         shutdown_event=shutdown_event,
         worker_kwargs={
-            "inventory_table_path": (
-                inventory_table_path if enable_delta_writes else None
-            ),
+            "inventory_table_path": (inventory_table_path if enable_delta_writes else None),
             "failed_table_path": (
                 failed_table_path if enable_delta_writes and failed_table_path else None
             ),

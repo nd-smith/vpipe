@@ -13,16 +13,18 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
+import contextlib
 import json
-import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from config.config import MessageConfig
 from core.types import ErrorCategory
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 from pipeline.verisk.workers.enrichment_worker import XACTEnrichmentWorker
-from pipeline.common.types import PipelineMessage
 
 
 @pytest.fixture
@@ -110,9 +112,7 @@ class TestXACTEnrichmentWorkerInitialization:
     def test_initialization_with_separate_producer_config(self, mock_config):
         """Worker accepts separate producer config."""
         producer_config = Mock(spec=MessageConfig)
-        worker = XACTEnrichmentWorker(
-            config=mock_config, producer_config=producer_config
-        )
+        worker = XACTEnrichmentWorker(config=mock_config, producer_config=producer_config)
 
         assert worker.consumer_config is mock_config
         assert worker.producer_config is producer_config
@@ -135,10 +135,15 @@ class TestXACTEnrichmentWorkerLifecycle:
         """Worker start initializes all components."""
         worker = XACTEnrichmentWorker(config=mock_config)
 
-        with patch("pipeline.verisk.workers.enrichment_worker.create_producer") as mock_create_producer, \
-             patch("pipeline.verisk.workers.enrichment_worker.create_consumer") as mock_create_consumer, \
-             patch("pipeline.common.telemetry.initialize_worker_telemetry"):
-
+        with (
+            patch(
+                "pipeline.verisk.workers.enrichment_worker.create_producer"
+            ) as mock_create_producer,
+            patch(
+                "pipeline.verisk.workers.enrichment_worker.create_consumer"
+            ) as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+        ):
             # Setup mocks
             mock_producer = AsyncMock()
             mock_producer.start = AsyncMock()
@@ -151,10 +156,8 @@ class TestXACTEnrichmentWorkerLifecycle:
             # Prevent blocking on consumer.start
             mock_consumer.start.side_effect = Exception("Stop")
 
-            try:
+            with contextlib.suppress(Exception):
                 await worker.start()
-            except Exception:
-                pass
 
             # Verify components initialized
             assert worker._running is True
@@ -217,9 +220,7 @@ class TestXACTEnrichmentWorkerMessageProcessing:
     """Test message parsing and processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(
-        self, mock_config, sample_message
-    ):
+    async def test_valid_message_parsed_successfully(self, mock_config, sample_message):
         """Worker parses valid enrichment task message."""
         worker = XACTEnrichmentWorker(config=mock_config)
 
@@ -271,7 +272,7 @@ class TestXACTEnrichmentWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
             await worker._handle_enrichment_task(invalid_message)
 
 
@@ -279,9 +280,7 @@ class TestXACTEnrichmentWorkerPluginExecution:
     """Test plugin execution and routing."""
 
     @pytest.mark.asyncio
-    async def test_plugin_executed_for_event_type(
-        self, mock_config, sample_enrichment_task
-    ):
+    async def test_plugin_executed_for_event_type(self, mock_config, sample_enrichment_task):
         """Worker executes plugin orchestrator for task."""
         worker = XACTEnrichmentWorker(config=mock_config)
         worker.producer = AsyncMock()
@@ -294,11 +293,10 @@ class TestXACTEnrichmentWorkerPluginExecution:
         worker.plugin_orchestrator.execute = AsyncMock(return_value=mock_result)
 
         # Mock URL validation to allow test URLs
-        with patch(
-            "pipeline.verisk.workers.enrichment_worker.validate_download_url"
-        ), patch(
-            "pipeline.verisk.workers.enrichment_worker.generate_blob_path"
-        ) as mock_blob:
+        with (
+            patch("pipeline.verisk.workers.enrichment_worker.validate_download_url"),
+            patch("pipeline.verisk.workers.enrichment_worker.generate_blob_path") as mock_blob,
+        ):
             mock_blob.return_value = ("path/file.pdf", "pdf")
 
             await worker._process_single_task(sample_enrichment_task)
@@ -316,11 +314,10 @@ class TestXACTEnrichmentWorkerPluginExecution:
         worker.plugin_orchestrator = None  # No orchestrator
 
         # Mock URL validation
-        with patch(
-            "pipeline.verisk.workers.enrichment_worker.validate_download_url"
-        ), patch(
-            "pipeline.verisk.workers.enrichment_worker.generate_blob_path"
-        ) as mock_blob:
+        with (
+            patch("pipeline.verisk.workers.enrichment_worker.validate_download_url"),
+            patch("pipeline.verisk.workers.enrichment_worker.generate_blob_path") as mock_blob,
+        ):
             mock_blob.return_value = ("path/file.pdf", "pdf")
 
             await worker._process_single_task(sample_enrichment_task)
@@ -334,9 +331,7 @@ class TestXACTEnrichmentWorkerErrorHandling:
     """Test error handling and categorization."""
 
     @pytest.mark.asyncio
-    async def test_task_error_categorized_correctly(
-        self, mock_config, sample_enrichment_task
-    ):
+    async def test_task_error_categorized_correctly(self, mock_config, sample_enrichment_task):
         """Worker categorizes task errors correctly."""
         worker = XACTEnrichmentWorker(config=mock_config)
         worker.producer = AsyncMock()
@@ -366,11 +361,10 @@ class TestXACTEnrichmentWorkerDownloadTasks:
         """Worker creates download tasks from enrichment task attachments."""
         worker = XACTEnrichmentWorker(config=mock_config)
 
-        with patch(
-            "pipeline.verisk.workers.enrichment_worker.validate_download_url"
-        ), patch(
-            "pipeline.verisk.workers.enrichment_worker.generate_blob_path"
-        ) as mock_blob_path:
+        with (
+            patch("pipeline.verisk.workers.enrichment_worker.validate_download_url"),
+            patch("pipeline.verisk.workers.enrichment_worker.generate_blob_path") as mock_blob_path,
+        ):
             mock_blob_path.return_value = ("path/to/file.pdf", "pdf")
 
             download_tasks = await worker._create_download_tasks_from_attachments(

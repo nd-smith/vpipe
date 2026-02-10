@@ -116,12 +116,8 @@ class ClaimXDownloadWorker:
         self.cache_dir = Path(config.cache_dir) / domain
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        processing_config = config.get_worker_config(
-            domain, self.WORKER_NAME, "processing"
-        )
-        self.concurrency = processing_config.get(
-            "concurrency", WorkerDefaults.CONCURRENCY
-        )
+        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
+        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
         self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
 
         # Only consume from pending topic
@@ -218,8 +214,7 @@ class ClaimXDownloadWorker:
             self.cached_topic = self.producer.eventhub_name
 
         self.api_client = ClaimXApiClient(
-            base_url=self.config.claimx_api_url
-            or "https://api.test.claimxperience.com",
+            base_url=self.config.claimx_api_url or "https://api.test.claimxperience.com",
             token=self.config.claimx_api_token,
             timeout_seconds=self.config.claimx_api_timeout_seconds,
             max_concurrent=self.config.claimx_api_concurrency,
@@ -293,9 +288,7 @@ class ClaimXDownloadWorker:
             logger.debug("Worker not running, shutdown request ignored")
             return
 
-        logger.info(
-            "Graceful shutdown requested, will stop after current batch completes"
-        )
+        logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
     async def stop(self) -> None:
@@ -415,9 +408,7 @@ class ClaimXDownloadWorker:
 
         # Check for circuit breaker errors (transient errors that need immediate retry)
         circuit_errors = [
-            r
-            for r in processed_results
-            if r and r.error and isinstance(r.error, CircuitOpenError)
+            r for r in processed_results if r and r.error and isinstance(r.error, CircuitOpenError)
         ]
 
         logger.debug(
@@ -501,9 +492,7 @@ class ClaimXDownloadWorker:
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            consumer_group = self.config.get_consumer_group(
-                self.domain, self.WORKER_NAME
-            )
+            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
@@ -543,9 +532,7 @@ class ClaimXDownloadWorker:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
 
-    def _convert_to_download_task(
-        self, task_message: ClaimXDownloadTask
-    ) -> DownloadTask:
+    def _convert_to_download_task(self, task_message: ClaimXDownloadTask) -> DownloadTask:
         """Creates temp file path using media_id directory to avoid concurrent download conflicts."""
         destination_filename = Path(task_message.blob_path).name
         temp_file = self.temp_dir / task_message.media_id / destination_filename

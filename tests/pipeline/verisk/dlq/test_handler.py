@@ -13,9 +13,10 @@ Test Coverage:
 """
 
 import json
-import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from config.config import MessageConfig
 from pipeline.common.types import PipelineMessage
@@ -177,9 +178,7 @@ class TestDLQHandlerMessageParsing:
         with pytest.raises(ValueError, match="Failed to parse DLQ message"):
             handler.parse_dlq_message(record)
 
-    def test_parse_dlq_message_preserves_original_task(
-        self, handler, valid_dlq_message_dict
-    ):
+    def test_parse_dlq_message_preserves_original_task(self, handler, valid_dlq_message_dict):
         """Parsed message preserves complete original task."""
         json_bytes = json.dumps(valid_dlq_message_dict).encode("utf-8")
         record = PipelineMessage(
@@ -292,9 +291,7 @@ class TestDLQHandlerReplayMessage:
         assert replayed_task.retry_count == 0
 
     @pytest.mark.asyncio
-    async def test_replay_message_preserves_task_fields(
-        self, handler, pipeline_record
-    ):
+    async def test_replay_message_preserves_task_fields(self, handler, pipeline_record):
         """Replayed task preserves all original task fields."""
         await handler.replay_message(pipeline_record)
 
@@ -310,9 +307,7 @@ class TestDLQHandlerReplayMessage:
         assert replayed_task.assignment_id == "assignment-789"
 
     @pytest.mark.asyncio
-    async def test_replay_message_adds_replay_metadata(
-        self, handler, pipeline_record
-    ):
+    async def test_replay_message_adds_replay_metadata(self, handler, pipeline_record):
         """Replayed task includes replay metadata."""
         await handler.replay_message(pipeline_record)
 
@@ -324,9 +319,7 @@ class TestDLQHandlerReplayMessage:
         assert replayed_task.metadata["dlq_partition"] == 2
 
     @pytest.mark.asyncio
-    async def test_replay_message_preserves_original_metadata(
-        self, handler, pipeline_record
-    ):
+    async def test_replay_message_preserves_original_metadata(self, handler, pipeline_record):
         """Replayed task preserves original task metadata."""
         await handler.replay_message(pipeline_record)
 
@@ -344,9 +337,7 @@ class TestDLQHandlerReplayMessage:
         assert send_call.kwargs["key"] == "test-trace-123"
 
     @pytest.mark.asyncio
-    async def test_replay_message_headers_include_replay_flag(
-        self, handler, pipeline_record
-    ):
+    async def test_replay_message_headers_include_replay_flag(self, handler, pipeline_record):
         """Replayed message headers include replayed_from_dlq flag."""
         await handler.replay_message(pipeline_record)
 
@@ -438,9 +429,7 @@ class TestDLQHandlerAcknowledgeMessage:
         handler._consumer._consumer.commit.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_acknowledge_message_parses_message_first(
-        self, handler, pipeline_record
-    ):
+    async def test_acknowledge_message_parses_message_first(self, handler, pipeline_record):
         """Acknowledge message parses DLQ message before committing."""
         # This test verifies that parse is called (implicitly) by checking no error
         await handler.acknowledge_message(pipeline_record)

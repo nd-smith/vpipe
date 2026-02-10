@@ -103,9 +103,7 @@ def _expand_env_vars(data: Any) -> Any:
 
         def replacer(match):
             var_name = match.group(1)
-            default_value = (
-                match.group(2) if match.group(2) is not None else match.group(0)
-            )
+            default_value = match.group(2) if match.group(2) is not None else match.group(0)
             return os.getenv(var_name, default_value)
 
         return re.sub(pattern, replacer, data)
@@ -174,9 +172,7 @@ class MessageConfig:
     # =========================================================================
     logging_config: LoggingConfig = field(default_factory=dict)
 
-    def _get_domain_config(
-        self, domain: str
-    ) -> VeriskDomainConfig | ClaimXDomainConfig | dict:
+    def _get_domain_config(self, domain: str) -> VeriskDomainConfig | ClaimXDomainConfig | dict:
         """Get domain config by name.
 
         Returns empty dict for unknown domains (e.g., 'plugins') to support
@@ -284,8 +280,7 @@ class MessageConfig:
     ) -> None:
         if key in settings and settings[key] not in valid_values:
             raise ValueError(
-                f"{context}: {key} must be one of {valid_values}, "
-                f"got '{settings[key]}'"
+                f"{context}: {key} must be one of {valid_values}, got '{settings[key]}'"
             )
 
     @staticmethod
@@ -299,9 +294,7 @@ class MessageConfig:
         if key in settings:
             value = settings[key]
             if inclusive and value < min_value:
-                raise ValueError(
-                    f"{context}: {key} must be >= {min_value}, got {value}"
-                )
+                raise ValueError(f"{context}: {key} must be >= {min_value}, got {value}")
             elif not inclusive and value <= min_value:
                 raise ValueError(f"{context}: {key} must be > {min_value}, got {value}")
 
@@ -320,17 +313,11 @@ class MessageConfig:
                     f"{context}: {key} must be between {min_value} and {max_value}, got {value}"
                 )
 
-    def _validate_processing_settings(
-        self, settings: dict[str, Any], context: str
-    ) -> None:
+    def _validate_processing_settings(self, settings: dict[str, Any], context: str) -> None:
         self._validate_range(settings, "concurrency", 1, 50, context)
         self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
-        self._validate_min(
-            settings, "timeout_seconds", 0, inclusive=False, context=context
-        )
-        self._validate_min(
-            settings, "flush_timeout_seconds", 0, inclusive=False, context=context
-        )
+        self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
+        self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
 
     def _validate_urls(self) -> None:
 
@@ -387,8 +374,7 @@ def load_config(
 
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Configuration file not found: {config_path}\n"
-            f"Expected file: config/config.yaml"
+            f"Configuration file not found: {config_path}\nExpected file: config/config.yaml"
         )
 
     logger.info("Loading configuration from file: %s", config_path)
@@ -428,13 +414,9 @@ def load_config(
         claimx=claimx_config,
         onelake_base_path=storage.get("onelake_base_path", ""),
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
-        cache_dir=storage.get("cache_dir")
-        or str(Path(tempfile.gettempdir()) / "pipeline_cache"),
-        temp_dir=storage.get("temp_dir")
-        or str(Path(tempfile.gettempdir()) / "pipeline_temp"),
-        claimx_api_url=get_config_value(
-            "CLAIMX_API_URL", claimx_api.get("base_url", "")
-        ),
+        cache_dir=storage.get("cache_dir") or str(Path(tempfile.gettempdir()) / "pipeline_cache"),
+        temp_dir=storage.get("temp_dir") or str(Path(tempfile.gettempdir()) / "pipeline_temp"),
+        claimx_api_url=get_config_value("CLAIMX_API_URL", claimx_api.get("base_url", "")),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=int(
             get_config_value(
@@ -442,9 +424,7 @@ def load_config(
             )
         ),
         claimx_api_concurrency=int(
-            get_config_value(
-                "CLAIMX_API_CONCURRENCY", str(claimx_api.get("max_concurrent", 20))
-            )
+            get_config_value("CLAIMX_API_CONCURRENCY", str(claimx_api.get("max_concurrent", 20)))
         ),
         logging_config=logging_config,
     )

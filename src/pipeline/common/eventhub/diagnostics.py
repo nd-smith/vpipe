@@ -101,7 +101,7 @@ def test_dns_resolution(hostname: str) -> dict[str, Any]:
     try:
         # Resolve hostname to IP addresses
         addr_info = socket.getaddrinfo(hostname, 443, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        ip_addresses = list(set(addr[4][0] for addr in addr_info))
+        ip_addresses = list({addr[4][0] for addr in addr_info})
 
         result["resolved"] = True
         result["ip_addresses"] = ip_addresses
@@ -124,9 +124,9 @@ def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
         conn_str: Event Hub connection string
         eventhub_name: Event Hub entity name
     """
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info("[DEBUG] Event Hub Connection Diagnostics")
-    logger.info("="*60)
+    logger.info("=" * 60)
 
     # 1. Masked connection string
     masked_conn_str = mask_connection_string(conn_str)
@@ -136,8 +136,12 @@ def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
     parts = parse_connection_string(conn_str)
     logger.info(f"[DEBUG] Endpoint: {parts.get('Endpoint', 'NOT SET')}")
     logger.info(f"[DEBUG] SharedAccessKeyName: {parts.get('SharedAccessKeyName', 'NOT SET')}")
-    logger.info(f"[DEBUG] SharedAccessKey: {'***SET***' if parts.get('SharedAccessKey') else 'NOT SET'}")
-    logger.info(f"[DEBUG] EntityPath in connection string: {parts.get('EntityPath', 'NOT SET (correct for namespace-level)')}")
+    logger.info(
+        f"[DEBUG] SharedAccessKey: {'***SET***' if parts.get('SharedAccessKey') else 'NOT SET'}"
+    )
+    logger.info(
+        f"[DEBUG] EntityPath in connection string: {parts.get('EntityPath', 'NOT SET (correct for namespace-level)')}"
+    )
     logger.info(f"[DEBUG] Event Hub name parameter: {eventhub_name}")
 
     # 3. Connection string source
@@ -152,9 +156,7 @@ def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
 
     # 4. SSL/TLS configuration
     ca_bundle = (
-        os.getenv("SSL_CERT_FILE")
-        or os.getenv("REQUESTS_CA_BUNDLE")
-        or os.getenv("CURL_CA_BUNDLE")
+        os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("CURL_CA_BUNDLE")
     )
     if ca_bundle:
         logger.info(f"[DEBUG] SSL CA bundle: {ca_bundle}")
@@ -185,11 +187,12 @@ def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
     # 7. Azure SDK versions
     try:
         import azure.eventhub
+
         logger.info(f"[DEBUG] azure-eventhub version: {azure.eventhub.__version__}")
     except Exception as e:
         logger.warning(f"[DEBUG] Could not get azure-eventhub version: {e}")
 
-    logger.info("="*60)
+    logger.info("=" * 60)
 
 
 def log_connection_attempt_details(
@@ -207,7 +210,7 @@ def log_connection_attempt_details(
     logger.info("[DEBUG] Connection attempt details:")
     logger.info(f"[DEBUG]   Event Hub name: {eventhub_name}")
     logger.info(f"[DEBUG]   Transport type: {transport_type}")
-    logger.info(f"[DEBUG]   Protocol: AMQP over WebSocket (port 443)")
+    logger.info("[DEBUG]   Protocol: AMQP over WebSocket (port 443)")
     logger.info(f"[DEBUG]   SSL kwargs: {ssl_kwargs}")
 
     if ssl_kwargs.get("connection_verify"):

@@ -28,7 +28,6 @@ from pipeline.plugins.itel_cabinet_api.parsers import (
     parse_url_expiration,
 )
 
-
 # =====================
 # Utility function tests
 # =====================
@@ -327,7 +326,9 @@ class TestDataBuilderExtractValue:
 
 class TestDataBuilderGetTopicCategory:
     def test_island_category(self):
-        assert DataBuilder.get_topic_category("Island Cabinets", "Some question") == "Island Cabinets"
+        assert (
+            DataBuilder.get_topic_category("Island Cabinets", "Some question") == "Island Cabinets"
+        )
 
     def test_lower_category(self):
         assert DataBuilder.get_topic_category("Lower Cabinets", "Some question") == "Lower Cabinets"
@@ -336,7 +337,10 @@ class TestDataBuilderGetTopicCategory:
         assert DataBuilder.get_topic_category("Upper Cabinets", "Some question") == "Upper Cabinets"
 
     def test_full_height_category(self):
-        assert DataBuilder.get_topic_category("Full Height/Pantry Cabinets", "Q") == "Full Height / Pantry"
+        assert (
+            DataBuilder.get_topic_category("Full Height/Pantry Cabinets", "Q")
+            == "Full Height / Pantry"
+        )
 
     def test_pantry_category(self):
         assert DataBuilder.get_topic_category("Pantry Section", "Q") == "Full Height / Pantry"
@@ -351,29 +355,32 @@ class TestDataBuilderGetTopicCategory:
         assert DataBuilder.get_topic_category("ISLAND section", "Q") == "Island Cabinets"
 
     def test_question_text_contributes(self):
-        assert DataBuilder.get_topic_category("Some Group", "Lower Cabinet question") == "Lower Cabinets"
+        assert (
+            DataBuilder.get_topic_category("Some Group", "Lower Cabinet question")
+            == "Lower Cabinets"
+        )
 
 
 class TestDataBuilderBuildFormRow:
     def _make_api_response(self, groups=None, **overrides):
-        defaults = dict(
-            assignment_id=1001,
-            task_id=456,
-            task_name="Cabinet Repair",
-            project_id=5395115,
-            form_id="form-abc",
-            status="COMPLETED",
-            form_response_id="resp-1",
-            assignor_email="admin@example.com",
-            external_link_data=ExternalLinkData(
+        defaults = {
+            "assignment_id": 1001,
+            "task_id": 456,
+            "task_name": "Cabinet Repair",
+            "project_id": 5395115,
+            "form_id": "form-abc",
+            "status": "COMPLETED",
+            "form_response_id": "resp-1",
+            "assignor_email": "admin@example.com",
+            "external_link_data": ExternalLinkData(
                 url="https://link.example.com",
                 first_name="John",
                 last_name="Doe",
                 email="john@example.com",
                 phone="555-0100",
             ),
-            response=ResponseData(groups=groups or []),
-        )
+            "response": ResponseData(groups=groups or []),
+        }
         defaults.update(overrides)
         return ApiResponse(**defaults)
 
@@ -459,9 +466,7 @@ class TestDataBuilderBuildFormRow:
                     QuestionAndAnswer(
                         question_text="Q1",
                         component="text",
-                        response_answer_export=ResponseAnswerExport(
-                            type="text", text="A1"
-                        ),
+                        response_answer_export=ResponseAnswerExport(type="text", text="A1"),
                         form_control=FormControl(id="c3"),
                     ),
                 ],
@@ -564,9 +569,7 @@ class TestDataBuilderExtractAttachments:
                     QuestionAndAnswer(
                         question_text="Enter Description",
                         component="text",
-                        response_answer_export=ResponseAnswerExport(
-                            type="text", text="Some text"
-                        ),
+                        response_answer_export=ResponseAnswerExport(type="text", text="Some text"),
                         form_control=FormControl(id="c1"),
                     ),
                 ],
@@ -879,9 +882,7 @@ class TestParseCabinetAttachments:
             "status": "COMPLETED",
             "response": {"groups": []},
         }
-        attachments = parse_cabinet_attachments(
-            task_data, 1001, 5395115, "evt-1"
-        )
+        attachments = parse_cabinet_attachments(task_data, 1001, 5395115, "evt-1")
         assert attachments == []
 
     def test_extract_attachments_via_data_builder(self):
@@ -1063,7 +1064,7 @@ class TestColumnMap:
             assert " " not in col_name
 
     def test_all_keys_are_tuples(self):
-        for key in COLUMN_MAP.keys():
+        for key in COLUMN_MAP:
             assert isinstance(key, tuple)
             assert len(key) == 2
 

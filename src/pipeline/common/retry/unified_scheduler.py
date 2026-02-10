@@ -423,9 +423,7 @@ class UnifiedRetryScheduler:
 
         await self._route_to_target(
             target_topic=target_topic,
-            message_key=(
-                original_key if isinstance(original_key, (str, bytes)) else message.key
-            ),
+            message_key=(original_key if isinstance(original_key, (str, bytes)) else message.key),
             message_value=message.value,
             retry_count=retry_count,
             worker_type=worker_type,
@@ -440,9 +438,7 @@ class UnifiedRetryScheduler:
             for key, value in message.headers:
                 try:
                     decoded_value = (
-                        value.decode("utf-8")
-                        if isinstance(value, bytes)
-                        else str(value)
+                        value.decode("utf-8") if isinstance(value, bytes) else str(value)
                     )
                     headers[key] = decoded_value
                 except Exception as e:

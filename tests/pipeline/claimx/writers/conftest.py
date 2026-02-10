@@ -1,9 +1,8 @@
 """Fixtures for ClaimX writer tests."""
 
 import os
-from datetime import datetime, timezone
-from typing import Dict, List
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
@@ -28,7 +27,7 @@ def sample_claimx_event():
         "task_assignment_id": None,
         "video_collaboration_id": None,
         "master_file_name": "MFN-123456",
-        "ingested_at": datetime.now(timezone.utc),
+        "ingested_at": datetime.now(UTC),
     }
 
 
@@ -45,9 +44,9 @@ def sample_project_row():
         "customer_first_name": "John",
         "customer_last_name": "Doe",
         "event_id": "evt-12345",
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-        "last_enriched_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "last_enriched_at": datetime.now(UTC),
     }
 
 
@@ -64,8 +63,8 @@ def sample_contact_row():
         "is_primary_contact": True,
         "master_file_name": "MFN-123456",
         "event_id": "evt-12345",
-        "created_at": datetime.now(timezone.utc),
-        "last_enriched_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
+        "last_enriched_at": datetime.now(UTC),
     }
 
 
@@ -100,9 +99,9 @@ def sample_task_row():
         "stp_enabled": False,
         "mfn": "MFN-123456",
         "event_id": "evt-12345",
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-        "last_enriched_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "last_enriched_at": datetime.now(UTC),
     }
 
 
@@ -135,8 +134,8 @@ def mock_base_delta_writer():
         async def _async_merge(
             self,
             df: pl.DataFrame,
-            merge_keys: List[str],
-            preserve_columns: List[str] = None,
+            merge_keys: list[str],
+            preserve_columns: list[str] = None,
             update_condition: str = None,
         ) -> bool:
             self._merge_call_count += 1

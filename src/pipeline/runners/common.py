@@ -58,9 +58,7 @@ async def _start_with_retry(
         backoff_base: Base seconds for backoff (default: 5, env: STARTUP_BACKOFF_SECONDS)
         use_constant_backoff: If True, use constant delays instead of linear (default: False)
     """
-    max_retries = max_retries or int(
-        os.getenv("STARTUP_MAX_RETRIES", str(DEFAULT_STARTUP_RETRIES))
-    )
+    max_retries = max_retries or int(os.getenv("STARTUP_MAX_RETRIES", str(DEFAULT_STARTUP_RETRIES)))
     backoff_base = backoff_base or int(
         os.getenv("STARTUP_BACKOFF_SECONDS", str(DEFAULT_STARTUP_BACKOFF_BASE))
     )
@@ -78,8 +76,7 @@ async def _start_with_retry(
                 raise
             delay = backoff_base if use_constant_backoff else backoff_base * attempt
             logger.warning(
-                f"Failed to start {label} (attempt {attempt}/{max_retries}), "
-                f"retrying in {delay}s",
+                f"Failed to start {label} (attempt {attempt}/{max_retries}), retrying in {delay}s",
                 extra={"error": str(e), "attempt": attempt, "delay": delay},
             )
             await asyncio.sleep(delay)
@@ -108,9 +105,7 @@ async def _enter_worker_error_mode(
         error_msg: Error message describing the failure
         shutdown_event: Event to wait on for graceful shutdown
     """
-    logger.warning(
-        f"Entering ERROR MODE for {stage_name} - health endpoint will remain alive"
-    )
+    logger.warning(f"Entering ERROR MODE for {stage_name} - health endpoint will remain alive")
 
     # Set error state on existing health server
     health_server.set_error(error_msg)
@@ -164,9 +159,7 @@ async def execute_worker_with_shutdown(
 
     async def shutdown_watcher():
         await shutdown_event.wait()
-        logger.info(
-            f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
-        )
+        logger.info(f"Shutdown signal received, stopping {stage_name}{logger_suffix}...")
         await worker_instance.stop()
 
     watcher_task = asyncio.create_task(shutdown_watcher())
@@ -265,9 +258,7 @@ async def execute_worker_with_producer(
 
     async def shutdown_watcher():
         await shutdown_event.wait()
-        logger.info(
-            f"Shutdown signal received, stopping {stage_name}{logger_suffix}..."
-        )
+        logger.info(f"Shutdown signal received, stopping {stage_name}{logger_suffix}...")
         await worker.stop()
 
     watcher_task = asyncio.create_task(shutdown_watcher())
@@ -332,9 +323,7 @@ async def execute_poller_with_shutdown(
                 os.getenv("POLLER_STARTUP_MAX_RETRIES", str(DEFAULT_POLLER_RETRIES))
             )
             poller_backoff = int(
-                os.getenv(
-                    "POLLER_STARTUP_BACKOFF_SECONDS", str(DEFAULT_POLLER_BACKOFF_BASE)
-                )
+                os.getenv("POLLER_STARTUP_BACKOFF_SECONDS", str(DEFAULT_POLLER_BACKOFF_BASE))
             )
             await _start_with_retry(
                 poller.run,

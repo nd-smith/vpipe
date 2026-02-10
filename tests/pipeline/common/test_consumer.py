@@ -17,9 +17,7 @@ def _make_config(**overrides):
     config.connections_max_idle_ms = 540000
     config.security_protocol = "PLAINTEXT"
     config.get_worker_config.return_value = overrides.get("worker_config", {})
-    config.get_consumer_group.return_value = overrides.get(
-        "group_id", "test-domain-test-worker"
-    )
+    config.get_consumer_group.return_value = overrides.get("group_id", "test-domain-test-worker")
     return config
 
 
@@ -31,7 +29,7 @@ def _make_kafka_mock(**overrides):
     mock.commit = AsyncMock()
     mock.getmany = AsyncMock(return_value={})
     mock.assignment = Mock(return_value=overrides.get("assignment", set()))
-    mock.highwater = Mock(return_value=overrides.get("highwater", None))
+    mock.highwater = Mock(return_value=overrides.get("highwater"))
     return mock
 
 
@@ -63,77 +61,82 @@ def _make_consumer(**overrides):
     from pipeline.common.consumer import MessageConsumer
 
     config = overrides.pop("config", _make_config(**overrides))
-    with patch("pipeline.common.dlq.producer.DLQProducer"):
-        with patch(
-            "pipeline.common.consumer.generate_worker_id", return_value="test-worker-id"
-        ):
-            consumer = MessageConsumer(
-                config=config,
-                domain=overrides.get("domain", "verisk"),
-                worker_name=overrides.get("worker_name", "test"),
-                topics=overrides.get("topics", ["t1"]),
-                message_handler=overrides.get("message_handler", AsyncMock()),
-                enable_message_commit=overrides.get("enable_message_commit", True),
-                instance_id=overrides.get("instance_id", None),
-            )
+    with (
+        patch("pipeline.common.dlq.producer.DLQProducer"),
+        patch("pipeline.common.consumer.generate_worker_id", return_value="test-worker-id"),
+    ):
+        consumer = MessageConsumer(
+            config=config,
+            domain=overrides.get("domain", "verisk"),
+            worker_name=overrides.get("worker_name", "test"),
+            topics=overrides.get("topics", ["t1"]),
+            message_handler=overrides.get("message_handler", AsyncMock()),
+            enable_message_commit=overrides.get("enable_message_commit", True),
+            instance_id=overrides.get("instance_id"),
+        )
     # Replace the MagicMock DLQ producer with AsyncMock so await works
     consumer._dlq_producer = AsyncMock()
     return consumer
 
 
 class TestMessageConsumerInit:
-
     def test_raises_on_empty_topics(self):
         from pipeline.common.consumer import MessageConsumer
 
         config = _make_config()
-        with patch("pipeline.common.dlq.producer.DLQProducer"):
-            with patch("pipeline.common.consumer.generate_worker_id"):
-                with pytest.raises(ValueError, match="At least one topic"):
-                    MessageConsumer(
-                        config=config,
-                        domain="verisk",
-                        worker_name="test",
-                        topics=[],
-                        message_handler=AsyncMock(),
-                    )
+        with (
+            patch("pipeline.common.dlq.producer.DLQProducer"),
+            patch("pipeline.common.consumer.generate_worker_id"),
+            pytest.raises(ValueError, match="At least one topic"),
+        ):
+            MessageConsumer(
+                config=config,
+                domain="verisk",
+                worker_name="test",
+                topics=[],
+                message_handler=AsyncMock(),
+            )
 
     def test_sets_worker_id_with_instance_id(self):
-        with patch("pipeline.common.dlq.producer.DLQProducer"):
-            with patch(
+        with (
+            patch("pipeline.common.dlq.producer.DLQProducer"),
+            patch(
                 "pipeline.common.consumer.generate_worker_id",
                 return_value="test-worker-id",
-            ) as mock_worker_id:
-                from pipeline.common.consumer import MessageConsumer
+            ) as mock_worker_id,
+        ):
+            from pipeline.common.consumer import MessageConsumer
 
-                config = _make_config()
-                MessageConsumer(
-                    config=config,
-                    domain="verisk",
-                    worker_name="test",
-                    topics=["t1"],
-                    message_handler=AsyncMock(),
-                    instance_id="3",
-                )
-                mock_worker_id.assert_called_once_with("verisk-test-3")
+            config = _make_config()
+            MessageConsumer(
+                config=config,
+                domain="verisk",
+                worker_name="test",
+                topics=["t1"],
+                message_handler=AsyncMock(),
+                instance_id="3",
+            )
+            mock_worker_id.assert_called_once_with("verisk-test-3")
 
     def test_sets_worker_id_without_instance_id(self):
-        with patch("pipeline.common.dlq.producer.DLQProducer"):
-            with patch(
+        with (
+            patch("pipeline.common.dlq.producer.DLQProducer"),
+            patch(
                 "pipeline.common.consumer.generate_worker_id",
                 return_value="test-worker-id",
-            ) as mock_worker_id:
-                from pipeline.common.consumer import MessageConsumer
+            ) as mock_worker_id,
+        ):
+            from pipeline.common.consumer import MessageConsumer
 
-                config = _make_config()
-                MessageConsumer(
-                    config=config,
-                    domain="verisk",
-                    worker_name="test",
-                    topics=["t1"],
-                    message_handler=AsyncMock(),
-                )
-                mock_worker_id.assert_called_once_with("verisk-test")
+            config = _make_config()
+            MessageConsumer(
+                config=config,
+                domain="verisk",
+                worker_name="test",
+                topics=["t1"],
+                message_handler=AsyncMock(),
+            )
+            mock_worker_id.assert_called_once_with("verisk-test")
 
     def test_reads_max_batches_from_processing_config(self):
         config = _make_config()
@@ -153,16 +156,17 @@ class TestMessageConsumerInit:
 
 
 class TestMessageConsumerStart:
-
     async def test_start_creates_and_starts_kafka_consumer(self):
         consumer = _make_consumer()
         mock_kafka = _make_kafka_mock()
 
-        with patch("pipeline.common.consumer.AIOKafkaConsumer", return_value=mock_kafka):
-            with patch("pipeline.common.consumer.build_kafka_security_config", return_value={}):
-                with patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError):
-                    with pytest.raises(asyncio.CancelledError):
-                        await consumer.start()
+        with (
+            patch("pipeline.common.consumer.AIOKafkaConsumer", return_value=mock_kafka),
+            patch("pipeline.common.consumer.build_kafka_security_config", return_value={}),
+            patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await consumer.start()
 
         mock_kafka.start.assert_awaited_once()
         assert consumer._running is False
@@ -176,18 +180,19 @@ class TestMessageConsumerStart:
         consumer = _make_consumer(instance_id="7")
         mock_kafka = _make_kafka_mock()
 
-        with patch("pipeline.common.consumer.AIOKafkaConsumer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.consumer.build_kafka_security_config", return_value={}):
-                with patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError):
-                    with pytest.raises(asyncio.CancelledError):
-                        await consumer.start()
+        with (
+            patch("pipeline.common.consumer.AIOKafkaConsumer", return_value=mock_kafka) as mock_cls,
+            patch("pipeline.common.consumer.build_kafka_security_config", return_value={}),
+            patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await consumer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["client_id"] == "verisk-test-7"
 
 
 class TestMessageConsumerStop:
-
     async def test_stop_commits_and_stops_consumer(self):
         consumer = _make_consumer()
         consumer._consumer = _make_kafka_mock()
@@ -213,7 +218,6 @@ class TestMessageConsumerStop:
 
 
 class TestMessageConsumerCommit:
-
     async def test_commit_calls_consumer_commit(self):
         consumer = _make_consumer()
         mock_kafka = _make_kafka_mock()
@@ -229,7 +233,6 @@ class TestMessageConsumerCommit:
 
 
 class TestMessageConsumerConsumeLoop:
-
     async def test_consume_loop_stops_at_max_batches(self):
         config = _make_config()
         config.get_worker_config.side_effect = lambda d, w, c: (
@@ -318,7 +321,6 @@ class TestMessageConsumerConsumeLoop:
 
 
 class TestMessageConsumerProcessMessage:
-
     async def test_successful_message_commits_offset(self):
         handler = AsyncMock()
         consumer = _make_consumer(message_handler=handler)
@@ -366,9 +368,7 @@ class TestMessageConsumerProcessMessage:
         consumer = _make_consumer(message_handler=handler)
         consumer._consumer = _make_kafka_mock()
 
-        with patch.object(
-            consumer, "_handle_processing_error", new_callable=AsyncMock
-        ) as mock_err:
+        with patch.object(consumer, "_handle_processing_error", new_callable=AsyncMock) as mock_err:
             record = _make_consumer_record()
             await consumer._process_message(record)
 
@@ -379,15 +379,18 @@ class TestMessageConsumerProcessMessage:
 
 
 class TestMessageConsumerErrorHandling:
-
     async def test_permanent_error_routes_to_dlq(self):
         consumer = _make_consumer()
         consumer._consumer = _make_kafka_mock()
 
         record = _make_consumer_record()
         pipeline_msg = PipelineMessage(
-            topic="t1", partition=0, offset=42, timestamp=1000,
-            key=b"key-1", value=b'{"data": "hello"}',
+            topic="t1",
+            partition=0,
+            offset=42,
+            timestamp=1000,
+            key=b"key-1",
+            value=b'{"data": "hello"}',
         )
 
         with patch(
@@ -412,8 +415,12 @@ class TestMessageConsumerErrorHandling:
 
         record = _make_consumer_record()
         pipeline_msg = PipelineMessage(
-            topic="t1", partition=0, offset=42, timestamp=1000,
-            key=b"key-1", value=b'{"data": "hello"}',
+            topic="t1",
+            partition=0,
+            offset=42,
+            timestamp=1000,
+            key=b"key-1",
+            value=b'{"data": "hello"}',
         )
 
         with patch(
@@ -425,9 +432,7 @@ class TestMessageConsumerErrorHandling:
             mock_classified.category = ErrorCategory.PERMANENT
             mock_classify.return_value = mock_classified
 
-            await consumer._handle_processing_error(
-                pipeline_msg, record, ValueError("bad"), 0.1
-            )
+            await consumer._handle_processing_error(pipeline_msg, record, ValueError("bad"), 0.1)
 
         mock_kafka.commit.assert_awaited_once()
 
@@ -438,8 +443,12 @@ class TestMessageConsumerErrorHandling:
 
         record = _make_consumer_record()
         pipeline_msg = PipelineMessage(
-            topic="t1", partition=0, offset=42, timestamp=1000,
-            key=b"key-1", value=b'{"data": "hello"}',
+            topic="t1",
+            partition=0,
+            offset=42,
+            timestamp=1000,
+            key=b"key-1",
+            value=b'{"data": "hello"}',
         )
 
         with patch(
@@ -451,9 +460,7 @@ class TestMessageConsumerErrorHandling:
             mock_classified.category = ErrorCategory.PERMANENT
             mock_classify.return_value = mock_classified
 
-            await consumer._handle_processing_error(
-                pipeline_msg, record, ValueError("x"), 0.1
-            )
+            await consumer._handle_processing_error(pipeline_msg, record, ValueError("x"), 0.1)
 
         mock_kafka.commit.assert_not_awaited()
 
@@ -463,8 +470,12 @@ class TestMessageConsumerErrorHandling:
 
         record = _make_consumer_record()
         pipeline_msg = PipelineMessage(
-            topic="t1", partition=0, offset=42, timestamp=1000,
-            key=b"key-1", value=b'{"data": "hello"}',
+            topic="t1",
+            partition=0,
+            offset=42,
+            timestamp=1000,
+            key=b"key-1",
+            value=b'{"data": "hello"}',
         )
 
         with patch(
@@ -484,15 +495,17 @@ class TestMessageConsumerErrorHandling:
 
     async def test_dlq_send_failure_does_not_raise(self):
         consumer = _make_consumer()
-        consumer._dlq_producer.send = AsyncMock(
-            side_effect=RuntimeError("DLQ down")
-        )
+        consumer._dlq_producer.send = AsyncMock(side_effect=RuntimeError("DLQ down"))
         consumer._consumer = _make_kafka_mock()
 
         record = _make_consumer_record()
         pipeline_msg = PipelineMessage(
-            topic="t1", partition=0, offset=42, timestamp=1000,
-            key=b"key-1", value=b'{"data": "hello"}',
+            topic="t1",
+            partition=0,
+            offset=42,
+            timestamp=1000,
+            key=b"key-1",
+            value=b'{"data": "hello"}',
         )
 
         with patch(
@@ -504,13 +517,10 @@ class TestMessageConsumerErrorHandling:
             mock_classified.category = ErrorCategory.PERMANENT
             mock_classify.return_value = mock_classified
 
-            await consumer._handle_processing_error(
-                pipeline_msg, record, ValueError("x"), 0.1
-            )
+            await consumer._handle_processing_error(pipeline_msg, record, ValueError("x"), 0.1)
 
 
 class TestMessageConsumerPartitionMetrics:
-
     def test_update_partition_metrics_noop_when_no_consumer(self):
         consumer = _make_consumer()
         consumer._consumer = None
@@ -524,8 +534,10 @@ class TestMessageConsumerPartitionMetrics:
         consumer._consumer = mock_kafka
 
         record = _make_consumer_record(offset=50)
-        with patch("pipeline.common.consumer.update_consumer_offset") as mock_offset, \
-             patch("pipeline.common.consumer.update_consumer_lag") as mock_lag:
+        with (
+            patch("pipeline.common.consumer.update_consumer_offset") as mock_offset,
+            patch("pipeline.common.consumer.update_consumer_lag") as mock_lag,
+        ):
             consumer._update_partition_metrics(record)
 
             mock_offset.assert_called_once()
@@ -537,14 +549,15 @@ class TestMessageConsumerPartitionMetrics:
         consumer._consumer = mock_kafka
 
         record = _make_consumer_record()
-        with patch("pipeline.common.consumer.update_consumer_offset"), \
-             patch("pipeline.common.consumer.update_consumer_lag") as mock_lag:
+        with (
+            patch("pipeline.common.consumer.update_consumer_offset"),
+            patch("pipeline.common.consumer.update_consumer_lag") as mock_lag,
+        ):
             consumer._update_partition_metrics(record)
             mock_lag.assert_not_called()
 
 
 class TestMessageConsumerIsRunning:
-
     def test_is_running_true_when_active(self):
         consumer = _make_consumer()
         consumer._running = True

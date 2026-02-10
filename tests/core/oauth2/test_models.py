@@ -58,9 +58,7 @@ class TestOAuth2Token:
     def test_is_expired_fresh_token(self):
         """Fresh token should not be expired."""
         expires_at = datetime.now(UTC) + timedelta(hours=1)
-        token = OAuth2Token(
-            access_token="token", token_type="Bearer", expires_at=expires_at
-        )
+        token = OAuth2Token(access_token="token", token_type="Bearer", expires_at=expires_at)
 
         assert not token.is_expired()
 
@@ -68,27 +66,21 @@ class TestOAuth2Token:
         """Token within buffer period should be considered expired."""
         # Expires in 4 minutes, buffer is 5 minutes
         expires_at = datetime.now(UTC) + timedelta(minutes=4)
-        token = OAuth2Token(
-            access_token="token", token_type="Bearer", expires_at=expires_at
-        )
+        token = OAuth2Token(access_token="token", token_type="Bearer", expires_at=expires_at)
 
         assert token.is_expired(buffer_seconds=300)
 
     def test_is_expired_past_expiry(self):
         """Expired token should be expired."""
         expires_at = datetime.now(UTC) - timedelta(minutes=1)
-        token = OAuth2Token(
-            access_token="token", token_type="Bearer", expires_at=expires_at
-        )
+        token = OAuth2Token(access_token="token", token_type="Bearer", expires_at=expires_at)
 
         assert token.is_expired()
 
     def test_remaining_lifetime_fresh_token(self):
         """Should calculate remaining lifetime correctly."""
         expires_at = datetime.now(UTC) + timedelta(hours=1)
-        token = OAuth2Token(
-            access_token="token", token_type="Bearer", expires_at=expires_at
-        )
+        token = OAuth2Token(access_token="token", token_type="Bearer", expires_at=expires_at)
 
         remaining = token.remaining_lifetime
         assert timedelta(minutes=59) < remaining < timedelta(minutes=61)
@@ -96,9 +88,7 @@ class TestOAuth2Token:
     def test_remaining_lifetime_expired_token(self):
         """Expired token should have negative remaining lifetime."""
         expires_at = datetime.now(UTC) - timedelta(minutes=5)
-        token = OAuth2Token(
-            access_token="token", token_type="Bearer", expires_at=expires_at
-        )
+        token = OAuth2Token(access_token="token", token_type="Bearer", expires_at=expires_at)
 
         remaining = token.remaining_lifetime
         assert remaining < timedelta(0)

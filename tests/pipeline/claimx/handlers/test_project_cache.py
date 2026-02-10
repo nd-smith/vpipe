@@ -4,7 +4,6 @@ from pipeline.claimx.handlers.project_cache import ProjectCache
 
 
 class TestProjectCache:
-
     def test_cache_starts_empty(self):
         cache = ProjectCache()
         assert cache.size() == 0

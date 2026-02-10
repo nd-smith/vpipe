@@ -4,13 +4,11 @@ Covers BlobDedupStore: initialize, check_duplicate, mark_processed,
 cleanup_expired, and close.
 """
 
-import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # =============================================================================
 # BlobDedupStore - Initialize
@@ -41,9 +39,7 @@ class TestBlobDedupStoreInitialize:
 
         mock_client = MagicMock()
         mock_container = MagicMock()
-        mock_container.create_container = AsyncMock(
-            side_effect=Exception("ContainerAlreadyExists")
-        )
+        mock_container.create_container = AsyncMock(side_effect=Exception("ContainerAlreadyExists"))
         MockBlobService.from_connection_string.return_value = mock_client
         mock_client.get_container_client.return_value = mock_container
 
@@ -58,9 +54,7 @@ class TestBlobDedupStoreInitialize:
 
         mock_client = MagicMock()
         mock_container = MagicMock()
-        mock_container.create_container = AsyncMock(
-            side_effect=Exception("PermissionDenied")
-        )
+        mock_container.create_container = AsyncMock(side_effect=Exception("PermissionDenied"))
         MockBlobService.from_connection_string.return_value = mock_client
         mock_client.get_container_client.return_value = mock_container
 
@@ -136,9 +130,7 @@ class TestBlobDedupStoreCheckDuplicate:
         store = self._make_store()
 
         mock_blob_client = MagicMock()
-        mock_blob_client.download_blob = AsyncMock(
-            side_effect=Exception("BlobNotFound")
-        )
+        mock_blob_client.download_blob = AsyncMock(side_effect=Exception("BlobNotFound"))
         store._container.get_blob_client.return_value = mock_blob_client
 
         is_dup, metadata = await store.check_duplicate("worker", "key1", 3600)
@@ -150,9 +142,7 @@ class TestBlobDedupStoreCheckDuplicate:
         store = self._make_store()
 
         mock_blob_client = MagicMock()
-        mock_blob_client.download_blob = AsyncMock(
-            side_effect=RuntimeError("network error")
-        )
+        mock_blob_client.download_blob = AsyncMock(side_effect=RuntimeError("network error"))
         store._container.get_blob_client.return_value = mock_blob_client
 
         is_dup, metadata = await store.check_duplicate("worker", "key1", 3600)
@@ -164,9 +154,7 @@ class TestBlobDedupStoreCheckDuplicate:
         store = self._make_store()
 
         mock_blob_client = MagicMock()
-        mock_blob_client.download_blob = AsyncMock(
-            side_effect=Exception("BlobNotFound")
-        )
+        mock_blob_client.download_blob = AsyncMock(side_effect=Exception("BlobNotFound"))
         store._container.get_blob_client.return_value = mock_blob_client
 
         await store.check_duplicate("my-worker", "trace-abc", 3600)

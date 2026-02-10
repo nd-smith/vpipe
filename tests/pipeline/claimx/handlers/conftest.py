@@ -1,11 +1,10 @@
 """Shared fixtures for ClaimX handler tests."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pipeline.claimx.schemas.entities import EntityRowsMessage
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 
 
@@ -44,7 +43,7 @@ def make_event(
         event_id=event_id,
         event_type=event_type,
         project_id=project_id,
-        ingested_at=datetime(2024, 12, 25, 10, 0, 0, tzinfo=timezone.utc),
+        ingested_at=datetime(2024, 12, 25, 10, 0, 0, tzinfo=UTC),
         media_id=media_id,
         task_assignment_id=task_assignment_id,
         video_collaboration_id=video_collaboration_id,

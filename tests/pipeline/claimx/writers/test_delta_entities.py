@@ -9,9 +9,8 @@ Tests cover:
 - Append operations for contacts/media
 """
 
-import asyncio
-from datetime import date, datetime, timezone
-from unittest.mock import MagicMock, patch, AsyncMock
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl
 import pytest
@@ -35,7 +34,6 @@ def mock_base_writer_factory():
         mock.last_df = None
 
         # Track call counts
-        original_append = mock._async_append.side_effect
 
         async def tracking_append(df):
             mock.append_call_count += 1
@@ -113,9 +111,7 @@ class TestClaimXEntityWriterWriteAll:
     """Test suite for write_all method."""
 
     @pytest.mark.asyncio
-    async def test_write_all_projects_only(
-        self, claimx_entity_writer, sample_project_row
-    ):
+    async def test_write_all_projects_only(self, claimx_entity_writer, sample_project_row):
         """Test writing only projects."""
         entity_rows = EntityRowsMessage(projects=[sample_project_row])
 
@@ -127,9 +123,7 @@ class TestClaimXEntityWriterWriteAll:
         assert projects_writer.merge_call_count == 1
 
     @pytest.mark.asyncio
-    async def test_write_all_contacts_only(
-        self, claimx_entity_writer, sample_contact_row
-    ):
+    async def test_write_all_contacts_only(self, claimx_entity_writer, sample_contact_row):
         """Test writing only contacts."""
         entity_rows = EntityRowsMessage(contacts=[sample_contact_row])
 
@@ -318,7 +312,6 @@ class TestClaimXEntityWriterDataFrameCreation:
         """Test DataFrame creation for projects."""
         from pipeline.claimx.writers.delta_entities import (
             ClaimXEntityWriter,
-            TABLE_SCHEMAS,
         )
 
         # Create a minimal writer instance for testing

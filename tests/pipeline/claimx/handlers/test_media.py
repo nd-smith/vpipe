@@ -1,13 +1,10 @@
 """Tests for ClaimX media event handler."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers.media import BATCH_THRESHOLD, MediaHandler
-from pipeline.claimx.schemas.entities import EntityRowsMessage
 
 from .conftest import make_event, make_project_api_response
 
@@ -27,14 +24,9 @@ def _make_media_api_item(media_id, name="photo.jpg"):
 
 
 class TestMediaHandlerHandleEvent:
-
     async def test_handle_event_delegates_to_handle_batch(self, mock_client):
-        mock_client.get_project_media = AsyncMock(
-            return_value=[_make_media_api_item(500)]
-        )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project_media = AsyncMock(return_value=[_make_media_api_item(500)])
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -50,9 +42,7 @@ class TestMediaHandlerHandleEvent:
     async def test_handle_event_returns_failure_when_no_result(self, mock_client):
         """handle_event returns a failure if handle_batch returns empty."""
         mock_client.get_project_media = AsyncMock(return_value=[])
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -72,19 +62,14 @@ class TestMediaHandlerHandleEvent:
 
 
 class TestMediaHandlerHandleBatch:
-
     async def test_handle_batch_empty_events(self, mock_client):
         handler = MediaHandler(mock_client)
         results = await handler.handle_batch([])
         assert results == []
 
     async def test_handle_batch_selective_fetch_for_small_batch(self, mock_client):
-        mock_client.get_project_media = AsyncMock(
-            return_value=[_make_media_api_item(500)]
-        )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project_media = AsyncMock(return_value=[_make_media_api_item(500)])
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         events = [
             make_event(
@@ -100,16 +85,12 @@ class TestMediaHandlerHandleBatch:
         assert len(results) == 1
         assert results[0].success is True
         # Selective fetch should pass media_ids
-        mock_client.get_project_media.assert_called_once_with(
-            123, media_ids=[500]
-        )
+        mock_client.get_project_media.assert_called_once_with(123, media_ids=[500])
 
     async def test_handle_batch_full_fetch_for_large_batch(self, mock_client):
         media_items = [_make_media_api_item(i) for i in range(1, BATCH_THRESHOLD + 2)]
         mock_client.get_project_media = AsyncMock(return_value=media_items)
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
 
         events = [
@@ -130,9 +111,7 @@ class TestMediaHandlerHandleBatch:
 
     async def test_handle_batch_media_not_found(self, mock_client):
         mock_client.get_project_media = AsyncMock(return_value=[])
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -155,9 +134,7 @@ class TestMediaHandlerHandleBatch:
                 _make_media_api_item(2),
             ]
         )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         events = [
             make_event(
@@ -187,9 +164,7 @@ class TestMediaHandlerHandleBatch:
         mock_client.get_project_media = AsyncMock(
             return_value={"data": [_make_media_api_item(500)]}
         )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -204,9 +179,7 @@ class TestMediaHandlerHandleBatch:
 
     async def test_handle_batch_non_list_non_dict_response(self, mock_client):
         mock_client.get_project_media = AsyncMock(return_value="unexpected")
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -221,9 +194,7 @@ class TestMediaHandlerHandleBatch:
 
     async def test_handle_batch_event_without_media_id(self, mock_client):
         mock_client.get_project_media = AsyncMock(return_value=[])
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -243,7 +214,6 @@ class TestMediaHandlerHandleBatch:
 
 
 class TestMediaHandlerErrors:
-
     async def test_handle_batch_api_error(self, mock_client):
         mock_client.get_project_media = AsyncMock(
             side_effect=ClaimXApiError(
@@ -277,9 +247,7 @@ class TestMediaHandlerErrors:
         assert results[0].is_retryable is False
 
     async def test_handle_batch_unexpected_error(self, mock_client):
-        mock_client.get_project_media = AsyncMock(
-            side_effect=RuntimeError("connection reset")
-        )
+        mock_client.get_project_media = AsyncMock(side_effect=RuntimeError("connection reset"))
         handler = MediaHandler(mock_client)
         event = make_event(
             event_type="PROJECT_FILE_ADDED",
@@ -331,7 +299,6 @@ class TestMediaHandlerErrors:
 
 
 class TestMediaHandlerProcess:
-
     async def test_process_empty_events(self, mock_client):
         handler = MediaHandler(mock_client)
         result = await handler.process([])
@@ -341,12 +308,8 @@ class TestMediaHandlerProcess:
         assert result.duration_seconds == 0.0
 
     async def test_process_groups_by_project_id(self, mock_client):
-        mock_client.get_project_media = AsyncMock(
-            return_value=[_make_media_api_item(500)]
-        )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project_media = AsyncMock(return_value=[_make_media_api_item(500)])
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         events = [
             make_event(
@@ -379,9 +342,7 @@ class TestMediaHandlerProcess:
             return [_make_media_api_item(500)]
 
         mock_client.get_project_media = AsyncMock(side_effect=flaky_media)
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = MediaHandler(mock_client)
         events = [
             make_event(

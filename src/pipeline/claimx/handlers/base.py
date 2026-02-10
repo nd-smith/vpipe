@@ -140,22 +140,18 @@ def aggregate_results(
 
     if succeeded > 0:
         avg_duration = duration_seconds / succeeded
-        claimx_handler_duration_seconds.labels(
-            handler_name=handler_name, status="success"
-        ).observe(avg_duration)
+        claimx_handler_duration_seconds.labels(handler_name=handler_name, status="success").observe(
+            avg_duration
+        )
 
     if failed > 0:
         avg_duration = duration_seconds / failed
-        claimx_handler_duration_seconds.labels(
-            handler_name=handler_name, status="failed"
-        ).observe(avg_duration)
+        claimx_handler_duration_seconds.labels(handler_name=handler_name, status="failed").observe(
+            avg_duration
+        )
 
-    claimx_handler_events_total.labels(
-        handler_name=handler_name, status="success"
-    ).inc(succeeded)
-    claimx_handler_events_total.labels(handler_name=handler_name, status="failed").inc(
-        failed
-    )
+    claimx_handler_events_total.labels(handler_name=handler_name, status="success").inc(succeeded)
+    claimx_handler_events_total.labels(handler_name=handler_name, status="failed").inc(failed)
 
     return HandlerResult(
         handler_name=handler_name,
@@ -221,9 +217,7 @@ class EventHandler(ABC):
     async def handle_event(self, event: ClaimXEventMessage) -> EnrichmentResult:
         pass
 
-    async def handle_batch(
-        self, events: list[ClaimXEventMessage]
-    ) -> list[EnrichmentResult]:
+    async def handle_batch(self, events: list[ClaimXEventMessage]) -> list[EnrichmentResult]:
         """Default processes events independently. Override for optimized batch processing."""
         import asyncio
 
@@ -317,9 +311,7 @@ class EventHandler(ABC):
         # Log event type distribution
         event_type_counts: dict[str, int] = {}
         for event in events:
-            event_type_counts[event.event_type] = (
-                event_type_counts.get(event.event_type, 0) + 1
-            )
+            event_type_counts[event.event_type] = event_type_counts.get(event.event_type, 0) + 1
 
         logger.debug(
             "Processing events",
@@ -388,9 +380,7 @@ class HandlerRegistry:
             if handler_class:
                 groups[handler_class].append(event)
             else:
-                unhandled_types[event.event_type] = (
-                    unhandled_types.get(event.event_type, 0) + 1
-                )
+                unhandled_types[event.event_type] = unhandled_types.get(event.event_type, 0) + 1
 
         handler_distribution = {cls.__name__: len(evts) for cls, evts in groups.items()}
 
@@ -417,9 +407,7 @@ class HandlerRegistry:
         return dict(groups)
 
     def get_registered_handlers(self) -> dict[str, str]:
-        return {
-            event_type: handler.__name__ for event_type, handler in _HANDLERS.items()
-        }
+        return {event_type: handler.__name__ for event_type, handler in _HANDLERS.items()}
 
 
 def get_handler_registry() -> HandlerRegistry:

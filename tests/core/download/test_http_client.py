@@ -9,15 +9,12 @@ Tests cover:
 - Session creation and configuration
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
 
 from core.download.http_client import (
-    DownloadError,
-    DownloadResponse,
     create_session,
     download_url,
 )
@@ -73,9 +70,7 @@ class TestDownloadUrl:
         mock_session = AsyncMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        response, error = await download_url(
-            "https://example.com/missing.pdf", mock_session
-        )
+        response, error = await download_url("https://example.com/missing.pdf", mock_session)
 
         assert response is None
         assert error is not None
@@ -94,9 +89,7 @@ class TestDownloadUrl:
         mock_session = AsyncMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        response, error = await download_url(
-            "https://example.com/error.pdf", mock_session
-        )
+        response, error = await download_url("https://example.com/error.pdf", mock_session)
 
         assert response is None
         assert error is not None
@@ -115,9 +108,7 @@ class TestDownloadUrl:
         mock_session = AsyncMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        response, error = await download_url(
-            "https://example.com/rate-limited.pdf", mock_session
-        )
+        response, error = await download_url("https://example.com/rate-limited.pdf", mock_session)
 
         assert response is None
         assert error is not None
@@ -135,9 +126,7 @@ class TestDownloadUrl:
         mock_session = AsyncMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        response, error = await download_url(
-            "https://example.com/protected.pdf", mock_session
-        )
+        response, error = await download_url("https://example.com/protected.pdf", mock_session)
 
         assert response is None
         assert error is not None
@@ -148,7 +137,7 @@ class TestDownloadUrl:
     async def test_timeout_error(self):
         """Test timeout is classified as TRANSIENT."""
         mock_session = AsyncMock()
-        mock_session.get = MagicMock(side_effect=asyncio.TimeoutError("Connection timeout"))
+        mock_session.get = MagicMock(side_effect=TimeoutError("Connection timeout"))
 
         response, error = await download_url(
             "https://example.com/slow.pdf", mock_session, timeout=5
@@ -164,11 +153,11 @@ class TestDownloadUrl:
     async def test_connection_error(self):
         """Test connection error is classified as TRANSIENT."""
         mock_session = AsyncMock()
-        mock_session.get = MagicMock(side_effect=aiohttp.ClientConnectionError("Connection refused"))
-
-        response, error = await download_url(
-            "https://unreachable.com/file.pdf", mock_session
+        mock_session.get = MagicMock(
+            side_effect=aiohttp.ClientConnectionError("Connection refused")
         )
+
+        response, error = await download_url("https://unreachable.com/file.pdf", mock_session)
 
         assert response is None
         assert error is not None
@@ -189,9 +178,7 @@ class TestDownloadUrl:
         mock_session.get = MagicMock(return_value=mock_response)
 
         # Test with redirects enabled
-        await download_url(
-            "https://example.com/file.pdf", mock_session, allow_redirects=True
-        )
+        await download_url("https://example.com/file.pdf", mock_session, allow_redirects=True)
 
         call_args = mock_session.get.call_args
         assert call_args[1]["allow_redirects"] is True
@@ -238,9 +225,7 @@ class TestCreateSession:
     @pytest.mark.asyncio
     async def test_create_session_custom_config(self):
         """Test session created with custom configuration."""
-        session = create_session(
-            max_connections=50, max_connections_per_host=5, enable_ssl=True
-        )
+        session = create_session(max_connections=50, max_connections_per_host=5, enable_ssl=True)
 
         assert isinstance(session, aiohttp.ClientSession)
 

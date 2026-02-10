@@ -1,8 +1,6 @@
 """Tests for enrichment framework."""
 
-import asyncio
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -18,7 +16,6 @@ from pipeline.plugins.shared.enrichment import (
     ValidationHandler,
     create_handler_from_config,
 )
-
 
 # =====================
 # EnrichmentContext tests
@@ -78,9 +75,11 @@ class TestEnrichmentResult:
 
 class TestTransformHandler:
     async def test_simple_field_mapping(self):
-        handler = TransformHandler(config={
-            "mappings": {"output_name": "input_name"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"output_name": "input_name"},
+            }
+        )
         ctx = EnrichmentContext(data={"input_name": "value"})
         result = await handler.enrich(ctx)
 
@@ -88,60 +87,70 @@ class TestTransformHandler:
         assert result.data["output_name"] == "value"
 
     async def test_nested_field_access(self):
-        handler = TransformHandler(config={
-            "mappings": {"project_name": "task.project.name"},
-        })
-        ctx = EnrichmentContext(data={
-            "task": {"project": {"name": "MyProject"}}
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"project_name": "task.project.name"},
+            }
+        )
+        ctx = EnrichmentContext(data={"task": {"project": {"name": "MyProject"}}})
         result = await handler.enrich(ctx)
 
         assert result.data["project_name"] == "MyProject"
 
     async def test_uses_default_when_field_missing(self):
-        handler = TransformHandler(config={
-            "mappings": {"status": "missing_field"},
-            "defaults": {"status": "unknown"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"status": "missing_field"},
+                "defaults": {"status": "unknown"},
+            }
+        )
         ctx = EnrichmentContext(data={})
         result = await handler.enrich(ctx)
 
         assert result.data["status"] == "unknown"
 
     async def test_defaults_applied_for_unmapped_keys(self):
-        handler = TransformHandler(config={
-            "mappings": {},
-            "defaults": {"priority": "normal"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {},
+                "defaults": {"priority": "normal"},
+            }
+        )
         ctx = EnrichmentContext(data={})
         result = await handler.enrich(ctx)
 
         assert result.data["priority"] == "normal"
 
     async def test_mapping_value_overrides_default(self):
-        handler = TransformHandler(config={
-            "mappings": {"status": "status_field"},
-            "defaults": {"status": "unknown"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"status": "status_field"},
+                "defaults": {"status": "unknown"},
+            }
+        )
         ctx = EnrichmentContext(data={"status_field": "active"})
         result = await handler.enrich(ctx)
 
         assert result.data["status"] == "active"
 
     async def test_nested_field_returns_none_for_non_dict(self):
-        handler = TransformHandler(config={
-            "mappings": {"val": "a.b.c"},
-            "defaults": {"val": "fallback"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"val": "a.b.c"},
+                "defaults": {"val": "fallback"},
+            }
+        )
         ctx = EnrichmentContext(data={"a": "not_a_dict"})
         result = await handler.enrich(ctx)
 
         assert result.data["val"] == "fallback"
 
     async def test_nested_field_returns_none_when_intermediate_missing(self):
-        handler = TransformHandler(config={
-            "mappings": {"val": "a.b.c"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"val": "a.b.c"},
+            }
+        )
         ctx = EnrichmentContext(data={"a": {"x": 1}})
         result = await handler.enrich(ctx)
 
@@ -149,9 +158,11 @@ class TestTransformHandler:
         assert "val" not in result.data
 
     async def test_merges_with_existing_data(self):
-        handler = TransformHandler(config={
-            "mappings": {"new_field": "source"},
-        })
+        handler = TransformHandler(
+            config={
+                "mappings": {"new_field": "source"},
+            }
+        )
         ctx = EnrichmentContext(data={"source": "val", "existing": "keep"})
         result = await handler.enrich(ctx)
 
@@ -178,18 +189,22 @@ class TestTransformHandler:
 
 class TestValidationHandler:
     async def test_required_fields_pass(self):
-        handler = ValidationHandler(config={
-            "required_fields": ["project_id", "task_id"],
-        })
+        handler = ValidationHandler(
+            config={
+                "required_fields": ["project_id", "task_id"],
+            }
+        )
         ctx = EnrichmentContext(data={"project_id": "1", "task_id": "2"})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_required_fields_fail(self):
-        handler = ValidationHandler(config={
-            "required_fields": ["project_id", "missing_field"],
-        })
+        handler = ValidationHandler(
+            config={
+                "required_fields": ["project_id", "missing_field"],
+            }
+        )
         ctx = EnrichmentContext(data={"project_id": "1"})
         result = await handler.enrich(ctx)
 
@@ -197,31 +212,37 @@ class TestValidationHandler:
         assert "missing_field" in result.error
 
     async def test_required_nested_field(self):
-        handler = ValidationHandler(config={
-            "required_fields": ["task.id"],
-        })
+        handler = ValidationHandler(
+            config={
+                "required_fields": ["task.id"],
+            }
+        )
         ctx = EnrichmentContext(data={"task": {"id": 123}})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_allowed_values_pass(self):
-        handler = ValidationHandler(config={
-            "field_rules": {
-                "status": {"allowed_values": ["active", "pending"]},
-            },
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {
+                    "status": {"allowed_values": ["active", "pending"]},
+                },
+            }
+        )
         ctx = EnrichmentContext(data={"status": "active"})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_allowed_values_fail(self):
-        handler = ValidationHandler(config={
-            "field_rules": {
-                "status": {"allowed_values": ["active", "pending"]},
-            },
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {
+                    "status": {"allowed_values": ["active", "pending"]},
+                },
+            }
+        )
         ctx = EnrichmentContext(data={"status": "deleted"})
         result = await handler.enrich(ctx)
 
@@ -229,18 +250,22 @@ class TestValidationHandler:
         assert "not in allowed values" in result.error
 
     async def test_min_value_pass(self):
-        handler = ValidationHandler(config={
-            "field_rules": {"priority": {"min": 1}},
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {"priority": {"min": 1}},
+            }
+        )
         ctx = EnrichmentContext(data={"priority": 5})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_min_value_fail(self):
-        handler = ValidationHandler(config={
-            "field_rules": {"priority": {"min": 1}},
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {"priority": {"min": 1}},
+            }
+        )
         ctx = EnrichmentContext(data={"priority": 0})
         result = await handler.enrich(ctx)
 
@@ -248,18 +273,22 @@ class TestValidationHandler:
         assert "below minimum" in result.error
 
     async def test_max_value_pass(self):
-        handler = ValidationHandler(config={
-            "field_rules": {"priority": {"max": 10}},
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {"priority": {"max": 10}},
+            }
+        )
         ctx = EnrichmentContext(data={"priority": 10})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_max_value_fail(self):
-        handler = ValidationHandler(config={
-            "field_rules": {"priority": {"max": 10}},
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {"priority": {"max": 10}},
+            }
+        )
         ctx = EnrichmentContext(data={"priority": 11})
         result = await handler.enrich(ctx)
 
@@ -267,18 +296,22 @@ class TestValidationHandler:
         assert "above maximum" in result.error
 
     async def test_skip_if_condition_triggers(self):
-        handler = ValidationHandler(config={
-            "skip_if": {"field": "task_status", "equals": "cancelled"},
-        })
+        handler = ValidationHandler(
+            config={
+                "skip_if": {"field": "task_status", "equals": "cancelled"},
+            }
+        )
         ctx = EnrichmentContext(data={"task_status": "cancelled"})
         result = await handler.enrich(ctx)
 
         assert result.skip is True
 
     async def test_skip_if_condition_does_not_trigger(self):
-        handler = ValidationHandler(config={
-            "skip_if": {"field": "task_status", "equals": "cancelled"},
-        })
+        handler = ValidationHandler(
+            config={
+                "skip_if": {"field": "task_status", "equals": "cancelled"},
+            }
+        )
         ctx = EnrichmentContext(data={"task_status": "active"})
         result = await handler.enrich(ctx)
 
@@ -286,27 +319,33 @@ class TestValidationHandler:
         assert result.skip is False
 
     async def test_field_rule_skipped_when_field_not_present(self):
-        handler = ValidationHandler(config={
-            "field_rules": {"optional_field": {"min": 1}},
-        })
+        handler = ValidationHandler(
+            config={
+                "field_rules": {"optional_field": {"min": 1}},
+            }
+        )
         ctx = EnrichmentContext(data={})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_nested_field_value_access(self):
-        handler = ValidationHandler(config={
-            "required_fields": ["task.status"],
-        })
+        handler = ValidationHandler(
+            config={
+                "required_fields": ["task.status"],
+            }
+        )
         ctx = EnrichmentContext(data={"task": {"status": "done"}})
         result = await handler.enrich(ctx)
 
         assert result.success is True
 
     async def test_nested_field_missing_intermediate(self):
-        handler = ValidationHandler(config={
-            "required_fields": ["task.deep.field"],
-        })
+        handler = ValidationHandler(
+            config={
+                "required_fields": ["task.deep.field"],
+            }
+        )
         ctx = EnrichmentContext(data={"task": "not_a_dict"})
         result = await handler.enrich(ctx)
 
@@ -323,12 +362,14 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.return_value = (200, {"name": "Project X"})
 
-        handler = LookupHandler(config={
-            "connection": "ext_api",
-            "endpoint": "/v1/projects/{id}",
-            "path_params": {"id": "project_id"},
-            "result_field": "project_details",
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "ext_api",
+                "endpoint": "/v1/projects/{id}",
+                "path_params": {"id": "project_id"},
+                "result_field": "project_details",
+            }
+        )
         ctx = EnrichmentContext(
             data={"project_id": "42"},
             connection_manager=conn_mgr,
@@ -357,11 +398,13 @@ class TestLookupHandler:
 
     async def test_missing_path_param_field(self):
         conn_mgr = AsyncMock()
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/{id}",
-            "path_params": {"id": "missing_field"},
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/{id}",
+                "path_params": {"id": "missing_field"},
+            }
+        )
         ctx = EnrichmentContext(data={}, connection_manager=conn_mgr)
         result = await handler.enrich(ctx)
 
@@ -372,10 +415,12 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.return_value = (404, {"error": "Not Found"})
 
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/items",
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/items",
+            }
+        )
         ctx = EnrichmentContext(data={}, connection_manager=conn_mgr)
         result = await handler.enrich(ctx)
 
@@ -386,10 +431,12 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.side_effect = ConnectionError("timeout")
 
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/items",
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/items",
+            }
+        )
         ctx = EnrichmentContext(data={}, connection_manager=conn_mgr)
         result = await handler.enrich(ctx)
 
@@ -400,11 +447,13 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.return_value = (200, {"cached": True})
 
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/data",
-            "cache_ttl": 300,
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/data",
+                "cache_ttl": 300,
+            }
+        )
         ctx = EnrichmentContext(data={}, connection_manager=conn_mgr)
 
         # First call - fetches from API
@@ -421,10 +470,12 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.return_value = (200, {"data": "test"})
 
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/data",
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/data",
+            }
+        )
         ctx = EnrichmentContext(data={}, connection_manager=conn_mgr)
         result = await handler.enrich(ctx)
 
@@ -434,11 +485,13 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.return_value = (200, {})
 
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/data",
-            "query_params": {"include": "details"},
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/data",
+                "query_params": {"include": "details"},
+            }
+        )
         ctx = EnrichmentContext(data={}, connection_manager=conn_mgr)
         await handler.enrich(ctx)
 
@@ -449,11 +502,13 @@ class TestLookupHandler:
         conn_mgr = AsyncMock()
         conn_mgr.request_json.return_value = (200, {})
 
-        handler = LookupHandler(config={
-            "connection": "api",
-            "endpoint": "/v1/data",
-            "query_params": {"filter_id": "project_id"},
-        })
+        handler = LookupHandler(
+            config={
+                "connection": "api",
+                "endpoint": "/v1/data",
+                "query_params": {"filter_id": "project_id"},
+            }
+        )
         ctx = EnrichmentContext(
             data={"project_id": "42"},
             connection_manager=conn_mgr,
@@ -489,10 +544,12 @@ class TestBatchingHandler:
         assert len(result3.data["items"]) == 3
 
     async def test_custom_batch_field(self):
-        handler = BatchingHandler(config={
-            "batch_size": 1,
-            "batch_field": "records",
-        })
+        handler = BatchingHandler(
+            config={
+                "batch_size": 1,
+                "batch_field": "records",
+            }
+        )
         ctx = EnrichmentContext(data={"id": 1})
         result = await handler.enrich(ctx)
 
@@ -541,18 +598,22 @@ class TestBatchingHandler:
 
 class TestCreateHandlerFromConfig:
     def test_creates_transform_handler(self):
-        handler = create_handler_from_config({
-            "type": "transform",
-            "config": {"mappings": {"a": "b"}},
-        })
+        handler = create_handler_from_config(
+            {
+                "type": "transform",
+                "config": {"mappings": {"a": "b"}},
+            }
+        )
         assert isinstance(handler, TransformHandler)
         assert handler.config["mappings"] == {"a": "b"}
 
     def test_creates_validation_handler(self):
-        handler = create_handler_from_config({
-            "type": "validation",
-            "config": {"required_fields": ["x"]},
-        })
+        handler = create_handler_from_config(
+            {
+                "type": "validation",
+                "config": {"required_fields": ["x"]},
+            }
+        )
         assert isinstance(handler, ValidationHandler)
 
     def test_creates_lookup_handler(self):
@@ -573,9 +634,11 @@ class TestCreateHandlerFromConfig:
 
     def test_custom_handler_import_invalid_module(self):
         with pytest.raises(ValueError, match="Failed to load"):
-            create_handler_from_config({
-                "type": "nonexistent.module:SomeHandler",
-            })
+            create_handler_from_config(
+                {
+                    "type": "nonexistent.module:SomeHandler",
+                }
+            )
 
     def test_builtin_handlers_registry(self):
         assert "transform" in BUILTIN_HANDLERS
@@ -591,12 +654,16 @@ class TestCreateHandlerFromConfig:
 
 class TestEnrichmentPipeline:
     async def test_executes_handlers_in_sequence(self):
-        h1 = TransformHandler(config={
-            "mappings": {"output_a": "input_a"},
-        })
-        h2 = TransformHandler(config={
-            "mappings": {"output_b": "input_b"},
-        })
+        h1 = TransformHandler(
+            config={
+                "mappings": {"output_a": "input_a"},
+            }
+        )
+        h2 = TransformHandler(
+            config={
+                "mappings": {"output_b": "input_b"},
+            }
+        )
 
         pipeline = EnrichmentPipeline(handlers=[h1, h2])
         result = await pipeline.execute({"input_a": "val_a", "input_b": "val_b"})
@@ -606,12 +673,16 @@ class TestEnrichmentPipeline:
         assert result.data["output_b"] == "val_b"
 
     async def test_stops_on_failure(self):
-        h1 = ValidationHandler(config={
-            "required_fields": ["missing"],
-        })
-        h2 = TransformHandler(config={
-            "mappings": {"out": "in"},
-        })
+        h1 = ValidationHandler(
+            config={
+                "required_fields": ["missing"],
+            }
+        )
+        h2 = TransformHandler(
+            config={
+                "mappings": {"out": "in"},
+            }
+        )
 
         pipeline = EnrichmentPipeline(handlers=[h1, h2])
         result = await pipeline.execute({"in": "val"})
@@ -620,12 +691,16 @@ class TestEnrichmentPipeline:
         # h2 should not have run
 
     async def test_stops_on_skip(self):
-        h1 = ValidationHandler(config={
-            "skip_if": {"field": "status", "equals": "cancelled"},
-        })
-        h2 = TransformHandler(config={
-            "mappings": {"out": "in"},
-        })
+        h1 = ValidationHandler(
+            config={
+                "skip_if": {"field": "status", "equals": "cancelled"},
+            }
+        )
+        h2 = TransformHandler(
+            config={
+                "mappings": {"out": "in"},
+            }
+        )
 
         pipeline = EnrichmentPipeline(handlers=[h1, h2])
         result = await pipeline.execute({"status": "cancelled"})

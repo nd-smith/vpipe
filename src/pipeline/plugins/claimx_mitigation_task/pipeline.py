@@ -37,9 +37,7 @@ class MitigationTaskPipeline:
         self.kafka = kafka_producer
         self.config = config
         self.claimx_connection = config.get("claimx_connection", "claimx_api")
-        self.output_topic = config.get(
-            "output_topic", "pcesdopodappv1-ghrn-mitigation-completed"
-        )
+        self.output_topic = config.get("output_topic", "pcesdopodappv1-ghrn-mitigation-completed")
 
         logger.info(
             "MitigationTaskPipeline initialized",
@@ -85,15 +83,10 @@ class MitigationTaskPipeline:
         - task_status is COMPLETED
         """
         if event.task_id not in VALID_TASK_IDS:
-            raise ValueError(
-                f"Invalid task_id: {event.task_id}. "
-                f"Expected one of: {VALID_TASK_IDS}"
-            )
+            raise ValueError(f"Invalid task_id: {event.task_id}. Expected one of: {VALID_TASK_IDS}")
 
         if event.task_status != "COMPLETED":
-            raise ValueError(
-                f"Invalid task_status: {event.task_status}. " f"Expected: COMPLETED"
-            )
+            raise ValueError(f"Invalid task_status: {event.task_status}. Expected: COMPLETED")
 
         logger.debug("Event validation passed")
 
@@ -108,9 +101,7 @@ class MitigationTaskPipeline:
         3. Fetch project media and filter to claim_media_ids
         4. Parse into flat submission structure
         """
-        logger.info(
-            "Enriching mitigation task", extra={"assignment_id": event.assignment_id}
-        )
+        logger.info("Enriching mitigation task", extra={"assignment_id": event.assignment_id})
 
         # Fetch task assignment data
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
@@ -168,9 +159,7 @@ class MitigationTaskPipeline:
         """Fetch assignment data from ClaimX API."""
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
-        logger.debug(
-            "Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
-        )
+        logger.debug("Fetching assignment from ClaimX", extra={"assignment_id": assignment_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -188,9 +177,7 @@ class MitigationTaskPipeline:
         """Fetch project export data from ClaimX API."""
         endpoint = f"/export/project/{project_id}"
 
-        logger.debug(
-            "Fetching project export from ClaimX", extra={"project_id": project_id}
-        )
+        logger.debug("Fetching project export from ClaimX", extra={"project_id": project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -225,9 +212,7 @@ class MitigationTaskPipeline:
         """
         endpoint = f"/export/project/{project_id}/media"
 
-        logger.debug(
-            "Fetching project media from ClaimX", extra={"project_id": project_id}
-        )
+        logger.debug("Fetching project media from ClaimX", extra={"project_id": project_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -271,9 +256,7 @@ class MitigationTaskPipeline:
             # Include if description matches required patterns
             has_required_description = description in self.ALWAYS_INCLUDE_DESCRIPTIONS
 
-            if (
-                in_task_media or has_required_description
-            ) and media_id not in seen_media_ids:
+            if (in_task_media or has_required_description) and media_id not in seen_media_ids:
                 filtered_media.append(media)
                 seen_media_ids.add(media_id)
 

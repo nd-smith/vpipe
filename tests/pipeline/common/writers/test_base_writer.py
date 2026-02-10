@@ -9,20 +9,16 @@ Covers:
 - Subclass inheritance pattern
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
-import polars as pl
-
 from pipeline.common.writers.base import BaseDeltaWriter
-
 
 # ---------------------------------------------------------------------------
 # Initialization
 # ---------------------------------------------------------------------------
 
-class TestBaseDeltaWriterInit:
 
+class TestBaseDeltaWriterInit:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     def test_initializes_with_defaults(self, mock_dtw):
         writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
@@ -37,7 +33,7 @@ class TestBaseDeltaWriterInit:
 
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     def test_initializes_with_custom_params(self, mock_dtw):
-        writer = BaseDeltaWriter(
+        BaseDeltaWriter(
             table_path="abfss://ws@acct/table",
             timestamp_column="created_at",
             partition_column="event_date",
@@ -58,7 +54,7 @@ class TestBaseDeltaWriterInit:
 
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     def test_none_z_order_becomes_empty_list(self, mock_dtw):
-        writer = BaseDeltaWriter(
+        BaseDeltaWriter(
             table_path="abfss://ws@acct/table",
             z_order_columns=None,
         )
@@ -78,8 +74,8 @@ class TestBaseDeltaWriterInit:
 # _async_append
 # ---------------------------------------------------------------------------
 
-class TestBaseDeltaWriterAsyncAppend:
 
+class TestBaseDeltaWriterAsyncAppend:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     async def test_returns_true_for_empty_df(self, mock_dtw):
         writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
@@ -181,8 +177,8 @@ class TestBaseDeltaWriterAsyncAppend:
 # _async_merge
 # ---------------------------------------------------------------------------
 
-class TestBaseDeltaWriterAsyncMerge:
 
+class TestBaseDeltaWriterAsyncMerge:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     async def test_returns_true_for_empty_df(self, mock_dtw):
         writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
@@ -325,8 +321,8 @@ class TestBaseDeltaWriterAsyncMerge:
 # Subclass pattern
 # ---------------------------------------------------------------------------
 
-class TestBaseDeltaWriterSubclass:
 
+class TestBaseDeltaWriterSubclass:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     async def test_subclass_can_call_async_append(self, mock_dtw):
         class CustomWriter(BaseDeltaWriter):

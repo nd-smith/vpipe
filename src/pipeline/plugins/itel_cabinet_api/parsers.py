@@ -405,14 +405,10 @@ class DataBuilder:
                 api_obj.external_link_data.url if api_obj.external_link_data else None
             ),
             "customer_first_name": (
-                api_obj.external_link_data.first_name
-                if api_obj.external_link_data
-                else None
+                api_obj.external_link_data.first_name if api_obj.external_link_data else None
             ),
             "customer_last_name": (
-                api_obj.external_link_data.last_name
-                if api_obj.external_link_data
-                else None
+                api_obj.external_link_data.last_name if api_obj.external_link_data else None
             ),
             "customer_email": (
                 api_obj.external_link_data.email if api_obj.external_link_data else None
@@ -470,12 +466,8 @@ class DataBuilder:
                     clean_question_text = qa.question_text.strip()
                     answer_val = DataBuilder.extract_value(qa.response_answer_export)
 
-                    topic = DataBuilder.get_topic_category(
-                        clean_group_name, clean_question_text
-                    )
-                    if qa.response_answer_export.type == "image" and isinstance(
-                        answer_val, list
-                    ):
+                    topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
+                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
                         for idx, media_id in enumerate(answer_val):
                             attachments_rows.append(
                                 {
@@ -483,9 +475,7 @@ class DataBuilder:
                                     "project_id": api_obj.project_id,
                                     "event_id": event_id,
                                     "control_id": qa.form_control.id,
-                                    "question_key": _get_question_key(
-                                        clean_question_text
-                                    ),
+                                    "question_key": _get_question_key(clean_question_text),
                                     "question_text": clean_question_text,
                                     "topic_category": topic,
                                     "media_id": media_id,
@@ -517,14 +507,10 @@ class DataBuilder:
                 "status": api_obj.status,
                 "dates": {
                     "assigned": (
-                        api_obj.date_assigned.isoformat()
-                        if api_obj.date_assigned
-                        else None
+                        api_obj.date_assigned.isoformat() if api_obj.date_assigned else None
                     ),
                     "completed": (
-                        api_obj.date_completed.isoformat()
-                        if api_obj.date_completed
-                        else None
+                        api_obj.date_completed.isoformat() if api_obj.date_completed else None
                     ),
                 },
             },
@@ -535,12 +521,8 @@ class DataBuilder:
             first_url = next(iter(media_url_map.values()), None)
             url_expiration = parse_url_expiration(first_url)
             if url_expiration:
-                readable_report["meta"]["media_urls_expire_at"] = url_expiration[
-                    "expires_at"
-                ]
-                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration[
-                    "ttl_seconds"
-                ]
+                readable_report["meta"]["media_urls_expire_at"] = url_expiration["expires_at"]
+                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration["ttl_seconds"]
 
         if api_obj.response and api_obj.response.groups:
             for group in api_obj.response.groups:
@@ -550,13 +532,9 @@ class DataBuilder:
                     clean_question_text = qa.question_text.strip()
                     answer_val = DataBuilder.extract_value(qa.response_answer_export)
 
-                    topic = DataBuilder.get_topic_category(
-                        clean_group_name, clean_question_text
-                    )
+                    topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
 
-                    if qa.response_answer_export.type == "image" and isinstance(
-                        answer_val, list
-                    ):
+                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
                         enriched_answer = [
                             {"media_id": media_id, "url": media_url_map.get(media_id)}
                             for media_id in answer_val
@@ -629,9 +607,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         KeyError: If required fields are missing
         ValueError: If data is malformed
     """
-    logger.debug(
-        f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}"
-    )
+    logger.debug(f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}")
 
     api_obj = from_dict(ApiResponse, task_data)
     form_row = DataBuilder.build_form_row(api_obj, event_id)
@@ -675,9 +651,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         lower_face_frames_doors_drawers_damaged=form_row.get(
             "lower_face_frames_doors_drawers_damaged"
         ),
-        lower_finished_end_panels_damaged=form_row.get(
-            "lower_finished_end_panels_damaged"
-        ),
+        lower_finished_end_panels_damaged=form_row.get("lower_finished_end_panels_damaged"),
         lower_end_panel_damage_present=form_row.get("lower_end_panel_damage_present"),
         lower_counter_type=form_row.get("lower_counter_type"),
         # Upper cabinets
@@ -691,9 +665,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         upper_face_frames_doors_drawers_damaged=form_row.get(
             "upper_face_frames_doors_drawers_damaged"
         ),
-        upper_finished_end_panels_damaged=form_row.get(
-            "upper_finished_end_panels_damaged"
-        ),
+        upper_finished_end_panels_damaged=form_row.get("upper_finished_end_panels_damaged"),
         upper_end_panel_damage_present=form_row.get("upper_end_panel_damage_present"),
         # Full height cabinets
         full_height_cabinets_damaged=form_row.get("full_height_cabinets_damaged"),
@@ -720,9 +692,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         island_face_frames_doors_drawers_damaged=form_row.get(
             "island_face_frames_doors_drawers_damaged"
         ),
-        island_finished_end_panels_damaged=form_row.get(
-            "island_finished_end_panels_damaged"
-        ),
+        island_finished_end_panels_damaged=form_row.get("island_finished_end_panels_damaged"),
         island_end_panel_damage_present=form_row.get("island_end_panel_damage_present"),
         island_counter_type=form_row.get("island_counter_type"),
         # Metadata - use existing timestamps from form_row
@@ -797,9 +767,7 @@ def get_readable_report(
     Returns:
         Readable report dict with topics organized by category and media URLs enriched
     """
-    logger.debug(
-        f"Generating readable report for assignment_id={task_data.get('assignmentId')}"
-    )
+    logger.debug(f"Generating readable report for assignment_id={task_data.get('assignmentId')}")
 
     # Convert to typed dataclass using from_dict
     api_obj = from_dict(ApiResponse, task_data)

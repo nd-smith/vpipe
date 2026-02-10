@@ -122,19 +122,11 @@ class MessageConsumer:
 
         kafka_consumer_config.update(
             {
-                "enable_auto_commit": self.consumer_config.get(
-                    "enable_auto_commit", False
-                ),
-                "auto_offset_reset": self.consumer_config.get(
-                    "auto_offset_reset", "earliest"
-                ),
+                "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
+                "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
                 "max_poll_records": self.consumer_config.get("max_poll_records", 100),
-                "max_poll_interval_ms": self.consumer_config.get(
-                    "max_poll_interval_ms", 300000
-                ),
-                "session_timeout_ms": self.consumer_config.get(
-                    "session_timeout_ms", 30000
-                ),
+                "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
+                "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
             }
         )
 
@@ -143,17 +135,13 @@ class MessageConsumer:
                 "heartbeat_interval_ms"
             ]
         if "fetch_min_bytes" in self.consumer_config:
-            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config[
-                "fetch_min_bytes"
-            ]
+            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config["fetch_min_bytes"]
         if "fetch_max_wait_ms" in self.consumer_config:
-            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config[
-                "fetch_max_wait_ms"
-            ]
+            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config["fetch_max_wait_ms"]
         if "partition_assignment_strategy" in self.consumer_config:
-            kafka_consumer_config["partition_assignment_strategy"] = (
-                self.consumer_config["partition_assignment_strategy"]
-            )
+            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config[
+                "partition_assignment_strategy"
+            ]
 
         kafka_consumer_config.update(build_kafka_security_config(self.config))
 
@@ -245,10 +233,7 @@ class MessageConsumer:
 
         while self._running and self._consumer:
             try:
-                if (
-                    self.max_batches is not None
-                    and self._batch_count >= self.max_batches
-                ):
+                if self.max_batches is not None and self._batch_count >= self.max_batches:
                     logger.info(
                         "Reached max_batches limit, stopping consumer",
                         extra={
@@ -343,9 +328,7 @@ class MessageConsumer:
 
                 self._update_partition_metrics(message)
 
-                record_message_consumed(
-                    message.topic, self.group_id, message_size, success=True
-                )
+                record_message_consumed(message.topic, self.group_id, message_size, success=True)
 
                 logger.debug(
                     "Message processed successfully",
@@ -360,15 +343,11 @@ class MessageConsumer:
                     topic=message.topic, consumer_group=self.group_id
                 ).observe(duration)
 
-                record_message_consumed(
-                    message.topic, self.group_id, message_size, success=False
-                )
+                record_message_consumed(message.topic, self.group_id, message_size, success=False)
 
                 # Pass PipelineMessage to error handler
                 pipeline_message = from_consumer_record(message)
-                await self._handle_processing_error(
-                    pipeline_message, message, e, duration
-                )
+                await self._handle_processing_error(pipeline_message, message, e, duration)
 
     async def _handle_processing_error(
         self,
@@ -459,18 +438,14 @@ class MessageConsumer:
             return
 
         try:
-            update_consumer_offset(
-                message.topic, message.partition, self.group_id, message.offset
-            )
+            update_consumer_offset(message.topic, message.partition, self.group_id, message.offset)
 
             tp = TopicPartition(message.topic, message.partition)
             partition_metadata = self._consumer.highwater(tp)
 
             if partition_metadata is not None:
                 lag = partition_metadata - (message.offset + 1)
-                update_consumer_lag(
-                    message.topic, message.partition, self.group_id, lag
-                )
+                update_consumer_lag(message.topic, message.partition, self.group_id, lag)
 
         except Exception as e:
             logger.debug(

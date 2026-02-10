@@ -440,8 +440,7 @@ async def create_poller_checkpoint_store(
         )
     else:
         raise ValueError(
-            f"Unknown checkpoint store type: '{store_type}'. "
-            f"Must be 'blob' or 'json'."
+            f"Unknown checkpoint store type: '{store_type}'. Must be 'blob' or 'json'."
         )
 
 
@@ -469,12 +468,8 @@ def _load_poller_checkpoint_config() -> dict:
         config["blob_storage_connection_string"] = checkpoint_config.get(
             "blob_storage_connection_string", ""
         )
-        config["container_name"] = checkpoint_config.get(
-            "container_name", "eventhub-checkpoints"
-        )
-        config["storage_path"] = checkpoint_config.get(
-            "storage_path", "./.checkpoints"
-        )
+        config["container_name"] = checkpoint_config.get("container_name", "eventhub-checkpoints")
+        config["storage_path"] = checkpoint_config.get("storage_path", "./.checkpoints")
     else:
         # Fallback to environment variables
         config["type"] = os.getenv("POLLER_CHECKPOINT_STORE_TYPE", "json")
@@ -484,9 +479,7 @@ def _load_poller_checkpoint_config() -> dict:
         config["container_name"] = os.getenv(
             "POLLER_CHECKPOINT_CONTAINER_NAME", "eventhub-checkpoints"
         )
-        config["storage_path"] = os.getenv(
-            "POLLER_CHECKPOINT_JSON_PATH", "./.checkpoints"
-        )
+        config["storage_path"] = os.getenv("POLLER_CHECKPOINT_JSON_PATH", "./.checkpoints")
 
     logger.debug(
         f"Loaded poller checkpoint store config: "

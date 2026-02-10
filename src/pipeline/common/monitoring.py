@@ -255,17 +255,11 @@ class MonitoringServer:
             # Sum all errors - metrics don't have worker label, use topic to infer
             topic = entry["labels"].get("topic", "")
             if "pending" in topic or "retry" in topic:
-                data.workers.get("download_worker", WorkerStats("")).errors += int(
-                    entry["value"]
-                )
+                data.workers.get("download_worker", WorkerStats("")).errors += int(entry["value"])
             elif "cached" in topic:
-                data.workers.get("upload_worker", WorkerStats("")).errors += int(
-                    entry["value"]
-                )
+                data.workers.get("upload_worker", WorkerStats("")).errors += int(entry["value"])
             elif "results" in topic:
-                data.workers.get("result_processor", WorkerStats("")).errors += int(
-                    entry["value"]
-                )
+                data.workers.get("result_processor", WorkerStats("")).errors += int(entry["value"])
 
         # Circuit breaker state
         for entry in metrics.get("kafka_circuit_breaker_state", []):

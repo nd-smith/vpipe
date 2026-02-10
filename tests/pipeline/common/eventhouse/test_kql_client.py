@@ -1,9 +1,7 @@
 """Tests for KQLClient and related configuration classes."""
 
-import asyncio
 import os
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +12,6 @@ from pipeline.common.eventhouse.kql_client import (
     KQLClient,
     KQLQueryResult,
 )
-
 
 # =============================================================================
 # EventhouseConfig tests
@@ -51,14 +48,15 @@ class TestEventhouseConfigLoadConfig:
     def test_env_overrides_yaml(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            "eventhouse:\n"
-            "  cluster_url: https://yaml.kusto.windows.net\n"
-            "  database: yamldb\n"
+            "eventhouse:\n  cluster_url: https://yaml.kusto.windows.net\n  database: yamldb\n"
         )
-        with patch.dict(os.environ, {
-            "EVENTHOUSE_CLUSTER_URL": "https://env.kusto.windows.net",
-            "EVENTHOUSE_DATABASE": "envdb",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "EVENTHOUSE_CLUSTER_URL": "https://env.kusto.windows.net",
+                "EVENTHOUSE_DATABASE": "envdb",
+            },
+        ):
             config = EventhouseConfig.load_config(config_path=config_file)
         assert config.cluster_url == "https://env.kusto.windows.net"
         assert config.database == "envdb"
@@ -71,18 +69,19 @@ class TestEventhouseConfigLoadConfig:
 
     def test_raises_when_database_missing(self, tmp_path):
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            "eventhouse:\n  cluster_url: https://test.kusto.windows.net\n"
-        )
+        config_file.write_text("eventhouse:\n  cluster_url: https://test.kusto.windows.net\n")
         with pytest.raises(ValueError, match="database is required"):
             EventhouseConfig.load_config(config_path=config_file)
 
     def test_loads_env_only_when_no_yaml(self, tmp_path):
         missing_file = tmp_path / "nope.yaml"
-        with patch.dict(os.environ, {
-            "EVENTHOUSE_CLUSTER_URL": "https://envonly.kusto.windows.net",
-            "EVENTHOUSE_DATABASE": "envdb",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "EVENTHOUSE_CLUSTER_URL": "https://envonly.kusto.windows.net",
+                "EVENTHOUSE_DATABASE": "envdb",
+            },
+        ):
             config = EventhouseConfig.load_config(config_path=missing_file)
         assert config.cluster_url == "https://envonly.kusto.windows.net"
         assert config.database == "envdb"
@@ -90,9 +89,7 @@ class TestEventhouseConfigLoadConfig:
     def test_proxy_from_eventhouse_proxy_url(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            "eventhouse:\n"
-            "  cluster_url: https://test.kusto.windows.net\n"
-            "  database: db\n"
+            "eventhouse:\n  cluster_url: https://test.kusto.windows.net\n  database: db\n"
         )
         with patch.dict(os.environ, {"EVENTHOUSE_PROXY_URL": "http://proxy:8080"}, clear=False):
             config = EventhouseConfig.load_config(config_path=config_file)
@@ -101,9 +98,7 @@ class TestEventhouseConfigLoadConfig:
     def test_proxy_fallback_to_https_proxy(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            "eventhouse:\n"
-            "  cluster_url: https://test.kusto.windows.net\n"
-            "  database: db\n"
+            "eventhouse:\n  cluster_url: https://test.kusto.windows.net\n  database: db\n"
         )
         env = {"HTTPS_PROXY": "http://httpsProxy:8080"}
         # Ensure EVENTHOUSE_PROXY_URL is not set
@@ -116,16 +111,17 @@ class TestEventhouseConfigLoadConfig:
     def test_int_and_float_coercion(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            "eventhouse:\n"
-            "  cluster_url: https://test.kusto.windows.net\n"
-            "  database: db\n"
+            "eventhouse:\n  cluster_url: https://test.kusto.windows.net\n  database: db\n"
         )
-        with patch.dict(os.environ, {
-            "EVENTHOUSE_QUERY_TIMEOUT": "90",
-            "EVENTHOUSE_MAX_RETRIES": "5",
-            "EVENTHOUSE_RETRY_BASE_DELAY": "2.5",
-            "EVENTHOUSE_RETRY_MAX_DELAY": "60.0",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "EVENTHOUSE_QUERY_TIMEOUT": "90",
+                "EVENTHOUSE_MAX_RETRIES": "5",
+                "EVENTHOUSE_RETRY_BASE_DELAY": "2.5",
+                "EVENTHOUSE_RETRY_MAX_DELAY": "60.0",
+            },
+        ):
             config = EventhouseConfig.load_config(config_path=config_file)
         assert config.query_timeout_seconds == 90
         assert config.max_retries == 5
@@ -135,10 +131,13 @@ class TestEventhouseConfigLoadConfig:
     def test_empty_yaml_uses_env(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text("")
-        with patch.dict(os.environ, {
-            "EVENTHOUSE_CLUSTER_URL": "https://empty.kusto.windows.net",
-            "EVENTHOUSE_DATABASE": "emptydb",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "EVENTHOUSE_CLUSTER_URL": "https://empty.kusto.windows.net",
+                "EVENTHOUSE_DATABASE": "emptydb",
+            },
+        ):
             config = EventhouseConfig.load_config(config_path=config_file)
         assert config.cluster_url == "https://empty.kusto.windows.net"
 
@@ -172,13 +171,13 @@ class TestKQLQueryResult:
 
 
 def _make_config(**overrides):
-    defaults = dict(
-        cluster_url="https://test.kusto.windows.net",
-        database="testdb",
-        max_retries=3,
-        retry_base_delay_seconds=0.001,
-        retry_max_delay_seconds=0.01,
-    )
+    defaults = {
+        "cluster_url": "https://test.kusto.windows.net",
+        "database": "testdb",
+        "max_retries": 3,
+        "retry_base_delay_seconds": 0.001,
+        "retry_max_delay_seconds": 0.01,
+    }
     defaults.update(overrides)
     return EventhouseConfig(**defaults)
 
@@ -200,9 +199,7 @@ class TestKQLClientConnect:
 
     @patch("pipeline.common.eventhouse.kql_client.KustoClient")
     @patch("pipeline.common.eventhouse.kql_client.KustoConnectionStringBuilder")
-    async def test_connect_with_spn_credentials(
-        self, mock_kcsb_cls, mock_kusto_cls
-    ):
+    async def test_connect_with_spn_credentials(self, mock_kcsb_cls, mock_kusto_cls):
         env = {
             "AZURE_CLIENT_ID": "client-id",
             "AZURE_CLIENT_SECRET": "secret",
@@ -323,9 +320,7 @@ class TestKQLClientClose:
     @patch("pipeline.common.eventhouse.kql_client.KustoClient")
     @patch("pipeline.common.eventhouse.kql_client.KustoConnectionStringBuilder")
     @patch("pipeline.common.eventhouse.kql_client.DefaultAzureCredential")
-    async def test_close_cleans_up(
-        self, mock_cred_cls, mock_kcsb_cls, mock_kusto_cls
-    ):
+    async def test_close_cleans_up(self, mock_cred_cls, mock_kcsb_cls, mock_kusto_cls):
         mock_client_instance = MagicMock()
         mock_kusto_cls.return_value = mock_client_instance
         config = _make_config()
@@ -345,9 +340,7 @@ class TestKQLClientClose:
     @patch("pipeline.common.eventhouse.kql_client.KustoClient")
     @patch("pipeline.common.eventhouse.kql_client.KustoConnectionStringBuilder")
     @patch("pipeline.common.eventhouse.kql_client.DefaultAzureCredential")
-    async def test_close_handles_exception(
-        self, mock_cred_cls, mock_kcsb_cls, mock_kusto_cls
-    ):
+    async def test_close_handles_exception(self, mock_cred_cls, mock_kcsb_cls, mock_kusto_cls):
         mock_client_instance = MagicMock()
         mock_client_instance.close.side_effect = RuntimeError("close failed")
         mock_kusto_cls.return_value = mock_client_instance
@@ -363,9 +356,7 @@ class TestKQLClientContextManager:
     @patch("pipeline.common.eventhouse.kql_client.KustoClient")
     @patch("pipeline.common.eventhouse.kql_client.KustoConnectionStringBuilder")
     @patch("pipeline.common.eventhouse.kql_client.DefaultAzureCredential")
-    async def test_async_context_manager(
-        self, mock_cred_cls, mock_kcsb_cls, mock_kusto_cls
-    ):
+    async def test_async_context_manager(self, mock_cred_cls, mock_kcsb_cls, mock_kusto_cls):
         mock_client_instance = MagicMock()
         mock_kusto_cls.return_value = mock_client_instance
         config = _make_config()
@@ -428,9 +419,7 @@ class TestKQLClientExecuteQuery:
         dt = datetime(2026, 1, 15, 12, 30, 0)
         row = MagicMock()
         row.__getitem__ = lambda self, i: [dt, "val"][i]
-        response = self._make_mock_response(
-            rows=[row], column_names=["timestamp", "data"]
-        )
+        response = self._make_mock_response(rows=[row], column_names=["timestamp", "data"])
         client._client.execute.return_value = response
 
         result = await client.execute_query("TestTable | take 1")
@@ -442,12 +431,12 @@ class TestKQLClientExecuteQuery:
         client = KQLClient(config)
         assert client._client is None
 
-        with patch.object(client, "connect", new_callable=AsyncMock) as mock_connect:
-            with patch.object(
-                client, "_execute_query_impl", new_callable=AsyncMock
-            ) as mock_impl:
-                mock_impl.return_value = KQLQueryResult()
-                await client.execute_query("test")
+        with (
+            patch.object(client, "connect", new_callable=AsyncMock) as mock_connect,
+            patch.object(client, "_execute_query_impl", new_callable=AsyncMock) as mock_impl,
+        ):
+            mock_impl.return_value = KQLQueryResult()
+            await client.execute_query("test")
         mock_connect.assert_awaited_once()
 
     async def test_uses_custom_database(self):
@@ -499,9 +488,7 @@ class TestKQLClientExecuteQuery:
 
     @patch("pipeline.common.eventhouse.kql_client._refresh_all_credentials")
     @patch("pipeline.common.eventhouse.kql_client.StorageErrorClassifier")
-    async def test_refreshes_credentials_on_auth_error(
-        self, mock_classifier, mock_refresh
-    ):
+    async def test_refreshes_credentials_on_auth_error(self, mock_classifier, mock_refresh):
         client = self._make_connected_client()
 
         auth_error = RuntimeError("auth failed")
@@ -514,7 +501,7 @@ class TestKQLClientExecuteQuery:
         classified.category = ErrorCategory.AUTH
         mock_classifier.classify_kusto_error.return_value = classified
 
-        result = await client.execute_query("test")
+        await client.execute_query("test")
         mock_refresh.assert_called_once()
 
     @patch("pipeline.common.eventhouse.kql_client.StorageErrorClassifier")

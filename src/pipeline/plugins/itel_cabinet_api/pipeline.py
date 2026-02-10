@@ -43,9 +43,7 @@ class ItelCabinetPipeline:
         self.kafka = kafka_producer
         self.config = config
         self.claimx_connection = config.get("claimx_connection", "claimx_api")
-        self.output_topic = config.get(
-            "output_topic", "pcesdopodappv1-itel-cabinet-completed"
-        )
+        self.output_topic = config.get("output_topic", "pcesdopodappv1-itel-cabinet-completed")
 
         logger.info(
             "ItelCabinetPipeline initialized",
@@ -74,9 +72,7 @@ class ItelCabinetPipeline:
 
         self._validate_event(event)
         if event.task_status == "COMPLETED":
-            submission, attachments, readable_report = (
-                await self._enrich_completed_task(event)
-            )
+            submission, attachments, readable_report = await self._enrich_completed_task(event)
         else:
             submission, attachments, readable_report = None, [], None
             logger.debug(
@@ -109,8 +105,7 @@ class ItelCabinetPipeline:
         valid_statuses = ["ASSIGNED", "IN_PROGRESS", "COMPLETED"]
         if event.task_status not in valid_statuses:
             raise ValueError(
-                f"Invalid task_status: {event.task_status}. "
-                f"Expected one of: {valid_statuses}"
+                f"Invalid task_status: {event.task_status}. Expected one of: {valid_statuses}"
             )
 
         logger.debug("Event validation passed")
@@ -124,9 +119,7 @@ class ItelCabinetPipeline:
         2. Fetch project media for URL lookup
         3. Parse form, attachments, and readable report
         """
-        logger.info(
-            "Enriching completed task", extra={"assignment_id": event.assignment_id}
-        )
+        logger.info("Enriching completed task", extra={"assignment_id": event.assignment_id})
 
         task_data = await self._fetch_claimx_assignment(event.assignment_id)
         project_id = int(task_data.get("projectId", event.project_id))
@@ -158,9 +151,7 @@ class ItelCabinetPipeline:
     async def _fetch_claimx_assignment(self, assignment_id: int) -> dict:
         endpoint = f"/customTasks/assignment/{assignment_id}"
 
-        logger.debug(
-            "Fetching assignment from ClaimX", extra={"assignment_id": assignment_id}
-        )
+        logger.debug("Fetching assignment from ClaimX", extra={"assignment_id": assignment_id})
 
         status, response = await self.connections.request_json(
             connection_name=self.claimx_connection,
@@ -331,12 +322,8 @@ class ItelCabinetPipeline:
         submission: CabinetSubmission | None,
         attachments: list[CabinetAttachment],
     ) -> None:
-        logger.info(
-            "Writing to Delta tables", extra={"assignment_id": event.assignment_id}
-        )
-        submission_row = (
-            submission.to_dict() if submission else self._build_metadata_row(event)
-        )
+        logger.info("Writing to Delta tables", extra={"assignment_id": event.assignment_id})
+        submission_row = submission.to_dict() if submission else self._build_metadata_row(event)
 
         await self.delta.write_submission(submission_row)
         if attachments:

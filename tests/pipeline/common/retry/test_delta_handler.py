@@ -14,11 +14,11 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
-from config.config import MessageConfig
+import pytest
+
 from core.types import ErrorCategory
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 
@@ -49,10 +49,7 @@ class TestDeltaRetryHandlerInitialization:
         assert handler.domain == "verisk"
         assert handler._retry_delays == [300, 600, 1200, 2400]
         assert handler._max_retries == 4
-        assert (
-            handler._retry_topic_prefix
-            == "verisk-retry"
-        )
+        assert handler._retry_topic_prefix == "verisk-retry"
         assert handler._dlq_topic == "verisk-dlq"
 
     def test_initialization_with_custom_retry_delays(self, mock_config):
@@ -103,9 +100,7 @@ class TestDeltaRetryHandlerLifecycle:
             domain="verisk",
         )
 
-        with patch(
-            "pipeline.common.retry.delta_handler.create_producer"
-        ) as mock_create:
+        with patch("pipeline.common.retry.delta_handler.create_producer") as mock_create:
             mock_retry_producer = AsyncMock()
             mock_retry_producer.start = AsyncMock()
             mock_dlq_producer = AsyncMock()
@@ -435,9 +430,7 @@ class TestDeltaRetryHandlerRetryRouting:
         with patch("pipeline.common.retry.delta_handler.datetime") as mock_datetime:
             now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = now
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(
-                *args, **kwargs
-            )
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 
             await handler._send_to_retry_topic(
                 batch=batch,
@@ -486,9 +479,7 @@ class TestDeltaRetryHandlerRetryRouting:
         with patch("pipeline.common.retry.delta_handler.datetime") as mock_datetime:
             now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = now
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(
-                *args, **kwargs
-            )
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 
             await handler._send_to_retry_topic(
                 batch=batch,

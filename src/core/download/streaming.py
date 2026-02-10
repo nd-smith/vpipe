@@ -220,9 +220,7 @@ async def download_to_file(
         # Ensure parent directory exists right before opening file
         # This handles potential timing issues on Windows where mkdir may not
         # be immediately visible to subsequent file operations
-        await asyncio.to_thread(
-            Path(output_path).parent.mkdir, parents=True, exist_ok=True
-        )
+        await asyncio.to_thread(Path(output_path).parent.mkdir, parents=True, exist_ok=True)
         with open(output_path, "wb") as f:
             async for chunk in chunk_iterator:
                 # Use asyncio.to_thread for disk I/O to avoid blocking event loop

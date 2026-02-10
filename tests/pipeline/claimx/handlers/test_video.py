@@ -1,13 +1,10 @@
 """Tests for ClaimX video collaboration event handler."""
 
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import AsyncMock
 
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers.video import VideoCollabHandler
-from pipeline.claimx.schemas.entities import EntityRowsMessage
 
 from .conftest import make_event, make_project_api_response
 
@@ -33,14 +30,9 @@ def _make_collab_response(collab_id=700, claim_id=123):
 
 
 class TestVideoCollabHandlerSuccess:
-
     async def test_handle_event_extracts_video_collab_row(self, mock_client):
-        mock_client.get_video_collaboration = AsyncMock(
-            return_value=_make_collab_response()
-        )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_video_collaboration = AsyncMock(return_value=_make_collab_response())
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = VideoCollabHandler(mock_client)
         event = make_event(event_type="VIDEO_COLLABORATION_INVITE_SENT", project_id="123")
 
@@ -52,12 +44,8 @@ class TestVideoCollabHandlerSuccess:
         assert result.rows.video_collab[0]["video_collaboration_id"] == 700
 
     async def test_handle_event_includes_project_verification(self, mock_client):
-        mock_client.get_video_collaboration = AsyncMock(
-            return_value=_make_collab_response()
-        )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_video_collaboration = AsyncMock(return_value=_make_collab_response())
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = VideoCollabHandler(mock_client)
         event = make_event(event_type="VIDEO_COLLABORATION_COMPLETED", project_id="123")
 
@@ -69,9 +57,7 @@ class TestVideoCollabHandlerSuccess:
 
     async def test_handle_event_no_collab_data_returns_success_with_project(self, mock_client):
         mock_client.get_video_collaboration = AsyncMock(return_value=None)
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = VideoCollabHandler(mock_client)
         event = make_event(event_type="VIDEO_COLLABORATION_INVITE_SENT", project_id="123")
 
@@ -89,7 +75,6 @@ class TestVideoCollabHandlerSuccess:
 
 
 class TestExtractCollabData:
-
     def test_extract_from_dict_response(self, mock_client):
         handler = VideoCollabHandler(mock_client)
         response = _make_collab_response(claim_id=123)
@@ -173,7 +158,6 @@ class TestExtractCollabData:
 
 
 class TestVideoCollabHandlerErrors:
-
     async def test_handle_event_api_error(self, mock_client):
         mock_client.get_video_collaboration = AsyncMock(
             side_effect=ClaimXApiError(
@@ -212,9 +196,7 @@ class TestVideoCollabHandlerErrors:
         assert result.is_retryable is False
 
     async def test_handle_event_unexpected_error(self, mock_client):
-        mock_client.get_video_collaboration = AsyncMock(
-            side_effect=RuntimeError("unexpected")
-        )
+        mock_client.get_video_collaboration = AsyncMock(side_effect=RuntimeError("unexpected"))
         handler = VideoCollabHandler(mock_client)
         event = make_event(event_type="VIDEO_COLLABORATION_INVITE_SENT")
 
@@ -230,9 +212,7 @@ class TestVideoCollabHandlerErrors:
         mock_client.get_video_collaboration = AsyncMock(
             return_value={"some_field": "value"}  # No videoCollaborationId or id
         )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = VideoCollabHandler(mock_client)
         event = make_event(event_type="VIDEO_COLLABORATION_INVITE_SENT", project_id="123")
 

@@ -8,7 +8,7 @@ Created for WP-314: Upload Worker - Unit Tests.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -33,8 +33,8 @@ class TestCachedDownloadMessageCreation:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="C-456",
-            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=timezone.utc),
-            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=timezone.utc),
+            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=UTC),
+            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=UTC),
         )
 
         assert cached.trace_id == "evt-123"
@@ -60,12 +60,9 @@ class TestCachedDownloadMessageCreation:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="A-789",
-            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=timezone.utc),
-            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=timezone.utc),
-            metadata={
-                "source_partition": 3,
-                "retry_count": 0
-            }
+            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=UTC),
+            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=UTC),
+            metadata={"source_partition": 3, "retry_count": 0},
         )
 
         assert cached.content_type == "application/pdf"
@@ -86,8 +83,8 @@ class TestCachedDownloadMessageCreation:
             status_subtype="documentsReceived",
             file_type="jpg",
             assignment_id="P-123",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
 
         assert cached.content_type is None
@@ -102,15 +99,15 @@ class TestCachedDownloadMessageValidation:
         with pytest.raises(ValidationError) as exc_info:
             CachedDownloadMessage(
                 trace_id="evt-123",
-                attachment_url="https://storage.example.com/file.pdf"
+                attachment_url="https://storage.example.com/file.pdf",
                 # Missing destination_path, local_cache_path, bytes_downloaded,
                 # event_type, event_subtype, original_timestamp, downloaded_at
             )
 
         errors = exc_info.value.errors()
-        assert any(e['loc'] == ('destination_path',) for e in errors)
-        assert any(e['loc'] == ('local_cache_path',) for e in errors)
-        assert any(e['loc'] == ('bytes_downloaded',) for e in errors)
+        assert any(e["loc"] == ("destination_path",) for e in errors)
+        assert any(e["loc"] == ("local_cache_path",) for e in errors)
+        assert any(e["loc"] == ("bytes_downloaded",) for e in errors)
 
     def test_empty_trace_id_raises_error(self):
         """Empty trace_id raises ValidationError."""
@@ -126,8 +123,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_whitespace_trace_id_raises_error(self):
@@ -144,8 +141,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_empty_attachment_url_raises_error(self):
@@ -162,8 +159,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_empty_destination_path_raises_error(self):
@@ -180,8 +177,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_empty_local_cache_path_raises_error(self):
@@ -198,8 +195,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_empty_event_type_raises_error(self):
@@ -216,8 +213,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_empty_event_subtype_raises_error(self):
@@ -234,8 +231,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_negative_bytes_downloaded_raises_error(self):
@@ -252,8 +249,8 @@ class TestCachedDownloadMessageValidation:
                 status_subtype="documentsReceived",
                 file_type="pdf",
                 assignment_id="C-456",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
 
     def test_whitespace_is_trimmed(self):
@@ -270,8 +267,8 @@ class TestCachedDownloadMessageValidation:
             status_subtype="  documentsReceived  ",
             file_type="  pdf  ",
             assignment_id="  C-456  ",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
 
         assert cached.trace_id == "evt-123"
@@ -303,9 +300,9 @@ class TestCachedDownloadMessageSerialization:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="C-456",
-            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=timezone.utc),
-            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=timezone.utc),
-            metadata={"source_partition": 3}
+            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=UTC),
+            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=UTC),
+            metadata={"source_partition": 3},
         )
 
         json_str = cached.model_dump_json()
@@ -337,8 +334,8 @@ class TestCachedDownloadMessageSerialization:
             status_subtype="documentsReceived",
             file_type="jpg",
             assignment_id="P-123",
-            original_timestamp=datetime(2024, 12, 25, 11, 0, 0, tzinfo=timezone.utc),
-            downloaded_at=datetime(2024, 12, 25, 11, 0, 2, tzinfo=timezone.utc),
+            original_timestamp=datetime(2024, 12, 25, 11, 0, 0, tzinfo=UTC),
+            downloaded_at=datetime(2024, 12, 25, 11, 0, 2, tzinfo=UTC),
         )
 
         json_str = cached.model_dump_json()
@@ -364,7 +361,7 @@ class TestCachedDownloadMessageSerialization:
             "assignment_id": "C-999",
             "original_timestamp": "2024-12-25T15:45:00Z",
             "downloaded_at": "2024-12-25T15:45:03Z",
-            "metadata": {"retry_count": 0}
+            "metadata": {"retry_count": 0},
         }
 
         json_str = json.dumps(json_data)
@@ -390,7 +387,7 @@ class TestCachedDownloadMessageSerialization:
             "file_type": "txt",
             "assignment_id": "D-123",
             "original_timestamp": "2024-12-25T12:00:00Z",
-            "downloaded_at": "2024-12-25T12:00:01Z"
+            "downloaded_at": "2024-12-25T12:00:01Z",
         }
 
         json_str = json.dumps(json_data)
@@ -415,9 +412,9 @@ class TestCachedDownloadMessageSerialization:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="T-123",
-            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=timezone.utc),
-            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=timezone.utc),
-            metadata={"key": "value", "number": 42}
+            original_timestamp=datetime(2024, 12, 25, 10, 30, 0, tzinfo=UTC),
+            downloaded_at=datetime(2024, 12, 25, 10, 30, 5, tzinfo=UTC),
+            metadata={"key": "value", "number": 42},
         )
 
         json_str = original.model_dump_json()
@@ -451,8 +448,8 @@ class TestEdgeCases:
             status_subtype="documentsReceived",
             file_type="txt",
             assignment_id="T-001",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
         assert cached.bytes_downloaded == 0
 
@@ -470,8 +467,8 @@ class TestEdgeCases:
             status_subtype="documentsReceived",
             file_type="zip",
             assignment_id="A-002",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
         assert cached.bytes_downloaded == 10_737_418_240
 
@@ -489,8 +486,8 @@ class TestEdgeCases:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="C-003",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
         assert "Schäden" in cached.destination_path
 
@@ -508,8 +505,8 @@ class TestEdgeCases:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="T-004",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
         assert cached.trace_id == "evt-2024-001-abc_xyz"
 
@@ -550,19 +547,13 @@ class TestEdgeCases:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="T-006",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
             metadata={
-                "source": {
-                    "partition": 3,
-                    "offset": 12345
-                },
+                "source": {"partition": 3, "offset": 12345},
                 "tags": ["important", "urgent"],
-                "properties": {
-                    "retries": 0,
-                    "priority": "high"
-                }
-            }
+                "properties": {"retries": 0, "priority": "high"},
+            },
         )
 
         assert cached.metadata["source"]["partition"] == 3
@@ -593,8 +584,8 @@ class TestEdgeCases:
                 status_subtype="documentsReceived",
                 file_type="bin",
                 assignment_id="T-007",
-                original_timestamp=datetime.now(timezone.utc),
-                downloaded_at=datetime.now(timezone.utc),
+                original_timestamp=datetime.now(UTC),
+                downloaded_at=datetime.now(UTC),
             )
             assert cached.content_type == ct
 
@@ -615,7 +606,7 @@ class TestEdgeCases:
             status_subtype="documentsReceived",
             file_type="pdf",
             assignment_id="T-008",
-            original_timestamp=datetime.now(timezone.utc),
-            downloaded_at=datetime.now(timezone.utc),
+            original_timestamp=datetime.now(UTC),
+            downloaded_at=datetime.now(UTC),
         )
         assert len(cached.destination_path) > 100

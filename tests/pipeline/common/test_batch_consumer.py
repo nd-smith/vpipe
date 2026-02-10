@@ -17,9 +17,7 @@ def _make_config(**overrides):
     config.connections_max_idle_ms = 540000
     config.security_protocol = "PLAINTEXT"
     config.get_worker_config.return_value = overrides.get("worker_config", {})
-    config.get_consumer_group.return_value = overrides.get(
-        "group_id", "test-domain-test-worker"
-    )
+    config.get_consumer_group.return_value = overrides.get("group_id", "test-domain-test-worker")
     return config
 
 
@@ -53,7 +51,6 @@ def _make_consumer_record(
 
 
 class TestMessageBatchConsumerInit:
-
     def test_raises_on_empty_topics(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
 
@@ -128,7 +125,6 @@ class TestMessageBatchConsumerInit:
 
 
 class TestMessageBatchConsumerStart:
-
     async def test_start_creates_consumer_with_batch_size(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
 
@@ -144,11 +140,15 @@ class TestMessageBatchConsumerStart:
 
         mock_kafka = _make_kafka_mock()
 
-        with patch("pipeline.common.batch_consumer.AIOKafkaConsumer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.batch_consumer.build_kafka_security_config", return_value={}):
-                with patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError):
-                    with pytest.raises(asyncio.CancelledError):
-                        await consumer.start()
+        with (
+            patch(
+                "pipeline.common.batch_consumer.AIOKafkaConsumer", return_value=mock_kafka
+            ) as mock_cls,
+            patch("pipeline.common.batch_consumer.build_kafka_security_config", return_value={}),
+            patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await consumer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["max_poll_records"] == 30
@@ -184,18 +184,21 @@ class TestMessageBatchConsumerStart:
 
         mock_kafka = _make_kafka_mock()
 
-        with patch("pipeline.common.batch_consumer.AIOKafkaConsumer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.batch_consumer.build_kafka_security_config", return_value={}):
-                with patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError):
-                    with pytest.raises(asyncio.CancelledError):
-                        await consumer.start()
+        with (
+            patch(
+                "pipeline.common.batch_consumer.AIOKafkaConsumer", return_value=mock_kafka
+            ) as mock_cls,
+            patch("pipeline.common.batch_consumer.build_kafka_security_config", return_value={}),
+            patch.object(consumer, "_consume_loop", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await consumer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["client_id"] == "verisk-test-5"
 
 
 class TestMessageBatchConsumerStop:
-
     async def test_stop_commits_and_stops(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
 
@@ -255,7 +258,6 @@ class TestMessageBatchConsumerStop:
 
 
 class TestMessageBatchConsumerCommit:
-
     async def test_commit_calls_consumer_commit(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
 
@@ -289,7 +291,6 @@ class TestMessageBatchConsumerCommit:
 
 
 class TestMessageBatchConsumerConsumeLoop:
-
     async def test_stops_at_max_batches(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
 

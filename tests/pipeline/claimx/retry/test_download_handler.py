@@ -15,9 +15,10 @@ Test Coverage:
     - API client integration for URL refresh
 """
 
-import pytest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from config.config import MessageConfig
 from core.types import ErrorCategory
@@ -54,9 +55,7 @@ class TestDownloadRetryHandlerInitialization:
         config.get_max_retries.return_value = 2
         api_client = Mock(spec=ClaimXApiClient)
 
-        handler = DownloadRetryHandler(
-            config=config, api_client=api_client, domain="custom"
-        )
+        handler = DownloadRetryHandler(config=config, api_client=api_client, domain="custom")
 
         assert handler.domain == "custom"
         config.get_retry_delays.assert_called_once_with("custom")
@@ -120,9 +119,7 @@ class TestDownloadRetryHandlerErrorCategoryRouting:
         )
 
     @pytest.mark.asyncio
-    async def test_permanent_error_goes_directly_to_dlq(
-        self, retry_handler, sample_task
-    ):
+    async def test_permanent_error_goes_directly_to_dlq(self, retry_handler, sample_task):
         """PERMANENT errors skip retry and go straight to DLQ."""
         error = ValueError("Invalid file format - corrupted PDF")
 
@@ -175,9 +172,7 @@ class TestDownloadRetryHandlerErrorCategoryRouting:
         retry_handler._dlq_producer.send.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_circuit_open_error_routes_to_retry_topic(
-        self, retry_handler, sample_task
-    ):
+    async def test_circuit_open_error_routes_to_retry_topic(self, retry_handler, sample_task):
         """CIRCUIT_OPEN errors route to retry topic (circuit may close)."""
         error = RuntimeError("Circuit breaker is open")
 
@@ -221,81 +216,61 @@ class TestDownloadRetryHandlerURLExpirationDetection:
     def test_detects_403_forbidden_error(self, retry_handler):
         """_should_refresh_url detects 403 Forbidden errors."""
         error = Exception("HTTP 403 Forbidden")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.TRANSIENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.TRANSIENT)
         assert should_refresh is True
 
     def test_detects_expired_keyword(self, retry_handler):
         """_should_refresh_url detects 'expired' keyword."""
         error = Exception("URL has expired")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.TRANSIENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.TRANSIENT)
         assert should_refresh is True
 
     def test_detects_forbidden_keyword(self, retry_handler):
         """_should_refresh_url detects 'forbidden' keyword."""
         error = Exception("Access forbidden")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.TRANSIENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.TRANSIENT)
         assert should_refresh is True
 
     def test_detects_access_denied(self, retry_handler):
         """_should_refresh_url detects 'access denied' keyword."""
         error = Exception("Access denied")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.TRANSIENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.TRANSIENT)
         assert should_refresh is True
 
     def test_detects_unauthorized(self, retry_handler):
         """_should_refresh_url detects 'unauthorized' keyword."""
         error = Exception("Unauthorized access")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.UNKNOWN
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.UNKNOWN)
         assert should_refresh is True
 
     def test_case_insensitive_detection(self, retry_handler):
         """_should_refresh_url is case-insensitive."""
         error = Exception("HTTP 403 FORBIDDEN")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.TRANSIENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.TRANSIENT)
         assert should_refresh is True
 
     def test_does_not_refresh_for_permanent_errors(self, retry_handler):
         """_should_refresh_url returns False for PERMANENT errors."""
         error = Exception("403 Forbidden")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.PERMANENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.PERMANENT)
         assert should_refresh is False
 
     def test_does_not_refresh_for_auth_errors(self, retry_handler):
         """_should_refresh_url returns False for AUTH errors."""
         error = Exception("403 Forbidden")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.AUTH
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.AUTH)
         assert should_refresh is False
 
     def test_does_not_refresh_for_circuit_open(self, retry_handler):
         """_should_refresh_url returns False for CIRCUIT_OPEN errors."""
         error = Exception("403 Forbidden")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.CIRCUIT_OPEN
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.CIRCUIT_OPEN)
         assert should_refresh is False
 
     def test_does_not_refresh_for_non_expiration_errors(self, retry_handler):
         """_should_refresh_url returns False for non-expiration errors."""
         error = Exception("Connection timeout")
-        should_refresh = retry_handler._should_refresh_url(
-            error, ErrorCategory.TRANSIENT
-        )
+        should_refresh = retry_handler._should_refresh_url(error, ErrorCategory.TRANSIENT)
         assert should_refresh is False
 
 
@@ -349,9 +324,7 @@ class TestDownloadRetryHandlerURLRefresh:
     ):
         """Successful URL refresh updates task with new URL."""
         new_url = "https://example.com/new_url.pdf?sig=fresh"
-        mock_api_client.get_project_media.return_value = [
-            {"full_download_link": new_url}
-        ]
+        mock_api_client.get_project_media.return_value = [{"full_download_link": new_url}]
 
         refreshed_task = await retry_handler._try_refresh_url(sample_task)
 
@@ -361,14 +334,10 @@ class TestDownloadRetryHandlerURLRefresh:
         assert refreshed_task.project_id == "67890"
 
     @pytest.mark.asyncio
-    async def test_url_refresh_adds_metadata(
-        self, retry_handler, sample_task, mock_api_client
-    ):
+    async def test_url_refresh_adds_metadata(self, retry_handler, sample_task, mock_api_client):
         """URL refresh adds metadata about refresh operation."""
         new_url = "https://example.com/new_url.pdf?sig=fresh"
-        mock_api_client.get_project_media.return_value = [
-            {"full_download_link": new_url}
-        ]
+        mock_api_client.get_project_media.return_value = [{"full_download_link": new_url}]
 
         before_refresh = datetime.now(UTC)
         refreshed_task = await retry_handler._try_refresh_url(sample_task)
@@ -518,9 +487,7 @@ class TestDownloadRetryHandlerURLRefreshIntegration:
         """Expired URL error triggers refresh and sends refreshed task to retry."""
         error = Exception("HTTP 403 Forbidden - URL expired")
         new_url = "https://example.com/new_url.pdf?sig=fresh"
-        mock_api_client.get_project_media.return_value = [
-            {"full_download_link": new_url}
-        ]
+        mock_api_client.get_project_media.return_value = [{"full_download_link": new_url}]
 
         await retry_handler.handle_failure(
             task=sample_task,
@@ -604,9 +571,7 @@ class TestDownloadRetryHandlerRetryExhaustion:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_count_at_max_goes_to_dlq(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_count_at_max_goes_to_dlq(self, retry_handler, sample_task):
         """Tasks with retry_count == max_retries go to DLQ."""
         sample_task.retry_count = 4
         error = ConnectionError("Still failing after retries")
@@ -681,9 +646,7 @@ class TestDownloadRetryHandlerMessageKeys:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_message_key_is_source_event_id(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_message_key_is_source_event_id(self, retry_handler, sample_task):
         """Retry message key is source_event_id for consistent partitioning."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -695,9 +658,7 @@ class TestDownloadRetryHandlerMessageKeys:
         assert retry_call.kwargs["key"] == "evt-abc-123"
 
     @pytest.mark.asyncio
-    async def test_dlq_message_key_is_source_event_id(
-        self, retry_handler, sample_task
-    ):
+    async def test_dlq_message_key_is_source_event_id(self, retry_handler, sample_task):
         """DLQ message key is source_event_id for consistent partitioning."""
         sample_task.retry_count = 4
 
@@ -711,9 +672,7 @@ class TestDownloadRetryHandlerMessageKeys:
         assert dlq_call.kwargs["key"] == "evt-abc-123"
 
     @pytest.mark.asyncio
-    async def test_retry_headers_include_original_key(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_headers_include_original_key(self, retry_handler, sample_task):
         """Retry headers include original_key as source_event_id."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -771,12 +730,10 @@ class TestDownloadRetryHandlerTaskImmutability:
         )
 
     @pytest.mark.asyncio
-    async def test_original_task_unchanged_after_retry(
-        self, retry_handler, sample_task
-    ):
+    async def test_original_task_unchanged_after_retry(self, retry_handler, sample_task):
         """Original task object is not modified by retry logic."""
         original_retry_count = sample_task.retry_count
-        original_metadata = dict(sample_task.metadata) if sample_task.metadata else {}
+        dict(sample_task.metadata) if sample_task.metadata else {}
 
         await retry_handler.handle_failure(
             task=sample_task,

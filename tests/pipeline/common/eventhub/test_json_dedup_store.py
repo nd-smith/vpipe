@@ -7,10 +7,7 @@ Uses tmp_path for isolated filesystem operations.
 import json
 import time
 
-import pytest
-
 from pipeline.common.eventhub.json_dedup_store import JsonDedupStore
-
 
 # =============================================================================
 # JsonDedupStore - Init
@@ -29,7 +26,7 @@ class TestJsonDedupStoreInit:
         storage = tmp_path / "dedup-cache"
         storage.mkdir()
 
-        store = JsonDedupStore(storage_path=str(storage))
+        JsonDedupStore(storage_path=str(storage))
         assert storage.exists()
 
 

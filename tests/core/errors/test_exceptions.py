@@ -2,21 +2,19 @@
 Tests for exception hierarchy and error classification.
 """
 
-import pytest
-
 from core.errors.exceptions import (
-    ErrorCategory,
-    PipelineError,
     AuthError,
-    TransientError,
-    ThrottlingError,
-    PermanentError,
     CircuitOpenError,
-    is_auth_error,
-    is_transient_error,
-    is_retryable_error,
-    classify_http_status,
+    ErrorCategory,
+    PermanentError,
+    PipelineError,
+    ThrottlingError,
+    TransientError,
     classify_exception,
+    classify_http_status,
+    is_auth_error,
+    is_retryable_error,
+    is_transient_error,
     wrap_exception,
 )
 
@@ -28,6 +26,7 @@ from core.errors.exceptions import (
 # - KustoError, KustoQueryError, DeltaTableError, OneLakeError -> Use base classes
 # - DownloadError, Attachment* errors -> Use base classes with context dict
 
+
 class TestErrorCategory:
     """Test ErrorCategory enum."""
 
@@ -38,6 +37,7 @@ class TestErrorCategory:
         assert ErrorCategory.PERMANENT.value == "permanent"
         assert ErrorCategory.CIRCUIT_OPEN.value == "circuit_open"
         assert ErrorCategory.UNKNOWN.value == "unknown"
+
 
 class TestPipelineError:
     """Test base PipelineError class."""
@@ -73,6 +73,7 @@ class TestPipelineError:
         err = PipelineError("Error")
         assert err.should_refresh_auth is False
 
+
 class TestAuthErrors:
     """Test authentication error hierarchy."""
 
@@ -82,6 +83,7 @@ class TestAuthErrors:
         assert err.category == ErrorCategory.AUTH
         assert err.is_retryable is True
         assert err.should_refresh_auth is True
+
 
 class TestTransientErrors:
     """Test transient error hierarchy."""
@@ -103,6 +105,7 @@ class TestTransientErrors:
         err = ThrottlingError("Rate limited", retry_after=60.0)
         assert err.retry_after == 60.0
 
+
 class TestPermanentErrors:
     """Test permanent error hierarchy."""
 
@@ -111,6 +114,7 @@ class TestPermanentErrors:
         err = PermanentError("Fatal error")
         assert err.category == ErrorCategory.PERMANENT
         assert err.is_retryable is False
+
 
 class TestCircuitOpenError:
     """Test circuit breaker error."""
@@ -129,6 +133,7 @@ class TestCircuitOpenError:
         cause = TimeoutError("Timeout")
         err = CircuitOpenError("my_circuit", retry_after=30.0, cause=cause)
         assert err.cause == cause
+
 
 class TestIsAuthError:
     """Test is_auth_error() utility."""
@@ -157,6 +162,7 @@ class TestIsAuthError:
         """Returns false for unrelated errors."""
         assert is_auth_error(Exception("Something else")) is False
 
+
 class TestIsTransientError:
     """Test is_transient_error() utility."""
 
@@ -179,6 +185,7 @@ class TestIsTransientError:
     def test_no_match(self):
         """Returns false for unrelated errors."""
         assert is_transient_error(Exception("Something else")) is False
+
 
 class TestIsRetryableError:
     """Test is_retryable_error() utility."""
@@ -204,6 +211,7 @@ class TestIsRetryableError:
         """Generic exceptions are classified and checked."""
         assert is_retryable_error(Exception("timeout")) is True
         assert is_retryable_error(Exception("404 not found")) is False
+
 
 class TestClassifyHttpStatus:
     """Test classify_http_status() utility."""
@@ -247,12 +255,16 @@ class TestClassifyHttpStatus:
         """Other 5xx are TRANSIENT."""
         assert classify_http_status(507) == ErrorCategory.TRANSIENT
 
+
 class TestClassifyException:
     """Test classify_exception() utility."""
 
     def test_delta_commit_errors(self):
         """Detects Delta Lake commit conflicts as transient."""
-        assert classify_exception(Exception("Failed to commit transaction: 15")) == ErrorCategory.TRANSIENT
+        assert (
+            classify_exception(Exception("Failed to commit transaction: 15"))
+            == ErrorCategory.TRANSIENT
+        )
         assert classify_exception(Exception("transaction conflict")) == ErrorCategory.TRANSIENT
         assert classify_exception(Exception("version conflict")) == ErrorCategory.TRANSIENT
         assert classify_exception(Exception("concurrent modification")) == ErrorCategory.TRANSIENT
@@ -295,6 +307,7 @@ class TestClassifyException:
         """Returns UNKNOWN for unrecognized errors."""
         assert classify_exception(Exception("something weird")) == ErrorCategory.UNKNOWN
 
+
 class TestWrapException:
     """Test wrap_exception() utility."""
 
@@ -329,4 +342,3 @@ class TestWrapException:
         exc = Exception("timeout")
         wrapped = wrap_exception(exc, context={"url": "http://example.com"})
         assert wrapped.context["url"] == "http://example.com"
-

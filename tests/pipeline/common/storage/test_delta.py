@@ -15,12 +15,10 @@ Since polars is a MagicMock in sys.modules, we test control flow and logic
 paths rather than actual DataFrame operations.
 """
 
-import asyncio
-import os
 import sys
 import warnings
-from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
@@ -32,13 +30,13 @@ if "pyarrow" not in sys.modules:
     sys.modules["pyarrow"] = _pa
 
 from pipeline.common.storage.delta import (
+    DELTA_CIRCUIT_CONFIG,
+    DELTA_RETRY_CONFIG,
     DeltaTableReader,
     DeltaTableWriter,
     EventsTableReader,
-    DELTA_RETRY_CONFIG,
-    DELTA_CIRCUIT_CONFIG,
-    get_open_file_descriptors,
     _on_auth_error,
+    get_open_file_descriptors,
 )
 
 
@@ -97,14 +95,15 @@ class MockExpr:
 # get_open_file_descriptors
 # ---------------------------------------------------------------------------
 
-class TestGetOpenFileDescriptors:
 
+class TestGetOpenFileDescriptors:
     def test_returns_integer(self):
         result = get_open_file_descriptors()
         assert isinstance(result, int)
 
     def test_returns_positive_on_linux(self):
         import sys
+
         if not sys.platform.startswith("linux"):
             pytest.skip("Linux only")
         result = get_open_file_descriptors()
@@ -127,8 +126,8 @@ class TestGetOpenFileDescriptors:
 # _on_auth_error
 # ---------------------------------------------------------------------------
 
-class TestOnAuthError:
 
+class TestOnAuthError:
     @patch("pipeline.common.storage.delta._refresh_all_credentials")
     def test_calls_refresh_all_credentials(self, mock_refresh):
         _on_auth_error()
@@ -139,8 +138,8 @@ class TestOnAuthError:
 # DELTA_RETRY_CONFIG / DELTA_CIRCUIT_CONFIG
 # ---------------------------------------------------------------------------
 
-class TestDeltaConfigs:
 
+class TestDeltaConfigs:
     def test_retry_config_values(self):
         assert DELTA_RETRY_CONFIG.max_attempts == 3
         assert DELTA_RETRY_CONFIG.base_delay == 1.0
@@ -155,8 +154,8 @@ class TestDeltaConfigs:
 # DeltaTableReader - initialization
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderInit:
 
+class TestDeltaTableReaderInit:
     def test_initializes_with_path(self):
         reader = DeltaTableReader("abfss://ws@acct/table")
         assert reader.table_path == "abfss://ws@acct/table"
@@ -174,8 +173,8 @@ class TestDeltaTableReaderInit:
 # DeltaTableReader - context manager and close
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderLifecycle:
 
+class TestDeltaTableReaderLifecycle:
     async def test_async_context_manager(self):
         async with DeltaTableReader("test://table") as reader:
             assert not reader._closed
@@ -215,8 +214,8 @@ class TestDeltaTableReaderLifecycle:
 # DeltaTableReader - read
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderRead:
 
+class TestDeltaTableReaderRead:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.pl.read_delta")
     def test_read_calls_polars_read_delta(self, mock_read, mock_opts):
@@ -269,8 +268,8 @@ class TestDeltaTableReaderRead:
 # DeltaTableReader - scan
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderScan:
 
+class TestDeltaTableReaderScan:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.pl.scan_delta")
     def test_scan_returns_lazy_frame(self, mock_scan, mock_opts):
@@ -300,8 +299,8 @@ class TestDeltaTableReaderScan:
 # DeltaTableReader - read_filtered
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderReadFiltered:
 
+class TestDeltaTableReaderReadFiltered:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.pl.scan_delta")
     def test_read_filtered_applies_filter(self, mock_scan, mock_opts):
@@ -417,8 +416,8 @@ class TestDeltaTableReaderReadFiltered:
 # DeltaTableReader - read_as_polars
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderReadAsPolars:
 
+class TestDeltaTableReaderReadAsPolars:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.pl.scan_delta")
     def test_read_as_polars_no_filters(self, mock_scan, mock_opts):
@@ -505,12 +504,14 @@ class TestDeltaTableReaderReadAsPolars:
         mock_col.return_value = MockExpr()
 
         reader = DeltaTableReader("abfss://ws@acct/table")
-        reader.read_as_polars(filters=[
-            ("col1", "<", "val1"),
-            ("col2", ">", "val2"),
-            ("col3", "<=", "val3"),
-            ("col4", ">=", "val4"),
-        ])
+        reader.read_as_polars(
+            filters=[
+                ("col1", "<", "val1"),
+                ("col2", ">", "val2"),
+                ("col3", "<=", "val3"),
+                ("col4", ">=", "val4"),
+            ]
+        )
 
         assert mock_lf.filter.call_count == 4
 
@@ -519,8 +520,8 @@ class TestDeltaTableReaderReadAsPolars:
 # DeltaTableReader - exists
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableReaderExists:
 
+class TestDeltaTableReaderExists:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.pl.scan_delta")
     def test_exists_returns_true_when_table_readable(self, mock_scan, mock_opts):
@@ -545,8 +546,8 @@ class TestDeltaTableReaderExists:
 # DeltaTableWriter - initialization
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterInit:
 
+class TestDeltaTableWriterInit:
     def test_initializes_with_defaults(self):
         writer = DeltaTableWriter("abfss://ws@acct/table")
         assert writer.table_path == "abfss://ws@acct/table"
@@ -576,8 +577,8 @@ class TestDeltaTableWriterInit:
 # DeltaTableWriter - lifecycle
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterLifecycle:
 
+class TestDeltaTableWriterLifecycle:
     async def test_async_context_manager(self):
         async with DeltaTableWriter("test://table") as writer:
             assert not writer._closed
@@ -607,8 +608,8 @@ class TestDeltaTableWriterLifecycle:
 # DeltaTableWriter - _table_exists
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterTableExists:
 
+class TestDeltaTableWriterTableExists:
     @patch("pipeline.common.storage.delta.DeltaTable")
     def test_returns_true_when_table_exists(self, mock_dt):
         writer = DeltaTableWriter("abfss://ws@acct/table")
@@ -628,8 +629,8 @@ class TestDeltaTableWriterTableExists:
 # DeltaTableWriter - _cast_null_columns
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterCastNullColumns:
 
+class TestDeltaTableWriterCastNullColumns:
     def test_casts_null_columns(self):
         writer = DeltaTableWriter("abfss://ws@acct/table")
         mock_df = MagicMock()
@@ -644,7 +645,7 @@ class TestDeltaTableWriterCastNullColumns:
         mock_df.__getitem__ = lambda self, key: col_a if key == "a" else col_b
         mock_df.with_columns.return_value = mock_df
 
-        result = writer._cast_null_columns(mock_df)
+        writer._cast_null_columns(mock_df)
         # Should have called with_columns for column 'a' (Null type)
         mock_df.with_columns.assert_called_once()
 
@@ -653,8 +654,8 @@ class TestDeltaTableWriterCastNullColumns:
 # DeltaTableWriter - _arrow_type_to_polars
 # ---------------------------------------------------------------------------
 
-class TestArrowTypeToPolars:
 
+class TestArrowTypeToPolars:
     def setup_method(self):
         self.writer = DeltaTableWriter("abfss://ws@acct/table")
 
@@ -761,8 +762,8 @@ class TestArrowTypeToPolars:
 # DeltaTableWriter - append
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterAppend:
 
+class TestDeltaTableWriterAppend:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.get_auth")
     @patch("pipeline.common.storage.delta.DeltaTable")
@@ -799,9 +800,11 @@ class TestDeltaTableWriterAppend:
         mock_dt.return_value = mock_dt_instance
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        with patch.object(writer, "_table_exists", return_value=True):
-            with patch.object(writer, "_align_schema_with_target", return_value=mock_df):
-                result = writer.append(mock_df, batch_id="b1")
+        with (
+            patch.object(writer, "_table_exists", return_value=True),
+            patch.object(writer, "_align_schema_with_target", return_value=mock_df),
+        ):
+            result = writer.append(mock_df, batch_id="b1")
 
         assert result == 5
         mock_write.assert_called_once()
@@ -823,9 +826,11 @@ class TestDeltaTableWriterAppend:
         mock_df.to_arrow.return_value = MagicMock()
 
         writer = DeltaTableWriter("abfss://ws@acct/table", partition_column="event_date")
-        with patch.object(writer, "_table_exists", return_value=False):
-            with patch.object(writer, "_cast_null_columns", return_value=mock_df) as mock_cast:
-                result = writer.append(mock_df)
+        with (
+            patch.object(writer, "_table_exists", return_value=False),
+            patch.object(writer, "_cast_null_columns", return_value=mock_df) as mock_cast,
+        ):
+            writer.append(mock_df)
 
         mock_cast.assert_called_once_with(mock_df)
 
@@ -851,9 +856,11 @@ class TestDeltaTableWriterAppend:
         mock_dt.return_value = mock_dt_instance
 
         writer = DeltaTableWriter("abfss://ws@acct/table", partition_column="other_col")
-        with patch.object(writer, "_table_exists", return_value=True):
-            with patch.object(writer, "_align_schema_with_target", return_value=mock_df):
-                writer.append(mock_df)
+        with (
+            patch.object(writer, "_table_exists", return_value=True),
+            patch.object(writer, "_align_schema_with_target", return_value=mock_df),
+        ):
+            writer.append(mock_df)
 
         # write_deltalake should use existing table's partitions
         call_kwargs = mock_write.call_args[1]
@@ -864,8 +871,8 @@ class TestDeltaTableWriterAppend:
 # DeltaTableWriter - merge
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterMerge:
 
+class TestDeltaTableWriterMerge:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.get_auth")
     def test_merge_empty_df_returns_zero(self, mock_auth, mock_opts):
@@ -896,11 +903,12 @@ class TestDeltaTableWriterMerge:
         mock_df.to_arrow.return_value = MagicMock()
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        with patch.object(writer, "_table_exists", return_value=False):
-            with patch.object(writer, "_cast_null_columns", return_value=mock_df):
-                # pl.DataFrame constructor returns mock - simulate
-                with patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df):
-                    result = writer.merge(mock_df, merge_keys=["id"])
+        with (
+            patch.object(writer, "_table_exists", return_value=False),
+            patch.object(writer, "_cast_null_columns", return_value=mock_df),
+            patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df),
+        ):
+            result = writer.merge(mock_df, merge_keys=["id"])
 
         assert result == 2
         mock_write.assert_called_once()
@@ -934,10 +942,12 @@ class TestDeltaTableWriterMerge:
         mock_dt.return_value.merge.return_value = mock_merge_builder
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        with patch.object(writer, "_table_exists", return_value=True):
-            with patch.object(writer, "_align_schema_with_target", return_value=mock_df):
-                with patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df):
-                    result = writer.merge(mock_df, merge_keys=["id"])
+        with (
+            patch.object(writer, "_table_exists", return_value=True),
+            patch.object(writer, "_align_schema_with_target", return_value=mock_df),
+            patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df),
+        ):
+            result = writer.merge(mock_df, merge_keys=["id"])
 
         assert result == 2
 
@@ -965,14 +975,16 @@ class TestDeltaTableWriterMerge:
         mock_dt.return_value.merge.return_value = mock_merge_builder
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        with patch.object(writer, "_table_exists", return_value=True):
-            with patch.object(writer, "_align_schema_with_target", return_value=mock_df):
-                with patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df):
-                    writer.merge(
-                        mock_df,
-                        merge_keys=["id"],
-                        update_condition="source.ts > target.ts",
-                    )
+        with (
+            patch.object(writer, "_table_exists", return_value=True),
+            patch.object(writer, "_align_schema_with_target", return_value=mock_df),
+            patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df),
+        ):
+            writer.merge(
+                mock_df,
+                merge_keys=["id"],
+                update_condition="source.ts > target.ts",
+            )
 
         # when_matched_update should be called with predicate
         mock_merge_builder.when_matched_update.assert_called_once()
@@ -1003,10 +1015,12 @@ class TestDeltaTableWriterMerge:
         mock_dt.return_value.merge.return_value = mock_merge_builder
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        with patch.object(writer, "_table_exists", return_value=True):
-            with patch.object(writer, "_align_schema_with_target", return_value=mock_df):
-                with patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df):
-                    writer.merge(mock_df, merge_keys=["id"])
+        with (
+            patch.object(writer, "_table_exists", return_value=True),
+            patch.object(writer, "_align_schema_with_target", return_value=mock_df),
+            patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df),
+        ):
+            writer.merge(mock_df, merge_keys=["id"])
 
         # update_dict should not include "id" (merge key) or "created_at" (default preserve)
         call_args = mock_merge_builder.when_matched_update.call_args
@@ -1020,8 +1034,8 @@ class TestDeltaTableWriterMerge:
 # DeltaTableWriter - merge_batched
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterMergeBatched:
 
+class TestDeltaTableWriterMergeBatched:
     def test_merge_batched_empty_returns_zero(self):
         mock_df = MagicMock()
         mock_df.is_empty.return_value = True
@@ -1064,7 +1078,7 @@ class TestDeltaTableWriterMergeBatched:
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
         with patch.object(writer, "merge", return_value=50) as mock_merge:
-            result = writer.merge_batched(mock_df, merge_keys=["id"])
+            writer.merge_batched(mock_df, merge_keys=["id"])
 
         # 50 < 100000 default, so single batch
         mock_merge.assert_called_once()
@@ -1074,8 +1088,8 @@ class TestDeltaTableWriterMergeBatched:
 # DeltaTableWriter - write_rows
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterWriteRows:
 
+class TestDeltaTableWriterWriteRows:
     def test_write_rows_empty_returns_zero(self):
         writer = DeltaTableWriter("abfss://ws@acct/table")
         result = writer.write_rows([])
@@ -1100,7 +1114,7 @@ class TestDeltaTableWriterWriteRows:
         schema = {"id": pl.Int64, "name": pl.Utf8}
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        with patch.object(writer, "append", return_value=1) as mock_append:
+        with patch.object(writer, "append", return_value=1):
             writer.write_rows([{"id": 1, "name": "a"}], schema=schema)
 
         mock_df_cls.assert_called_once_with([{"id": 1, "name": "a"}], schema=schema)
@@ -1110,8 +1124,8 @@ class TestDeltaTableWriterWriteRows:
 # DeltaTableWriter - _align_schema_with_target
 # ---------------------------------------------------------------------------
 
-class TestDeltaTableWriterAlignSchema:
 
+class TestDeltaTableWriterAlignSchema:
     @patch("pipeline.common.storage.delta.DeltaTable")
     def test_returns_original_df_on_error(self, mock_dt):
         mock_dt.side_effect = Exception("table read failed")
@@ -1160,8 +1174,8 @@ class TestDeltaTableWriterAlignSchema:
 # EventsTableReader
 # ---------------------------------------------------------------------------
 
-class TestEventsTableReader:
 
+class TestEventsTableReader:
     def test_initializes_with_path(self):
         reader = EventsTableReader("abfss://ws@acct/events")
         assert reader.table_path == "abfss://ws@acct/events"
@@ -1235,7 +1249,7 @@ class TestEventsTableReader:
 
         watermark = datetime(2024, 1, 1, tzinfo=UTC)
         reader = EventsTableReader("abfss://ws@acct/events")
-        result = reader.read_by_status_subtypes(
+        reader.read_by_status_subtypes(
             ["subtype1", "subtype2"],
             watermark=watermark,
         )
@@ -1369,7 +1383,9 @@ class TestEventsTableReader:
     @patch("pipeline.common.storage.delta.get_storage_options")
     @patch("pipeline.common.storage.delta.pl.scan_delta")
     @patch("pipeline.common.storage.delta.pl.col")
-    def test_read_by_status_subtypes_require_attachments_adds_column(self, mock_col, mock_scan, mock_opts):
+    def test_read_by_status_subtypes_require_attachments_adds_column(
+        self, mock_col, mock_scan, mock_opts
+    ):
         mock_opts.return_value = {}
         mock_lf = MagicMock()
         mock_scan.return_value = mock_lf

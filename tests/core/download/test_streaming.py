@@ -4,9 +4,7 @@ Tests for streaming download functionality.
 Tests chunked streaming for large files, memory bounds, and file I/O.
 """
 
-import asyncio
 import errno
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
@@ -15,8 +13,6 @@ import pytest
 from core.download.streaming import (
     CHUNK_SIZE,
     STREAM_THRESHOLD,
-    StreamDownloadError,
-    StreamDownloadResponse,
     download_to_file,
     should_stream,
     stream_download_url,
@@ -120,7 +116,7 @@ async def test_stream_download_url_http_error(mock_session, mock_response):
 async def test_stream_download_url_timeout(mock_session):
     """Test streaming download with timeout."""
     # Setup timeout error
-    mock_session.get.side_effect = asyncio.TimeoutError()
+    mock_session.get.side_effect = TimeoutError()
 
     # Execute
     result, error = await stream_download_url(
@@ -275,10 +271,11 @@ async def test_download_to_file_write_error(mock_session, mock_response, tmp_pat
 
     # Mock open to raise OSError when writing
     import builtins
+
     original_open = builtins.open
 
     def mock_open_error(*args, **kwargs):
-        if args[0] == output_path and 'wb' in args:
+        if args[0] == output_path and "wb" in args:
             raise OSError(errno.ENOSPC, "No space left on device")
         return original_open(*args, **kwargs)
 
@@ -319,10 +316,11 @@ async def test_download_to_file_socket_timeout_error(mock_session, mock_response
 
     # Mock open to raise OSError with socket timeout message
     import builtins
+
     original_open = builtins.open
 
     def mock_open_error(*args, **kwargs):
-        if args[0] == output_path and 'wb' in args:
+        if args[0] == output_path and "wb" in args:
             raise OSError("Timeout on reading data from socket")
         return original_open(*args, **kwargs)
 
@@ -365,10 +363,11 @@ async def test_download_to_file_unknown_error(mock_session, mock_response, tmp_p
 
     # Mock open to raise OSError with no errno (unknown error)
     import builtins
+
     original_open = builtins.open
 
     def mock_open_error(*args, **kwargs):
-        if args[0] == output_path and 'wb' in args:
+        if args[0] == output_path and "wb" in args:
             raise OSError()  # No errno, no message
         return original_open(*args, **kwargs)
 

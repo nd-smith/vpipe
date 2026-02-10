@@ -22,7 +22,9 @@ class DLQProducer:
     no permanent errors occur.
     """
 
-    def __init__(self, config: MessageConfig, domain: str, worker_name: str, group_id: str, worker_id: str):
+    def __init__(
+        self, config: MessageConfig, domain: str, worker_name: str, group_id: str, worker_id: str
+    ):
         self._config = config
         self._domain = domain
         self._worker_name = worker_name
@@ -63,7 +65,9 @@ class DLQProducer:
             extra={"bootstrap_servers": self._config.bootstrap_servers},
         )
 
-    async def send(self, pipeline_message: PipelineMessage, error: Exception, error_category: ErrorCategory) -> None:
+    async def send(
+        self, pipeline_message: PipelineMessage, error: Exception, error_category: ErrorCategory
+    ) -> None:
         """Send failed message to {topic}.dlq with full context."""
         await self._ensure_started()
 
@@ -77,9 +81,7 @@ class DLQProducer:
                 pipeline_message.key.decode("utf-8") if pipeline_message.key else None
             ),
             "original_value": (
-                pipeline_message.value.decode("utf-8")
-                if pipeline_message.value
-                else None
+                pipeline_message.value.decode("utf-8") if pipeline_message.value else None
             ),
             "original_headers": {
                 k: v.decode("utf-8") if isinstance(v, bytes) else v

@@ -88,20 +88,14 @@ class ClaimXDeltaEventsWorker:
             self.worker_id = self.WORKER_NAME
 
         # Batch configuration - use worker-specific config
-        processing_config = config.get_worker_config(
-            domain, "delta_events_writer", "processing"
-        )
+        processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
         self.batch_size = processing_config.get("batch_size", 100)
-        self.batch_timeout_seconds = processing_config.get(
-            "batch_timeout_seconds", 30.0
-        )
+        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 30.0)
 
         # Retry configuration from worker processing settings
         # Note: retry_topic_prefix and dlq_topic removed - DeltaRetryHandler
         # uses EventHub names from config.yaml (claimx.retry and claimx.dlq)
-        self._retry_delays = processing_config.get(
-            "retry_delays", [300, 600, 1200, 2400]
-        )
+        self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
 
         # Batch state
         self._batch: list[dict[str, Any]] = []
@@ -125,9 +119,7 @@ class ClaimXDeltaEventsWorker:
 
         # Initialize Delta writer
         if not events_table_path:
-            raise ValueError(
-                "events_table_path is required for ClaimXDeltaEventsWorker"
-            )
+            raise ValueError("events_table_path is required for ClaimXDeltaEventsWorker")
 
         # DIAGNOSTIC: Log the exact table path being used
         logger.info(
@@ -135,7 +127,9 @@ class ClaimXDeltaEventsWorker:
             extra={
                 "events_table_path": events_table_path,
                 "table_path_length": len(events_table_path),
-                "table_path_prefix": events_table_path[:50] if len(events_table_path) > 50 else events_table_path,
+                "table_path_prefix": events_table_path[:50]
+                if len(events_table_path) > 50
+                else events_table_path,
             },
         )
 
@@ -165,9 +159,7 @@ class ClaimXDeltaEventsWorker:
                 "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
                 "instance_id": instance_id,
-                "consumer_group": config.get_consumer_group(
-                    domain, "delta_events_writer"
-                ),
+                "consumer_group": config.get_consumer_group(domain, "delta_events_writer"),
                 "events_topic": config.get_topic(domain, "events"),
                 "events_table_path": events_table_path,
                 "batch_size": self.batch_size,
@@ -304,17 +296,13 @@ class ClaimXDeltaEventsWorker:
                 )
             else:
                 self._records_failed += len(batch_to_write)
-                await self._handle_failed_batch(
-                    batch_to_write, Exception("Write returned failure")
-                )
+                await self._handle_failed_batch(batch_to_write, Exception("Write returned failure"))
 
         except Exception as e:
             self._records_failed += len(batch_to_write)
             await self._handle_failed_batch(batch_to_write, e)
 
-    async def _handle_failed_batch(
-        self, batch: list[dict[str, Any]], error: Exception
-    ) -> None:
+    async def _handle_failed_batch(self, batch: list[dict[str, Any]], error: Exception) -> None:
         """
         Handle failed batch with error classification and DLQ routing.
 
@@ -453,9 +441,7 @@ class ClaimXDeltaEventsWorker:
                     self._last_cycle_log = time.monotonic()
 
                     # Calculate cycle-specific deltas
-                    processed_cycle = (
-                        self._records_processed - self._last_cycle_processed
-                    )
+                    processed_cycle = self._records_processed - self._last_cycle_processed
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     # Use standardized cycle output format

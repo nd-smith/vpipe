@@ -31,7 +31,6 @@ async def _noop_message_handler(record) -> None:
 
 
 class CLITaskManager:
-
     def __init__(self):
         self.tasks: set[asyncio.Task] = set()
         self._shutdown = False
@@ -114,7 +113,6 @@ class CLITaskManager:
 
 
 class DLQCLIManager:
-
     def __init__(self, config: MessageConfig):
         self.config = config
         self.handler = DLQHandler(config)
@@ -134,9 +132,7 @@ class DLQCLIManager:
         if not self.handler._consumer or not self.handler._consumer._consumer:
             raise RuntimeError("DLQ handler not started. Call start() first.")
 
-        logger.info(
-            f"Fetching up to {limit} messages from DLQ topic (timeout: {timeout_ms}ms)"
-        )
+        logger.info(f"Fetching up to {limit} messages from DLQ topic (timeout: {timeout_ms}ms)")
         messages = []
         consumer = self.handler._consumer._consumer
         data = await consumer.getmany(timeout_ms=timeout_ms, max_records=limit)
@@ -156,13 +152,13 @@ class DLQCLIManager:
             print("No DLQ messages found.")
             return
 
-        print(f"\n{'='*100}")
+        print(f"\n{'=' * 100}")
         print(f"DLQ Messages ({len(self._messages)} total)")
-        print(f"{'='*100}\n")
+        print(f"{'=' * 100}\n")
         print(
             f"{'Offset':<8} {'Trace ID':<20} {'Retry Count':<12} {'Error Category':<15} {'URL':<45}"
         )
-        print(f"{'-'*100}")
+        print(f"{'-' * 100}")
 
         for record in self._messages:
             try:
@@ -179,7 +175,7 @@ class DLQCLIManager:
             except Exception as e:
                 print(f"{record.offset:<8} [PARSE ERROR: {str(e)}]")
 
-        print(f"{'-'*100}\n")
+        print(f"{'-' * 100}\n")
 
     def view_message(self, trace_id: str) -> None:
         record = self._find_message_by_trace_id(trace_id)
@@ -190,17 +186,15 @@ class DLQCLIManager:
         try:
             dlq_msg = self.handler.parse_dlq_message(record)
 
-            print(f"\n{'='*80}")
+            print(f"\n{'=' * 80}")
             print(f"DLQ Message Details: {trace_id}")
-            print(f"{'='*80}\n")
+            print(f"{'=' * 80}\n")
 
             print("Message Metadata:")
             print(f"  Topic:     {record.topic}")
             print(f"  Partition: {record.partition}")
             print(f"  Offset:    {record.offset}")
-            print(
-                f"  Key:       {record.key.decode('utf-8') if record.key else 'None'}"
-            )
+            print(f"  Key:       {record.key.decode('utf-8') if record.key else 'None'}")
             print()
 
             print("Message Details:")
@@ -228,7 +222,7 @@ class DLQCLIManager:
                     print(f"  {key}: {value}")
                 print()
 
-            print(f"{'='*80}\n")
+            print(f"{'=' * 80}\n")
 
         except Exception as e:
             print(f"Error parsing message: {e}")
@@ -305,11 +299,7 @@ async def main_list(args):
 
     async with CLITaskManager() as task_manager:
         try:
-            (
-                await manager.handler._producer.start()
-                if not manager.handler._producer
-                else None
-            )
+            (await manager.handler._producer.start() if not manager.handler._producer else None)
             from pipeline.common.consumer import MessageConsumer
 
             manager.handler._consumer = MessageConsumer(
@@ -319,9 +309,7 @@ async def main_list(args):
                 topics=[config.get_topic(domain, "dlq")],
                 message_handler=_noop_message_handler,
             )
-            task_manager.create_task(
-                manager.handler._consumer.start(), name="dlq_consumer"
-            )
+            task_manager.create_task(manager.handler._consumer.start(), name="dlq_consumer")
             await asyncio.sleep(0.5)
             await manager.fetch_messages(limit=args.limit, timeout_ms=args.timeout)
             manager.list_messages()
@@ -348,11 +336,7 @@ async def main_view(args):
     async with CLITaskManager() as task_manager:
         try:
             manager.handler._handle_dlq_message = _noop_message_handler
-            (
-                await manager.handler._producer.start()
-                if not manager.handler._producer
-                else None
-            )
+            (await manager.handler._producer.start() if not manager.handler._producer else None)
 
             from pipeline.common.consumer import MessageConsumer
 
@@ -364,9 +348,7 @@ async def main_view(args):
                 message_handler=_noop_message_handler,
             )
 
-            task_manager.create_task(
-                manager.handler._consumer.start(), name="dlq_consumer"
-            )
+            task_manager.create_task(manager.handler._consumer.start(), name="dlq_consumer")
             await asyncio.sleep(0.5)
 
             await manager.fetch_messages(limit=100, timeout_ms=5000)
@@ -412,9 +394,7 @@ async def main_replay(args):
                 message_handler=_noop_message_handler,
             )
 
-            task_manager.create_task(
-                manager.handler._consumer.start(), name="dlq_consumer"
-            )
+            task_manager.create_task(manager.handler._consumer.start(), name="dlq_consumer")
             await asyncio.sleep(0.5)
 
             await manager.fetch_messages(limit=100, timeout_ms=5000)
@@ -461,9 +441,7 @@ async def main_resolve(args):
                 message_handler=_noop_message_handler,
             )
 
-            task_manager.create_task(
-                manager.handler._consumer.start(), name="dlq_consumer"
-            )
+            task_manager.create_task(manager.handler._consumer.start(), name="dlq_consumer")
             await asyncio.sleep(0.5)
 
             await manager.fetch_messages(limit=100, timeout_ms=5000)
@@ -525,9 +503,7 @@ Examples:
     )
 
     # View command
-    view_parser = subparsers.add_parser(
-        "view", help="View detailed message information"
-    )
+    view_parser = subparsers.add_parser("view", help="View detailed message information")
     view_parser.add_argument("trace_id", help="Trace ID of message to view")
 
     # Replay command

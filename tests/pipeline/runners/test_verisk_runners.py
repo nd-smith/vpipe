@@ -31,26 +31,25 @@ from pipeline.runners.verisk_runners import (
     run_xact_retry_scheduler,
 )
 
-
 # ---------------------------------------------------------------------------
 # run_event_ingester
 # ---------------------------------------------------------------------------
 
 
 class TestRunEventIngester:
-
     async def test_creates_worker_with_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         eh_config = Mock()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.verisk.workers.event_ingester.EventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.verisk.workers.event_ingester.EventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_event_ingester(
                 eh_config, kafka_config, shutdown, domain="verisk", instance_id=None
             )
@@ -72,15 +71,14 @@ class TestRunEventIngester:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.verisk.workers.event_ingester.EventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
-            await run_event_ingester(
-                Mock(), Mock(), shutdown, domain="verisk", instance_id=7
-            )
+        with (
+            patch("pipeline.verisk.workers.event_ingester.EventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
+            await run_event_ingester(Mock(), Mock(), shutdown, domain="verisk", instance_id=7)
 
         assert MockWorker.call_args[1]["instance_id"] == 7
         assert mock_exec.call_args[1]["instance_id"] == 7
@@ -89,11 +87,12 @@ class TestRunEventIngester:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.verisk.workers.event_ingester.EventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.verisk.workers.event_ingester.EventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_event_ingester(Mock(), Mock(), shutdown, domain="custom")
 
@@ -106,7 +105,6 @@ class TestRunEventIngester:
 
 
 class TestRunEventhousePoller:
-
     def _make_pipeline_config(self, has_eventhouse=True):
         config = Mock()
         if has_eventhouse:
@@ -139,16 +137,15 @@ class TestRunEventhousePoller:
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ) as MockEHConfig, patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ) as MockPollerConfig, patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ) as MockPoller, patch(
-            "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig") as MockEHConfig,
+            patch("pipeline.common.eventhouse.poller.PollerConfig") as MockPollerConfig,
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller") as MockPoller,
+            patch(
+                "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_eventhouse_poller(config, shutdown, kafka_config)
 
         MockEHConfig.assert_called_once_with(
@@ -180,15 +177,14 @@ class TestRunEventhousePoller:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ) as MockPollerConfig, patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig") as MockPollerConfig,
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_eventhouse_poller(config, shutdown, Mock())
 
@@ -203,7 +199,6 @@ class TestRunEventhousePoller:
 
 
 class TestRunEventhouseJsonPoller:
-
     def _make_pipeline_config(self, has_eventhouse=True):
         config = Mock()
         if has_eventhouse:
@@ -235,17 +230,15 @@ class TestRunEventhouseJsonPoller:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.common.eventhouse.sinks.create_json_sink"
-        ) as mock_sink, patch(
-            "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig"),
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch("pipeline.common.eventhouse.sinks.create_json_sink") as mock_sink,
+            patch(
+                "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_eventhouse_json_poller(config, shutdown)
 
@@ -261,17 +254,15 @@ class TestRunEventhouseJsonPoller:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.common.eventhouse.sinks.create_json_sink"
-        ) as mock_sink, patch(
-            "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig"),
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch("pipeline.common.eventhouse.sinks.create_json_sink") as mock_sink,
+            patch(
+                "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_eventhouse_json_poller(
                 config,
@@ -294,17 +285,15 @@ class TestRunEventhouseJsonPoller:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ) as MockPollerConfig, patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.common.eventhouse.sinks.create_json_sink"
-        ) as mock_sink, patch(
-            "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig") as MockPollerConfig,
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch("pipeline.common.eventhouse.sinks.create_json_sink") as mock_sink,
+            patch(
+                "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_eventhouse_json_poller(config, shutdown)
 
@@ -317,18 +306,16 @@ class TestRunEventhouseJsonPoller:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.common.eventhouse.sinks.create_json_sink"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig"),
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch("pipeline.common.eventhouse.sinks.create_json_sink"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_eventhouse_json_poller(config, shutdown)
 
         assert mock_exec.call_args[1]["stage_name"] == "xact-json-poller"
@@ -340,23 +327,20 @@ class TestRunEventhouseJsonPoller:
 
 
 class TestRunDeltaEventsWorker:
-
     async def test_delegates_to_execute_worker_with_producer(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.verisk.workers.delta_events_worker.DeltaEventsWorker"
-        ) as MockWorker, patch(
-            "pipeline.common.producer.MessageProducer"
-        ) as MockProducer, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
-            await run_delta_events_worker(
-                kafka_config, "/delta/events", shutdown, instance_id=2
-            )
+        with (
+            patch("pipeline.verisk.workers.delta_events_worker.DeltaEventsWorker") as MockWorker,
+            patch("pipeline.common.producer.MessageProducer") as MockProducer,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
+            await run_delta_events_worker(kafka_config, "/delta/events", shutdown, instance_id=2)
 
         mock_exec.assert_awaited_once_with(
             worker_class=MockWorker,
@@ -374,14 +358,14 @@ class TestRunDeltaEventsWorker:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.verisk.workers.delta_events_worker.DeltaEventsWorker"
-        ), patch(
-            "pipeline.common.producer.MessageProducer"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.verisk.workers.delta_events_worker.DeltaEventsWorker"),
+            patch("pipeline.common.producer.MessageProducer"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_delta_events_worker(Mock(), "/path", shutdown)
 
         assert mock_exec.call_args[1]["instance_id"] is None
@@ -393,20 +377,19 @@ class TestRunDeltaEventsWorker:
 
 
 class TestRunXactRetryScheduler:
-
     async def test_delegates_to_execute_worker_with_producer(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.common.retry.unified_scheduler.UnifiedRetryScheduler"
-        ) as MockScheduler, patch(
-            "pipeline.common.producer.MessageProducer"
-        ) as MockProducer, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.common.retry.unified_scheduler.UnifiedRetryScheduler") as MockScheduler,
+            patch("pipeline.common.producer.MessageProducer") as MockProducer,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_xact_retry_scheduler(kafka_config, shutdown, instance_id=1)
 
         mock_exec.assert_awaited_once_with(
@@ -427,23 +410,21 @@ class TestRunXactRetryScheduler:
 
 
 class TestRunXactEnrichmentWorker:
-
     async def test_creates_worker_with_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.verisk.workers.enrichment_worker.XACTEnrichmentWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.verisk.workers.enrichment_worker.XACTEnrichmentWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_xact_enrichment_worker(kafka_config, shutdown, instance_id=3)
 
-        MockWorker.assert_called_once_with(
-            config=kafka_config, domain="verisk", instance_id=3
-        )
+        MockWorker.assert_called_once_with(config=kafka_config, domain="verisk", instance_id=3)
         mock_exec.assert_awaited_once_with(
             MockWorker.return_value,
             stage_name="xact-enricher",
@@ -455,11 +436,12 @@ class TestRunXactEnrichmentWorker:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.verisk.workers.enrichment_worker.XACTEnrichmentWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.verisk.workers.enrichment_worker.XACTEnrichmentWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_xact_enrichment_worker(Mock(), shutdown)
 
@@ -472,18 +454,18 @@ class TestRunXactEnrichmentWorker:
 
 
 class TestRunDownloadWorker:
-
     async def test_creates_worker_with_temp_dir_as_path(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
         kafka_config.temp_dir = "/tmp/downloads"
 
-        with patch(
-            "pipeline.verisk.workers.download_worker.DownloadWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.verisk.workers.download_worker.DownloadWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_download_worker(kafka_config, shutdown, instance_id=5)
 
@@ -500,12 +482,13 @@ class TestRunDownloadWorker:
         kafka_config = Mock()
         kafka_config.temp_dir = "/tmp"
 
-        with patch(
-            "pipeline.verisk.workers.download_worker.DownloadWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.verisk.workers.download_worker.DownloadWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_download_worker(kafka_config, shutdown, instance_id=None)
 
         mock_exec.assert_awaited_once_with(
@@ -522,35 +505,34 @@ class TestRunDownloadWorker:
 
 
 class TestRunUploadWorker:
-
     async def test_creates_worker_with_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.verisk.workers.upload_worker.UploadWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.verisk.workers.upload_worker.UploadWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_upload_worker(kafka_config, shutdown, instance_id=2)
 
-        MockWorker.assert_called_once_with(
-            config=kafka_config, domain="verisk", instance_id=2
-        )
+        MockWorker.assert_called_once_with(config=kafka_config, domain="verisk", instance_id=2)
 
     async def test_delegates_to_execute_worker_with_shutdown(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.verisk.workers.upload_worker.UploadWorker"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.verisk.workers.upload_worker.UploadWorker"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_upload_worker(kafka_config, shutdown)
 
         mock_exec.assert_awaited_once()
@@ -563,37 +545,37 @@ class TestRunUploadWorker:
 
 
 class TestRunResultProcessor:
-
     async def test_raises_when_delta_enabled_without_inventory_path(self):
         shutdown = asyncio.Event()
         kafka_config = Mock()
 
-        with patch("core.logging.context.set_log_context"):
-            with pytest.raises(
+        with (
+            patch("core.logging.context.set_log_context"),
+            pytest.raises(
                 ValueError,
                 match="inventory_table_path is required when delta writes are enabled",
-            ):
-                await run_result_processor(
-                    kafka_config,
-                    shutdown,
-                    enable_delta_writes=True,
-                    inventory_table_path="",
-                )
+            ),
+        ):
+            await run_result_processor(
+                kafka_config,
+                shutdown,
+                enable_delta_writes=True,
+                inventory_table_path="",
+            )
 
     async def test_does_not_raise_when_delta_disabled_without_inventory_path(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.verisk.workers.result_processor.ResultProcessor"
-        ), patch(
-            "pipeline.common.producer.MessageProducer"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.verisk.workers.result_processor.ResultProcessor"),
+            patch("pipeline.common.producer.MessageProducer"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ),
         ):
             # Should not raise
             await run_result_processor(
@@ -608,16 +590,15 @@ class TestRunResultProcessor:
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.verisk.workers.result_processor.ResultProcessor"
-        ) as MockRP, patch(
-            "pipeline.common.producer.MessageProducer"
-        ) as MockProd, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.verisk.workers.result_processor.ResultProcessor") as MockRP,
+            patch("pipeline.common.producer.MessageProducer") as MockProd,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_result_processor(
                 kafka_config,
                 shutdown,
@@ -647,16 +628,15 @@ class TestRunResultProcessor:
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.verisk.workers.result_processor.ResultProcessor"
-        ), patch(
-            "pipeline.common.producer.MessageProducer"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.verisk.workers.result_processor.ResultProcessor"),
+            patch("pipeline.common.producer.MessageProducer"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_result_processor(
                 kafka_config,
                 shutdown,
@@ -674,16 +654,15 @@ class TestRunResultProcessor:
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.verisk.workers.result_processor.ResultProcessor"
-        ), patch(
-            "pipeline.common.producer.MessageProducer"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.verisk.workers.result_processor.ResultProcessor"),
+            patch("pipeline.common.producer.MessageProducer"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_result_processor(
                 kafka_config,
                 shutdown,
@@ -703,38 +682,35 @@ class TestRunResultProcessor:
 
 
 class TestRunLocalEventIngester:
-
     async def test_creates_worker_without_producer_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.verisk.workers.event_ingester.EventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.verisk.workers.event_ingester.EventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_local_event_ingester(kafka_config, shutdown)
 
         # Local event ingester does NOT pass producer_config
-        MockWorker.assert_called_once_with(
-            config=kafka_config, domain="verisk", instance_id=None
-        )
+        MockWorker.assert_called_once_with(config=kafka_config, domain="verisk", instance_id=None)
 
     async def test_passes_custom_domain_and_instance_id(self):
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.verisk.workers.event_ingester.EventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
-            await run_local_event_ingester(
-                Mock(), shutdown, domain="custom", instance_id=9
-            )
+        with (
+            patch("pipeline.verisk.workers.event_ingester.EventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
+            await run_local_event_ingester(Mock(), shutdown, domain="custom", instance_id=9)
 
         assert MockWorker.call_args[1]["domain"] == "custom"
         assert MockWorker.call_args[1]["instance_id"] == 9
@@ -744,12 +720,13 @@ class TestRunLocalEventIngester:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.verisk.workers.event_ingester.EventIngesterWorker"
-        ), patch(
-            "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.verisk.workers.event_ingester.EventIngesterWorker"),
+            patch(
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_local_event_ingester(Mock(), shutdown)
 
         assert mock_exec.call_args[1]["stage_name"] == "xact-event-ingester"
@@ -761,7 +738,6 @@ class TestRunLocalEventIngester:
 
 
 class TestRunDummySource:
-
     async def test_loads_config_and_starts_source(self):
         shutdown = asyncio.Event()
         kafka_config = Mock()
@@ -773,14 +749,14 @@ class TestRunDummySource:
         mock_source.run = AsyncMock()
         mock_source.stats = {"sent": 100}
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.common.dummy.source.load_dummy_source_config"
-        ) as mock_load, patch(
-            "pipeline.common.dummy.source.DummyDataSource",
-            return_value=mock_source,
-        ) as MockSource:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.common.dummy.source.load_dummy_source_config") as mock_load,
+            patch(
+                "pipeline.common.dummy.source.DummyDataSource",
+                return_value=mock_source,
+            ) as MockSource,
+        ):
             await run_dummy_source(kafka_config, dummy_config, shutdown)
 
         mock_load.assert_called_once_with(kafka_config, dummy_config)
@@ -797,14 +773,15 @@ class TestRunDummySource:
         mock_source.stop = AsyncMock()
         mock_source.stats = {}
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.common.dummy.source.load_dummy_source_config"
-        ), patch(
-            "pipeline.common.dummy.source.DummyDataSource",
-            return_value=mock_source,
-        ), pytest.raises(RuntimeError, match="boom"):
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.common.dummy.source.load_dummy_source_config"),
+            patch(
+                "pipeline.common.dummy.source.DummyDataSource",
+                return_value=mock_source,
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
             await run_dummy_source(Mock(), {}, shutdown)
 
         mock_source.stop.assert_awaited()
@@ -825,13 +802,13 @@ class TestRunDummySource:
             await asyncio.sleep(0.02)
             shutdown.set()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.common.dummy.source.load_dummy_source_config"
-        ), patch(
-            "pipeline.common.dummy.source.DummyDataSource",
-            return_value=mock_source,
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch("pipeline.common.dummy.source.load_dummy_source_config"),
+            patch(
+                "pipeline.common.dummy.source.DummyDataSource",
+                return_value=mock_source,
+            ),
         ):
             await asyncio.gather(
                 run_dummy_source(Mock(), {}, shutdown),

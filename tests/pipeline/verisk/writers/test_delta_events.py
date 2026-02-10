@@ -7,8 +7,7 @@ Tests cover:
 - Error handling
 """
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import polars as pl
@@ -60,13 +59,11 @@ class TestDeltaEventsWriter:
             {
                 "trace_id": ["test-trace-123"],
                 "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(timezone.utc)],
+                "ingested_at": [datetime.now(UTC)],
             }
         )
 
-        with patch(
-            "pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df
-        ):
+        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
             result = await delta_writer.write_raw_events([sample_raw_event])
 
         assert result is True
@@ -90,13 +87,11 @@ class TestDeltaEventsWriter:
             {
                 "trace_id": ["trace-0", "trace-1", "trace-2"],
                 "type": ["documentsReceived"] * 3,
-                "ingested_at": [datetime.now(timezone.utc)] * 3,
+                "ingested_at": [datetime.now(UTC)] * 3,
             }
         )
 
-        with patch(
-            "pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df
-        ):
+        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
             result = await delta_writer.write_raw_events(events)
 
         assert result is True
@@ -122,13 +117,11 @@ class TestDeltaEventsWriter:
             {
                 "trace_id": ["test-trace-123"],
                 "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(timezone.utc)],
+                "ingested_at": [datetime.now(UTC)],
             }
         )
 
-        with patch(
-            "pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df
-        ):
+        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
             # Mock append to raise an exception
             delta_writer._delta_writer.append = MagicMock(
                 side_effect=Exception("Delta write failed")
@@ -139,15 +132,13 @@ class TestDeltaEventsWriter:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_write_raw_events_async_execution(
-        self, delta_writer, sample_raw_event
-    ):
+    async def test_write_raw_events_async_execution(self, delta_writer, sample_raw_event):
         """Test that write operations use asyncio.to_thread for non-blocking execution."""
         mock_df = pl.DataFrame(
             {
                 "trace_id": ["test-trace-123"],
                 "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(timezone.utc)],
+                "ingested_at": [datetime.now(UTC)],
             }
         )
 
@@ -158,18 +149,18 @@ class TestDeltaEventsWriter:
             to_thread_call_count[0] += 1
             return func(*args, **kwargs)
 
-        with patch(
-            "pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df
-        ):
-            with patch(
+        with (
+            patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df),
+            patch(
                 "asyncio.to_thread",
                 side_effect=mock_to_thread_impl,
-            ):
-                result = await delta_writer.write_raw_events([sample_raw_event])
+            ),
+        ):
+            result = await delta_writer.write_raw_events([sample_raw_event])
 
-                assert result is True
-                # Verify to_thread was called (proving async execution)
-                assert to_thread_call_count[0] >= 1
+            assert result is True
+            # Verify to_thread was called (proving async execution)
+            assert to_thread_call_count[0] >= 1
 
     @pytest.mark.asyncio
     async def test_created_at_timestamp_added(self, delta_writer, sample_raw_event):
@@ -178,18 +169,16 @@ class TestDeltaEventsWriter:
             {
                 "trace_id": ["test-trace-123"],
                 "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(timezone.utc)],
+                "ingested_at": [datetime.now(UTC)],
             }
         )
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
 
-        with patch(
-            "pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df
-        ):
+        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
             await delta_writer.write_raw_events([sample_raw_event])
 
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         # Verify created_at was added
         call_args = delta_writer._delta_writer.append.call_args
@@ -203,9 +192,7 @@ class TestDeltaEventsWriter:
 @pytest.mark.asyncio
 async def test_delta_writer_integration():
     """Integration test with DeltaTableWriter mocked."""
-    with patch(
-        "pipeline.common.writers.base.DeltaTableWriter"
-    ) as mock_delta_writer_class:
+    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_writer_class:
         # Setup mock
         mock_writer_instance = MagicMock()
         mock_writer_instance.append = MagicMock(return_value=1)
@@ -239,13 +226,11 @@ async def test_delta_writer_integration():
             {
                 "trace_id": ["integration-test"],
                 "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(timezone.utc)],
+                "ingested_at": [datetime.now(UTC)],
             }
         )
 
-        with patch(
-            "pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df
-        ):
+        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
             result = await writer.write_raw_events([raw_event])
 
         assert result is True

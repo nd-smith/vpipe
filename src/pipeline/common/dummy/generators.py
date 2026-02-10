@@ -307,9 +307,7 @@ class GeneratorConfig:
     include_failures: bool = False  # Generate some failing scenarios
     failure_rate: float = 0.05  # 5% failure rate when enabled
     events_per_second: float = 1.0  # Target event rate
-    plugin_profile: str | None = (
-        None  # Plugin profile to use (e.g., "itel_cabinet_api")
-    )
+    plugin_profile: str | None = None  # Plugin profile to use (e.g., "itel_cabinet_api")
     # Mixed mode settings - when plugin_profile is None or "mixed"
     itel_trigger_percentage: float = 0.3  # 30% of ClaimX events trigger itel plugin
     include_itel_triggers: bool = True  # Include itel-triggering events in mixed mode
@@ -402,9 +400,7 @@ class RealisticDataGenerator:
         claim_id = self._generate_id("CLM-")
         # ClaimX API uses integer project IDs - generate as numeric string
         project_id = str(self._rng.randint(100000, 999999))
-        policy_number = (
-            f"POL-{self._rng.randint(100000, 999999)}-{self._rng.randint(10, 99)}"
-        )
+        policy_number = f"POL-{self._rng.randint(100000, 999999)}-{self._rng.randint(10, 99)}"
 
         # Date of loss (within last 30 days)
         days_ago = self._rng.randint(1, 30)
@@ -499,14 +495,12 @@ class RealisticDataGenerator:
         # Generate 1-5 attachments
         num_attachments = self._rng.randint(1, 5)
         for _ in range(num_attachments):
-            category = self._rng.choices(
-                ["photos", "documents", "reports"], weights=[60, 30, 10]
-            )[0]
+            category = self._rng.choices(["photos", "documents", "reports"], weights=[60, 30, 10])[
+                0
+            ]
             self.generate_attachment(claim, category)
 
-        attachment_urls = [
-            a["download_url"] for a in claim.attachments[-num_attachments:]
-        ]
+        attachment_urls = [a["download_url"] for a in claim.attachments[-num_attachments:]]
 
         # Build the data payload
         data_payload = {
@@ -639,9 +633,7 @@ class RealisticDataGenerator:
                     "taskName": self._rng.choice(TASK_NAMES),
                     "assignee": claim.assigned_adjuster,
                     "assigneeEmail": f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
-                    "dueDate": (now + timedelta(days=self._rng.randint(1, 7))).strftime(
-                        "%Y-%m-%d"
-                    ),
+                    "dueDate": (now + timedelta(days=self._rng.randint(1, 7))).strftime("%Y-%m-%d"),
                 }
             )
             if event_type == "CUSTOM_TASK_COMPLETED":
@@ -674,9 +666,7 @@ class RealisticDataGenerator:
             raw_data.update(
                 {
                     "videoCollaborationId": video_id,
-                    "scheduledFor": (
-                        now + timedelta(hours=self._rng.randint(1, 48))
-                    ).isoformat(),
+                    "scheduledFor": (now + timedelta(hours=self._rng.randint(1, 48))).isoformat(),
                     "participants": [
                         claim.policyholder["email"],
                         f"{claim.assigned_adjuster.lower().replace(' ', '.')}@insurance.com",
@@ -763,9 +753,7 @@ class RealisticDataGenerator:
             raw_data.update(
                 {
                     "assignedAt": form_data.date_assigned,
-                    "dueDate": (now + timedelta(days=self._rng.randint(3, 7))).strftime(
-                        "%Y-%m-%d"
-                    ),
+                    "dueDate": (now + timedelta(days=self._rng.randint(3, 7))).strftime("%Y-%m-%d"),
                 }
             )
         elif event_type == "CUSTOM_TASK_COMPLETED":

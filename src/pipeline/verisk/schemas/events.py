@@ -66,9 +66,7 @@ class EventMessage(BaseModel):
         min_length=1,
     )
     version: int | str = Field(..., description="Event version (integer preferred)")
-    utc_datetime: str = Field(
-        ..., description="Event timestamp as ISO string", alias="utcDateTime"
-    )
+    utc_datetime: str = Field(..., description="Event timestamp as ISO string", alias="utcDateTime")
     trace_id: str = Field(
         ...,
         description="Unique event identifier (from traceId)",

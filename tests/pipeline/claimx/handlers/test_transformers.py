@@ -1,7 +1,5 @@
 """Tests for ClaimX API response transformers."""
 
-from unittest.mock import patch
-
 from pipeline.claimx.handlers.transformers import (
     link_to_contact,
     link_to_row,
@@ -15,14 +13,12 @@ from pipeline.claimx.handlers.transformers import (
 
 from .conftest import make_project_api_response
 
-
 # ============================================================================
 # project_to_row
 # ============================================================================
 
 
 class TestProjectToRow:
-
     def test_project_to_row_extracts_basic_fields(self):
         data = make_project_api_response()
         row = project_to_row(data, event_id="evt_001")
@@ -151,7 +147,6 @@ class TestProjectToRow:
 
 
 class TestProjectToContacts:
-
     def test_project_to_contacts_extracts_policyholder(self):
         data = make_project_api_response()
         contacts = project_to_contacts(data, project_id="123", event_id="evt_001")
@@ -220,7 +215,6 @@ class TestProjectToContacts:
 
 
 class TestTaskToRow:
-
     def test_task_to_row_extracts_fields(self):
         data = {
             "assignmentId": 100,
@@ -265,7 +259,6 @@ class TestTaskToRow:
 
 
 class TestTemplateToRow:
-
     def test_template_to_row_extracts_fields(self):
         data = {
             "taskId": 50,
@@ -304,7 +297,6 @@ class TestTemplateToRow:
 
 
 class TestLinkToRow:
-
     def test_link_to_row_extracts_fields(self):
         data = {
             "linkId": 300,
@@ -339,7 +331,6 @@ class TestLinkToRow:
 
 
 class TestLinkToContact:
-
     def test_link_to_contact_extracts_fields(self):
         data = {
             "email": "policyholder@example.com",
@@ -383,7 +374,6 @@ class TestLinkToContact:
 
 
 class TestMediaToRow:
-
     def test_media_to_row_extracts_fields(self):
         data = {
             "mediaID": 500,
@@ -426,7 +416,6 @@ class TestMediaToRow:
 
 
 class TestVideoCollabToRow:
-
     def test_video_collab_to_row_extracts_fields(self):
         data = {
             "videoCollaborationId": 700,

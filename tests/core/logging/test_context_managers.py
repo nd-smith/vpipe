@@ -2,7 +2,7 @@
 
 import logging
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -81,7 +81,7 @@ class TestStageLogContext:
 
     def test_sets_stage_context(self):
         """Test stage context is set correctly."""
-        with StageLogContext("download", cycle_id="test-123") as ctx:
+        with StageLogContext("download", cycle_id="test-123"):
             log_ctx = get_log_context()
             assert log_ctx["stage"] == "download"
             assert log_ctx["cycle_id"] == "test-123"
@@ -146,9 +146,8 @@ class TestLogPhase:
 
     def test_logs_even_on_exception(self, logger):
         """Test phase is logged even if exception occurs."""
-        with pytest.raises(ValueError):
-            with log_phase(logger, "fetch_data"):
-                raise ValueError("test error")
+        with pytest.raises(ValueError), log_phase(logger, "fetch_data"):
+            raise ValueError("test error")
 
         # Should still log
         logger.log.assert_called_once()
@@ -197,9 +196,8 @@ class TestOperationContext:
 
     def test_logs_exceptions(self, logger):
         """Test exceptions are logged with context."""
-        with pytest.raises(ValueError):
-            with OperationContext(logger, "failing_op"):
-                raise ValueError("test error")
+        with pytest.raises(ValueError), OperationContext(logger, "failing_op"):
+            raise ValueError("test error")
 
         args, kwargs = logger.log.call_args
         assert "Failed: failing_op" in args[1]

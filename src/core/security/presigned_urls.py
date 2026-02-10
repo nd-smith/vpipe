@@ -127,9 +127,7 @@ def _parse_s3_url(url: str) -> PresignedUrlInfo:
             )
 
         # Parse timestamp - S3 dates are always UTC, make timezone-aware
-        signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(
-            tzinfo=UTC
-        )
+        signed_at = datetime.strptime(amz_date_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
         ttl_seconds = int(expires_str)
         expires_at = signed_at + timedelta(seconds=ttl_seconds)
 

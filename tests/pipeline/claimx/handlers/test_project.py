@@ -2,15 +2,11 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers.project import ProjectHandler
-from pipeline.claimx.schemas.entities import EntityRowsMessage
 
 from .conftest import make_event, make_project_api_response
-
 
 # ============================================================================
 # ProjectHandler.handle_event - PROJECT_CREATED
@@ -18,11 +14,8 @@ from .conftest import make_event, make_project_api_response
 
 
 class TestProjectHandlerProjectCreated:
-
     async def test_handle_event_project_created_success(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response(project_id=123)
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response(project_id=123))
         handler = ProjectHandler(mock_client)
         event = make_event(event_type="PROJECT_CREATED", project_id="123")
 
@@ -36,9 +29,7 @@ class TestProjectHandlerProjectCreated:
         mock_client.get_project.assert_called_once_with(123)
 
     async def test_handle_event_project_created_with_contacts(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
         event = make_event(event_type="PROJECT_CREATED")
 
@@ -67,11 +58,8 @@ class TestProjectHandlerProjectCreated:
 
 
 class TestProjectHandlerMfnAdded:
-
     async def test_handle_event_mfn_added_overlays_mfn(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
         event = make_event(
             event_type="PROJECT_MFN_ADDED",
@@ -85,9 +73,7 @@ class TestProjectHandlerMfnAdded:
         assert result.rows.projects[0]["master_file_name"] == "NEW-MFN-999"
 
     async def test_handle_event_mfn_added_no_mfn_in_event_keeps_api_value(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
         event = make_event(
             event_type="PROJECT_MFN_ADDED",
@@ -128,7 +114,6 @@ class TestProjectHandlerMfnAdded:
 
 
 class TestProjectHandlerErrors:
-
     async def test_handle_event_api_error_returns_failure(self, mock_client):
         mock_client.get_project = AsyncMock(
             side_effect=ClaimXApiError(
@@ -168,9 +153,7 @@ class TestProjectHandlerErrors:
         assert result.error_category == ErrorCategory.TRANSIENT
 
     async def test_handle_event_unexpected_error_returns_transient(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            side_effect=RuntimeError("unexpected")
-        )
+        mock_client.get_project = AsyncMock(side_effect=RuntimeError("unexpected"))
         handler = ProjectHandler(mock_client)
         event = make_event()
 
@@ -188,11 +171,8 @@ class TestProjectHandlerErrors:
 
 
 class TestProjectHandlerFetchProjectData:
-
     async def test_fetch_project_data_returns_rows(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
 
         rows = await handler.fetch_project_data(123, source_event_id="evt_001")
@@ -211,11 +191,11 @@ class TestProjectHandlerFetchProjectData:
         assert rows.is_empty()
         mock_client.get_project.assert_not_called()
 
-    async def test_fetch_project_data_adds_to_cache_after_fetch(self, mock_client, mock_project_cache):
+    async def test_fetch_project_data_adds_to_cache_after_fetch(
+        self, mock_client, mock_project_cache
+    ):
         mock_project_cache.has = MagicMock(return_value=False)
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client, project_cache=mock_project_cache)
 
         await handler.fetch_project_data(123, source_event_id="evt_001")
@@ -223,9 +203,7 @@ class TestProjectHandlerFetchProjectData:
         mock_project_cache.add.assert_called_once_with("123")
 
     async def test_fetch_project_data_without_cache(self, mock_client):
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
 
         rows = await handler.fetch_project_data(123, source_event_id="evt_001")

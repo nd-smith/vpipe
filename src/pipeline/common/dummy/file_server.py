@@ -34,9 +34,7 @@ class FileServerConfig:
     max_file_size: int = 10_000_000  # 10MB max
     # Failure injection settings
     failure_rate: float = 0.0  # Percentage of requests that fail (0-100)
-    failure_duration_sec: int = (
-        0  # How long failures last (0 = until manually disabled)
-    )
+    failure_duration_sec: int = 0  # How long failures last (0 = until manually disabled)
     failure_status: int = 500  # HTTP status code for failures
 
 
@@ -155,12 +153,7 @@ def generate_dummy_jpeg(size_bytes: int, seed: str) -> bytes:
 
     # Calculate padding needed
     fixed_size = (
-        len(header)
-        + len(quant_table)
-        + len(huffman_dc)
-        + len(sof)
-        + len(sos)
-        + len(footer)
+        len(header) + len(quant_table) + len(huffman_dc) + len(sof) + len(sos) + len(footer)
     )
     padding_size = max(0, size_bytes - fixed_size - 4)  # 4 bytes for comment marker
 
@@ -172,9 +165,7 @@ def generate_dummy_jpeg(size_bytes: int, seed: str) -> bytes:
     if padding_size > 0:
         comment_length = min(padding_size + 2, 65535)
         comment = (
-            bytes([0xFF, 0xFE])
-            + struct.pack(">H", comment_length)
-            + padding[: comment_length - 2]
+            bytes([0xFF, 0xFE]) + struct.pack(">H", comment_length) + padding[: comment_length - 2]
         )
     else:
         comment = b""
@@ -203,9 +194,7 @@ def generate_dummy_pdf(size_bytes: int, seed: str) -> bytes:
     page = b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
 
     # Calculate content stream size
-    fixed_size = (
-        len(header) + len(catalog) + len(pages) + len(page) + 200
-    )  # ~200 for xref/trailer
+    fixed_size = len(header) + len(catalog) + len(pages) + len(page) + 200  # ~200 for xref/trailer
     content_size = max(100, size_bytes - fixed_size)
 
     # Generate content stream with filler text
@@ -234,19 +223,13 @@ def generate_dummy_pdf(size_bytes: int, seed: str) -> bytes:
     xref = f"xref\n0 5\n0000000000 65535 f \n{offset1:010d} 00000 n \n{offset2:010d} 00000 n \n{offset3:010d} 00000 n \n{offset4:010d} 00000 n \n".encode()
 
     # Trailer
-    startxref = (
-        len(header) + len(catalog) + len(pages) + len(page) + len(content_stream)
-    )
-    trailer = (
-        f"trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{startxref}\n%%EOF".encode()
-    )
+    startxref = len(header) + len(catalog) + len(pages) + len(page) + len(content_stream)
+    trailer = f"trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{startxref}\n%%EOF".encode()
 
     return header + catalog + pages + page + content_stream + xref + trailer
 
 
-def generate_dummy_file(
-    file_type: str, size_bytes: int, seed: str
-) -> tuple[bytes, str]:
+def generate_dummy_file(file_type: str, size_bytes: int, seed: str) -> tuple[bytes, str]:
     """
     Generate a dummy file of the specified type and size.
 
@@ -349,9 +332,7 @@ def generate_dummy_file(
         # Pad with text chunks if needed
         padding_needed = max(0, size_bytes - len(base))
         if padding_needed > 0:
-            seed_bytes = (seed * ((padding_needed // len(seed)) + 1))[
-                :padding_needed
-            ].encode()
+            seed_bytes = (seed * ((padding_needed // len(seed)) + 1))[:padding_needed].encode()
             # Add as tEXt chunk (not ideal but makes file larger)
             base = png_header + ihdr + idat + seed_bytes + iend
         return base[:size_bytes] if len(base) > size_bytes else base, "image/png"

@@ -11,8 +11,7 @@ Test coverage:
 - Session management
 """
 
-import asyncio
-from pathlib import Path
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -22,7 +21,6 @@ from core.download.downloader import AttachmentDownloader
 from core.download.http_client import DownloadError, DownloadResponse
 from core.download.models import DownloadTask
 from core.download.streaming import (
-    STREAM_THRESHOLD,
     DownloadToFileResult,
     StreamDownloadError,
 )
@@ -65,9 +63,10 @@ class TestAttachmentDownloaderSuccess:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -98,16 +97,14 @@ class TestAttachmentDownloaderSuccess:
         mock_head_response.headers.get = MagicMock(return_value="application/pdf")
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
 
-        with patch("core.download.downloader.download_to_file") as mock_stream, patch(
-            "core.download.downloader.should_stream"
-        ) as mock_should_stream, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_to_file") as mock_stream,
+            patch("core.download.downloader.should_stream") as mock_should_stream,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_should_stream.return_value = True
             mock_stream.return_value = (
-                DownloadToFileResult(
-                    bytes_written=bytes_written, content_type="application/pdf"
-                ),
+                DownloadToFileResult(bytes_written=bytes_written, content_type="application/pdf"),
                 None,
             )
             mock_create.return_value = mock_session
@@ -144,9 +141,10 @@ class TestAttachmentDownloaderSuccess:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -210,9 +208,7 @@ class TestAttachmentDownloaderValidation:
         assert outcome.error_category == ErrorCategory.PERMANENT
 
     @pytest.mark.asyncio
-    async def test_file_type_validation_failure_content_type(
-        self, sample_task, temp_output_dir
-    ):
+    async def test_file_type_validation_failure_content_type(self, sample_task, temp_output_dir):
         """Content-Type mismatch detected and file deleted after validation failure."""
         content = b"executable content"
         response = DownloadResponse(
@@ -282,10 +278,10 @@ class TestAttachmentDownloaderExpiration:
 
     @pytest.mark.asyncio
     async def test_valid_s3_url_passes_expiration_check(self, temp_output_dir):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         # Generate a URL that expires far in the future
-        future_date = datetime(2099, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        future_date = datetime(2099, 1, 1, 0, 0, 0, tzinfo=UTC)
         date_str = future_date.strftime("%Y%m%dT%H%M%SZ")
 
         valid_s3_url = (
@@ -314,9 +310,10 @@ class TestAttachmentDownloaderExpiration:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -346,9 +343,10 @@ class TestAttachmentDownloaderExpiration:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -388,9 +386,10 @@ class TestAttachmentDownloaderExpiration:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -429,9 +428,10 @@ class TestAttachmentDownloaderExpiration:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -460,9 +460,10 @@ class TestAttachmentDownloaderErrors:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (None, error)
             mock_create.return_value = mock_session
 
@@ -489,9 +490,10 @@ class TestAttachmentDownloaderErrors:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (None, error)
             mock_create.return_value = mock_session
 
@@ -518,9 +520,10 @@ class TestAttachmentDownloaderErrors:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (None, error)
             mock_create.return_value = mock_session
 
@@ -547,9 +550,10 @@ class TestAttachmentDownloaderErrors:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (None, error)
             mock_create.return_value = mock_session
 
@@ -565,16 +569,17 @@ class TestAttachmentDownloaderErrors:
     async def test_file_write_error(self, sample_task):
         """Disk full errors are classified as PERMANENT (errno ENOSPC)."""
         import errno as errno_module
+
         content = b"PDF content"
         response = DownloadResponse(
             content=content, status_code=200, content_type="application/pdf"
         )
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.should_stream"
-        ) as mock_should_stream, patch(
-            "asyncio.to_thread"
-        ) as mock_to_thread:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.should_stream") as mock_should_stream,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_download.return_value = (response, None)
             mock_should_stream.return_value = False  # Force in-memory path
             # Use proper errno to ensure it's classified as PERMANENT
@@ -595,11 +600,11 @@ class TestAttachmentDownloaderErrors:
             content=content, status_code=200, content_type="application/pdf"
         )
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.should_stream"
-        ) as mock_should_stream, patch(
-            "asyncio.to_thread"
-        ) as mock_to_thread:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.should_stream") as mock_should_stream,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_download.return_value = (response, None)
             mock_should_stream.return_value = False  # Force in-memory path
             # Simulate socket timeout error during file write
@@ -622,11 +627,11 @@ class TestAttachmentDownloaderErrors:
             content=content, status_code=200, content_type="application/pdf"
         )
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.should_stream"
-        ) as mock_should_stream, patch(
-            "asyncio.to_thread"
-        ) as mock_to_thread:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.should_stream") as mock_should_stream,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_download.return_value = (response, None)
             mock_should_stream.return_value = False  # Force in-memory path
             # Simulate unknown error with no errno (empty error message case)
@@ -648,9 +653,10 @@ class TestAttachmentDownloaderErrors:
             error_category=ErrorCategory.TRANSIENT,
         )
 
-        with patch("core.download.downloader.download_to_file") as mock_stream, patch(
-            "core.download.downloader.should_stream"
-        ) as mock_should_stream:
+        with (
+            patch("core.download.downloader.download_to_file") as mock_stream,
+            patch("core.download.downloader.should_stream") as mock_should_stream,
+        ):
             mock_should_stream.return_value = True
             mock_stream.return_value = (None, error)
 
@@ -679,14 +685,15 @@ class TestAttachmentDownloaderSessionManagement:
         mock_head_response.content_length = len(content)
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
             downloader = AttachmentDownloader()
-            outcome = await downloader.download(sample_task)
+            await downloader.download(sample_task)
 
             # Should create session
             mock_create.assert_called_once()
@@ -711,7 +718,7 @@ class TestAttachmentDownloaderSessionManagement:
             mock_download.return_value = (response, None)
 
             downloader = AttachmentDownloader(session=mock_session)
-            outcome = await downloader.download(sample_task)
+            await downloader.download(sample_task)
 
             # Should NOT close provided session
             mock_session.close.assert_not_called()
@@ -719,16 +726,17 @@ class TestAttachmentDownloaderSessionManagement:
     @pytest.mark.asyncio
     async def test_session_cleanup_on_error(self, sample_task):
         """Session cleanup: session closed even on unexpected errors."""
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.side_effect = Exception("Unexpected error")
             mock_session = AsyncMock(spec=aiohttp.ClientSession)
             mock_create.return_value = mock_session
 
             downloader = AttachmentDownloader()
 
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Unexpected error"):
                 await downloader.download(sample_task)
 
             # Session should still be closed
@@ -741,9 +749,7 @@ class TestAttachmentDownloaderIntegration:
     @pytest.mark.asyncio
     async def test_download_creates_parent_directory(self, temp_output_dir):
         nested_path = temp_output_dir / "nested" / "dir" / "file.pdf"
-        task = DownloadTask(
-            url="https://claimxperience.com/file.pdf", destination=nested_path
-        )
+        task = DownloadTask(url="https://claimxperience.com/file.pdf", destination=nested_path)
 
         content = b"PDF content"
         response = DownloadResponse(
@@ -757,9 +763,10 @@ class TestAttachmentDownloaderIntegration:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -791,9 +798,10 @@ class TestAttachmentDownloaderIntegration:
         mock_session.head.return_value.__aenter__.return_value = mock_head_response
         mock_session.close = AsyncMock()
 
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.create_session"
-        ) as mock_create:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.create_session") as mock_create,
+        ):
             mock_download.return_value = (response, None)
             mock_create.return_value = mock_session
 
@@ -817,9 +825,10 @@ class TestAttachmentDownloaderIntegration:
         )
 
         # Need to patch validate_file_type to accept custom extension
-        with patch("core.download.downloader.download_url") as mock_download, patch(
-            "core.download.downloader.validate_file_type"
-        ) as mock_validate:
+        with (
+            patch("core.download.downloader.download_url") as mock_download,
+            patch("core.download.downloader.validate_file_type") as mock_validate,
+        ):
             mock_download.return_value = (response, None)
             mock_validate.return_value = (True, "")
 

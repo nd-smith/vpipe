@@ -29,14 +29,12 @@ from pipeline.runners.claimx_runners import (
     run_claimx_upload_worker,
 )
 
-
 # ---------------------------------------------------------------------------
 # run_claimx_eventhouse_poller
 # ---------------------------------------------------------------------------
 
 
 class TestRunClaimxEventhousePoller:
-
     def _make_pipeline_config(self, has_eventhouse=True):
         config = Mock()
         if has_eventhouse:
@@ -61,9 +59,7 @@ class TestRunClaimxEventhousePoller:
         config = self._make_pipeline_config(has_eventhouse=False)
         shutdown = asyncio.Event()
 
-        with pytest.raises(
-            ValueError, match="ClaimX Eventhouse configuration required"
-        ):
+        with pytest.raises(ValueError, match="ClaimX Eventhouse configuration required"):
             await run_claimx_eventhouse_poller(config, shutdown, Mock())
 
     async def test_creates_poller_config_and_delegates(self):
@@ -73,18 +69,16 @@ class TestRunClaimxEventhousePoller:
         kafka_config = Mock()
         kafka_config.claimx = {"topics": {}}
 
-        with patch(
-            "pipeline.claimx.schemas.events.ClaimXEventMessage"
-        ) as MockSchema, patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ) as MockEHConfig, patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ) as MockPollerConfig, patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ) as MockPoller, patch(
-            "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.claimx.schemas.events.ClaimXEventMessage") as MockSchema,
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig") as MockEHConfig,
+            patch("pipeline.common.eventhouse.poller.PollerConfig") as MockPollerConfig,
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller") as MockPoller,
+            patch(
+                "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_eventhouse_poller(config, shutdown, kafka_config)
 
         MockEHConfig.assert_called_once_with(
@@ -126,17 +120,15 @@ class TestRunClaimxEventhousePoller:
         kafka_config = Mock()
         kafka_config.claimx = {"topics": {}}
 
-        with patch(
-            "pipeline.claimx.schemas.events.ClaimXEventMessage"
-        ), patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.schemas.events.ClaimXEventMessage"),
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig"),
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch(
+                "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_eventhouse_poller(config, shutdown, kafka_config)
 
@@ -151,17 +143,15 @@ class TestRunClaimxEventhousePoller:
         # Simulate falsy claimx value where "claimx" not in ""
         kafka_config.claimx = ""
 
-        with patch(
-            "pipeline.claimx.schemas.events.ClaimXEventMessage"
-        ), patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.schemas.events.ClaimXEventMessage"),
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig"),
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch(
+                "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_eventhouse_poller(config, shutdown, kafka_config)
 
@@ -175,17 +165,15 @@ class TestRunClaimxEventhousePoller:
         kafka_config = Mock()
         kafka_config.claimx = {"something_else": True}
 
-        with patch(
-            "pipeline.claimx.schemas.events.ClaimXEventMessage"
-        ), patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.schemas.events.ClaimXEventMessage"),
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig"),
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch(
+                "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_eventhouse_poller(config, shutdown, kafka_config)
 
@@ -200,17 +188,15 @@ class TestRunClaimxEventhousePoller:
         kafka_config = Mock()
         kafka_config.claimx = {"topics": {}}
 
-        with patch(
-            "pipeline.claimx.schemas.events.ClaimXEventMessage"
-        ), patch(
-            "pipeline.common.eventhouse.kql_client.EventhouseConfig"
-        ), patch(
-            "pipeline.common.eventhouse.poller.PollerConfig"
-        ) as MockPollerConfig, patch(
-            "pipeline.common.eventhouse.poller.KQLEventPoller"
-        ), patch(
-            "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.schemas.events.ClaimXEventMessage"),
+            patch("pipeline.common.eventhouse.kql_client.EventhouseConfig"),
+            patch("pipeline.common.eventhouse.poller.PollerConfig") as MockPollerConfig,
+            patch("pipeline.common.eventhouse.poller.KQLEventPoller"),
+            patch(
+                "pipeline.runners.claimx_runners.execute_poller_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_eventhouse_poller(config, shutdown, kafka_config)
 
@@ -225,23 +211,21 @@ class TestRunClaimxEventhousePoller:
 
 
 class TestRunClaimxEventIngester:
-
     async def test_creates_worker_with_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.claimx.workers.event_ingester.ClaimXEventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.claimx.workers.event_ingester.ClaimXEventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_event_ingester(kafka_config, shutdown, instance_id=3)
 
-        MockWorker.assert_called_once_with(
-            config=kafka_config, domain="claimx", instance_id=3
-        )
+        MockWorker.assert_called_once_with(config=kafka_config, domain="claimx", instance_id=3)
         mock_exec.assert_awaited_once_with(
             MockWorker.return_value,
             stage_name="claimx-ingester",
@@ -253,11 +237,12 @@ class TestRunClaimxEventIngester:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.claimx.workers.event_ingester.ClaimXEventIngesterWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.workers.event_ingester.ClaimXEventIngesterWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_event_ingester(Mock(), shutdown)
 
@@ -270,7 +255,6 @@ class TestRunClaimxEventIngester:
 
 
 class TestRunClaimxEnrichmentWorker:
-
     async def test_creates_worker_with_pipeline_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
@@ -279,12 +263,13 @@ class TestRunClaimxEnrichmentWorker:
         pipeline_config.enable_delta_writes = True
         pipeline_config.claimx_projects_table_path = "/delta/projects"
 
-        with patch(
-            "pipeline.claimx.workers.enrichment_worker.ClaimXEnrichmentWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.claimx.workers.enrichment_worker.ClaimXEnrichmentWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_enrichment_worker(
                 kafka_config, pipeline_config, shutdown, instance_id=2
             )
@@ -310,11 +295,12 @@ class TestRunClaimxEnrichmentWorker:
         pipeline_config.enable_delta_writes = False
         pipeline_config.claimx_projects_table_path = ""
 
-        with patch(
-            "pipeline.claimx.workers.enrichment_worker.ClaimXEnrichmentWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.workers.enrichment_worker.ClaimXEnrichmentWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_enrichment_worker(Mock(), pipeline_config, shutdown)
 
@@ -327,18 +313,18 @@ class TestRunClaimxEnrichmentWorker:
 
 
 class TestRunClaimxDownloadWorker:
-
     async def test_creates_worker_with_temp_dir_as_path(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
         kafka_config.temp_dir = "/tmp/claimx-dl"
 
-        with patch(
-            "pipeline.claimx.workers.download_worker.ClaimXDownloadWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.workers.download_worker.ClaimXDownloadWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_download_worker(kafka_config, shutdown, instance_id=1)
 
@@ -355,12 +341,13 @@ class TestRunClaimxDownloadWorker:
         kafka_config = Mock()
         kafka_config.temp_dir = "/tmp"
 
-        with patch(
-            "pipeline.claimx.workers.download_worker.ClaimXDownloadWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.claimx.workers.download_worker.ClaimXDownloadWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_download_worker(kafka_config, shutdown)
 
         mock_exec.assert_awaited_once_with(
@@ -377,34 +364,33 @@ class TestRunClaimxDownloadWorker:
 
 
 class TestRunClaimxUploadWorker:
-
     async def test_creates_worker_with_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.claimx.workers.upload_worker.ClaimXUploadWorker"
-        ) as MockWorker, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
+        with (
+            patch("pipeline.claimx.workers.upload_worker.ClaimXUploadWorker") as MockWorker,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ),
         ):
             await run_claimx_upload_worker(kafka_config, shutdown, instance_id=4)
 
-        MockWorker.assert_called_once_with(
-            config=kafka_config, domain="claimx", instance_id=4
-        )
+        MockWorker.assert_called_once_with(config=kafka_config, domain="claimx", instance_id=4)
 
     async def test_delegates_to_execute_worker_with_shutdown(self):
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.claimx.workers.upload_worker.ClaimXUploadWorker"
-        ), patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.claimx.workers.upload_worker.ClaimXUploadWorker"),
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_upload_worker(Mock(), shutdown)
 
         assert mock_exec.call_args[1]["stage_name"] == "claimx-uploader"
@@ -416,7 +402,6 @@ class TestRunClaimxUploadWorker:
 
 
 class TestRunClaimxResultProcessor:
-
     async def test_creates_processor_and_starts_it(self):
         shutdown = asyncio.Event()
         kafka_config = Mock()
@@ -427,12 +412,13 @@ class TestRunClaimxResultProcessor:
         mock_processor.start = AsyncMock()
         mock_processor.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
-            return_value=mock_processor,
-        ) as MockRP:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
+                return_value=mock_processor,
+            ) as MockRP,
+        ):
             await run_claimx_result_processor(
                 kafka_config, pipeline_config, shutdown, instance_id=2
             )
@@ -454,15 +440,15 @@ class TestRunClaimxResultProcessor:
         mock_processor.start = AsyncMock(side_effect=RuntimeError("start failed"))
         mock_processor.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
-            return_value=mock_processor,
-        ), pytest.raises(RuntimeError, match="start failed"):
-            await run_claimx_result_processor(
-                Mock(), pipeline_config, shutdown
-            )
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
+                return_value=mock_processor,
+            ),
+            pytest.raises(RuntimeError, match="start failed"),
+        ):
+            await run_claimx_result_processor(Mock(), pipeline_config, shutdown)
 
         mock_processor.stop.assert_awaited()
 
@@ -483,11 +469,12 @@ class TestRunClaimxResultProcessor:
             await asyncio.sleep(0.02)
             shutdown.set()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
-            return_value=mock_processor,
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
+                return_value=mock_processor,
+            ),
         ):
             await asyncio.gather(
                 run_claimx_result_processor(Mock(), pipeline_config, shutdown),
@@ -505,11 +492,12 @@ class TestRunClaimxResultProcessor:
         mock_processor.start = AsyncMock()
         mock_processor.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ) as mock_ctx, patch(
-            "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
-            return_value=mock_processor,
+        with (
+            patch("core.logging.context.set_log_context") as mock_ctx,
+            patch(
+                "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
+                return_value=mock_processor,
+            ),
         ):
             await run_claimx_result_processor(Mock(), pipeline_config, shutdown)
 
@@ -522,20 +510,21 @@ class TestRunClaimxResultProcessor:
 
 
 class TestRunClaimxDeltaEventsWorker:
-
     async def test_delegates_to_execute_worker_with_producer(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.claimx.workers.delta_events_worker.ClaimXDeltaEventsWorker"
-        ) as MockWorker, patch(
-            "pipeline.common.producer.MessageProducer"
-        ) as MockProducer, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch(
+                "pipeline.claimx.workers.delta_events_worker.ClaimXDeltaEventsWorker"
+            ) as MockWorker,
+            patch("pipeline.common.producer.MessageProducer") as MockProducer,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_delta_events_worker(
                 kafka_config, "/delta/claimx_events", shutdown, instance_id=5
             )
@@ -556,14 +545,14 @@ class TestRunClaimxDeltaEventsWorker:
         shutdown = asyncio.Event()
         shutdown.set()
 
-        with patch(
-            "pipeline.claimx.workers.delta_events_worker.ClaimXDeltaEventsWorker"
-        ), patch(
-            "pipeline.common.producer.MessageProducer"
-        ), patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.claimx.workers.delta_events_worker.ClaimXDeltaEventsWorker"),
+            patch("pipeline.common.producer.MessageProducer"),
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_delta_events_worker(Mock(), "/path", shutdown)
 
         assert mock_exec.call_args[1]["instance_id"] is None
@@ -575,20 +564,19 @@ class TestRunClaimxDeltaEventsWorker:
 
 
 class TestRunClaimxRetryScheduler:
-
     async def test_delegates_to_execute_worker_with_producer(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
-        with patch(
-            "pipeline.common.retry.unified_scheduler.UnifiedRetryScheduler"
-        ) as MockScheduler, patch(
-            "pipeline.common.producer.MessageProducer"
-        ) as MockProducer, patch(
-            "pipeline.runners.claimx_runners.execute_worker_with_producer",
-            new_callable=AsyncMock,
-        ) as mock_exec:
+        with (
+            patch("pipeline.common.retry.unified_scheduler.UnifiedRetryScheduler") as MockScheduler,
+            patch("pipeline.common.producer.MessageProducer") as MockProducer,
+            patch(
+                "pipeline.runners.claimx_runners.execute_worker_with_producer",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
             await run_claimx_retry_scheduler(kafka_config, shutdown, instance_id=1)
 
         mock_exec.assert_awaited_once_with(
@@ -609,7 +597,6 @@ class TestRunClaimxRetryScheduler:
 
 
 class TestRunClaimxEntityDeltaWorker:
-
     TABLE_PATHS = {
         "projects_table_path": "/delta/projects",
         "contacts_table_path": "/delta/contacts",
@@ -628,12 +615,13 @@ class TestRunClaimxEntityDeltaWorker:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
-            return_value=mock_worker,
-        ) as MockWorker:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
+                return_value=mock_worker,
+            ) as MockWorker,
+        ):
             await run_claimx_entity_delta_worker(
                 kafka_config,
                 shutdown_event=shutdown,
@@ -660,11 +648,12 @@ class TestRunClaimxEntityDeltaWorker:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
-            return_value=mock_worker,
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
+                return_value=mock_worker,
+            ),
         ):
             await run_claimx_entity_delta_worker(
                 Mock(), shutdown_event=shutdown, **self.TABLE_PATHS
@@ -679,12 +668,14 @@ class TestRunClaimxEntityDeltaWorker:
         mock_worker.start = AsyncMock(side_effect=RuntimeError("boom"))
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
-            return_value=mock_worker,
-        ), pytest.raises(RuntimeError, match="boom"):
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
+                return_value=mock_worker,
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
             await run_claimx_entity_delta_worker(
                 Mock(), shutdown_event=shutdown, **self.TABLE_PATHS
             )
@@ -705,16 +696,15 @@ class TestRunClaimxEntityDeltaWorker:
             await asyncio.sleep(0.02)
             shutdown.set()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
-            return_value=mock_worker,
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
+                return_value=mock_worker,
+            ),
         ):
             await asyncio.gather(
-                run_claimx_entity_delta_worker(
-                    Mock(), shutdown_event=shutdown, **self.TABLE_PATHS
-                ),
+                run_claimx_entity_delta_worker(Mock(), shutdown_event=shutdown, **self.TABLE_PATHS),
                 trigger_shutdown(),
             )
 
@@ -726,11 +716,12 @@ class TestRunClaimxEntityDeltaWorker:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ) as mock_ctx, patch(
-            "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
-            return_value=mock_worker,
+        with (
+            patch("core.logging.context.set_log_context") as mock_ctx,
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
+                return_value=mock_worker,
+            ),
         ):
             await run_claimx_entity_delta_worker(
                 Mock(), shutdown_event=shutdown, **self.TABLE_PATHS
@@ -744,12 +735,13 @@ class TestRunClaimxEntityDeltaWorker:
         mock_worker.start = AsyncMock()
         mock_worker.stop = AsyncMock()
 
-        with patch(
-            "core.logging.context.set_log_context"
-        ), patch(
-            "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
-            return_value=mock_worker,
-        ) as MockWorker:
+        with (
+            patch("core.logging.context.set_log_context"),
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
+                return_value=mock_worker,
+            ) as MockWorker,
+        ):
             await run_claimx_entity_delta_worker(
                 Mock(), shutdown_event=shutdown, **self.TABLE_PATHS
             )

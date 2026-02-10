@@ -1,24 +1,25 @@
-
-import sys
 import os
+import sys
 
 # Add src to path
-sys.path.append(os.path.join(os.getcwd(), 'src'))
+sys.path.append(os.path.join(os.getcwd(), "src"))
 
 try:
-    from pipeline.common.metrics import (
-        claimx_api_requests_total,
-        claimx_api_request_duration_seconds,
+    from pipeline.common.metrics import (  # noqa: F401
+        claim_media_bytes_total,
         claim_processing_seconds,
-        claim_media_bytes_total
+        claimx_api_request_duration_seconds,
+        claimx_api_requests_total,
     )
+
     print("✅ Successfully imported new metrics from pipeline.common.metrics")
 except ImportError as e:
     print(f"❌ Failed to import metrics: {e}")
     sys.exit(1)
 
 try:
-    from pipeline.claimx.api_client import ClaimXApiClient
+    from pipeline.claimx.api_client import ClaimXApiClient  # noqa: F401
+
     print("✅ Successfully imported ClaimXApiClient (instrumented)")
 except ImportError as e:
     print(f"❌ Failed to import ClaimXApiClient: {e}")

@@ -1,6 +1,5 @@
 """Tests for transport layer abstraction."""
 
-import os
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -15,7 +14,6 @@ from pipeline.common.transport import (
 
 
 class TestTransportType:
-
     def test_eventhub_value(self):
         assert TransportType.EVENTHUB.value == "eventhub"
 
@@ -28,7 +26,6 @@ class TestTransportType:
 
 
 class TestGetTransportType:
-
     def test_defaults_to_eventhub(self, monkeypatch):
         monkeypatch.delenv("PIPELINE_TRANSPORT", raising=False)
         assert get_transport_type() == TransportType.EVENTHUB
@@ -51,7 +48,6 @@ class TestGetTransportType:
 
 
 class TestStripEntityPath:
-
     def test_strips_entity_path(self):
         conn = "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=fake-key;EntityPath=my-hub"
         result = _strip_entity_path(conn)
@@ -71,7 +67,6 @@ class TestStripEntityPath:
 
 
 class TestResolveEventHubName:
-
     def test_resolves_from_config(self):
         mock_config = {
             "verisk": {
@@ -97,9 +92,11 @@ class TestResolveEventHubName:
         assert name == "download-hub"
 
     def test_raises_when_not_configured(self):
-        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
-            with pytest.raises(ValueError, match="Event Hub name not configured"):
-                _resolve_eventhub_name("verisk", "events", "test_worker")
+        with (
+            patch("pipeline.common.transport._load_eventhub_config", return_value={}),
+            pytest.raises(ValueError, match="Event Hub name not configured"),
+        ):
+            _resolve_eventhub_name("verisk", "events", "test_worker")
 
     def test_config_takes_priority_over_env_var(self, monkeypatch):
         monkeypatch.setenv("EVENTHUB_NAME_EVENT_INGESTER", "env-hub")
@@ -127,7 +124,6 @@ class TestResolveEventHubName:
 
 
 class TestResolveEventHubConsumerGroup:
-
     def test_resolves_from_config(self):
         mock_config = {
             "verisk": {
@@ -149,54 +145,54 @@ class TestResolveEventHubConsumerGroup:
         mock_config = {"default_consumer_group": "default-group"}
         message_config = Mock()
         with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
-            group = _resolve_eventhub_consumer_group(
-                "verisk", None, "worker", message_config
-            )
+            group = _resolve_eventhub_consumer_group("verisk", None, "worker", message_config)
         assert group == "default-group"
 
     def test_raises_when_no_consumer_group(self):
         message_config = Mock()
-        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
-            with pytest.raises(ValueError, match="consumer group not configured"):
-                _resolve_eventhub_consumer_group(
-                    "verisk", "events", "worker", message_config
-                )
+        with (
+            patch("pipeline.common.transport._load_eventhub_config", return_value={}),
+            pytest.raises(ValueError, match="consumer group not configured"),
+        ):
+            _resolve_eventhub_consumer_group("verisk", "events", "worker", message_config)
 
     def test_raises_when_no_topic_key_and_no_default(self):
         message_config = Mock()
-        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
-            with pytest.raises(ValueError, match="consumer group not configured"):
-                _resolve_eventhub_consumer_group(
-                    "verisk", None, "worker", message_config
-                )
+        with (
+            patch("pipeline.common.transport._load_eventhub_config", return_value={}),
+            pytest.raises(ValueError, match="consumer group not configured"),
+        ):
+            _resolve_eventhub_consumer_group("verisk", None, "worker", message_config)
 
 
 class TestCreateProducer:
-
     def test_creates_kafka_producer(self):
         from pipeline.common.transport import create_producer
 
         config = Mock()
         with patch("pipeline.common.producer.MessageProducer") as mock_cls:
-            result = create_producer(
-                config, "verisk", "test", transport_type=TransportType.KAFKA
-            )
-        mock_cls.assert_called_once_with(
-            config=config, domain="verisk", worker_name="test"
-        )
+            create_producer(config, "verisk", "test", transport_type=TransportType.KAFKA)
+        mock_cls.assert_called_once_with(config=config, domain="verisk", worker_name="test")
 
     def test_creates_eventhub_producer(self):
         from pipeline.common.transport import create_producer
 
         config = Mock()
-        with patch("pipeline.common.transport._get_namespace_connection_string", return_value="conn-str"):
-            with patch("pipeline.common.transport._resolve_eventhub_name", return_value="hub-name"):
-                with patch("pipeline.common.eventhub.producer.EventHubProducer") as mock_cls:
-                    result = create_producer(
-                        config, "verisk", "test",
-                        transport_type=TransportType.EVENTHUB,
-                        topic_key="events",
-                    )
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string",
+                return_value="conn-str",
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_name", return_value="hub-name"),
+            patch("pipeline.common.eventhub.producer.EventHubProducer") as mock_cls,
+        ):
+            create_producer(
+                config,
+                "verisk",
+                "test",
+                transport_type=TransportType.EVENTHUB,
+                topic_key="events",
+            )
         mock_cls.assert_called_once_with(
             connection_string="conn-str",
             domain="verisk",
@@ -208,13 +204,20 @@ class TestCreateProducer:
         from pipeline.common.transport import create_producer
 
         config = Mock()
-        with patch("pipeline.common.transport._get_namespace_connection_string", return_value="conn-str"):
-            with patch("pipeline.common.eventhub.producer.EventHubProducer") as mock_cls:
-                create_producer(
-                    config, "verisk", "test",
-                    transport_type=TransportType.EVENTHUB,
-                    topic="explicit-hub",
-                )
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string",
+                return_value="conn-str",
+            ),
+            patch("pipeline.common.eventhub.producer.EventHubProducer") as mock_cls,
+        ):
+            create_producer(
+                config,
+                "verisk",
+                "test",
+                transport_type=TransportType.EVENTHUB,
+                topic="explicit-hub",
+            )
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["eventhub_name"] == "explicit-hub"
 
@@ -229,7 +232,6 @@ class TestCreateProducer:
 
 
 class TestCreateConsumer:
-
     async def test_creates_kafka_consumer(self):
         from pipeline.common.transport import create_consumer
 
@@ -238,12 +240,18 @@ class TestCreateConsumer:
         config.get_worker_config.return_value = {}
         handler = AsyncMock()
 
-        with patch("pipeline.common.consumer.MessageConsumer") as mock_cls:
-            with patch("pipeline.common.dlq.producer.DLQProducer"):
-                result = await create_consumer(
-                    config, "verisk", "test", ["t1"], handler,
-                    transport_type=TransportType.KAFKA,
-                )
+        with (
+            patch("pipeline.common.consumer.MessageConsumer") as mock_cls,
+            patch("pipeline.common.dlq.producer.DLQProducer"),
+        ):
+            await create_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.KAFKA,
+            )
         mock_cls.assert_called_once()
 
     async def test_eventhub_rejects_multiple_topics(self):
@@ -254,7 +262,11 @@ class TestCreateConsumer:
 
         with pytest.raises(ValueError, match="single topic"):
             await create_consumer(
-                config, "verisk", "test", ["t1", "t2"], handler,
+                config,
+                "verisk",
+                "test",
+                ["t1", "t2"],
+                handler,
                 transport_type=TransportType.EVENTHUB,
             )
 
@@ -265,14 +277,26 @@ class TestCreateConsumer:
         config.get_consumer_group.return_value = "grp"
         handler = AsyncMock()
 
-        with patch("pipeline.common.transport._get_namespace_connection_string", return_value="conn"):
-            with patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"):
-                with patch("pipeline.common.transport.get_checkpoint_store", new_callable=AsyncMock, return_value=None):
-                    with patch("pipeline.common.eventhub.consumer.EventHubConsumer") as mock_cls:
-                        await create_consumer(
-                            config, "verisk", "test", ["t1"], handler,
-                            transport_type=TransportType.EVENTHUB,
-                        )
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string", return_value="conn"
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.consumer.EventHubConsumer") as mock_cls,
+        ):
+            await create_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+            )
         mock_cls.assert_called_once()
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["eventhub_name"] == "t1"  # Falls back to topic name
@@ -280,7 +304,6 @@ class TestCreateConsumer:
 
 
 class TestCreateBatchConsumer:
-
     async def test_creates_kafka_batch_consumer(self):
         from pipeline.common.transport import create_batch_consumer
 
@@ -291,7 +314,11 @@ class TestCreateBatchConsumer:
 
         with patch("pipeline.common.batch_consumer.MessageBatchConsumer") as mock_cls:
             await create_batch_consumer(
-                config, "verisk", "test", ["t1"], handler,
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
                 batch_size=50,
                 batch_timeout_ms=2000,
                 transport_type=TransportType.KAFKA,
@@ -308,7 +335,11 @@ class TestCreateBatchConsumer:
 
         with pytest.raises(ValueError, match="single topic"):
             await create_batch_consumer(
-                config, "verisk", "test", ["t1", "t2"], handler,
+                config,
+                "verisk",
+                "test",
+                ["t1", "t2"],
+                handler,
                 transport_type=TransportType.EVENTHUB,
             )
 
@@ -319,19 +350,30 @@ class TestCreateBatchConsumer:
         config.get_consumer_group.return_value = "grp"
         handler = AsyncMock()
 
-        with patch("pipeline.common.transport._get_namespace_connection_string", return_value="conn"):
-            with patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"):
-                with patch("pipeline.common.transport.get_checkpoint_store", new_callable=AsyncMock, return_value=None):
-                    with patch("pipeline.common.eventhub.batch_consumer.EventHubBatchConsumer") as mock_cls:
-                        await create_batch_consumer(
-                            config, "verisk", "test", ["t1"], handler,
-                            transport_type=TransportType.EVENTHUB,
-                        )
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string", return_value="conn"
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.batch_consumer.EventHubBatchConsumer") as mock_cls,
+        ):
+            await create_batch_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+            )
         mock_cls.assert_called_once()
 
 
 class TestGetNamespaceConnectionString:
-
     def test_from_env_var(self, monkeypatch):
         from pipeline.common.transport import _get_namespace_connection_string
 
@@ -356,9 +398,11 @@ class TestGetNamespaceConnectionString:
         from pipeline.common.transport import _get_namespace_connection_string
 
         monkeypatch.setenv("EVENTHUB_NAMESPACE_CONNECTION_STRING", "")
-        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
-            with pytest.raises(ValueError, match="namespace connection string is required"):
-                _get_namespace_connection_string()
+        with (
+            patch("pipeline.common.transport._load_eventhub_config", return_value={}),
+            pytest.raises(ValueError, match="namespace connection string is required"),
+        ):
+            _get_namespace_connection_string()
 
     def test_raises_when_env_var_whitespace_only(self, monkeypatch):
         from pipeline.common.transport import _get_namespace_connection_string
@@ -383,6 +427,8 @@ class TestGetNamespaceConnectionString:
         from pipeline.common.transport import _get_namespace_connection_string
 
         monkeypatch.delenv("EVENTHUB_NAMESPACE_CONNECTION_STRING", raising=False)
-        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
-            with pytest.raises(ValueError, match="namespace connection string is required"):
-                _get_namespace_connection_string()
+        with (
+            patch("pipeline.common.transport._load_eventhub_config", return_value={}),
+            pytest.raises(ValueError, match="namespace connection string is required"),
+        ):
+            _get_namespace_connection_string()

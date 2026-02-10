@@ -83,9 +83,7 @@ async def run_error_mode(worker_name: str, error_msg: str) -> None:
     await health_server.stop()
 
 
-def enter_error_mode(
-    loop: asyncio.AbstractEventLoop, worker_name: str, error_msg: str
-) -> None:
+def enter_error_mode(loop: asyncio.AbstractEventLoop, worker_name: str, error_msg: str) -> None:
     """Enter error mode with health server running until shutdown.
 
     Fallback error mode for cases where worker health server doesn't exist:
@@ -157,9 +155,7 @@ async def run_worker_pool(
     Each instance joins the same consumer group for automatic partition distribution.
     Each instance gets a unique instance_id for distinct logging and identity.
     """
-    logger.info(
-        "Starting worker instances", extra={"count": count, "worker_name": worker_name}
-    )
+    logger.info("Starting worker instances", extra={"count": count, "worker_name": worker_name})
 
     tasks = []
     for i in range(count):
@@ -178,9 +174,7 @@ async def run_worker_pool(
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
-        logger.info(
-            "Worker pool cancelled, shutting down", extra={"worker_name": worker_name}
-        )
+        logger.info("Worker pool cancelled, shutting down", extra={"worker_name": worker_name})
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -423,9 +417,7 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     Note: Signal handlers not supported on Windows - KeyboardInterrupt used instead."""
 
     def handle_signal(sig):
-        logger.info(
-            "Received signal, initiating graceful shutdown", extra={"signal": sig.name}
-        )
+        logger.info("Received signal, initiating graceful shutdown", extra={"signal": sig.name})
         shutdown_event = get_shutdown_event()
         if not shutdown_event.is_set():
             shutdown_event.set()
@@ -435,9 +427,7 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
                 task.cancel()
 
     if sys.platform == "win32":
-        logger.debug(
-            "Signal handlers not supported on Windows, using KeyboardInterrupt"
-        )
+        logger.debug("Signal handlers not supported on Windows, using KeyboardInterrupt")
         return
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -459,9 +449,7 @@ def main():
         apply_ssl_dev_bypass()
         print("[SSL] SSL verification disabled for all HTTP clients (urllib3, requests, Kusto SDK)")
     else:
-        print(
-            "[SSL] SSL verification ENABLED (set DISABLE_SSL_VERIFY=true to disable)"
-        )
+        print("[SSL] SSL verification ENABLED (set DISABLE_SSL_VERIFY=true to disable)")
 
     global logger
     args = parse_args()
@@ -473,9 +461,7 @@ def main():
     log_dir_str = args.log_dir or os.getenv("LOG_DIR", "logs")
     log_dir = Path(log_dir_str)
 
-    log_to_stdout = args.log_to_stdout or os.getenv(
-        "LOG_TO_STDOUT", "false"
-    ).lower() in (
+    log_to_stdout = args.log_to_stdout or os.getenv("LOG_TO_STDOUT", "false").lower() in (
         "true",
         "1",
         "yes",
@@ -507,18 +493,14 @@ def main():
         config = None
 
     # Prepare EventHub logging config
-    eventhub_config = (
-        prepare_eventhub_logging_config(config.logging_config) if config else None
-    )
+    eventhub_config = prepare_eventhub_logging_config(config.logging_config) if config else None
 
     # Get toggle flags
     file_enabled = True
     eventhub_enabled = True
     if config:
         file_enabled = config.logging_config.get("file_logging", {}).get("enabled", True)
-        eventhub_enabled = config.logging_config.get("eventhub_logging", {}).get(
-            "enabled", True
-        )
+        eventhub_enabled = config.logging_config.get("eventhub_logging", {}).get("enabled", True)
 
     if args.worker == "all":
         setup_multi_worker_logging(
@@ -580,15 +562,15 @@ def main():
 
             # Check if handler was actually created by inspecting root logger handlers
             root_logger = logging.getLogger()
-            has_eventhub_handler = any(
-                "EventHub" in type(h).__name__ for h in root_logger.handlers
-            )
+            has_eventhub_handler = any("EventHub" in type(h).__name__ for h in root_logger.handlers)
             if has_eventhub_handler:
                 print("[STARTUP] EventHub log handler: ✓ ACTIVE")
             else:
                 print("[STARTUP] EventHub log handler: ✗ FAILED TO CREATE (check logs for errors)")
         else:
-            print("[STARTUP] EventHub logging: ✗ NOT CONFIGURED (missing EVENTHUB_NAMESPACE_CONNECTION_STRING)")
+            print(
+                "[STARTUP] EventHub logging: ✗ NOT CONFIGURED (missing EVENTHUB_NAMESPACE_CONNECTION_STRING)"
+            )
     else:
         print("[STARTUP] EventHub logging: DISABLED")
 
@@ -610,7 +592,7 @@ def main():
     print(
         f"[STARTUP] Health server started on port {early_health_server.actual_port} "
         "(available for Kubernetes probes)",
-        flush=True
+        flush=True,
     )
     logger.info(
         "Health server started early (before main initialization)",
@@ -664,9 +646,7 @@ def main():
         pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
     else:
         try:
-            pipeline_config, eventhub_config, local_kafka_config = (
-                load_production_config()
-            )
+            pipeline_config, eventhub_config, local_kafka_config = load_production_config()
         except ValueError as e:
             error_msg = str(e)
             logger.exception("Configuration error", extra={"error": error_msg})
@@ -689,9 +669,7 @@ def main():
     try:
         print("[STARTUP] Starting worker(s)...", flush=True)
         if args.worker == "all":
-            loop.run_until_complete(
-                run_all_workers(pipeline_config, enable_delta_writes)
-            )
+            loop.run_until_complete(run_all_workers(pipeline_config, enable_delta_writes))
         else:
             # Use registry to run specific worker
             if args.count > 1:

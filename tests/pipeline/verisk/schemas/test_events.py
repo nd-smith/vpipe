@@ -22,7 +22,7 @@ class TestEventMessageCreation:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{"assignmentId": "C-456", "attachments": ["https://storage.example.com/file1.pdf"]}'
+            data='{"assignmentId": "C-456", "attachments": ["https://storage.example.com/file1.pdf"]}',
         )
 
         assert event.type == "verisk.claims.property.xn.documentsReceived"
@@ -38,7 +38,7 @@ class TestEventMessageCreation:
             version=2,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-456",
-            data='{"assignmentId": "P-789"}'
+            data='{"assignmentId": "P-789"}',
         )
 
         assert event.attachments is None
@@ -50,7 +50,7 @@ class TestEventMessageCreation:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-789",
-            data='{"assignmentId": "A-123", "attachments": []}'
+            data='{"assignmentId": "A-123", "attachments": []}',
         )
 
         # Empty list returns None (filtered by the computed property)
@@ -63,15 +63,9 @@ class TestEventMessageCreation:
             "details": {
                 "amount": 50000,
                 "category": "property",
-                "metadata": {
-                    "filed_by": "agent-123",
-                    "priority": "high"
-                }
+                "metadata": {"filed_by": "agent-123", "priority": "high"},
             },
-            "attachments": [
-                "https://example.com/file1.pdf",
-                "https://example.com/file2.pdf"
-            ]
+            "attachments": ["https://example.com/file1.pdf", "https://example.com/file2.pdf"],
         }
 
         event = EventMessage(
@@ -79,7 +73,7 @@ class TestEventMessageCreation:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-complex",
-            data=json.dumps(complex_data)
+            data=json.dumps(complex_data),
         )
 
         assert event.data_dict == complex_data
@@ -96,12 +90,12 @@ class TestEventMessageValidation:
                 type="verisk.claims.property.xn.documentsReceived",
                 version=1,
                 utcDateTime="2024-12-25T10:30:00Z",
-                data='{}'
+                data="{}",
                 # Missing traceId
             )
 
         errors = exc_info.value.errors()
-        assert any('traceId' in str(e) or 'trace_id' in str(e) for e in errors)
+        assert any("traceId" in str(e) or "trace_id" in str(e) for e in errors)
 
     def test_empty_trace_id_raises_error(self):
         """Empty trace_id raises ValidationError."""
@@ -111,11 +105,11 @@ class TestEventMessageValidation:
                 version=1,
                 utcDateTime="2024-12-25T10:30:00Z",
                 traceId="",
-                data='{}'
+                data="{}",
             )
 
         errors = exc_info.value.errors()
-        assert any('trace_id' in str(e) or 'traceId' in str(e) for e in errors)
+        assert any("trace_id" in str(e) or "traceId" in str(e) for e in errors)
 
     def test_whitespace_trace_id_raises_error(self):
         """Whitespace-only trace_id raises ValidationError."""
@@ -125,11 +119,11 @@ class TestEventMessageValidation:
                 version=1,
                 utcDateTime="2024-12-25T10:30:00Z",
                 traceId="   ",
-                data='{}'
+                data="{}",
             )
 
         errors = exc_info.value.errors()
-        assert any('trace_id' in str(e) or 'traceId' in str(e) for e in errors)
+        assert any("trace_id" in str(e) or "traceId" in str(e) for e in errors)
 
     def test_whitespace_is_trimmed(self):
         """Leading/trailing whitespace is trimmed from validated fields."""
@@ -138,7 +132,7 @@ class TestEventMessageValidation:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="  evt-123  ",
-            data='{}'
+            data="{}",
         )
 
         assert event.trace_id == "evt-123"
@@ -155,7 +149,7 @@ class TestEventMessageSerialization:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{"assignmentId": "C-456"}'
+            data='{"assignmentId": "C-456"}',
         )
 
         json_str = event.model_dump_json()
@@ -175,7 +169,7 @@ class TestEventMessageSerialization:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{}'
+            data="{}",
         )
 
         json_str = event.model_dump_json()
@@ -191,7 +185,7 @@ class TestEventMessageSerialization:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}'
+            data='{"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}',
         )
 
         json_str = event.model_dump_json()
@@ -208,7 +202,7 @@ class TestEventMessageSerialization:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}'
+            data='{"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}',
         )
 
         json_str = event.model_dump_json()
@@ -228,7 +222,7 @@ class TestEventMessageSerialization:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}'
+            data='{"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}',
         )
 
         assert event.status_subtype == "documentsReceived"
@@ -242,7 +236,7 @@ class TestEventMessageSerialization:
             "version": 2,
             "utcDateTime": "2024-12-25T15:45:00Z",
             "traceId": "evt-789",
-            "data": '{"assignmentId": "P-001"}'
+            "data": '{"assignmentId": "P-001"}',
         }
 
         json_str = json.dumps(json_data)
@@ -259,7 +253,7 @@ class TestEventMessageSerialization:
             "version": 1,
             "utcDateTime": "2024-12-25T10:30:00Z",
             "traceId": "evt-123",
-            "data": {"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]}
+            "data": {"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]},
         }
 
         event = EventMessage.from_eventhouse_row(row)
@@ -276,7 +270,7 @@ class TestEventMessageSerialization:
             "version": "2",
             "utcDateTime": "2024-12-25T10:30:00Z",
             "traceId": "evt-123",
-            "data": "{}"
+            "data": "{}",
         }
 
         event = EventMessage.from_eventhouse_row(row)
@@ -291,7 +285,7 @@ class TestEventMessageSerialization:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{"assignmentId": "C-456"}'
+            data='{"assignmentId": "C-456"}',
         )
 
         row = event.to_eventhouse_row()
@@ -313,7 +307,7 @@ class TestEventMessageEdgeCases:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-empty",
-            data='{}'
+            data="{}",
         )
 
         assert event.data_dict == {}
@@ -326,24 +320,20 @@ class TestEventMessageEdgeCases:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId=long_id,
-            data='{}'
+            data="{}",
         )
 
         assert event.trace_id == long_id
 
     def test_unicode_in_data(self):
         """Data can contain Unicode characters."""
-        unicode_data = {
-            "description": "Schäden an Gebäude",
-            "note": "重要な情報",
-            "emoji": "🔥💧"
-        }
+        unicode_data = {"description": "Schäden an Gebäude", "note": "重要な情報", "emoji": "🔥💧"}
         event = EventMessage(
             type="verisk.claims.property.xn.test",
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-unicode",
-            data=json.dumps(unicode_data)
+            data=json.dumps(unicode_data),
         )
 
         assert event.data_dict["description"] == "Schäden an Gebäude"
@@ -357,7 +347,7 @@ class TestEventMessageEdgeCases:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{}'
+            data="{}",
         )
 
         assert event.status_subtype == "documentsReceived"
@@ -369,7 +359,7 @@ class TestEventMessageEdgeCases:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{}'
+            data="{}",
         )
 
         assert event.status_subtype == "simpleType"
@@ -381,7 +371,7 @@ class TestEventMessageEdgeCases:
             version=1,
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='not valid json'
+            data="not valid json",
         )
 
         assert event.data_dict is None
@@ -393,7 +383,7 @@ class TestEventMessageEdgeCases:
             version="1.0.0",  # Non-digit string
             utcDateTime="2024-12-25T10:30:00Z",
             traceId="evt-123",
-            data='{}'
+            data="{}",
         )
 
         assert event.version == "1.0.0"

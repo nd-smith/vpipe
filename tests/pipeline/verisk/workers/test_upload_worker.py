@@ -16,16 +16,17 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import pytest
+import contextlib
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from config.config import MessageConfig
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.upload_worker import UploadWorker, UploadResult
-from pipeline.common.types import PipelineMessage
+from pipeline.verisk.workers.upload_worker import UploadWorker
 
 
 @pytest.fixture
@@ -104,9 +105,7 @@ class TestUploadWorkerInitialization:
     def test_initialization_with_default_config(self, mock_config, mock_storage_client):
         """Worker initializes with default domain and config."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             assert worker.domain == "verisk"
             assert worker.config is mock_config
@@ -135,14 +134,10 @@ class TestUploadWorkerInitialization:
             assert worker.worker_id == "upload_worker-happy-tiger"
             assert worker.instance_id == "happy-tiger"
 
-    def test_initialization_loads_concurrency_from_config(
-        self, mock_config, mock_storage_client
-    ):
+    def test_initialization_loads_concurrency_from_config(self, mock_config, mock_storage_client):
         """Worker loads concurrency settings from config."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             assert worker.concurrency == 10
             assert worker.batch_size == 20
@@ -150,9 +145,7 @@ class TestUploadWorkerInitialization:
     def test_initialization_sets_topics(self, mock_config, mock_storage_client):
         """Worker sets correct consumer topics."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             assert worker.topics == ["verisk.downloads.cached"]
             assert worker.results_topic == "verisk.downloads.cached"
@@ -160,9 +153,7 @@ class TestUploadWorkerInitialization:
     def test_metrics_initialized_to_zero(self, mock_config, mock_storage_client):
         """Worker initializes metrics to zero."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             assert worker._records_processed == 0
             assert worker._records_succeeded == 0
@@ -175,18 +166,16 @@ class TestUploadWorkerInitialization:
         config.onelake_domain_paths = {}
         config.onelake_base_path = None
 
-        with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            with pytest.raises(ValueError, match="OneLake path configuration required"):
-                UploadWorker(config=config)
+        with (
+            patch("pipeline.verisk.workers.upload_worker.create_producer"),
+            pytest.raises(ValueError, match="OneLake path configuration required"),
+        ):
+            UploadWorker(config=config)
 
-    def test_initialization_accepts_injected_storage_client(
-        self, mock_config, mock_storage_client
-    ):
+    def test_initialization_accepts_injected_storage_client(self, mock_config, mock_storage_client):
         """Worker accepts injected storage client."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             assert worker._injected_storage_client is mock_storage_client
 
@@ -200,28 +189,23 @@ class TestUploadWorkerLifecycle:
     ):
         """Worker start initializes concurrency controls."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
-            with patch(
-                "pipeline.verisk.workers.upload_worker.create_batch_consumer"
-            ) as mock_create_consumer, patch(
-                "pipeline.common.telemetry.initialize_worker_telemetry"
-            ), patch.object(
-                worker.health_server, "start", new_callable=AsyncMock
-            ), patch.object(
-                worker.producer, "start", new_callable=AsyncMock
+            with (
+                patch(
+                    "pipeline.verisk.workers.upload_worker.create_batch_consumer"
+                ) as mock_create_consumer,
+                patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+                patch.object(worker.health_server, "start", new_callable=AsyncMock),
+                patch.object(worker.producer, "start", new_callable=AsyncMock),
             ):
                 # Setup mock consumer
                 mock_consumer = AsyncMock()
                 mock_consumer.start = AsyncMock(side_effect=Exception("Stop"))
                 mock_create_consumer.return_value = mock_consumer
 
-                try:
+                with contextlib.suppress(Exception):
                     await worker.start()
-                except Exception:
-                    pass
 
                 # Verify semaphore and shutdown event were created
                 assert worker._semaphore is not None
@@ -232,9 +216,7 @@ class TestUploadWorkerLifecycle:
     async def test_stop_cleans_up_resources(self, mock_config, mock_storage_client):
         """Worker stop cleans up all resources."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             # Setup mocked components
             mock_consumer = AsyncMock()
@@ -268,9 +250,7 @@ class TestUploadWorkerLifecycle:
     async def test_stop_handles_none_components(self, mock_config, mock_storage_client):
         """Worker stop handles None components gracefully."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             # All components are None (not initialized)
             assert worker._consumer is None
@@ -280,14 +260,10 @@ class TestUploadWorkerLifecycle:
             await worker.stop()
 
     @pytest.mark.asyncio
-    async def test_request_shutdown_sets_running_false(
-        self, mock_config, mock_storage_client
-    ):
+    async def test_request_shutdown_sets_running_false(self, mock_config, mock_storage_client):
         """Request shutdown sets running flag to false."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker._running = True
 
             await worker.request_shutdown()
@@ -304,9 +280,7 @@ class TestUploadWorkerMessageProcessing:
     ):
         """Worker parses valid cached download message."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
 
@@ -339,14 +313,10 @@ class TestUploadWorkerMessageProcessing:
                 assert worker._records_processed == 1
 
     @pytest.mark.asyncio
-    async def test_invalid_json_returns_error_result(
-        self, mock_config, mock_storage_client
-    ):
+    async def test_invalid_json_returns_error_result(self, mock_config, mock_storage_client):
         """Worker returns error result on invalid JSON."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
 
             invalid_message = PipelineMessage(
@@ -375,9 +345,7 @@ class TestUploadWorkerBatchProcessing:
     ):
         """Worker processes batch of messages concurrently."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
             worker._semaphore = AsyncMock()
@@ -418,9 +386,7 @@ class TestUploadWorkerBatchProcessing:
     ):
         """Worker commits offsets even when batch has failures (unlike ClaimX)."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
             worker._semaphore = AsyncMock()
@@ -445,9 +411,7 @@ class TestUploadWorkerSuccessHandling:
     ):
         """Worker produces DownloadResultMessage on success."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
 
@@ -472,7 +436,7 @@ class TestUploadWorkerSuccessHandling:
 
             # Mock file cleanup
             with patch("asyncio.to_thread", new_callable=AsyncMock):
-                result = await worker._process_single_upload(message)
+                await worker._process_single_upload(message)
 
                 # Verify result message was produced
                 assert worker.producer.send.called
@@ -489,9 +453,7 @@ class TestUploadWorkerSuccessHandling:
     ):
         """Worker cleans up cache file after successful upload."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
 
@@ -534,16 +496,12 @@ class TestUploadWorkerFailureHandling:
     ):
         """Worker produces failure result message on upload error."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
 
             # Mock record_processing_error to avoid parameter issues
-            with patch(
-                "pipeline.verisk.workers.upload_worker.record_processing_error"
-            ):
+            with patch("pipeline.verisk.workers.upload_worker.record_processing_error"):
                 # File doesn't exist - will fail
                 result = await worker._process_single_upload(sample_message)
 
@@ -562,9 +520,7 @@ class TestUploadWorkerFailureHandling:
     ):
         """Worker retains cache file on upload failure for manual review."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
 
@@ -594,9 +550,7 @@ class TestUploadWorkerFailureHandling:
             )
 
             # Mock record_processing_error
-            with patch(
-                "pipeline.verisk.workers.upload_worker.record_processing_error"
-            ):
+            with patch("pipeline.verisk.workers.upload_worker.record_processing_error"):
                 result = await worker._process_single_upload(message)
 
                 # Verify upload failed but cache file still exists
@@ -613,9 +567,7 @@ class TestUploadWorkerInFlightTracking:
     ):
         """Worker tracks in-flight tasks correctly."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
-            worker = UploadWorker(
-                config=mock_config, storage_client=mock_storage_client
-            )
+            worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
             worker.producer = AsyncMock()
             worker.onelake_clients = {"xact": mock_storage_client}
 

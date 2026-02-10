@@ -1,7 +1,6 @@
 """Tests for PeriodicStatsLogger."""
 
 import asyncio
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,8 +8,11 @@ import pytest
 from core.logging.periodic_logger import PeriodicStatsLogger
 
 
-def _make_stats_callback(records_succeeded=0, records_failed=0, records_skipped=0, records_deduplicated=0):
+def _make_stats_callback(
+    records_succeeded=0, records_failed=0, records_skipped=0, records_deduplicated=0
+):
     """Return a stats callback that returns fixed values."""
+
     def get_stats(cycle_count):
         return (
             f"Cycle {cycle_count}",
@@ -21,11 +23,11 @@ def _make_stats_callback(records_succeeded=0, records_failed=0, records_skipped=
                 "records_deduplicated": records_deduplicated,
             },
         )
+
     return get_stats
 
 
 class TestPeriodicStatsLoggerInit:
-
     def test_stores_configuration(self):
         callback = _make_stats_callback()
         psl = PeriodicStatsLogger(
@@ -45,7 +47,6 @@ class TestPeriodicStatsLoggerInit:
 
 
 class TestPeriodicStatsLoggerStart:
-
     def test_start_creates_task(self):
         psl = PeriodicStatsLogger(
             interval_seconds=30,
@@ -76,7 +77,6 @@ class TestPeriodicStatsLoggerStart:
 
 
 class TestPeriodicStatsLoggerStop:
-
     @pytest.mark.asyncio
     async def test_stop_cancels_task(self):
         psl = PeriodicStatsLogger(
@@ -108,7 +108,6 @@ class TestPeriodicStatsLoggerStop:
 
 
 class TestPeriodicStatsLoggerRun:
-
     @pytest.mark.asyncio
     async def test_logs_initial_cycle_zero(self):
         callback = _make_stats_callback(records_succeeded=10, records_failed=2)
@@ -137,8 +136,18 @@ class TestPeriodicStatsLoggerRun:
     @pytest.mark.asyncio
     async def test_logs_subsequent_cycles_with_deltas(self):
         cycle_data = {
-            0: {"records_succeeded": 10, "records_failed": 0, "records_skipped": 0, "records_deduplicated": 0},
-            1: {"records_succeeded": 25, "records_failed": 1, "records_skipped": 0, "records_deduplicated": 0},
+            0: {
+                "records_succeeded": 10,
+                "records_failed": 0,
+                "records_skipped": 0,
+                "records_deduplicated": 0,
+            },
+            1: {
+                "records_succeeded": 25,
+                "records_failed": 1,
+                "records_skipped": 0,
+                "records_deduplicated": 0,
+            },
         }
 
         def get_stats(cycle_count):

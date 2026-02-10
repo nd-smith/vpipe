@@ -72,12 +72,8 @@ IMAGE_TYPE_MAP = {
 
 # Configuration paths
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
-WORKERS_CONFIG_PATH = (
-    CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
-)
-CONNECTIONS_CONFIG_PATH = (
-    CONFIG_DIR / "plugins" / "shared" / "connections" / "app.itel.yaml"
-)
+WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
+CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "app.itel.yaml"
 
 
 class ItelCabinetApiWorker:
@@ -124,9 +120,7 @@ class ItelCabinetApiWorker:
 
         # Setup simulation mode if config provided
         if self.simulation_config:
-            self.output_dir = (
-                self.simulation_config.local_storage_path / "itel_submissions"
-            )
+            self.output_dir = self.simulation_config.local_storage_path / "itel_submissions"
             self.output_dir.mkdir(parents=True, exist_ok=True)
             logger.info(
                 "iTel Cabinet worker running in simulation mode",
@@ -289,9 +283,7 @@ class ItelCabinetApiWorker:
             "claim_type": "Other",
             "claim_type_other_description": submission.get("damage_description", ""),
             "loss_type": None,
-            "loss_date": meta.get("dates", {}).get(
-                "assigned", submission.get("date_assigned")
-            ),
+            "loss_date": meta.get("dates", {}).get("assigned", submission.get("date_assigned")),
             "service_level": "one_hour",
             # Insured information
             "insured": {
@@ -393,9 +385,7 @@ class ItelCabinetApiWorker:
             "upper_faces_frames_doors_drawers_damaged": submission.get(
                 "upper_face_frames_doors_drawers_damaged", False
             ),
-            "upper_end_panels_damaged": submission.get(
-                "upper_finished_end_panels_damaged", False
-            ),
+            "upper_end_panels_damaged": submission.get("upper_finished_end_panels_damaged", False),
             # Lower cabinets
             "lower_cabinets_damaged": submission.get("lower_cabinets_damaged", False),
             "lower_cabinets_damaged_count": submission.get("num_damaged_lower_boxes", 0),
@@ -406,14 +396,10 @@ class ItelCabinetApiWorker:
             "lower_faces_frames_doors_drawers_damaged": submission.get(
                 "lower_face_frames_doors_drawers_damaged", False
             ),
-            "lower_end_panels_damaged": submission.get(
-                "lower_finished_end_panels_damaged", False
-            ),
+            "lower_end_panels_damaged": submission.get("lower_finished_end_panels_damaged", False),
             "lower_cabinets_counter_top_type": submission.get("lower_counter_type", ""),
             # Full height cabinets
-            "full_height_cabinets_damaged": submission.get(
-                "full_height_cabinets_damaged", False
-            ),
+            "full_height_cabinets_damaged": submission.get("full_height_cabinets_damaged", False),
             "full_height_pantry_cabinets_damaged_count": submission.get(
                 "num_damaged_full_height_boxes", 0
             ),
@@ -431,9 +417,7 @@ class ItelCabinetApiWorker:
             ),
             # Island cabinets
             "island_cabinets_damaged": submission.get("island_cabinets_damaged", False),
-            "island_cabinets_damaged_count": submission.get(
-                "num_damaged_island_boxes", 0
-            ),
+            "island_cabinets_damaged_count": submission.get("num_damaged_island_boxes", 0),
             "island_cabinets_detached": submission.get("island_cabinets_detached", False),
             "island_frames_doors_drawers_available": self._normalize_yes_no(
                 submission.get("island_face_frames_doors_drawers_available")
@@ -553,9 +537,7 @@ class ItelCabinetApiWorker:
             },
         )
 
-    async def _write_simulation_payload(
-        self, api_payload: dict, original_payload: dict
-    ):
+    async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to simulation directory (simulation mode).
 
         In simulation mode, submissions are written to /tmp/pcesdopodappv1_simulation/itel_submissions/
@@ -624,9 +606,7 @@ def load_worker_config() -> dict:
     workers = config_data.get("workers", {})
 
     if "itel_cabinet_api" not in workers:
-        raise ValueError(
-            f"Worker 'itel_cabinet_api' not found in {WORKERS_CONFIG_PATH}"
-        )
+        raise ValueError(f"Worker 'itel_cabinet_api' not found in {WORKERS_CONFIG_PATH}")
 
     return workers["itel_cabinet_api"]
 

@@ -3,7 +3,6 @@
 import json
 import logging
 import sys
-from unittest.mock import patch
 
 import pytest
 
@@ -33,7 +32,6 @@ def _make_record(
 
 
 class TestJSONFormatter:
-
     @pytest.fixture(autouse=True)
     def clear_context(self):
         clear_log_context()
@@ -109,7 +107,7 @@ class TestJSONFormatter:
         output = json.loads(formatter.format(record))
 
         assert "file" in output
-        assert "test.py:42" == output["file"]
+        assert output["file"] == "test.py:42"
 
     def test_includes_file_location_for_error(self):
         formatter = JSONFormatter()
@@ -251,9 +249,7 @@ class TestJSONFormatter:
 
     def test_sanitizes_url_fields_in_extras(self):
         formatter = JSONFormatter()
-        record = _make_record(
-            download_url="https://blob.core/file?sig=secretblob"
-        )
+        record = _make_record(download_url="https://blob.core/file?sig=secretblob")
         output = json.loads(formatter.format(record))
 
         assert "secretblob" not in output["download_url"]
@@ -328,7 +324,6 @@ class TestJSONFormatter:
 
 
 class TestConsoleFormatter:
-
     @pytest.fixture(autouse=True)
     def clear_context(self):
         clear_log_context()
@@ -402,7 +397,7 @@ class TestConsoleFormatter:
         result = formatter.format(record)
 
         assert "\033[31m" in result  # Red
-        assert "\033[0m" in result   # Reset
+        assert "\033[0m" in result  # Reset
 
     def test_no_color_codes_when_not_tty(self):
         formatter = ConsoleFormatter()
@@ -416,10 +411,10 @@ class TestConsoleFormatter:
         formatter = ConsoleFormatter()
         formatter._use_colors = True
         levels = {
-            logging.DEBUG: "\033[36m",     # Cyan
-            logging.INFO: "\033[32m",      # Green
-            logging.WARNING: "\033[33m",   # Yellow
-            logging.ERROR: "\033[31m",     # Red
+            logging.DEBUG: "\033[36m",  # Cyan
+            logging.INFO: "\033[32m",  # Green
+            logging.WARNING: "\033[33m",  # Yellow
+            logging.ERROR: "\033[31m",  # Red
             logging.CRITICAL: "\033[35m",  # Magenta
         }
         for level, expected_color in levels.items():

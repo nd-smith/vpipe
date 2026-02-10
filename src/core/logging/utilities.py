@@ -1,7 +1,7 @@
 """Logging utility functions."""
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 # Reserved LogRecord attribute names that cannot be used in extra dict
 _RESERVED_LOG_KEYS = frozenset(
@@ -216,7 +216,6 @@ def detect_log_output_mode() -> str:
         "eventhub", "file+eventhub", etc.
     """
     import logging
-    import sys
 
     root_logger = logging.getLogger()
     modes = []
@@ -230,10 +229,8 @@ def detect_log_output_mode() -> str:
             has_file = True
         elif hasattr(handler, "__class__") and "EventHub" in handler.__class__.__name__:
             has_eventhub = True
-        elif isinstance(handler, logging.StreamHandler):
-            # Check if this is the only handler (stdout-only mode)
-            if len(root_logger.handlers) == 1:
-                has_console_only = True
+        elif isinstance(handler, logging.StreamHandler) and len(root_logger.handlers) == 1:
+            has_console_only = True
 
     if has_console_only:
         return "stdout"
@@ -249,13 +246,13 @@ def detect_log_output_mode() -> str:
 def log_startup_banner(
     logger: logging.Logger,
     worker_name: str,
-    instance_id: Optional[str] = None,
-    domain: Optional[str] = None,
-    input_topic: Optional[str] = None,
-    output_topic: Optional[str] = None,
-    health_port: Optional[int] = None,
-    version: Optional[str] = None,
-    log_output_mode: Optional[str] = None,
+    instance_id: str | None = None,
+    domain: str | None = None,
+    input_topic: str | None = None,
+    output_topic: str | None = None,
+    health_port: int | None = None,
+    version: str | None = None,
+    log_output_mode: str | None = None,
 ) -> None:
     """
     Log startup banner with worker configuration.

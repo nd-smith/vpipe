@@ -15,10 +15,10 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import asyncio
-import pytest
-from datetime import UTC, datetime
+import contextlib
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from config.config import MessageConfig
 from pipeline.claimx.schemas.entities import EntityRowsMessage
@@ -181,14 +181,15 @@ class TestEntityDeltaWorkerLifecycle:
             video_collab_table_path="abfss://test/video_collab",
         )
 
-        with patch(
-            "pipeline.claimx.workers.entity_delta_worker.create_consumer"
-        ) as mock_create_consumer, patch(
-            "pipeline.claimx.workers.entity_delta_worker.create_producer"
-        ) as mock_create_producer, patch(
-            "pipeline.common.telemetry.initialize_worker_telemetry"
-        ), patch.object(
-            worker.health_server, "start", new_callable=AsyncMock
+        with (
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.create_consumer"
+            ) as mock_create_consumer,
+            patch(
+                "pipeline.claimx.workers.entity_delta_worker.create_producer"
+            ) as mock_create_producer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+            patch.object(worker.health_server, "start", new_callable=AsyncMock),
         ):
             # Setup mocks
             mock_producer = AsyncMock()
@@ -203,10 +204,8 @@ class TestEntityDeltaWorkerLifecycle:
             worker.retry_handler = AsyncMock()
             worker.retry_handler.start = AsyncMock()
 
-            try:
+            with contextlib.suppress(Exception):
                 await worker.start()
-            except Exception:
-                pass
 
             # Verify components were initialized
             assert worker.retry_handler is not None
@@ -398,9 +397,7 @@ class TestEntityDeltaWorkerDeltaWrites:
     """Test Delta table writes."""
 
     @pytest.mark.asyncio
-    async def test_flush_batch_merges_and_writes_entities(
-        self, mock_config, sample_entity_rows
-    ):
+    async def test_flush_batch_merges_and_writes_entities(self, mock_config, sample_entity_rows):
         """Worker merges entity rows and writes to Delta tables."""
         worker = ClaimXEntityDeltaWorker(
             config=mock_config,
@@ -415,9 +412,7 @@ class TestEntityDeltaWorkerDeltaWrites:
 
         # Mock entity writer
         worker.entity_writer = AsyncMock()
-        worker.entity_writer.write_all = AsyncMock(
-            return_value={"projects": 1, "contacts": 1}
-        )
+        worker.entity_writer.write_all = AsyncMock(return_value={"projects": 1, "contacts": 1})
         worker._consumer = AsyncMock()
         worker._consumer.commit = AsyncMock()
 
@@ -434,9 +429,7 @@ class TestEntityDeltaWorkerDeltaWrites:
         assert worker._records_succeeded == 2  # 1 project + 1 contact
 
     @pytest.mark.asyncio
-    async def test_flush_batch_routes_to_retry_on_failure(
-        self, mock_config, sample_entity_rows
-    ):
+    async def test_flush_batch_routes_to_retry_on_failure(self, mock_config, sample_entity_rows):
         """Worker routes batch to retry handler on Delta write failure."""
         worker = ClaimXEntityDeltaWorker(
             config=mock_config,
@@ -451,9 +444,7 @@ class TestEntityDeltaWorkerDeltaWrites:
 
         # Mock entity writer to fail
         worker.entity_writer = AsyncMock()
-        worker.entity_writer.write_all = AsyncMock(
-            side_effect=Exception("Delta write failed")
-        )
+        worker.entity_writer.write_all = AsyncMock(side_effect=Exception("Delta write failed"))
         worker.retry_handler = AsyncMock()
         worker.retry_handler.handle_batch_failure = AsyncMock()
         worker.retry_handler.classify_delta_error = Mock(return_value=Mock(value="transient"))

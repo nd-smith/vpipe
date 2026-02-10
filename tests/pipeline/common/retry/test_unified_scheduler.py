@@ -16,18 +16,18 @@ No infrastructure required - all dependencies mocked.
 """
 
 import asyncio
-import pytest
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from pipeline.common.retry.unified_scheduler import (
     UnifiedRetryScheduler,
+    encode_message_key,
     parse_retry_count,
     parse_scheduled_time,
-    encode_message_key,
 )
 from pipeline.common.types import PipelineMessage
-
 
 # --- Helper function tests ---
 
@@ -133,7 +133,9 @@ def mock_producer():
 def scheduler(mock_config, mock_producer):
     """Create a UnifiedRetryScheduler with mocked dependencies."""
     mock_health = AsyncMock()
-    with patch("pipeline.common.retry.unified_scheduler.HealthCheckServer", return_value=mock_health):
+    with patch(
+        "pipeline.common.retry.unified_scheduler.HealthCheckServer", return_value=mock_health
+    ):
         s = UnifiedRetryScheduler(
             config=mock_config,
             producer=mock_producer,
@@ -262,17 +264,13 @@ class TestParseHeaders:
 
     def test_parses_bytes_headers(self, scheduler):
         """Bytes header values are decoded to strings."""
-        message = make_pipeline_message(
-            headers=[("key1", b"value1"), ("key2", b"value2")]
-        )
+        message = make_pipeline_message(headers=[("key1", b"value1"), ("key2", b"value2")])
         result = scheduler._parse_headers(message)
         assert result == {"key1": "value1", "key2": "value2"}
 
     def test_parses_string_headers(self, scheduler):
         """Non-bytes header values are converted via str()."""
-        message = make_pipeline_message(
-            headers=[("key1", "already-string")]
-        )
+        message = make_pipeline_message(headers=[("key1", "already-string")])
         result = scheduler._parse_headers(message)
         assert result == {"key1": "already-string"}
 
@@ -292,9 +290,7 @@ class TestParseHeaders:
         """Undeccodable bytes header is skipped with warning."""
         # Create a bytes value that will fail utf-8 decode
         bad_bytes = b"\xff\xfe"
-        message = make_pipeline_message(
-            headers=[("good", b"ok"), ("bad", bad_bytes)]
-        )
+        message = make_pipeline_message(headers=[("good", b"ok"), ("bad", bad_bytes)])
         result = scheduler._parse_headers(message)
         # "good" should be present, "bad" should be skipped
         assert "good" in result

@@ -12,7 +12,7 @@ Test Coverage:
 """
 
 import math
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,14 +24,12 @@ from pipeline.common.monitoring import (
     WorkerStats,
 )
 
-
 # =============================================================================
 # Dataclass defaults
 # =============================================================================
 
 
 class TestTopicStats:
-
     def test_defaults(self):
         ts = TopicStats(name="my-topic")
         assert ts.name == "my-topic"
@@ -42,7 +40,6 @@ class TestTopicStats:
 
 
 class TestWorkerStats:
-
     def test_defaults(self):
         ws = WorkerStats(name="my-worker")
         assert ws.name == "my-worker"
@@ -53,7 +50,6 @@ class TestWorkerStats:
 
 
 class TestDashboardData:
-
     def test_defaults(self):
         dd = DashboardData()
         assert dd.topics == {}
@@ -69,7 +65,6 @@ class TestDashboardData:
 
 
 class TestMetricsParserParseEmptyAndComments:
-
     def test_returns_empty_dict_for_empty_string(self):
         parser = MetricsParser()
         assert parser.parse("") == {}
@@ -86,30 +81,22 @@ class TestMetricsParserParseEmptyAndComments:
 
 
 class TestMetricsParserSimpleMetrics:
-
     def test_parses_metric_without_labels(self):
         text = "http_requests_total 42"
         parser = MetricsParser()
         result = parser.parse(text)
-        assert result == {
-            "http_requests_total": [{"labels": {}, "value": 42.0}]
-        }
+        assert result == {"http_requests_total": [{"labels": {}, "value": 42.0}]}
 
     def test_parses_metric_with_labels(self):
         text = 'http_requests_total{method="GET",path="/api"} 100'
         parser = MetricsParser()
         result = parser.parse(text)
         assert result == {
-            "http_requests_total": [
-                {"labels": {"method": "GET", "path": "/api"}, "value": 100.0}
-            ]
+            "http_requests_total": [{"labels": {"method": "GET", "path": "/api"}, "value": 100.0}]
         }
 
     def test_parses_multiple_entries_for_same_metric(self):
-        text = (
-            'http_requests_total{method="GET"} 100\n'
-            'http_requests_total{method="POST"} 50\n'
-        )
+        text = 'http_requests_total{method="GET"} 100\nhttp_requests_total{method="POST"} 50\n'
         parser = MetricsParser()
         result = parser.parse(text)
         assert len(result["http_requests_total"]) == 2
@@ -132,7 +119,6 @@ class TestMetricsParserSimpleMetrics:
 
 
 class TestMetricsParserSpecialValues:
-
     def test_parses_nan(self):
         text = "broken_metric NaN"
         parser = MetricsParser()
@@ -153,7 +139,6 @@ class TestMetricsParserSpecialValues:
 
 
 class TestMetricsParserMalformedInput:
-
     def test_skips_line_that_does_not_match_pattern(self):
         text = "this is not a metric line\nvalid_metric 1"
         parser = MetricsParser()
@@ -169,7 +154,6 @@ class TestMetricsParserMalformedInput:
 
 
 class TestMetricsParserFullDocument:
-
     def test_parses_realistic_prometheus_output(self):
         text = (
             "# HELP pipeline_consumer_lag Consumer lag per partition\n"
@@ -192,7 +176,6 @@ class TestMetricsParserFullDocument:
 
 
 class TestMonitoringServerInit:
-
     def test_default_values(self):
         server = MonitoringServer()
         assert server.port == 8080
@@ -211,7 +194,6 @@ class TestMonitoringServerInit:
 
 
 class TestMonitoringServerEnsureSession:
-
     async def test_creates_session_when_none(self):
         server = MonitoringServer()
         assert server._session is None
@@ -245,7 +227,6 @@ class TestMonitoringServerEnsureSession:
 
 
 class TestMonitoringServerFetchMetrics:
-
     async def test_returns_text_on_200(self):
         server = MonitoringServer()
         mock_response = AsyncMock()
@@ -295,7 +276,6 @@ class TestMonitoringServerFetchMetrics:
 
 
 class TestMonitoringServerGetDashboardData:
-
     async def test_sets_metrics_error_when_fetch_returns_none(self):
         server = MonitoringServer(metrics_url="http://bad:9090/metrics")
         server.fetch_metrics = AsyncMock(return_value=None)
@@ -331,7 +311,6 @@ class TestMonitoringServerGetDashboardData:
 
 
 class TestExtractTopicStats:
-
     def _make_server_and_data(self):
         server = MonitoringServer()
         data = DashboardData()
@@ -422,7 +401,6 @@ class TestExtractTopicStats:
 
 
 class TestExtractWorkerStats:
-
     def _make_server_and_data(self):
         server = MonitoringServer()
         data = DashboardData()
@@ -615,7 +593,6 @@ class TestExtractWorkerStats:
 
 
 class TestRenderDashboard:
-
     def test_renders_html_with_topic_rows(self):
         server = MonitoringServer()
         data = DashboardData(
@@ -767,7 +744,6 @@ class TestRenderDashboard:
 
 
 class TestHandleIndex:
-
     async def test_returns_html_response(self):
         server = MonitoringServer()
         server.get_dashboard_data = AsyncMock(
@@ -782,7 +758,6 @@ class TestHandleIndex:
 
 
 class TestHandleApiStats:
-
     async def test_returns_json_with_expected_keys(self):
         server = MonitoringServer()
         dashboard = DashboardData(
@@ -798,6 +773,7 @@ class TestHandleApiStats:
         response = await server.handle_api_stats(request)
 
         import json
+
         body = json.loads(response.body)
 
         assert body["timestamp"] == "2025-01-01 00:00:00"
@@ -815,7 +791,6 @@ class TestHandleApiStats:
 
 
 class TestCreateApp:
-
     def test_creates_app_with_routes(self):
         server = MonitoringServer()
         app = server.create_app()
@@ -831,7 +806,6 @@ class TestCreateApp:
 
 
 class TestMonitoringServerStop:
-
     async def test_stop_closes_open_session(self):
         server = MonitoringServer()
         mock_session = AsyncMock()

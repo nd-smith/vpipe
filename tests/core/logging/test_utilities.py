@@ -1,9 +1,7 @@
 """Tests for logging utility functions."""
 
 import logging
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from core.logging.utilities import (
     _RESERVED_LOG_KEYS,
@@ -18,24 +16,25 @@ from core.logging.utilities import (
 
 
 class TestLogWithContext:
-
     def test_logs_message_at_given_level(self):
         logger = MagicMock()
         log_with_context(logger, logging.INFO, "test message")
 
-        logger.log.assert_called_once_with(
-            logging.INFO, "test message", exc_info=None, extra={}
-        )
+        logger.log.assert_called_once_with(logging.INFO, "test message", exc_info=None, extra={})
 
     def test_passes_extra_fields(self):
         logger = MagicMock()
         log_with_context(
-            logger, logging.WARNING, "slow request",
-            trace_id="t-1", duration_ms=500,
+            logger,
+            logging.WARNING,
+            "slow request",
+            trace_id="t-1",
+            duration_ms=500,
         )
 
         logger.log.assert_called_once_with(
-            logging.WARNING, "slow request",
+            logging.WARNING,
+            "slow request",
             exc_info=None,
             extra={"trace_id": "t-1", "duration_ms": 500},
         )
@@ -43,12 +42,16 @@ class TestLogWithContext:
     def test_handles_exc_info_separately(self):
         logger = MagicMock()
         log_with_context(
-            logger, logging.ERROR, "failed",
-            exc_info=True, trace_id="t-2",
+            logger,
+            logging.ERROR,
+            "failed",
+            exc_info=True,
+            trace_id="t-2",
         )
 
         logger.log.assert_called_once_with(
-            logging.ERROR, "failed",
+            logging.ERROR,
+            "failed",
             exc_info=True,
             extra={"trace_id": "t-2"},
         )
@@ -56,7 +59,9 @@ class TestLogWithContext:
     def test_filters_reserved_log_keys(self):
         logger = MagicMock()
         log_with_context(
-            logger, logging.INFO, "msg",
+            logger,
+            logging.INFO,
+            "msg",
             name="should_be_filtered",
             lineno=99,
             trace_id="t-keep",
@@ -80,7 +85,6 @@ class TestLogWithContext:
 
 
 class TestLogException:
-
     def test_logs_exception_with_traceback(self):
         logger = MagicMock()
         exc = ValueError("bad value")
@@ -143,7 +147,9 @@ class TestLogException:
         exc.category = "FROM_EXCEPTION"
 
         log_exception(
-            logger, exc, "Error",
+            logger,
+            exc,
+            "Error",
             error_category="EXPLICIT",
         )
 
@@ -165,8 +171,11 @@ class TestLogException:
         exc = ValueError("err")
 
         log_exception(
-            logger, exc, "Error",
-            trace_id="t-1", http_status=500,
+            logger,
+            exc,
+            "Error",
+            trace_id="t-1",
+            http_status=500,
         )
 
         _, kwargs = logger.log.call_args
@@ -175,7 +184,6 @@ class TestLogException:
 
 
 class TestFormatCycleOutput:
-
     def test_formats_basic_cycle_without_deltas(self):
         result = format_cycle_output(1, succeeded=100, failed=5)
 
@@ -207,8 +215,12 @@ class TestFormatCycleOutput:
     def test_formats_with_deltas(self):
         deltas = {"succeeded": 50, "failed": 2, "skipped": 1, "deduplicated": 0}
         result = format_cycle_output(
-            5, succeeded=500, failed=10, skipped=5,
-            since_last=deltas, interval_seconds=30,
+            5,
+            succeeded=500,
+            failed=10,
+            skipped=5,
+            since_last=deltas,
+            interval_seconds=30,
         )
 
         assert "Cycle 5:" in result
@@ -221,8 +233,11 @@ class TestFormatCycleOutput:
     def test_delta_rate_calculation(self):
         deltas = {"succeeded": 60, "failed": 0, "skipped": 0}
         result = format_cycle_output(
-            1, succeeded=60, failed=0,
-            since_last=deltas, interval_seconds=30,
+            1,
+            succeeded=60,
+            failed=0,
+            since_last=deltas,
+            interval_seconds=30,
         )
 
         assert "2.0 msg/s" in result
@@ -230,8 +245,11 @@ class TestFormatCycleOutput:
     def test_delta_rate_with_zero_interval(self):
         deltas = {"succeeded": 10, "failed": 0, "skipped": 0}
         result = format_cycle_output(
-            1, succeeded=10, failed=0,
-            since_last=deltas, interval_seconds=0,
+            1,
+            succeeded=10,
+            failed=0,
+            since_last=deltas,
+            interval_seconds=0,
         )
 
         assert "0.0 msg/s" in result
@@ -239,8 +257,11 @@ class TestFormatCycleOutput:
     def test_delta_format_omits_zero_failed(self):
         deltas = {"succeeded": 10, "failed": 0, "skipped": 0}
         result = format_cycle_output(
-            1, succeeded=10, failed=0,
-            since_last=deltas, interval_seconds=30,
+            1,
+            succeeded=10,
+            failed=0,
+            since_last=deltas,
+            interval_seconds=30,
         )
 
         assert "failed" not in result
@@ -248,8 +269,12 @@ class TestFormatCycleOutput:
     def test_delta_format_omits_zero_skipped(self):
         deltas = {"succeeded": 10, "failed": 0, "skipped": 0}
         result = format_cycle_output(
-            1, succeeded=10, failed=0, skipped=0,
-            since_last=deltas, interval_seconds=30,
+            1,
+            succeeded=10,
+            failed=0,
+            skipped=0,
+            since_last=deltas,
+            interval_seconds=30,
         )
 
         assert "skipped" not in result
@@ -257,8 +282,12 @@ class TestFormatCycleOutput:
     def test_delta_format_includes_deduped_when_nonzero(self):
         deltas = {"succeeded": 10, "failed": 0, "skipped": 0, "deduplicated": 5}
         result = format_cycle_output(
-            1, succeeded=10, failed=0, deduplicated=5,
-            since_last=deltas, interval_seconds=30,
+            1,
+            succeeded=10,
+            failed=0,
+            deduplicated=5,
+            since_last=deltas,
+            interval_seconds=30,
         )
 
         assert "5 deduped" in result
@@ -271,7 +300,6 @@ class TestFormatCycleOutput:
 
 
 class TestGetLogOutputMode:
-
     def test_returns_stdout_when_log_to_stdout(self):
         assert get_log_output_mode(True, False, False) == "stdout"
 
@@ -292,7 +320,6 @@ class TestGetLogOutputMode:
 
 
 class TestDetectLogOutputMode:
-
     def test_detects_stdout_with_single_stream_handler(self):
         root = logging.getLogger("test_detect_stdout")
         root.handlers.clear()
@@ -366,7 +393,6 @@ class TestDetectLogOutputMode:
 
 
 class TestLogStartupBanner:
-
     def test_logs_banner_with_worker_name(self):
         logger = MagicMock()
         log_startup_banner(logger, "Test Worker")
@@ -414,7 +440,6 @@ class TestLogStartupBanner:
 
 
 class TestLogWorkerError:
-
     def test_logs_error_with_message(self):
         logger = MagicMock()
         log_worker_error(logger, "Download failed")
@@ -456,8 +481,11 @@ class TestLogWorkerError:
     def test_passes_extra_context(self):
         logger = MagicMock()
         log_worker_error(
-            logger, "Error",
-            media_id="m-1", status_code=500, retry_count=2,
+            logger,
+            "Error",
+            media_id="m-1",
+            status_code=500,
+            retry_count=2,
         )
 
         _, kwargs = logger.error.call_args

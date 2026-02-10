@@ -159,8 +159,7 @@ class ConnectionManager:
         """
         if name not in self._connections:
             raise KeyError(
-                f"Connection '{name}' not found. "
-                f"Available: {list(self._connections.keys())}"
+                f"Connection '{name}' not found. Available: {list(self._connections.keys())}"
             )
         return self._connections[name]
 
@@ -195,8 +194,7 @@ class ConnectionManager:
             if response.status >= 500:
                 body = await response.text()
                 logger.warning(
-                    f"Server error {response.status} from {url}, will retry. "
-                    f"Body: {body[:200]}"
+                    f"Server error {response.status} from {url}, will retry. Body: {body[:200]}"
                 )
                 raise TransientError(
                     f"HTTP {response.status}: {body[:200]}",
@@ -229,9 +227,7 @@ class ConnectionManager:
         )
 
         self._started = True
-        logger.info(
-            f"ConnectionManager started with {len(self._connections)} connections"
-        )
+        logger.info(f"ConnectionManager started with {len(self._connections)} connections")
 
     async def close(self) -> None:
         """Close HTTP client session and cleanup resources."""
@@ -302,12 +298,8 @@ class ConnectionManager:
             request_headers[config.auth_header] = f"Basic {config.auth_token}"
 
         # Determine timeout and retries
-        timeout = (
-            timeout_override if timeout_override is not None else config.timeout_seconds
-        )
-        max_retries = (
-            retry_override if retry_override is not None else config.max_retries
-        )
+        timeout = timeout_override if timeout_override is not None else config.timeout_seconds
+        max_retries = retry_override if retry_override is not None else config.max_retries
 
         # Create retry configuration
         retry_config = RetryConfig(

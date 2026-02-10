@@ -12,9 +12,10 @@ Test Coverage:
 Mocks underlying DeltaTableWriter - focuses on async wrapper behavior.
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import patch
+
 import polars as pl
+import pytest
 
 from pipeline.common.writers.base import BaseDeltaWriter
 from pipeline.common.writers.delta_writer import DeltaWriter
@@ -92,9 +93,7 @@ class TestBaseDeltaWriterAsyncAppend:
         result = await writer._async_append(df)
 
         assert result is True
-        mock_to_thread.assert_called_once_with(
-            writer._delta_writer.append, df, batch_id=None
-        )
+        mock_to_thread.assert_called_once_with(writer._delta_writer.append, df, batch_id=None)
 
     @pytest.mark.asyncio
     @patch("pipeline.common.writers.base.DeltaTableWriter")
@@ -220,10 +219,7 @@ class TestBaseDeltaWriterAsyncMerge:
 
         assert result is True
         call_kwargs = mock_to_thread.call_args[1]
-        assert (
-            call_kwargs["update_condition"]
-            == "source.modified_date > target.modified_date"
-        )
+        assert call_kwargs["update_condition"] == "source.modified_date > target.modified_date"
 
     @pytest.mark.asyncio
     @patch("pipeline.common.writers.base.DeltaTableWriter")
@@ -287,9 +283,7 @@ class TestDeltaWriterDataFrameMethods:
             result = await writer.merge_dataframe(df, merge_keys=["id"])
 
             assert result is True
-            mock_merge.assert_called_once_with(
-                df, merge_keys=["id"], preserve_columns=None
-            )
+            mock_merge.assert_called_once_with(df, merge_keys=["id"], preserve_columns=None)
 
     @pytest.mark.asyncio
     @patch("pipeline.common.writers.base.DeltaTableWriter")
@@ -387,7 +381,7 @@ class TestDeltaWriterConfiguration:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     def test_initialization_with_z_order(self, mock_writer_class):
         """DeltaWriter initializes with z_order_columns."""
-        writer = DeltaWriter(
+        DeltaWriter(
             table_path="abfss://workspace@onelake/table",
             z_order_columns=["id", "created_at"],
         )
@@ -399,7 +393,7 @@ class TestDeltaWriterConfiguration:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     def test_initialization_with_partition_column(self, mock_writer_class):
         """DeltaWriter initializes with partition_column."""
-        writer = DeltaWriter(
+        DeltaWriter(
             table_path="abfss://workspace@onelake/table",
             partition_column="event_date",
         )
@@ -411,7 +405,7 @@ class TestDeltaWriterConfiguration:
     @patch("pipeline.common.writers.base.DeltaTableWriter")
     def test_initialization_with_custom_timestamp_column(self, mock_writer_class):
         """DeltaWriter initializes with custom timestamp_column."""
-        writer = DeltaWriter(
+        DeltaWriter(
             table_path="abfss://workspace@onelake/table",
             timestamp_column="modified_at",
         )

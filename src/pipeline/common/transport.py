@@ -22,7 +22,7 @@ Event Hub resolution:
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from aiokafka.structs import ConsumerRecord
@@ -41,7 +41,7 @@ CONSUMER_GROUPS_KEY = "consumer_groups"
 DEFAULT_CONSUMER_GROUP_KEY = "default_consumer_group"
 
 
-class TransportType(str, Enum):
+class TransportType(StrEnum):
     """Transport protocol type."""
 
     EVENTHUB = "eventhub"
@@ -292,9 +292,13 @@ def create_producer(
         logger.debug(
             "Attempting to load Event Hub namespace connection string",
             extra={
-                "EVENTHUB_NAMESPACE_CONNECTION_STRING": "***SET***" if os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING") else "NOT SET",
-                "EVENTHUB_CONNECTION_STRING": "***SET***" if os.getenv("EVENTHUB_CONNECTION_STRING") else "NOT SET",
-            }
+                "EVENTHUB_NAMESPACE_CONNECTION_STRING": "***SET***"
+                if os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING")
+                else "NOT SET",
+                "EVENTHUB_CONNECTION_STRING": "***SET***"
+                if os.getenv("EVENTHUB_CONNECTION_STRING")
+                else "NOT SET",
+            },
         )
         namespace_connection_string = _get_namespace_connection_string()
 
@@ -304,9 +308,7 @@ def create_producer(
         if topic_key:
             eventhub_name = _resolve_eventhub_name(domain, topic_key, worker_name)
         else:
-            eventhub_name = topic or _resolve_eventhub_name(
-                domain, topic_key, worker_name
-            )
+            eventhub_name = topic or _resolve_eventhub_name(domain, topic_key, worker_name)
 
         logger.info(
             f"Creating Event Hub producer: domain={domain}, worker={worker_name}, "
@@ -385,9 +387,7 @@ async def create_consumer(
             eventhub_name = topics[0]
 
         # Resolve consumer group from config
-        consumer_group = _resolve_eventhub_consumer_group(
-            domain, topic_key, worker_name, config
-        )
+        consumer_group = _resolve_eventhub_consumer_group(domain, topic_key, worker_name, config)
 
         # Get checkpoint store for durable offset persistence
         checkpoint_store = None
@@ -524,9 +524,7 @@ async def create_batch_consumer(
             eventhub_name = topics[0]
 
         # Resolve consumer group from config
-        consumer_group = _resolve_eventhub_consumer_group(
-            domain, topic_key, worker_name, config
-        )
+        consumer_group = _resolve_eventhub_consumer_group(domain, topic_key, worker_name, config)
 
         # Get checkpoint store for durable offset persistence
         checkpoint_store = None

@@ -34,16 +34,12 @@ def create_consumer(
         "bootstrap_servers": config.bootstrap_servers,
         "group_id": config.get_consumer_group(domain, worker_name),
         "client_id": (
-            f"{domain}-{worker_name}-{instance_id}"
-            if instance_id
-            else f"{domain}-{worker_name}"
+            f"{domain}-{worker_name}-{instance_id}" if instance_id else f"{domain}-{worker_name}"
         ),
         "enable_auto_commit": False,
         "auto_offset_reset": consumer_config_dict.get("auto_offset_reset", "earliest"),
         "session_timeout_ms": consumer_config_dict.get("session_timeout_ms", 60000),
-        "max_poll_interval_ms": consumer_config_dict.get(
-            "max_poll_interval_ms", 300000
-        ),
+        "max_poll_interval_ms": consumer_config_dict.get("max_poll_interval_ms", 300000),
         "request_timeout_ms": config.request_timeout_ms,
         "metadata_max_age_ms": config.metadata_max_age_ms,
         "connections_max_idle_ms": config.connections_max_idle_ms,

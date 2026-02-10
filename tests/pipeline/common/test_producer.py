@@ -28,7 +28,6 @@ class SampleModel(BaseModel):
 
 
 class TestMessageProducerInit:
-
     def test_stores_config(self):
         from pipeline.common.producer import MessageProducer
 
@@ -43,7 +42,6 @@ class TestMessageProducerInit:
 
 
 class TestMessageProducerStart:
-
     async def test_start_creates_and_starts_kafka_producer(self):
         from pipeline.common.producer import MessageProducer
 
@@ -51,9 +49,11 @@ class TestMessageProducerStart:
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()
-        with patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka):
-            with patch("pipeline.common.producer.build_kafka_security_config", return_value={}):
-                await producer.start()
+        with (
+            patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka),
+            patch("pipeline.common.producer.build_kafka_security_config", return_value={}),
+        ):
+            await producer.start()
 
         mock_kafka.start.assert_awaited_once()
         assert producer._started is True
@@ -76,9 +76,11 @@ class TestMessageProducerStart:
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()
-        with patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.producer.build_kafka_security_config", return_value={}):
-                await producer.start()
+        with (
+            patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls,
+            patch("pipeline.common.producer.build_kafka_security_config", return_value={}),
+        ):
+            await producer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["acks"] == "all"
@@ -86,15 +88,15 @@ class TestMessageProducerStart:
     async def test_acks_string_digit_converted_to_int(self):
         from pipeline.common.producer import MessageProducer
 
-        config = _make_config(
-            producer_config={"acks": "0", "enable_idempotence": False}
-        )
+        config = _make_config(producer_config={"acks": "0", "enable_idempotence": False})
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()
-        with patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.producer.build_kafka_security_config", return_value={}):
-                await producer.start()
+        with (
+            patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls,
+            patch("pipeline.common.producer.build_kafka_security_config", return_value={}),
+        ):
+            await producer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["acks"] == 0
@@ -114,9 +116,11 @@ class TestMessageProducerStart:
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()
-        with patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.producer.build_kafka_security_config", return_value={}):
-                await producer.start()
+        with (
+            patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls,
+            patch("pipeline.common.producer.build_kafka_security_config", return_value={}),
+        ):
+            await producer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["max_batch_size"] == 32768
@@ -131,9 +135,11 @@ class TestMessageProducerStart:
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()
-        with patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.producer.build_kafka_security_config", return_value={}):
-                await producer.start()
+        with (
+            patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls,
+            patch("pipeline.common.producer.build_kafka_security_config", return_value={}),
+        ):
+            await producer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["compression_type"] is None
@@ -145,16 +151,17 @@ class TestMessageProducerStart:
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()
-        with patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls:
-            with patch("pipeline.common.producer.build_kafka_security_config", return_value={}):
-                await producer.start()
+        with (
+            patch("pipeline.common.producer.AIOKafkaProducer", return_value=mock_kafka) as mock_cls,
+            patch("pipeline.common.producer.build_kafka_security_config", return_value={}),
+        ):
+            await producer.start()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["max_request_size"] == 10 * 1024 * 1024
 
 
 class TestMessageProducerStop:
-
     async def test_stop_flushes_and_stops(self):
         from pipeline.common.producer import MessageProducer
 
@@ -212,7 +219,6 @@ class TestMessageProducerStop:
 
 
 class TestMessageProducerSend:
-
     async def test_send_raises_when_not_started(self):
         from pipeline.common.producer import MessageProducer
 
@@ -399,7 +405,6 @@ class TestMessageProducerSend:
 
 
 class TestMessageProducerSendBatch:
-
     async def test_send_batch_raises_when_not_started(self):
         from pipeline.common.producer import MessageProducer
 
@@ -466,7 +471,6 @@ class TestMessageProducerSendBatch:
 
 
 class TestMessageProducerFlush:
-
     async def test_flush_raises_when_not_started(self):
         from pipeline.common.producer import MessageProducer
 
@@ -490,7 +494,6 @@ class TestMessageProducerFlush:
 
 
 class TestMessageProducerIsStarted:
-
     def test_is_started_true_when_active(self):
         from pipeline.common.producer import MessageProducer
 

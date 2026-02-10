@@ -32,10 +32,7 @@ logger = logging.getLogger(__name__)
 
 def _extract_error_category(wrapped: Exception) -> str:
     """Return a string error category from a wrapped exception."""
-    if isinstance(wrapped, PipelineError):
-        cat = wrapped.category
-    else:
-        cat = classify_exception(wrapped)
+    cat = wrapped.category if isinstance(wrapped, PipelineError) else classify_exception(wrapped)
     return cat.value if hasattr(cat, "value") else str(cat)
 
 
@@ -105,9 +102,7 @@ def _log_retry_attempt(
     if using_server_delay:
         log_extras["server_retry_after"] = wrapped.retry_after
         log_extras["delay_source"] = "server"
-        log_message = (
-            "Retryable error for %s, will retry (using server-provided delay)"
-        )
+        log_message = "Retryable error for %s, will retry (using server-provided delay)"
     else:
         log_extras["delay_source"] = "exponential_backoff"
         log_message = "Retryable error for %s, will retry"
@@ -164,17 +159,11 @@ def _handle_exception(
     Returns (delay, wrapped_exception, needs_auth_refresh).
     Raises wrapped or original exception if the error should not be retried.
     """
-    wrapped = (
-        wrap_exception(e)
-        if wrap_errors and not isinstance(e, PipelineError)
-        else e
-    )
+    wrapped = wrap_exception(e) if wrap_errors and not isinstance(e, PipelineError) else e
     error_category = _extract_error_category(wrapped)
 
     # Detect auth refresh need
-    needs_auth = (
-        isinstance(wrapped, PipelineError) and wrapped.should_refresh_auth
-    )
+    needs_auth = isinstance(wrapped, PipelineError) and wrapped.should_refresh_auth
     if needs_auth:
         logger.info(
             "Auth error detected for %s, refreshing credentials",
@@ -253,11 +242,7 @@ class RetryConfig:
             Delay in seconds
         """
         # Check for explicit retry_after (e.g., from 429 response)
-        if (
-            self.respect_retry_after
-            and isinstance(error, ThrottlingError)
-            and error.retry_after
-        ):
+        if self.respect_retry_after and isinstance(error, ThrottlingError) and error.retry_after:
             return min(error.retry_after, self.max_delay)
 
         # Calculate base exponential delay

@@ -179,9 +179,7 @@ async def run_claimx_upload_worker(
     """
     from pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
 
-    worker = ClaimXUploadWorker(
-        config=kafka_config, domain="claimx", instance_id=instance_id
-    )
+    worker = ClaimXUploadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)
 
     await execute_worker_with_shutdown(
         worker,

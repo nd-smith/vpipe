@@ -352,6 +352,7 @@ class TestJsonCheckpointStoreResilience:
     @pytest.mark.asyncio
     async def test_concurrent_claims_within_process(self, store):
         """Multiple concurrent claims should not lose data."""
+
         async def claim_partition(partition_id: str):
             ownership = {
                 "fully_qualified_namespace": NS,
@@ -362,9 +363,7 @@ class TestJsonCheckpointStoreResilience:
             }
             return await store.claim_ownership([ownership])
 
-        results = await asyncio.gather(
-            *[claim_partition(str(i)) for i in range(8)]
-        )
+        results = await asyncio.gather(*[claim_partition(str(i)) for i in range(8)])
 
         # All claims should succeed (different partitions)
         total_claimed = sum(len(list(r)) for r in results)
@@ -396,9 +395,14 @@ class TestJsonCheckpointStoreResilience:
             "sequence_number": 10,
         }
 
-        with patch("pipeline.common.eventhub.json_checkpoint_store.os.replace", side_effect=flaky_replace):
-            with patch("pipeline.common.eventhub.json_checkpoint_store.time.sleep"):
-                await store.update_checkpoint(checkpoint)
+        with (
+            patch(
+                "pipeline.common.eventhub.json_checkpoint_store.os.replace",
+                side_effect=flaky_replace,
+            ),
+            patch("pipeline.common.eventhub.json_checkpoint_store.time.sleep"),
+        ):
+            await store.update_checkpoint(checkpoint)
 
         # Verify checkpoint was written successfully after retries
         listed = list(await store.list_checkpoints(NS, EH, CG))
@@ -418,13 +422,15 @@ class TestJsonCheckpointStoreResilience:
             "sequence_number": 10,
         }
 
-        with patch(
-            "pipeline.common.eventhub.json_checkpoint_store.os.replace",
-            side_effect=PermissionError("[WinError 5] Access is denied"),
+        with (
+            patch(
+                "pipeline.common.eventhub.json_checkpoint_store.os.replace",
+                side_effect=PermissionError("[WinError 5] Access is denied"),
+            ),
+            patch("pipeline.common.eventhub.json_checkpoint_store.time.sleep"),
+            pytest.raises(PermissionError),
         ):
-            with patch("pipeline.common.eventhub.json_checkpoint_store.time.sleep"):
-                with pytest.raises(PermissionError):
-                    await store.update_checkpoint(checkpoint)
+            await store.update_checkpoint(checkpoint)
 
     @pytest.mark.asyncio
     async def test_close_is_noop(self, store):
@@ -454,17 +460,14 @@ class TestJsonCheckpointStoreFileStructure:
         }
         await store.update_checkpoint(checkpoint)
 
-        expected_dir = (
-            tmp_path
-            / "my-ns_servicebus_windows_net"
-            / "verisk-events"
-            / "$Default"
-        )
+        expected_dir = tmp_path / "my-ns_servicebus_windows_net" / "verisk-events" / "$Default"
         assert expected_dir.exists()
         assert (expected_dir / "checkpoints.json").exists()
 
     def test_sanitize_name_replaces_dots(self, store):
-        assert store._sanitize_name("my-ns.servicebus.windows.net") == "my-ns_servicebus_windows_net"
+        assert (
+            store._sanitize_name("my-ns.servicebus.windows.net") == "my-ns_servicebus_windows_net"
+        )
 
     def test_sanitize_name_replaces_slashes(self, store):
         assert store._sanitize_name("path/to/thing") == "path_to_thing"

@@ -88,9 +88,7 @@ class DelayQueue:
                             if msg.message_key
                             else None
                         ),
-                        "message_value": base64.b64encode(msg.message_value).decode(
-                            "utf-8"
-                        ),
+                        "message_value": base64.b64encode(msg.message_value).decode("utf-8"),
                         "headers": msg.headers,
                     }
                 )

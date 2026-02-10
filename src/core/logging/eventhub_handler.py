@@ -115,7 +115,9 @@ class EventHubLogHandler(logging.Handler):
                 # Queue is full - drop this log to avoid blocking
                 # This is acceptable for real-time streaming
                 self._total_dropped += 1
-                print(f"[EVENTHUB_LOGS] WARNING: Queue full, dropping logs (dropped: {self._total_dropped})")
+                print(
+                    f"[EVENTHUB_LOGS] WARNING: Queue full, dropping logs (dropped: {self._total_dropped})"
+                )
 
         except Exception:
             # Never let logging break the application
@@ -163,14 +165,20 @@ class EventHubLogHandler(logging.Handler):
                 transport_type=TransportType.AmqpOverWebsocket,
                 **ssl_kwargs,
             )
-            print(f"[EVENTHUB_LOGS] EventHub producer client created successfully (using AMQP over WebSocket on port 443)")
+            print(
+                "[EVENTHUB_LOGS] EventHub producer client created successfully (using AMQP over WebSocket on port 443)"
+            )
         except Exception as e:
             import sys
-            print(f"[EVENTHUB_LOGS] ERROR creating EventHub producer: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+
+            print(
+                f"[EVENTHUB_LOGS] ERROR creating EventHub producer: {type(e).__name__}: {str(e)[:200]}",
+                file=sys.stderr,
+            )
             return
 
         async with producer:
-            print(f"[EVENTHUB_LOGS] Connected to EventHub - ready to send logs")
+            print("[EVENTHUB_LOGS] Connected to EventHub - ready to send logs")
             batch = []
             last_send = asyncio.get_event_loop().time()
 
@@ -186,8 +194,13 @@ class EventHubLogHandler(logging.Handler):
                     now = asyncio.get_event_loop().time()
 
                     # Auto-reset circuit breaker after cooldown period
-                    if self._circuit_open and (now - self._circuit_opened_at) >= self._circuit_reset_interval:
-                        print(f"[EVENTHUB_LOGS] Circuit breaker cooldown expired - attempting to reconnect")
+                    if (
+                        self._circuit_open
+                        and (now - self._circuit_opened_at) >= self._circuit_reset_interval
+                    ):
+                        print(
+                            "[EVENTHUB_LOGS] Circuit breaker cooldown expired - attempting to reconnect"
+                        )
                         self._circuit_open = False
                         self._failure_count = 0
 
@@ -219,9 +232,7 @@ class EventHubLogHandler(logging.Handler):
         # and doesn't always close sessions cleanly on exit
         await asyncio.sleep(0.250)
 
-    async def _send_batch(
-        self, producer: EventHubProducerClient, batch: list[str]
-    ) -> None:
+    async def _send_batch(self, producer: EventHubProducerClient, batch: list[str]) -> None:
         """
         Send a batch of logs to Event Hub.
 
@@ -273,7 +284,11 @@ class EventHubLogHandler(logging.Handler):
             self._handle_send_error(e, loop_time)
             # Print error to stderr so it's visible
             import sys
-            print(f"[EVENTHUB_LOGS] ERROR sending batch to EventHub: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
+
+            print(
+                f"[EVENTHUB_LOGS] ERROR sending batch to EventHub: {type(e).__name__}: {str(e)[:200]}",
+                file=sys.stderr,
+            )
             raise
 
     def _handle_send_error(self, error: Exception, loop_time: float) -> None:
@@ -293,7 +308,9 @@ class EventHubLogHandler(logging.Handler):
         if self._failure_count >= self.circuit_breaker_threshold and not self._circuit_open:
             self._circuit_open = True
             self._circuit_opened_at = loop_time
-            print(f"[EVENTHUB_LOGS] Circuit breaker OPENED after {self._failure_count} failures - will retry in {self._circuit_reset_interval}s")
+            print(
+                f"[EVENTHUB_LOGS] Circuit breaker OPENED after {self._failure_count} failures - will retry in {self._circuit_reset_interval}s"
+            )
             # Circuit will auto-reset after cooldown period
 
     def get_stats(self) -> dict:

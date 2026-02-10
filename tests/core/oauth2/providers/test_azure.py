@@ -9,14 +9,12 @@ from core.oauth2.exceptions import InvalidConfigurationError, TokenAcquisitionEr
 from core.oauth2.models import OAuth2Token
 from core.oauth2.providers.azure import AzureADProvider
 
-
 # ---------------------------------------------------------------------------
 # __init__
 # ---------------------------------------------------------------------------
 
 
 class TestAzureADProviderInit:
-
     @patch("core.oauth2.providers.azure.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.oauth2.providers.azure.ClientSecretCredential")
     def test_creates_provider_with_valid_params(self, mock_csc):
@@ -29,9 +27,7 @@ class TestAzureADProviderInit:
         assert provider.provider_name == "test_azure"
         assert provider.client_id == "cid"
         assert provider.tenant_id == "tid"
-        mock_csc.assert_called_once_with(
-            tenant_id="tid", client_id="cid", client_secret="cs"
-        )
+        mock_csc.assert_called_once_with(tenant_id="tid", client_id="cid", client_secret="cs")
 
     @patch("core.oauth2.providers.azure.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.oauth2.providers.azure.ClientSecretCredential")
@@ -106,13 +102,10 @@ class TestAzureADProviderInit:
 
 
 class TestAcquireToken:
-
     @patch("core.oauth2.providers.azure.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.oauth2.providers.azure.ClientSecretCredential")
     async def test_returns_token_with_int_expires_on(self, mock_csc):
-        expires_timestamp = int(
-            (datetime.now(UTC) + timedelta(hours=1)).timestamp()
-        )
+        expires_timestamp = int((datetime.now(UTC) + timedelta(hours=1)).timestamp())
         mock_access_token = MagicMock()
         mock_access_token.token = "test-tok"
         mock_access_token.expires_on = expires_timestamp
@@ -237,7 +230,6 @@ class TestAcquireToken:
 
 
 class TestRefreshToken:
-
     @patch("core.oauth2.providers.azure.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.oauth2.providers.azure.ClientSecretCredential")
     async def test_refresh_acquires_new_token(self, mock_csc):

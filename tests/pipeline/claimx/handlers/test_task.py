@@ -1,13 +1,10 @@
 """Tests for ClaimX task event handler."""
 
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import AsyncMock
 
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiError
 from pipeline.claimx.handlers.task import TaskHandler
-from pipeline.claimx.schemas.entities import EntityRowsMessage
 
 from .conftest import make_event, make_project_api_response
 
@@ -52,12 +49,9 @@ def _make_task_response(
 
 
 class TestTaskHandlerSuccess:
-
     async def test_handle_event_extracts_task_row(self, mock_client):
         mock_client.get_custom_task = AsyncMock(return_value=_make_task_response())
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -73,9 +67,7 @@ class TestTaskHandlerSuccess:
 
     async def test_handle_event_extracts_template_row(self, mock_client):
         mock_client.get_custom_task = AsyncMock(return_value=_make_task_response())
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -89,9 +81,7 @@ class TestTaskHandlerSuccess:
 
     async def test_handle_event_extracts_external_link(self, mock_client):
         mock_client.get_custom_task = AsyncMock(return_value=_make_task_response())
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -105,9 +95,7 @@ class TestTaskHandlerSuccess:
 
     async def test_handle_event_extracts_contact_from_link(self, mock_client):
         mock_client.get_custom_task = AsyncMock(return_value=_make_task_response())
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -118,7 +106,8 @@ class TestTaskHandlerSuccess:
 
         # Contact from link + contacts from project verification
         link_contacts = [
-            c for c in result.rows.contacts
+            c
+            for c in result.rows.contacts
             if c.get("contact_type") == "POLICYHOLDER" and c.get("task_assignment_id") is not None
         ]
         assert len(link_contacts) == 1
@@ -126,9 +115,7 @@ class TestTaskHandlerSuccess:
 
     async def test_handle_event_includes_project_verification(self, mock_client):
         mock_client.get_custom_task = AsyncMock(return_value=_make_task_response())
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -144,9 +131,7 @@ class TestTaskHandlerSuccess:
         mock_client.get_custom_task = AsyncMock(
             return_value=_make_task_response(with_custom_task=False)
         )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -159,12 +144,8 @@ class TestTaskHandlerSuccess:
         assert len(result.rows.task_templates) == 0
 
     async def test_handle_event_without_external_link(self, mock_client):
-        mock_client.get_custom_task = AsyncMock(
-            return_value=_make_task_response(with_link=False)
-        )
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_custom_task = AsyncMock(return_value=_make_task_response(with_link=False))
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -178,9 +159,7 @@ class TestTaskHandlerSuccess:
 
     async def test_handle_event_task_completed(self, mock_client):
         mock_client.get_custom_task = AsyncMock(return_value=_make_task_response())
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_COMPLETED",
@@ -196,9 +175,7 @@ class TestTaskHandlerSuccess:
         """project_id from API response should be preferred."""
         response = _make_task_response(project_id=999)
         mock_client.get_custom_task = AsyncMock(return_value=response)
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -219,7 +196,6 @@ class TestTaskHandlerSuccess:
 
 
 class TestTaskHandlerValidation:
-
     async def test_handle_event_missing_task_assignment_id(self, mock_client):
         handler = TaskHandler(mock_client)
         event = make_event(
@@ -256,7 +232,6 @@ class TestTaskHandlerValidation:
 
 
 class TestTaskHandlerErrors:
-
     async def test_handle_event_api_error(self, mock_client):
         mock_client.get_custom_task = AsyncMock(
             side_effect=ClaimXApiError(
@@ -300,9 +275,7 @@ class TestTaskHandlerErrors:
         assert result.is_retryable is True
 
     async def test_handle_event_unexpected_error(self, mock_client):
-        mock_client.get_custom_task = AsyncMock(
-            side_effect=RuntimeError("unexpected")
-        )
+        mock_client.get_custom_task = AsyncMock(side_effect=RuntimeError("unexpected"))
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -326,9 +299,7 @@ class TestTaskHandlerErrors:
             # No email
         }
         mock_client.get_custom_task = AsyncMock(return_value=response)
-        mock_client.get_project = AsyncMock(
-            return_value=make_project_api_response()
-        )
+        mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = TaskHandler(mock_client)
         event = make_event(
             event_type="CUSTOM_TASK_ASSIGNED",
@@ -340,8 +311,5 @@ class TestTaskHandlerErrors:
         assert result.success is True
         # External link should exist but no contact from link
         assert len(result.rows.external_links) == 1
-        link_contacts = [
-            c for c in result.rows.contacts
-            if c.get("task_assignment_id") is not None
-        ]
+        link_contacts = [c for c in result.rows.contacts if c.get("task_assignment_id") is not None]
         assert len(link_contacts) == 0

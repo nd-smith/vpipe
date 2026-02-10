@@ -15,8 +15,9 @@ No infrastructure required - aiokafka mocked.
 """
 
 import json
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 from core.types import ErrorCategory
 from pipeline.common.dlq.producer import DLQProducer
@@ -89,9 +90,11 @@ class TestDLQProducerEnsureStarted:
         """_ensure_started creates and starts the producer."""
         mock_aioproducer = AsyncMock()
 
-        with patch("pipeline.common.dlq.producer.AIOKafkaProducer", return_value=mock_aioproducer):
-            with patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value={}):
-                await dlq_producer._ensure_started()
+        with (
+            patch("pipeline.common.dlq.producer.AIOKafkaProducer", return_value=mock_aioproducer),
+            patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value={}),
+        ):
+            await dlq_producer._ensure_started()
 
         assert dlq_producer._producer is mock_aioproducer
         mock_aioproducer.start.assert_called_once()
@@ -118,9 +121,16 @@ class TestDLQProducerEnsureStarted:
 
         security_config = {"security_protocol": "SASL_SSL", "sasl_mechanism": "OAUTHBEARER"}
 
-        with patch("pipeline.common.dlq.producer.AIOKafkaProducer", return_value=AsyncMock()) as mock_cls:
-            with patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value=security_config):
-                await producer._ensure_started()
+        with (
+            patch(
+                "pipeline.common.dlq.producer.AIOKafkaProducer", return_value=AsyncMock()
+            ) as mock_cls,
+            patch(
+                "pipeline.common.dlq.producer.build_kafka_security_config",
+                return_value=security_config,
+            ),
+        ):
+            await producer._ensure_started()
 
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["security_protocol"] == "SASL_SSL"
@@ -376,10 +386,12 @@ class TestDLQProducerLazyInit:
 
         message = make_pipeline_message()
 
-        with patch("pipeline.common.dlq.producer.AIOKafkaProducer", return_value=mock_aioproducer):
-            with patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value={}):
-                with patch("pipeline.common.dlq.producer.record_dlq_message"):
-                    await dlq_producer.send(message, Exception("err"), ErrorCategory.PERMANENT)
+        with (
+            patch("pipeline.common.dlq.producer.AIOKafkaProducer", return_value=mock_aioproducer),
+            patch("pipeline.common.dlq.producer.build_kafka_security_config", return_value={}),
+            patch("pipeline.common.dlq.producer.record_dlq_message"),
+        ):
+            await dlq_producer.send(message, Exception("err"), ErrorCategory.PERMANENT)
 
         assert dlq_producer._producer is mock_aioproducer
         mock_aioproducer.start.assert_called_once()

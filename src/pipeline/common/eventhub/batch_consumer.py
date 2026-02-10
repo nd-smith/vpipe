@@ -15,16 +15,17 @@ processing of multiple messages.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
-from typing import Any
 from pipeline.common.eventhub.consumer import EventHubConsumerRecord
 from pipeline.common.metrics import (
     update_assigned_partitions,
@@ -129,9 +130,7 @@ class EventHubBatchConsumer:
                 "batch_size": batch_size,
                 "batch_timeout_ms": batch_timeout_ms,
                 "enable_message_commit": enable_message_commit,
-                "checkpoint_persistence": (
-                    "blob_storage" if checkpoint_store else "in_memory"
-                ),
+                "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
             },
         )
 
@@ -141,9 +140,7 @@ class EventHubBatchConsumer:
         Creates EventHubConsumerClient and begins consuming messages in batches.
         """
         if self._running:
-            logger.warning(
-                "Batch consumer already running, ignoring duplicate start call"
-            )
+            logger.warning("Batch consumer already running, ignoring duplicate start call")
             return
 
         checkpoint_mode = (
@@ -225,10 +222,8 @@ class EventHubBatchConsumer:
             # Cancel timeout flush task
             if self._flush_task:
                 self._flush_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._flush_task
-                except asyncio.CancelledError:
-                    pass
 
             # Flush all partition buffers
             for partition_id in list(self._batch_buffers.keys()):
@@ -288,9 +283,7 @@ class EventHubBatchConsumer:
                 self._flush_locks[partition_id] = asyncio.Lock()
 
             # Convert to PipelineMessage
-            record_adapter = EventHubConsumerRecord(
-                event, self.eventhub_name, partition_id
-            )
+            record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
             message = record_adapter.to_pipeline_message()
 
             # Add to buffer
@@ -350,9 +343,7 @@ class EventHubBatchConsumer:
 
         async def on_error(partition_context, error):
             """Called when error occurs during consumption."""
-            partition_id = (
-                partition_context.partition_id if partition_context else "unknown"
-            )
+            partition_id = partition_context.partition_id if partition_context else "unknown"
             logger.error(
                 "Error in Event Hub batch consumption",
                 extra={
@@ -391,9 +382,7 @@ class EventHubBatchConsumer:
                     if partition_id not in self._batch_timers:
                         continue
 
-                    elapsed_ms = (
-                        current_time - self._batch_timers[partition_id]
-                    ) * 1000
+                    elapsed_ms = (current_time - self._batch_timers[partition_id]) * 1000
                     batch_size = len(self._batch_buffers.get(partition_id, []))
 
                     # Flush if timeout exceeded and batch not empty
@@ -468,9 +457,7 @@ class EventHubBatchConsumer:
                 checkpoint_errors = 0
                 for buffered in batch:
                     try:
-                        await buffered.partition_context.update_checkpoint(
-                            buffered.event
-                        )
+                        await buffered.partition_context.update_checkpoint(buffered.event)
                     except Exception:
                         # Log but continue - message will be redelivered (at-least-once)
                         logger.error(
@@ -535,7 +522,4 @@ class EventHubBatchConsumer:
         Returns:
             Dict mapping partition_id to current buffer size
         """
-        return {
-            partition_id: len(buffer)
-            for partition_id, buffer in self._batch_buffers.items()
-        }
+        return {partition_id: len(buffer) for partition_id, buffer in self._batch_buffers.items()}

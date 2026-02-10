@@ -4,7 +4,7 @@ Tests for ClaimXEventMessage schema.
 Validates Pydantic model behavior, JSON serialization, and field validation.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -17,7 +17,7 @@ class TestClaimXEventMessageCreation:
 
     def test_create_with_all_fields(self):
         """ClaimXEventMessage can be created with all fields populated."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_12345",
             event_type="PROJECT_FILE_ADDED",
@@ -27,7 +27,7 @@ class TestClaimXEventMessageCreation:
             task_assignment_id="task_222",
             video_collaboration_id="video_333",
             master_file_name="claim_2024.pdf",
-            raw_data={"fileName": "photo.jpg", "fileSize": 1024}
+            raw_data={"fileName": "photo.jpg", "fileSize": 1024},
         )
 
         assert event.event_id == "evt_12345"
@@ -42,12 +42,12 @@ class TestClaimXEventMessageCreation:
 
     def test_create_with_minimal_fields(self):
         """ClaimXEventMessage can be created with only required fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_minimal",
             event_type="PROJECT_CREATED",
             project_id="proj_minimal",
-            ingested_at=now
+            ingested_at=now,
         )
 
         assert event.event_id == "evt_minimal"
@@ -62,13 +62,13 @@ class TestClaimXEventMessageCreation:
 
     def test_create_project_created_event(self):
         """PROJECT_CREATED event with typical fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_proj_001",
             event_type="PROJECT_CREATED",
             project_id="proj_001",
             ingested_at=now,
-            raw_data={"projectName": "Insurance Claim 2024", "claimNumber": "CLM-001"}
+            raw_data={"projectName": "Insurance Claim 2024", "claimNumber": "CLM-001"},
         )
 
         assert event.event_type == "PROJECT_CREATED"
@@ -76,14 +76,14 @@ class TestClaimXEventMessageCreation:
 
     def test_create_project_file_added_event(self):
         """PROJECT_FILE_ADDED event with media_id."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_file_001",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj_001",
             ingested_at=now,
             media_id="media_12345",
-            raw_data={"fileName": "damage_photo.jpg", "uploadedBy": "user@example.com"}
+            raw_data={"fileName": "damage_photo.jpg", "uploadedBy": "user@example.com"},
         )
 
         assert event.event_type == "PROJECT_FILE_ADDED"
@@ -91,14 +91,14 @@ class TestClaimXEventMessageCreation:
 
     def test_create_custom_task_assigned_event(self):
         """CUSTOM_TASK_ASSIGNED event with task_assignment_id."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_task_001",
             event_type="CUSTOM_TASK_ASSIGNED",
             project_id="proj_001",
             ingested_at=now,
             task_assignment_id="task_67890",
-            raw_data={"taskName": "Review photos", "assignee": "adjuster@insurance.com"}
+            raw_data={"taskName": "Review photos", "assignee": "adjuster@insurance.com"},
         )
 
         assert event.event_type == "CUSTOM_TASK_ASSIGNED"
@@ -106,14 +106,14 @@ class TestClaimXEventMessageCreation:
 
     def test_create_video_collaboration_event(self):
         """VIDEO_COLLABORATION_INVITE_SENT event with video_collaboration_id."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_video_001",
             event_type="VIDEO_COLLABORATION_INVITE_SENT",
             project_id="proj_001",
             ingested_at=now,
             video_collaboration_id="video_11111",
-            raw_data={"invitee": "claimant@example.com"}
+            raw_data={"invitee": "claimant@example.com"},
         )
 
         assert event.event_type == "VIDEO_COLLABORATION_INVITE_SENT"
@@ -121,14 +121,14 @@ class TestClaimXEventMessageCreation:
 
     def test_create_project_mfn_added_event(self):
         """PROJECT_MFN_ADDED event with master_file_name."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_mfn_001",
             event_type="PROJECT_MFN_ADDED",
             project_id="proj_001",
             ingested_at=now,
             master_file_name="CLM-2024-12345",
-            raw_data={"addedBy": "system"}
+            raw_data={"addedBy": "system"},
         )
 
         assert event.event_type == "PROJECT_MFN_ADDED"
@@ -140,87 +140,75 @@ class TestClaimXEventMessageValidation:
 
     def test_missing_required_field_raises_error(self):
         """Missing required fields raise ValidationError."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
                 event_type="PROJECT_CREATED",
                 project_id="proj_001",
-                ingested_at=now
+                ingested_at=now,
                 # Missing event_id
             )
 
         errors = exc_info.value.errors()
-        assert any(err['loc'] == ('event_id',) for err in errors)
+        assert any(err["loc"] == ("event_id",) for err in errors)
 
     def test_empty_event_id_raises_error(self):
         """Empty event_id raises validation error."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="",
-                event_type="PROJECT_CREATED",
-                project_id="proj_001",
-                ingested_at=now
+                event_id="", event_type="PROJECT_CREATED", project_id="proj_001", ingested_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any('event_id' in str(err) for err in errors)
+        assert any("event_id" in str(err) for err in errors)
 
     def test_whitespace_event_id_raises_error(self):
         """Whitespace-only event_id raises validation error."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="   ",
-                event_type="PROJECT_CREATED",
-                project_id="proj_001",
-                ingested_at=now
+                event_id="   ", event_type="PROJECT_CREATED", project_id="proj_001", ingested_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any('event_id' in str(err) for err in errors)
+        assert any("event_id" in str(err) for err in errors)
 
     def test_empty_event_type_raises_error(self):
         """Empty event_type raises validation error."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="evt_001",
-                event_type="",
-                project_id="proj_001",
-                ingested_at=now
+                event_id="evt_001", event_type="", project_id="proj_001", ingested_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any('event_type' in str(err) for err in errors)
+        assert any("event_type" in str(err) for err in errors)
 
     def test_empty_project_id_raises_error(self):
         """Empty project_id raises validation error."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="evt_001",
-                event_type="PROJECT_CREATED",
-                project_id="",
-                ingested_at=now
+                event_id="evt_001", event_type="PROJECT_CREATED", project_id="", ingested_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any('project_id' in str(err) for err in errors)
+        assert any("project_id" in str(err) for err in errors)
 
     def test_string_fields_trimmed(self):
         """String fields with leading/trailing whitespace are trimmed."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="  evt_001  ",
             event_type="  PROJECT_CREATED  ",
             project_id="  proj_001  ",
-            ingested_at=now
+            ingested_at=now,
         )
 
         assert event.event_id == "evt_001"
@@ -233,7 +221,7 @@ class TestClaimXEventMessageFromEventhouseRow:
 
     def test_from_eventhouse_row_snake_case(self):
         """Can create from Eventhouse row with snake_case fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = {
             "event_id": "evt_12345",
             "event_type": "PROJECT_FILE_ADDED",
@@ -243,7 +231,7 @@ class TestClaimXEventMessageFromEventhouseRow:
             "task_assignment_id": None,
             "video_collaboration_id": None,
             "master_file_name": None,
-            "fileName": "photo.jpg"
+            "fileName": "photo.jpg",
         }
 
         event = ClaimXEventMessage.from_eventhouse_row(row)
@@ -257,14 +245,14 @@ class TestClaimXEventMessageFromEventhouseRow:
 
     def test_from_eventhouse_row_camel_case(self):
         """Can create from Eventhouse row with camelCase fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = {
             "eventId": "evt_12345",
             "eventType": "PROJECT_CREATED",
             "projectId": "proj_67890",
             "IngestionTime": now,
             "mediaId": "media_111",
-            "projectName": "Claim 2024"
+            "projectName": "Claim 2024",
         }
 
         event = ClaimXEventMessage.from_eventhouse_row(row)
@@ -278,13 +266,13 @@ class TestClaimXEventMessageFromEventhouseRow:
 
     def test_from_eventhouse_row_mixed_case(self):
         """Can create from Eventhouse row with mixed case fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = {
             "event_id": "evt_001",
             "eventType": "CUSTOM_TASK_ASSIGNED",
             "project_id": "proj_001",
             "IngestionTime": now,
-            "taskAssignmentId": "task_222"
+            "taskAssignmentId": "task_222",
         }
 
         event = ClaimXEventMessage.from_eventhouse_row(row)
@@ -296,7 +284,7 @@ class TestClaimXEventMessageFromEventhouseRow:
 
     def test_from_eventhouse_row_with_all_optional_fields(self):
         """Can create from Eventhouse row with all optional fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = {
             "event_id": "evt_full",
             "event_type": "PROJECT_FILE_ADDED",
@@ -306,7 +294,7 @@ class TestClaimXEventMessageFromEventhouseRow:
             "task_assignment_id": "task_222",
             "video_collaboration_id": "video_333",
             "master_file_name": "claim.pdf",
-            "extra_field": "extra_value"
+            "extra_field": "extra_value",
         }
 
         event = ClaimXEventMessage.from_eventhouse_row(row)
@@ -323,13 +311,13 @@ class TestClaimXEventMessageSerialization:
 
     def test_model_dump_includes_all_fields(self):
         """model_dump includes all fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_001",
             event_type="PROJECT_CREATED",
             project_id="proj_001",
             ingested_at=now,
-            raw_data={"key": "value"}
+            raw_data={"key": "value"},
         )
 
         dumped = event.model_dump()
@@ -342,13 +330,13 @@ class TestClaimXEventMessageSerialization:
 
     def test_model_dump_json_serializable(self):
         """model_dump_json produces valid JSON."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_001",
             event_type="PROJECT_CREATED",
             project_id="proj_001",
             ingested_at=now,
-            media_id="media_111"
+            media_id="media_111",
         )
 
         json_str = event.model_dump_json()
@@ -360,13 +348,13 @@ class TestClaimXEventMessageSerialization:
 
     def test_model_validate_from_dict(self):
         """Can validate and create from dict."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         data = {
             "event_id": "evt_001",
             "event_type": "PROJECT_CREATED",
             "project_id": "proj_001",
             "ingested_at": now,
-            "media_id": "media_111"
+            "media_id": "media_111",
         }
 
         event = ClaimXEventMessage.model_validate(data)
@@ -376,7 +364,7 @@ class TestClaimXEventMessageSerialization:
 
     def test_model_validate_json_from_json_string(self):
         """Can validate and create from JSON string."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         json_str = f'{{"event_id":"evt_001","event_type":"PROJECT_CREATED","project_id":"proj_001","ingested_at":"{now.isoformat()}"}}'
 
         event = ClaimXEventMessage.model_validate_json(json_str)
@@ -390,30 +378,22 @@ class TestClaimXEventMessageEdgeCases:
 
     def test_raw_data_can_be_deeply_nested(self):
         """raw_data can contain deeply nested structures."""
-        now = datetime.now(timezone.utc)
-        complex_data = {
-            "level1": {
-                "level2": {
-                    "level3": {
-                        "value": "deeply_nested"
-                    }
-                }
-            }
-        }
+        now = datetime.now(UTC)
+        complex_data = {"level1": {"level2": {"level3": {"value": "deeply_nested"}}}}
 
         event = ClaimXEventMessage(
             event_id="evt_nested",
             event_type="PROJECT_CREATED",
             project_id="proj_nested",
             ingested_at=now,
-            raw_data=complex_data
+            raw_data=complex_data,
         )
 
         assert event.raw_data["level1"]["level2"]["level3"]["value"] == "deeply_nested"
 
     def test_raw_data_can_contain_lists(self):
         """raw_data can contain lists."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event = ClaimXEventMessage(
             event_id="evt_list",
             event_type="PROJECT_CREATED",
@@ -421,8 +401,8 @@ class TestClaimXEventMessageEdgeCases:
             ingested_at=now,
             raw_data={
                 "attachments": ["file1.pdf", "file2.jpg"],
-                "tags": ["urgent", "water_damage"]
-            }
+                "tags": ["urgent", "water_damage"],
+            },
         )
 
         assert len(event.raw_data["attachments"]) == 2
@@ -430,7 +410,7 @@ class TestClaimXEventMessageEdgeCases:
 
     def test_all_event_types_supported(self):
         """All documented event types can be created."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         event_types = [
             "PROJECT_CREATED",
             "PROJECT_FILE_ADDED",
@@ -440,7 +420,7 @@ class TestClaimXEventMessageEdgeCases:
             "POLICYHOLDER_INVITED",
             "POLICYHOLDER_JOINED",
             "VIDEO_COLLABORATION_INVITE_SENT",
-            "VIDEO_COLLABORATION_COMPLETED"
+            "VIDEO_COLLABORATION_COMPLETED",
         ]
 
         for event_type in event_types:
@@ -448,6 +428,6 @@ class TestClaimXEventMessageEdgeCases:
                 event_id=f"evt_{event_type.lower()}",
                 event_type=event_type,
                 project_id="proj_001",
-                ingested_at=now
+                ingested_at=now,
             )
             assert event.event_type == event_type

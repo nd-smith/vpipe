@@ -10,21 +10,18 @@ Tests the ClaimXApiClient with mocked HTTP responses including:
 - Retry and error handling
 """
 
-import asyncio
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from typing import Any, Dict
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
 
+from core.types import ErrorCategory
 from pipeline.claimx.api_client import (
     ClaimXApiClient,
     ClaimXApiError,
     classify_api_error,
 )
-from core.types import ErrorCategory
-
 
 # ============================================================================
 # Test classify_api_error function
@@ -300,7 +297,7 @@ class TestClaimXApiClientRequest:
     async def test_request_timeout(self, api_client, mock_circuit_breaker):
         """Test timeout error is classified as transient."""
         mock_response = AsyncMock()
-        mock_response.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_response.__aenter__ = AsyncMock(side_effect=TimeoutError())
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
         with patch("aiohttp.ClientSession.request", return_value=mock_response):
@@ -399,9 +396,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_project endpoint."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={"projectId": 123, "claimNumber": "CLM-123"}
-        )
+        mock_response.json = AsyncMock(return_value={"projectId": 123, "claimNumber": "CLM-123"})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -417,9 +412,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_project_media handles list response."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value=[{"mediaId": 1}, {"mediaId": 2}]
-        )
+        mock_response.json = AsyncMock(return_value=[{"mediaId": 1}, {"mediaId": 2}])
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -436,9 +429,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_project_media handles dict response with 'data' key."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={"data": [{"mediaId": 1}, {"mediaId": 2}]}
-        )
+        mock_response.json = AsyncMock(return_value={"data": [{"mediaId": 1}, {"mediaId": 2}]})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -454,9 +445,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_project_media handles dict response with 'media' key."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={"media": [{"mediaId": 1}]}
-        )
+        mock_response.json = AsyncMock(return_value={"media": [{"mediaId": 1}]})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -505,9 +494,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_project_contacts normalizes response to list."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={"contacts": [{"contactId": 1}]}
-        )
+        mock_response.json = AsyncMock(return_value={"contacts": [{"contactId": 1}]})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -523,9 +510,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_custom_task with full=true param."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={"assignmentId": 456, "customTask": {}}
-        )
+        mock_response.json = AsyncMock(return_value={"assignmentId": 456, "customTask": {}})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -579,7 +564,7 @@ class TestClaimXApiClientEndpoints:
 
         with patch("aiohttp.ClientSession.request", return_value=mock_response) as mock_req:
             async with api_client:
-                result = await api_client.get_video_collaboration("123")
+                await api_client.get_video_collaboration("123")
 
                 # Check POST was made to /data
                 assert mock_req.call_args[0][0] == "POST"
@@ -598,14 +583,12 @@ class TestClaimXApiClientEndpoints:
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 12, 31, tzinfo=UTC)
 
         with patch("aiohttp.ClientSession.request", return_value=mock_response) as mock_req:
             async with api_client:
-                await api_client.get_video_collaboration(
-                    "123", start_date=start, end_date=end
-                )
+                await api_client.get_video_collaboration("123", start_date=start, end_date=end)
 
                 body = mock_req.call_args[1]["json"]
                 assert body["startDate"] == start.isoformat()
@@ -616,9 +599,7 @@ class TestClaimXApiClientEndpoints:
         """Test get_project_conversations normalizes response to list."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={"conversations": [{"conversationId": 1}]}
-        )
+        mock_response.json = AsyncMock(return_value={"conversations": [{"conversationId": 1}]})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 

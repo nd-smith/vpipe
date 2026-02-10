@@ -12,14 +12,12 @@ from core.auth.eventhub_oauth import (
     get_eventhub_oauth_token,
 )
 
-
 # ---------------------------------------------------------------------------
 # create_eventhub_oauth_callback
 # ---------------------------------------------------------------------------
 
 
 class TestCreateEventhubOauthCallback:
-
     def test_returns_callable(self):
         provider = MagicMock(spec=AzureCredentialProvider)
         provider.auth_mode = "spn_secret"
@@ -28,9 +26,7 @@ class TestCreateEventhubOauthCallback:
 
     @patch.dict("os.environ", {"AZURE_CLIENT_ID": "cid"}, clear=False)
     def test_creates_provider_from_env_when_none_given(self):
-        with patch(
-            "core.auth.eventhub_oauth.AzureCredentialProvider"
-        ) as mock_provider_cls:
+        with patch("core.auth.eventhub_oauth.AzureCredentialProvider") as mock_provider_cls:
             mock_provider_cls.return_value.auth_mode = "none"
             callback = create_eventhub_oauth_callback()
             mock_provider_cls.assert_called_once()
@@ -108,16 +104,13 @@ class TestCreateEventhubOauthCallback:
 
 
 class TestGetEventhubOauthToken:
-
     def test_returns_token_with_provided_provider(self):
         provider = MagicMock(spec=AzureCredentialProvider)
         provider.get_token_for_resource.return_value = "test-tok"
 
         result = get_eventhub_oauth_token(provider)
         assert result == "test-tok"
-        provider.get_token_for_resource.assert_called_once_with(
-            EVENTHUB_RESOURCE, False
-        )
+        provider.get_token_for_resource.assert_called_once_with(EVENTHUB_RESOURCE, False)
 
     def test_passes_force_refresh(self):
         provider = MagicMock(spec=AzureCredentialProvider)
@@ -125,15 +118,11 @@ class TestGetEventhubOauthToken:
 
         result = get_eventhub_oauth_token(provider, force_refresh=True)
         assert result == "test-fresh-tok"
-        provider.get_token_for_resource.assert_called_once_with(
-            EVENTHUB_RESOURCE, True
-        )
+        provider.get_token_for_resource.assert_called_once_with(EVENTHUB_RESOURCE, True)
 
     @patch.dict("os.environ", {"AZURE_CLIENT_ID": "cid"}, clear=False)
     def test_creates_provider_when_none_given(self):
-        with patch(
-            "core.auth.eventhub_oauth.AzureCredentialProvider"
-        ) as mock_provider_cls:
+        with patch("core.auth.eventhub_oauth.AzureCredentialProvider") as mock_provider_cls:
             mock_provider_cls.return_value.get_token_for_resource.return_value = "tok"
             result = get_eventhub_oauth_token()
             assert result == "tok"
@@ -162,6 +151,5 @@ class TestGetEventhubOauthToken:
 
 
 class TestConstants:
-
     def test_eventhub_resource_url(self):
         assert EVENTHUB_RESOURCE == "https://eventhubs.azure.net/"

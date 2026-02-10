@@ -17,7 +17,6 @@ from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import (
     detect_log_output_mode,
-    format_cycle_output,
     log_startup_banner,
     log_worker_error,
 )
@@ -84,12 +83,8 @@ class ClaimXEnrichmentWorker:
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.instance_id = instance_id
-        self.enrichment_topic = enrichment_topic or config.get_topic(
-            domain, "enrichment_pending"
-        )
-        self.download_topic = download_topic or config.get_topic(
-            domain, "downloads_pending"
-        )
+        self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
+        self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
         self.entity_rows_topic = config.get_topic(domain, "enriched")
         self.enable_delta_writes = enable_delta_writes
 
@@ -104,9 +99,7 @@ class ClaimXEnrichmentWorker:
             self.worker_id = self.WORKER_NAME
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
-        self.processing_config = config.get_worker_config(
-            domain, "enrichment_worker", "processing"
-        )
+        self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
@@ -152,9 +145,7 @@ class ClaimXEnrichmentWorker:
                 "worker_id": self.worker_id,
                 "worker_name": self.WORKER_NAME,
                 "instance_id": instance_id,
-                "consumer_group": config.get_consumer_group(
-                    domain, "enrichment_worker"
-                ),
+                "consumer_group": config.get_consumer_group(domain, "enrichment_worker"),
                 "enrichment_topic": self.enrichment_topic,
                 "download_topic": self.download_topic,
                 "delta_writes_enabled": self.enable_delta_writes,
@@ -168,9 +159,7 @@ class ClaimXEnrichmentWorker:
     async def _preload_project_cache(self) -> None:
         """Preload project cache with existing project IDs from Delta table to reduce API calls."""
         if not self._projects_table_path:
-            logger.warning(
-                "Cannot preload project cache - projects_table_path not configured"
-            )
+            logger.warning("Cannot preload project cache - projects_table_path not configured")
             return
 
         try:
@@ -393,7 +382,6 @@ class ClaimXEnrichmentWorker:
 
         await self._process_single_task(task)
 
-
     async def _dispatch_entity_rows(
         self,
         task: ClaimXEnrichmentTask,
@@ -427,9 +415,7 @@ class ClaimXEnrichmentWorker:
         if not entity_rows.media:
             return
 
-        download_tasks = DownloadTaskFactory.create_download_tasks_from_media(
-            entity_rows.media
-        )
+        download_tasks = DownloadTaskFactory.create_download_tasks_from_media(entity_rows.media)
         if download_tasks:
             await self._produce_download_tasks(download_tasks)
 

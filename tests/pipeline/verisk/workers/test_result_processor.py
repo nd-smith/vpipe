@@ -15,15 +15,16 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import asyncio
-import pytest
+import contextlib
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from config.config import MessageConfig
+from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.workers.result_processor import ResultProcessor
-from pipeline.common.types import PipelineMessage
 
 
 @pytest.fixture
@@ -207,24 +208,21 @@ class TestResultProcessorLifecycle:
             inventory_table_path="abfss://test/xact_attachments",
         )
 
-        with patch(
-            "pipeline.verisk.workers.result_processor.create_consumer"
-        ) as mock_create_consumer, patch(
-            "pipeline.common.telemetry.initialize_worker_telemetry"
-        ), patch.object(
-            processor.health_server, "start", new_callable=AsyncMock
-        ), patch.object(
-            processor._retry_handler, "start", new_callable=AsyncMock
+        with (
+            patch(
+                "pipeline.verisk.workers.result_processor.create_consumer"
+            ) as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+            patch.object(processor.health_server, "start", new_callable=AsyncMock),
+            patch.object(processor._retry_handler, "start", new_callable=AsyncMock),
         ):
             # Setup mock consumer
             mock_consumer = AsyncMock()
             mock_consumer.start = AsyncMock(side_effect=Exception("Stop"))
             mock_create_consumer.return_value = mock_consumer
 
-            try:
+            with contextlib.suppress(Exception):
                 await processor.start()
-            except Exception:
-                pass
 
             # Verify components were initialized
             assert processor._running is False  # Reset in finally

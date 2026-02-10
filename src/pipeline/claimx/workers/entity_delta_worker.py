@@ -16,7 +16,7 @@ from pipeline.claimx.writers.delta_entities import ClaimXEntityWriter
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
-from pipeline.common.transport import create_consumer, create_producer
+from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
@@ -55,9 +55,7 @@ class ClaimXEntityDeltaWorker:
         """
         Initialize ClaimX entity delta worker.
         """
-        self._entity_rows_topic = entity_rows_topic or config.get_topic(
-            domain, "enriched"
-        )
+        self._entity_rows_topic = entity_rows_topic or config.get_topic(domain, "enriched")
         self._consumer_config = config
 
         # Consumer created in start() (create_consumer is async)
@@ -87,13 +85,9 @@ class ClaimXEntityDeltaWorker:
         )
 
         # Get processing config
-        processing_config = config.get_worker_config(
-            domain, "entity_delta_writer", "processing"
-        )
+        processing_config = config.get_worker_config(domain, "entity_delta_writer", "processing")
         self.batch_size = processing_config.get("batch_size", 100)
-        self.batch_timeout_seconds = processing_config.get(
-            "batch_timeout_seconds", 30.0
-        )
+        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 30.0)
         self.max_retries = processing_config.get("max_retries", 3)
 
         # Retry config
@@ -505,9 +499,7 @@ class ClaimXEntityDeltaWorker:
                     self._cycle_count += 1
                     self._last_cycle_log = time_module.monotonic()
 
-                    processed_cycle = (
-                        self._records_processed - self._last_cycle_processed
-                    )
+                    processed_cycle = self._records_processed - self._last_cycle_processed
                     errors_cycle = self._records_failed - self._last_cycle_failed
 
                     cycle_msg = format_cycle_output(

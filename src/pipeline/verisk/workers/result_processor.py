@@ -133,9 +133,7 @@ class ResultProcessor:
         self._inventory_writer = DeltaInventoryWriter(table_path=inventory_table_path)
         self._failed_writer: DeltaFailedAttachmentsWriter | None = None
         if failed_table_path:
-            self._failed_writer = DeltaFailedAttachmentsWriter(
-                table_path=failed_table_path
-            )
+            self._failed_writer = DeltaFailedAttachmentsWriter(table_path=failed_table_path)
 
         # Retry handler for failed Delta writes
         self._retry_handler = DeltaRetryHandler(
@@ -176,9 +174,7 @@ class ResultProcessor:
         self._running = False
 
         # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(
-            self.domain, self.worker_name, "processing"
-        )
+        processing_config = config.get_worker_config(self.domain, self.worker_name, "processing")
         health_port = processing_config.get("health_port", 8094)
         self.health_server = HealthCheckServer(
             port=health_port,
@@ -396,13 +392,9 @@ class ResultProcessor:
                     "trace_id": result.trace_id,
                     "status": result.status,
                     "reason": (
-                        "transient"
-                        if result.status == "failed_transient"
-                        else "no_failed_writer"
+                        "transient" if result.status == "failed_transient" else "no_failed_writer"
                     ),
-                    "attachment_url": result.attachment_url[
-                        :100
-                    ],  # truncate for logging
+                    "attachment_url": result.attachment_url[:100],  # truncate for logging
                 },
             )
 
@@ -641,9 +633,7 @@ class ResultProcessor:
     @property
     def is_running(self) -> bool:
         """Check if result processor is running."""
-        return (
-            self._running and self._consumer is not None and self._consumer.is_running
-        )
+        return self._running and self._consumer is not None and self._consumer.is_running
 
 
 __all__ = [

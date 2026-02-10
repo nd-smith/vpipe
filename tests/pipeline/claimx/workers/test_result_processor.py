@@ -15,10 +15,12 @@ No infrastructure required - all dependencies mocked.
 """
 
 import asyncio
+import contextlib
 import json
-import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from config.config import MessageConfig
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
@@ -175,22 +177,20 @@ class TestClaimXResultProcessorLifecycle:
         """Processor start initializes all components."""
         processor = ClaimXResultProcessor(config=mock_config)
 
-        with patch(
-            "pipeline.claimx.workers.result_processor.create_consumer"
-        ) as mock_create_consumer, patch(
-            "pipeline.common.telemetry.initialize_worker_telemetry"
-        ), patch.object(
-            processor.health_server, "start", new_callable=AsyncMock
+        with (
+            patch(
+                "pipeline.claimx.workers.result_processor.create_consumer"
+            ) as mock_create_consumer,
+            patch("pipeline.common.telemetry.initialize_worker_telemetry"),
+            patch.object(processor.health_server, "start", new_callable=AsyncMock),
         ):
             # Setup mock consumer
             mock_consumer = AsyncMock()
             mock_consumer.start = AsyncMock(side_effect=Exception("Stop"))
             mock_create_consumer.return_value = mock_consumer
 
-            try:
+            with contextlib.suppress(Exception):
                 await processor.start()
-            except Exception:
-                pass
 
             # Verify components were initialized
             assert processor._running is False  # Reset in finally
@@ -237,9 +237,7 @@ class TestClaimXResultProcessorMessageProcessing:
     """Test message parsing and processing."""
 
     @pytest.mark.asyncio
-    async def test_success_result_parsed_successfully(
-        self, mock_config, sample_success_message
-    ):
+    async def test_success_result_parsed_successfully(self, mock_config, sample_success_message):
         """Processor parses successful result message."""
         processor = ClaimXResultProcessor(config=mock_config)
 
@@ -251,9 +249,7 @@ class TestClaimXResultProcessorMessageProcessing:
         assert processor._records_failed == 0
 
     @pytest.mark.asyncio
-    async def test_failure_result_parsed_successfully(
-        self, mock_config, sample_failure_message
-    ):
+    async def test_failure_result_parsed_successfully(self, mock_config, sample_failure_message):
         """Processor parses failed result message."""
         processor = ClaimXResultProcessor(config=mock_config)
 
@@ -289,9 +285,7 @@ class TestClaimXResultProcessorBatching:
     """Test batch accumulation and flushing."""
 
     @pytest.mark.asyncio
-    async def test_batch_accumulates_success_results(
-        self, mock_config, sample_success_message
-    ):
+    async def test_batch_accumulates_success_results(self, mock_config, sample_success_message):
         """Processor accumulates successful results in batch."""
         processor = ClaimXResultProcessor(
             config=mock_config,
@@ -308,9 +302,7 @@ class TestClaimXResultProcessorBatching:
         assert processor._records_succeeded == 3
 
     @pytest.mark.asyncio
-    async def test_batch_flushes_on_size_threshold(
-        self, mock_config, sample_success_message
-    ):
+    async def test_batch_flushes_on_size_threshold(self, mock_config, sample_success_message):
         """Processor flushes batch when size threshold reached."""
         processor = ClaimXResultProcessor(
             config=mock_config,

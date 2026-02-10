@@ -206,6 +206,7 @@ class EventHubProducer:
             # EventHubProducerClient uses aiohttp internally with AmqpOverWebsocket
             # and doesn't always close sessions cleanly on exit
             import asyncio
+
             await asyncio.sleep(0.250)
 
     async def send(
@@ -335,9 +336,7 @@ class EventHubProducer:
 
         # Validate topic
         if topic != self.eventhub_name:
-            logger.warning(
-                f"Topic mismatch: requested '{topic}', using '{self.eventhub_name}'"
-            )
+            logger.warning(f"Topic mismatch: requested '{topic}', using '{self.eventhub_name}'")
 
         logger.info(
             "Sending batch to Event Hub",

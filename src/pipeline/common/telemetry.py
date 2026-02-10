@@ -81,9 +81,7 @@ def initialize_telemetry(
             _telemetry_available = True
             logger.info("Prometheus client loaded successfully")
     except ImportError as e:
-        logger.warning(
-            f"prometheus-client not available: {e}. Metrics will be disabled."
-        )
+        logger.warning(f"prometheus-client not available: {e}. Metrics will be disabled.")
         enable_metrics = False
 
     _initialized = True

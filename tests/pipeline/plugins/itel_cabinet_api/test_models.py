@@ -9,7 +9,6 @@ from pipeline.plugins.itel_cabinet_api.models import (
     TaskEvent,
 )
 
-
 # =====================
 # TaskEvent tests
 # =====================
@@ -79,7 +78,7 @@ class TestTaskEvent:
         }
         try:
             TaskEvent.from_kafka_message(raw)
-            assert False, "Should have raised ValueError"
+            raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "event_type" in str(e)
 

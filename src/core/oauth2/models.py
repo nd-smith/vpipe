@@ -24,9 +24,7 @@ class OAuth2Token:
     refresh_token: str | None = None
 
     @classmethod
-    def from_response(
-        cls, response: dict, expires_in: int | None = None
-    ) -> "OAuth2Token":
+    def from_response(cls, response: dict, expires_in: int | None = None) -> "OAuth2Token":
         """
         Create token from OAuth2 token response.
 

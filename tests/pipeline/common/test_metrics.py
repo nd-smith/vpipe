@@ -13,9 +13,8 @@ Test Coverage:
 No prometheus infrastructure required - all tests use mocks.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 import sys
+from unittest.mock import Mock, patch
 
 
 class TestNoOpMetric:
@@ -77,8 +76,8 @@ class TestLazyInitialization:
         mock_prometheus = Mock()
 
         with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            from pipeline.common.metrics import _ensure_prometheus
             import pipeline.common.metrics as metrics_module
+            from pipeline.common.metrics import _ensure_prometheus
 
             result = _ensure_prometheus()
 
@@ -88,8 +87,9 @@ class TestLazyInitialization:
 
     def test_ensure_prometheus_handles_import_error(self):
         """_ensure_prometheus handles missing prometheus_client."""
-        import pipeline.common.metrics as metrics_module
         import builtins
+
+        import pipeline.common.metrics as metrics_module
 
         # Reset state
         metrics_module._prometheus_client = None
@@ -150,6 +150,7 @@ class TestRegistryIntegration:
         with patch.dict("sys.modules", {"pipeline.common.telemetry": None}):
             # Force re-import of _get_registry to trigger ImportError path
             import importlib
+
             import pipeline.common.metrics
 
             importlib.reload(pipeline.common.metrics)
@@ -180,29 +181,29 @@ class TestMetricCreation:
         mock_prometheus = Mock()
         mock_prometheus.Counter = mock_counter_class
 
-        with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            with patch(
+        with (
+            patch.dict(sys.modules, {"prometheus_client": mock_prometheus}),
+            patch(
                 "pipeline.common.telemetry.get_prometheus_registry",
                 return_value=mock_registry,
-            ):
-                from pipeline.common.metrics import _create_counter
+            ),
+        ):
+            from pipeline.common.metrics import _create_counter
 
-                result = _create_counter(
-                    "test_counter", "Test counter", labelnames=["label1"]
-                )
+            result = _create_counter("test_counter", "Test counter", labelnames=["label1"])
 
-                assert result is mock_counter_instance
-                mock_counter_class.assert_called_once_with(
-                    "test_counter",
-                    "Test counter",
-                    labelnames=["label1"],
-                    registry=mock_registry,
-                )
+            assert result is mock_counter_instance
+            mock_counter_class.assert_called_once_with(
+                "test_counter",
+                "Test counter",
+                labelnames=["label1"],
+                registry=mock_registry,
+            )
 
     def test_create_counter_returns_noop_when_prometheus_unavailable(self):
         """_create_counter returns NoOpMetric when prometheus unavailable."""
         with patch("pipeline.common.metrics._ensure_prometheus", return_value=False):
-            from pipeline.common.metrics import _create_counter, NoOpMetric
+            from pipeline.common.metrics import NoOpMetric, _create_counter
 
             result = _create_counter("test_counter", "Test counter")
 
@@ -212,15 +213,15 @@ class TestMetricCreation:
         """_create_counter returns NoOpMetric when registry unavailable."""
         mock_prometheus = Mock()
 
-        with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            with patch(
-                "pipeline.common.telemetry.get_prometheus_registry", return_value=None
-            ):
-                from pipeline.common.metrics import _create_counter, NoOpMetric
+        with (
+            patch.dict(sys.modules, {"prometheus_client": mock_prometheus}),
+            patch("pipeline.common.telemetry.get_prometheus_registry", return_value=None),
+        ):
+            from pipeline.common.metrics import NoOpMetric, _create_counter
 
-                result = _create_counter("test_counter", "Test counter")
+            result = _create_counter("test_counter", "Test counter")
 
-                assert isinstance(result, NoOpMetric)
+            assert isinstance(result, NoOpMetric)
 
     def test_create_counter_handles_duplicate_registration(self):
         """_create_counter returns existing counter on duplicate registration."""
@@ -234,16 +235,18 @@ class TestMetricCreation:
         mock_prometheus = Mock()
         mock_prometheus.Counter = mock_counter_class
 
-        with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            with patch(
+        with (
+            patch.dict(sys.modules, {"prometheus_client": mock_prometheus}),
+            patch(
                 "pipeline.common.telemetry.get_prometheus_registry",
                 return_value=mock_registry,
-            ):
-                from pipeline.common.metrics import _create_counter
+            ),
+        ):
+            from pipeline.common.metrics import _create_counter
 
-                result = _create_counter("test_counter", "Test counter")
+            result = _create_counter("test_counter", "Test counter")
 
-                assert result is mock_existing_counter
+            assert result is mock_existing_counter
 
     def test_create_gauge_returns_real_gauge(self):
         """_create_gauge returns real Gauge when prometheus available."""
@@ -255,24 +258,24 @@ class TestMetricCreation:
         mock_prometheus = Mock()
         mock_prometheus.Gauge = mock_gauge_class
 
-        with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            with patch(
+        with (
+            patch.dict(sys.modules, {"prometheus_client": mock_prometheus}),
+            patch(
                 "pipeline.common.telemetry.get_prometheus_registry",
                 return_value=mock_registry,
-            ):
-                from pipeline.common.metrics import _create_gauge
+            ),
+        ):
+            from pipeline.common.metrics import _create_gauge
 
-                result = _create_gauge(
-                    "test_gauge", "Test gauge", labelnames=["label1"]
-                )
+            result = _create_gauge("test_gauge", "Test gauge", labelnames=["label1"])
 
-                assert result is mock_gauge_instance
-                mock_gauge_class.assert_called_once_with(
-                    "test_gauge",
-                    "Test gauge",
-                    labelnames=["label1"],
-                    registry=mock_registry,
-                )
+            assert result is mock_gauge_instance
+            mock_gauge_class.assert_called_once_with(
+                "test_gauge",
+                "Test gauge",
+                labelnames=["label1"],
+                registry=mock_registry,
+            )
 
     def test_create_histogram_returns_real_histogram(self):
         """_create_histogram returns real Histogram when prometheus available."""
@@ -284,28 +287,30 @@ class TestMetricCreation:
         mock_prometheus = Mock()
         mock_prometheus.Histogram = mock_histogram_class
 
-        with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            with patch(
+        with (
+            patch.dict(sys.modules, {"prometheus_client": mock_prometheus}),
+            patch(
                 "pipeline.common.telemetry.get_prometheus_registry",
                 return_value=mock_registry,
-            ):
-                from pipeline.common.metrics import _create_histogram
+            ),
+        ):
+            from pipeline.common.metrics import _create_histogram
 
-                result = _create_histogram(
-                    "test_histogram",
-                    "Test histogram",
-                    labelnames=["label1"],
-                    buckets=[0.1, 0.5, 1.0],
-                )
+            result = _create_histogram(
+                "test_histogram",
+                "Test histogram",
+                labelnames=["label1"],
+                buckets=[0.1, 0.5, 1.0],
+            )
 
-                assert result is mock_histogram_instance
-                mock_histogram_class.assert_called_once_with(
-                    name="test_histogram",
-                    documentation="Test histogram",
-                    labelnames=["label1"],
-                    registry=mock_registry,
-                    buckets=[0.1, 0.5, 1.0],
-                )
+            assert result is mock_histogram_instance
+            mock_histogram_class.assert_called_once_with(
+                name="test_histogram",
+                documentation="Test histogram",
+                labelnames=["label1"],
+                registry=mock_registry,
+                buckets=[0.1, 0.5, 1.0],
+            )
 
     def test_create_histogram_without_buckets(self):
         """_create_histogram works without custom buckets."""
@@ -317,19 +322,21 @@ class TestMetricCreation:
         mock_prometheus = Mock()
         mock_prometheus.Histogram = mock_histogram_class
 
-        with patch.dict(sys.modules, {"prometheus_client": mock_prometheus}):
-            with patch(
+        with (
+            patch.dict(sys.modules, {"prometheus_client": mock_prometheus}),
+            patch(
                 "pipeline.common.telemetry.get_prometheus_registry",
                 return_value=mock_registry,
-            ):
-                from pipeline.common.metrics import _create_histogram
+            ),
+        ):
+            from pipeline.common.metrics import _create_histogram
 
-                result = _create_histogram("test_histogram", "Test histogram")
+            result = _create_histogram("test_histogram", "Test histogram")
 
-                assert result is mock_histogram_instance
-                # Verify buckets not in call
-                call_kwargs = mock_histogram_class.call_args[1]
-                assert "buckets" not in call_kwargs
+            assert result is mock_histogram_instance
+            # Verify buckets not in call
+            call_kwargs = mock_histogram_class.call_args[1]
+            assert "buckets" not in call_kwargs
 
 
 class TestConvenienceFunctions:
@@ -341,9 +348,7 @@ class TestConvenienceFunctions:
         mock_labels = Mock()
         mock_counter.labels.return_value = mock_labels
 
-        with patch(
-            "pipeline.common.metrics.messages_produced_counter", mock_counter
-        ):
+        with patch("pipeline.common.metrics.messages_produced_counter", mock_counter):
             from pipeline.common.metrics import record_message_produced
 
             record_message_produced("test-topic", 100)
@@ -361,21 +366,19 @@ class TestConvenienceFunctions:
         mock_error_labels = Mock()
         mock_error_counter.labels.return_value = mock_error_labels
 
-        with patch(
-            "pipeline.common.metrics.messages_produced_counter", mock_produced_counter
+        with (
+            patch("pipeline.common.metrics.messages_produced_counter", mock_produced_counter),
+            patch("pipeline.common.metrics.producer_errors_counter", mock_error_counter),
         ):
-            with patch(
-                "pipeline.common.metrics.producer_errors_counter", mock_error_counter
-            ):
-                from pipeline.common.metrics import record_message_produced
+            from pipeline.common.metrics import record_message_produced
 
-                record_message_produced("test-topic", 100, success=False)
+            record_message_produced("test-topic", 100, success=False)
 
-                mock_produced_labels.inc.assert_called_once()
-                mock_error_counter.labels.assert_called_once_with(
-                    topic="test-topic", error_type="send_failed"
-                )
-                mock_error_labels.inc.assert_called_once()
+            mock_produced_labels.inc.assert_called_once()
+            mock_error_counter.labels.assert_called_once_with(
+                topic="test-topic", error_type="send_failed"
+            )
+            mock_error_labels.inc.assert_called_once()
 
     def test_record_message_consumed_increments_counter(self):
         """record_message_consumed increments counter with correct labels."""
@@ -383,9 +386,7 @@ class TestConvenienceFunctions:
         mock_labels = Mock()
         mock_counter.labels.return_value = mock_labels
 
-        with patch(
-            "pipeline.common.metrics.messages_consumed_counter", mock_counter
-        ):
+        with patch("pipeline.common.metrics.messages_consumed_counter", mock_counter):
             from pipeline.common.metrics import record_message_consumed
 
             record_message_consumed("test-topic", "test-group", 100)
@@ -405,23 +406,21 @@ class TestConvenienceFunctions:
         mock_error_labels = Mock()
         mock_error_counter.labels.return_value = mock_error_labels
 
-        with patch(
-            "pipeline.common.metrics.messages_consumed_counter", mock_consumed_counter
+        with (
+            patch("pipeline.common.metrics.messages_consumed_counter", mock_consumed_counter),
+            patch("pipeline.common.metrics.processing_errors_counter", mock_error_counter),
         ):
-            with patch(
-                "pipeline.common.metrics.processing_errors_counter", mock_error_counter
-            ):
-                from pipeline.common.metrics import record_message_consumed
+            from pipeline.common.metrics import record_message_consumed
 
-                record_message_consumed("test-topic", "test-group", 100, success=False)
+            record_message_consumed("test-topic", "test-group", 100, success=False)
 
-                mock_consumed_labels.inc.assert_called_once()
-                mock_error_counter.labels.assert_called_once_with(
-                    topic="test-topic",
-                    consumer_group="test-group",
-                    error_category="processing_failed",
-                )
-                mock_error_labels.inc.assert_called_once()
+            mock_consumed_labels.inc.assert_called_once()
+            mock_error_counter.labels.assert_called_once_with(
+                topic="test-topic",
+                consumer_group="test-group",
+                error_category="processing_failed",
+            )
+            mock_error_labels.inc.assert_called_once()
 
     def test_record_processing_error(self):
         """record_processing_error increments error counter."""
@@ -429,9 +428,7 @@ class TestConvenienceFunctions:
         mock_labels = Mock()
         mock_counter.labels.return_value = mock_labels
 
-        with patch(
-            "pipeline.common.metrics.processing_errors_counter", mock_counter
-        ):
+        with patch("pipeline.common.metrics.processing_errors_counter", mock_counter):
             from pipeline.common.metrics import record_processing_error
 
             record_processing_error("test-topic", "test-group", "schema_error")
@@ -454,9 +451,7 @@ class TestConvenienceFunctions:
 
             record_producer_error("test-topic", "timeout")
 
-            mock_counter.labels.assert_called_once_with(
-                topic="test-topic", error_type="timeout"
-            )
+            mock_counter.labels.assert_called_once_with(topic="test-topic", error_type="timeout")
             mock_labels.inc.assert_called_once()
 
     def test_update_consumer_lag(self):
@@ -497,9 +492,7 @@ class TestConvenienceFunctions:
         mock_labels = Mock()
         mock_gauge.labels.return_value = mock_labels
 
-        with patch(
-            "pipeline.common.metrics.kafka_connection_status_gauge", mock_gauge
-        ):
+        with patch("pipeline.common.metrics.kafka_connection_status_gauge", mock_gauge):
             from pipeline.common.metrics import update_connection_status
 
             update_connection_status("producer", True)
@@ -513,9 +506,7 @@ class TestConvenienceFunctions:
         mock_labels = Mock()
         mock_gauge.labels.return_value = mock_labels
 
-        with patch(
-            "pipeline.common.metrics.kafka_connection_status_gauge", mock_gauge
-        ):
+        with patch("pipeline.common.metrics.kafka_connection_status_gauge", mock_gauge):
             from pipeline.common.metrics import update_connection_status
 
             update_connection_status("consumer", False)
@@ -529,9 +520,7 @@ class TestConvenienceFunctions:
         mock_labels = Mock()
         mock_gauge.labels.return_value = mock_labels
 
-        with patch(
-            "pipeline.common.metrics.consumer_assigned_partitions_gauge", mock_gauge
-        ):
+        with patch("pipeline.common.metrics.consumer_assigned_partitions_gauge", mock_gauge):
             from pipeline.common.metrics import update_assigned_partitions
 
             update_assigned_partitions("test-group", 3)
@@ -550,9 +539,7 @@ class TestConvenienceFunctions:
 
             record_delta_write("events_table", 10, success=True)
 
-            mock_counter.labels.assert_called_once_with(
-                table="events_table", success="true"
-            )
+            mock_counter.labels.assert_called_once_with(table="events_table", success="true")
             mock_labels.inc.assert_called_once()
 
     def test_record_delta_write_failure(self):
@@ -566,9 +553,7 @@ class TestConvenienceFunctions:
 
             record_delta_write("events_table", 10, success=False)
 
-            mock_counter.labels.assert_called_once_with(
-                table="events_table", success="false"
-            )
+            mock_counter.labels.assert_called_once_with(table="events_table", success="false")
             mock_labels.inc.assert_called_once()
 
     def test_record_dlq_message(self):
@@ -604,53 +589,49 @@ class TestConvenienceFunctions:
         # shutil.disk_usage returns a named tuple with total, used, free
         mock_disk_usage = Mock(total=100_000, used=60_000, free=40_000)
 
-        with patch("pipeline.common.metrics.disk_usage_bytes_gauge", mock_usage_gauge):
-            with patch(
+        with (
+            patch("pipeline.common.metrics.disk_usage_bytes_gauge", mock_usage_gauge),
+            patch(
                 "pipeline.common.metrics.disk_available_bytes_gauge",
                 mock_available_gauge,
-            ):
-                with patch(
-                    "pipeline.common.metrics.disk_usage_ratio_gauge", mock_ratio_gauge
-                ):
-                    with patch(
-                        "pipeline.common.metrics.shutil.disk_usage",
-                        return_value=mock_disk_usage,
-                    ):
-                        from pipeline.common.metrics import update_disk_usage
+            ),
+            patch("pipeline.common.metrics.disk_usage_ratio_gauge", mock_ratio_gauge),
+            patch(
+                "pipeline.common.metrics.shutil.disk_usage",
+                return_value=mock_disk_usage,
+            ),
+        ):
+            from pipeline.common.metrics import update_disk_usage
 
-                        update_disk_usage("/ad/nas/verisk/tmp")
+            update_disk_usage("/ad/nas/verisk/tmp")
 
-                        mock_usage_gauge.labels.assert_called_once_with(
-                            path="/ad/nas/verisk/tmp"
-                        )
-                        mock_usage_labels.set.assert_called_once_with(60_000)
+            mock_usage_gauge.labels.assert_called_once_with(path="/ad/nas/verisk/tmp")
+            mock_usage_labels.set.assert_called_once_with(60_000)
 
-                        mock_available_gauge.labels.assert_called_once_with(
-                            path="/ad/nas/verisk/tmp"
-                        )
-                        mock_available_labels.set.assert_called_once_with(40_000)
+            mock_available_gauge.labels.assert_called_once_with(path="/ad/nas/verisk/tmp")
+            mock_available_labels.set.assert_called_once_with(40_000)
 
-                        mock_ratio_gauge.labels.assert_called_once_with(
-                            path="/ad/nas/verisk/tmp"
-                        )
-                        mock_ratio_labels.set.assert_called_once_with(0.6)
+            mock_ratio_gauge.labels.assert_called_once_with(path="/ad/nas/verisk/tmp")
+            mock_ratio_labels.set.assert_called_once_with(0.6)
 
     def test_update_disk_usage_handles_oserror(self):
         """update_disk_usage silently handles OSError for missing paths."""
         mock_gauge = Mock()
 
-        with patch("pipeline.common.metrics.disk_usage_bytes_gauge", mock_gauge):
-            with patch(
+        with (
+            patch("pipeline.common.metrics.disk_usage_bytes_gauge", mock_gauge),
+            patch(
                 "pipeline.common.metrics.shutil.disk_usage",
                 side_effect=OSError("No such file"),
-            ):
-                from pipeline.common.metrics import update_disk_usage
+            ),
+        ):
+            from pipeline.common.metrics import update_disk_usage
 
-                # Should not raise
-                update_disk_usage("/nonexistent/path")
+            # Should not raise
+            update_disk_usage("/nonexistent/path")
 
-                # Gauge should not be touched
-                mock_gauge.labels.assert_not_called()
+            # Gauge should not be touched
+            mock_gauge.labels.assert_not_called()
 
 
 class TestModuleLevelMetrics:
@@ -699,9 +680,9 @@ class TestModuleLevelMetrics:
 
         # Should not raise even if prometheus unavailable
         metrics.messages_produced_counter.labels(topic="test").inc()
-        metrics.consumer_lag_gauge.labels(
-            topic="test", partition="0", consumer_group="group"
-        ).set(42)
+        metrics.consumer_lag_gauge.labels(topic="test", partition="0", consumer_group="group").set(
+            42
+        )
         metrics.message_processing_duration_seconds.labels(
             topic="test", consumer_group="group"
         ).observe(0.5)

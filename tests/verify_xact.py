@@ -1,11 +1,11 @@
-
-import sys
 import os
+import sys
 
-sys.path.append(os.path.join(os.getcwd(), 'src'))
+sys.path.append(os.path.join(os.getcwd(), "src"))
 
 try:
-    from pipeline.common.metrics import uploads_concurrent, update_uploads_concurrent
+    from pipeline.common.metrics import update_uploads_concurrent, uploads_concurrent  # noqa: F401
+
     print("✅ Successfully imported uploads_concurrent from pipeline.common.metrics")
 except ImportError as e:
     print(f"❌ Failed to import uploads_concurrent: {e}")

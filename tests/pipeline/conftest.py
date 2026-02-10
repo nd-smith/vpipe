@@ -14,10 +14,8 @@ IMPORTANT: Docker/Kafka fixtures only run when tests are marked with
 """
 
 import os
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
-from typing import AsyncGenerator, Dict, Generator, List, Optional
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -42,7 +40,7 @@ class MockOneLakeClient:
 
     def __init__(self, base_path: str = ""):
         self.base_path = base_path
-        self.uploaded_files: Dict[str, bytes] = {}
+        self.uploaded_files: dict[str, bytes] = {}
         self.upload_count = 0
         self.is_open = False
 
@@ -54,7 +52,9 @@ class MockOneLakeClient:
         self.is_open = False
         return False
 
-    async def upload_file(self, relative_path: str, local_path: Path, overwrite: bool = True) -> str:
+    async def upload_file(
+        self, relative_path: str, local_path: Path, overwrite: bool = True
+    ) -> str:
         if not local_path.exists():
             raise FileNotFoundError(f"Local file not found: {local_path}")
         content = local_path.read_bytes()
@@ -68,7 +68,7 @@ class MockOneLakeClient:
     async def close(self) -> None:
         self.is_open = False
 
-    def get_uploaded_content(self, blob_path: str) -> Optional[bytes]:
+    def get_uploaded_content(self, blob_path: str) -> bytes | None:
         return self.uploaded_files.get(blob_path)
 
     def clear(self) -> None:
@@ -82,12 +82,12 @@ class MockDeltaEventsWriter:
     def __init__(self, table_path: str = "", dedupe_window_hours: int = 24):
         self.table_path = table_path
         self.dedupe_window_hours = dedupe_window_hours
-        self.written_events: List[Dict] = []
+        self.written_events: list[dict] = []
         self.write_count = 0
         self.dedupe_hits = 0
         self._seen_trace_ids = set()
 
-    async def write_event(self, event: Dict) -> None:
+    async def write_event(self, event: dict) -> None:
         if hasattr(event, "model_dump"):
             event_dict = event.model_dump(mode="json")
             trace_id = event.trace_id
@@ -103,7 +103,7 @@ class MockDeltaEventsWriter:
         self.written_events.append(event_dict)
         self.write_count += 1
 
-    def get_events_by_trace_id(self, trace_id: str) -> List[Dict]:
+    def get_events_by_trace_id(self, trace_id: str) -> list[dict]:
         return [e for e in self.written_events if e.get("trace_id") == trace_id]
 
     def clear(self) -> None:
@@ -118,12 +118,12 @@ class MockDeltaInventoryWriter:
 
     def __init__(self, table_path: str = ""):
         self.table_path = table_path
-        self.inventory_records: List[Dict] = []
+        self.inventory_records: list[dict] = []
         self.write_count = 0
         self.merge_count = 0
         self._record_keys = {}
 
-    async def write_results(self, results: List) -> bool:
+    async def write_results(self, results: list) -> bool:
         for result in results:
             if hasattr(result, "model_dump"):
                 record = result.model_dump(mode="json")
@@ -147,7 +147,7 @@ class MockDeltaInventoryWriter:
         self.write_count += 1
         return True
 
-    def get_records_by_trace_id(self, trace_id: str) -> List[Dict]:
+    def get_records_by_trace_id(self, trace_id: str) -> list[dict]:
         return [r for r in self.inventory_records if r.get("trace_id") == trace_id]
 
     def clear(self) -> None:
@@ -190,7 +190,7 @@ def mock_storage(
     mock_onelake_client: MockOneLakeClient,
     mock_delta_events_writer: MockDeltaEventsWriter,
     mock_delta_inventory_writer: MockDeltaInventoryWriter,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Provide all mock storage components as a dict (no Docker required)."""
     return {
         "onelake": mock_onelake_client,
@@ -198,134 +198,129 @@ def mock_storage(
         "delta_inventory": mock_delta_inventory_writer,
     }
 
+    # =============================================================================
+    # In-Memory Delta Tables - DISABLED (removed in refactor)
+    # InMemoryDelta classes removed per OVER_ENGINEERING_REVIEW.md (~870 lines)
+    # =============================================================================
 
-# =============================================================================
-# In-Memory Delta Tables - DISABLED (removed in refactor)
-# InMemoryDelta classes removed per OVER_ENGINEERING_REVIEW.md (~870 lines)
-# =============================================================================
+    # @pytest.fixture
+    # def inmemory_delta_registry() -> InMemoryDeltaRegistry:
+    #     """
+    #     Provide a registry for managing multiple in-memory Delta tables.
+    #
+    #     The registry allows creating and accessing multiple tables by name,
+    #     and provides easy reset between tests.
+    #
+    #     Usage:
+    #         def test_something(inmemory_delta_registry):
+    #             events = inmemory_delta_registry.get_table("events")
+    #             inventory = inmemory_delta_registry.get_table("inventory")
+    #     """
+    #     registry = InMemoryDeltaRegistry()
+    #     yield registry
+    #     registry.reset()
 
-# @pytest.fixture
-# def inmemory_delta_registry() -> InMemoryDeltaRegistry:
-#     """
-#     Provide a registry for managing multiple in-memory Delta tables.
-#
-#     The registry allows creating and accessing multiple tables by name,
-#     and provides easy reset between tests.
-#
-#     Usage:
-#         def test_something(inmemory_delta_registry):
-#             events = inmemory_delta_registry.get_table("events")
-#             inventory = inmemory_delta_registry.get_table("inventory")
-#     """
-#     registry = InMemoryDeltaRegistry()
-#     yield registry
-#     registry.reset()
-
-
-# @pytest.fixture
-# def inmemory_xact_events() -> InMemoryDeltaTable:
-#     """
-#     Provide in-memory Delta table for XACT events.
-# 
-#     Configured to match production xact_events table structure.
-#     """
-#     table = InMemoryDeltaTable(
-#         table_path="inmemory://xact_events",
-#         timestamp_column="created_at",
-#         partition_column="event_date",
-#         z_order_columns=["event_date", "trace_id", "event_id", "type"],
-#     )
-#     yield table
-#     table.clear()
-# 
-# 
-# @pytest.fixture
-# def inmemory_xact_attachments() -> InMemoryDeltaTable:
-#     """
-#     Provide in-memory Delta table for XACT attachments/inventory.
-# 
-#     Configured to match production xact_attachments table structure.
-#     """
-#     table = InMemoryDeltaTable(
-#         table_path="inmemory://xact_attachments",
-#         timestamp_column="created_at",
-#         partition_column="created_date",
-#     )
-#     yield table
-#     table.clear()
-# 
-# 
-# @pytest.fixture
-# def inmemory_claimx_events() -> InMemoryDeltaTable:
-#     """
-#     Provide in-memory Delta table for ClaimX events.
-# 
-#     Configured to match production claimx_events table structure.
-#     """
-#     table = InMemoryDeltaTable(
-#         table_path="inmemory://claimx_events",
-#         timestamp_column="ingested_at",
-#         partition_column="event_date",
-#         z_order_columns=["project_id"],
-#     )
-#     yield table
-#     table.clear()
-# 
-# 
-# @pytest.fixture
-# def inmemory_delta_storage(
-#     inmemory_xact_events: InMemoryDeltaTable,
-#     inmemory_xact_attachments: InMemoryDeltaTable,
-#     inmemory_claimx_events: InMemoryDeltaTable,
-#     mock_onelake_client: MockOneLakeClient,
-# ) -> Dict[str, object]:
-#     """
-#     Provide all in-memory storage components for E2E testing.
-# 
-#     This fixture combines in-memory Delta tables with mock OneLake
-#     for complete pipeline testing without external dependencies.
-# 
-#     Usage:
-#         def test_e2e(inmemory_delta_storage):
-#             xact_events = inmemory_delta_storage["xact_events"]
-#             xact_attachments = inmemory_delta_storage["xact_attachments"]
-#             claimx_events = inmemory_delta_storage["claimx_events"]
-#             onelake = inmemory_delta_storage["onelake"]
-#     """
-#     return {
-#         "xact_events": inmemory_xact_events,
-#         "xact_attachments": inmemory_xact_attachments,
-#         "claimx_events": inmemory_claimx_events,
-#         "onelake": mock_onelake_client,
-#     }
-# 
-# 
-# # =============================================================================
-# # Helper function to check if running integration tests
-# # =============================================================================
-# 
-# 
-# def _is_integration_test(request) -> bool:
-    """Check if the current test is marked as an integration test."""
-    # Check if any item in the session has integration marker
-    if hasattr(request, "node"):
-        # Check if the current test has integration marker
-        if request.node.get_closest_marker("integration"):
-            return True
-        # Also check parent for parametrized tests
-        if hasattr(request.node, "parent") and request.node.parent:
-            if hasattr(request.node.parent, "get_closest_marker"):
-                if request.node.parent.get_closest_marker("integration"):
-                    return True
-    return False
+    # @pytest.fixture
+    # def inmemory_xact_events() -> InMemoryDeltaTable:
+    #     """
+    #     Provide in-memory Delta table for XACT events.
+    #
+    #     Configured to match production xact_events table structure.
+    #     """
+    #     table = InMemoryDeltaTable(
+    #         table_path="inmemory://xact_events",
+    #         timestamp_column="created_at",
+    #         partition_column="event_date",
+    #         z_order_columns=["event_date", "trace_id", "event_id", "type"],
+    #     )
+    #     yield table
+    #     table.clear()
+    #
+    #
+    # @pytest.fixture
+    # def inmemory_xact_attachments() -> InMemoryDeltaTable:
+    #     """
+    #     Provide in-memory Delta table for XACT attachments/inventory.
+    #
+    #     Configured to match production xact_attachments table structure.
+    #     """
+    #     table = InMemoryDeltaTable(
+    #         table_path="inmemory://xact_attachments",
+    #         timestamp_column="created_at",
+    #         partition_column="created_date",
+    #     )
+    #     yield table
+    #     table.clear()
+    #
+    #
+    # @pytest.fixture
+    # def inmemory_claimx_events() -> InMemoryDeltaTable:
+    #     """
+    #     Provide in-memory Delta table for ClaimX events.
+    #
+    #     Configured to match production claimx_events table structure.
+    #     """
+    #     table = InMemoryDeltaTable(
+    #         table_path="inmemory://claimx_events",
+    #         timestamp_column="ingested_at",
+    #         partition_column="event_date",
+    #         z_order_columns=["project_id"],
+    #     )
+    #     yield table
+    #     table.clear()
+    #
+    #
+    # @pytest.fixture
+    # def inmemory_delta_storage(
+    #     inmemory_xact_events: InMemoryDeltaTable,
+    #     inmemory_xact_attachments: InMemoryDeltaTable,
+    #     inmemory_claimx_events: InMemoryDeltaTable,
+    #     mock_onelake_client: MockOneLakeClient,
+    # ) -> Dict[str, object]:
+    #     """
+    #     Provide all in-memory storage components for E2E testing.
+    #
+    #     This fixture combines in-memory Delta tables with mock OneLake
+    #     for complete pipeline testing without external dependencies.
+    #
+    #     Usage:
+    #         def test_e2e(inmemory_delta_storage):
+    #             xact_events = inmemory_delta_storage["xact_events"]
+    #             xact_attachments = inmemory_delta_storage["xact_attachments"]
+    #             claimx_events = inmemory_delta_storage["claimx_events"]
+    #             onelake = inmemory_delta_storage["onelake"]
+    #     """
+    #     return {
+    #         "xact_events": inmemory_xact_events,
+    #         "xact_attachments": inmemory_xact_attachments,
+    #         "claimx_events": inmemory_claimx_events,
+    #         "onelake": mock_onelake_client,
+    #     }
+    #
+    #
+    # # =============================================================================
+    # # Helper function to check if running integration tests
+    # # =============================================================================
+    #
+    #
+    # def _is_integration_test(request) -> bool:
+    #     """Check if the current test is marked as an integration test."""
+    #     # Check if any item in the session has integration marker
+    #     if hasattr(request, "node"):
+    #         # Check if the current test has integration marker
+    #         if request.node.get_closest_marker("integration"):
+    #             return True
+    #         # Also check parent for parametrized tests
+    #         if hasattr(request.node, "parent") and request.node.parent:
+    #             if hasattr(request.node.parent, "get_closest_marker"):
+    #                 if request.node.parent.get_closest_marker("integration"):
+    #                     return True
+    #     return False
 
 
 def _session_has_integration_tests(session) -> bool:
     """Check if the test session contains any integration tests."""
-    for item in session.items:
-        if item.get_closest_marker("integration"):
-            return True
-    return False
+    return any(item.get_closest_marker("integration") for item in session.items)
 
 
 # =============================================================================
@@ -372,7 +367,9 @@ def kafka_container(request) -> Generator:
     os.environ["KAFKA_SECURITY_PROTOCOL"] = "PLAINTEXT"
     os.environ["KAFKA_SASL_MECHANISM"] = "PLAIN"
     # Set allowed domains for URL validation in tests
-    os.environ["ALLOWED_ATTACHMENT_DOMAINS"] = "example.com,claimxperience.com,www.claimxperience.com,claimxperience.s3.amazonaws.com,claimxperience.s3.us-east-1.amazonaws.com"
+    os.environ["ALLOWED_ATTACHMENT_DOMAINS"] = (
+        "example.com,claimxperience.com,www.claimxperience.com,claimxperience.s3.amazonaws.com,claimxperience.s3.us-east-1.amazonaws.com"
+    )
 
     yield kafka
 
@@ -401,7 +398,9 @@ def kafka_config(kafka_container):
         MessageConfig: Configuration for test environment
     """
     if kafka_container is None:
-        pytest.skip("Kafka container not available - this fixture requires @pytest.mark.integration")
+        pytest.skip(
+            "Kafka container not available - this fixture requires @pytest.mark.integration"
+        )
 
     from config.config import MessageConfig
 
@@ -464,9 +463,7 @@ def unique_topic_prefix(request) -> str:
 
 
 @pytest.fixture
-def test_topics(
-    kafka_config, unique_topic_prefix: str
-) -> dict[str, str]:
+def test_topics(kafka_config, unique_topic_prefix: str) -> dict[str, str]:
     """
     Provide unique test topic names.
 
@@ -492,9 +489,7 @@ def test_topics(
 
 
 @pytest.fixture
-def test_kafka_config(
-    kafka_config, unique_topic_prefix: str
-):
+def test_kafka_config(kafka_config, unique_topic_prefix: str):
     """
     Provide test-specific Kafka configuration with unique topic names.
 
@@ -638,13 +633,10 @@ async def event_ingester_worker(
 
     monkeypatch.setattr(
         "pipeline.verisk.workers.event_ingester.DeltaEventsWriter",
-        lambda *args, **kwargs: mock_delta_events_writer
+        lambda *args, **kwargs: mock_delta_events_writer,
     )
 
-    worker = EventIngesterWorker(
-        config=test_kafka_config,
-        enable_delta_writes=True
-    )
+    worker = EventIngesterWorker(config=test_kafka_config, enable_delta_writes=True)
 
     yield worker
 
@@ -664,10 +656,7 @@ async def download_worker(
     """
     from pipeline.verisk.workers.download_worker import DownloadWorker
 
-    worker = DownloadWorker(
-        config=test_kafka_config,
-        temp_dir=tmp_path / "downloads"
-    )
+    worker = DownloadWorker(config=test_kafka_config, temp_dir=tmp_path / "downloads")
 
     yield worker
 
@@ -686,7 +675,7 @@ async def result_processor(
 
     monkeypatch.setattr(
         "pipeline.verisk.workers.result_processor.DeltaInventoryWriter",
-        lambda *args, **kwargs: mock_delta_inventory_writer
+        lambda *args, **kwargs: mock_delta_inventory_writer,
     )
 
     processor = ResultProcessor(
@@ -707,7 +696,7 @@ def all_workers(
     event_ingester_worker,
     download_worker,
     result_processor,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Provide all workers as a dict for E2E tests."""
     return {
         "event_ingester": event_ingester_worker,

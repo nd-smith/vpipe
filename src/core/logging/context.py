@@ -14,9 +14,7 @@ _message_topic: ContextVar[str] = ContextVar("message_topic", default="")
 _message_partition: ContextVar[int] = ContextVar("message_partition", default=-1)
 _message_offset: ContextVar[int] = ContextVar("message_offset", default=-1)
 _message_key: ContextVar[str] = ContextVar("message_key", default="")
-_message_consumer_group: ContextVar[str] = ContextVar(
-    "message_consumer_group", default=""
-)
+_message_consumer_group: ContextVar[str] = ContextVar("message_consumer_group", default="")
 
 
 def set_log_context(

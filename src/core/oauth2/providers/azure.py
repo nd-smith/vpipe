@@ -51,14 +51,11 @@ class AzureADProvider(BaseOAuth2Provider):
 
         if not AZURE_IDENTITY_AVAILABLE:
             raise InvalidConfigurationError(
-                "azure-identity library not installed. "
-                "Install with: pip install azure-identity"
+                "azure-identity library not installed. Install with: pip install azure-identity"
             )
 
         if not all([client_id, client_secret, tenant_id]):
-            raise InvalidConfigurationError(
-                "client_id, client_secret, and tenant_id are required"
-            )
+            raise InvalidConfigurationError("client_id, client_secret, and tenant_id are required")
 
         self.client_id = client_id
         self.tenant_id = tenant_id
@@ -111,10 +108,8 @@ class AzureADProvider(BaseOAuth2Provider):
                 scope=" ".join(self.scopes),
             )
         except Exception as e:
-            logger.error(
-                f"Failed to acquire Azure AD token for '{self.provider_name}': {e}"
-            )
-            raise TokenAcquisitionError(f"Azure AD token acquisition failed: {e}")
+            logger.error(f"Failed to acquire Azure AD token for '{self.provider_name}': {e}")
+            raise TokenAcquisitionError(f"Azure AD token acquisition failed: {e}") from e
 
     async def refresh_token(self, token: OAuth2Token) -> OAuth2Token:
         """

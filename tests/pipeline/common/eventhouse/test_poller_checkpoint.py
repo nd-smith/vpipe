@@ -15,24 +15,22 @@ def _make_config(**overrides) -> PollerConfig:
     """Create a minimal PollerConfig for testing."""
     from pipeline.common.eventhouse.kql_client import EventhouseConfig
 
-    defaults = dict(
-        eventhouse=EventhouseConfig(
+    defaults = {
+        "eventhouse": EventhouseConfig(
             cluster_url="https://test.kusto.windows.net",
             database="testdb",
         ),
-        kafka=None,
-        event_schema_class=None,
-        domain="test",
-        source_table="TestTable",
-        column_mapping={},
-    )
+        "kafka": None,
+        "event_schema_class": None,
+        "domain": "test",
+        "source_table": "TestTable",
+        "column_mapping": {},
+    }
     defaults.update(overrides)
     return PollerConfig(**defaults)
 
 
-def _make_poller(
-    trace_id_col=None, last_ingestion_time=None, last_trace_id="", batch_size=1000
-):
+def _make_poller(trace_id_col=None, last_ingestion_time=None, last_trace_id="", batch_size=1000):
     """Create a poller with mocked internals for unit testing."""
     config = _make_config(batch_size=batch_size)
     if trace_id_col:
@@ -164,9 +162,7 @@ class TestFilterCheckpointRows:
     def test_filters_rows_before_checkpoint_time(self):
         """Rows with ingestion_time < checkpoint should be filtered out."""
         t = datetime(2026, 2, 2, 23, 0, 0, tzinfo=UTC)
-        poller = _make_poller(
-            trace_id_col="traceId", last_ingestion_time=t, last_trace_id="xyz"
-        )
+        poller = _make_poller(trace_id_col="traceId", last_ingestion_time=t, last_trace_id="xyz")
         rows = [
             {"ingestion_time": datetime(2026, 2, 2, 22, 59, 59, tzinfo=UTC), "traceId": "old"},
             {"ingestion_time": datetime(2026, 2, 2, 23, 0, 1, tzinfo=UTC), "traceId": "new"},
@@ -178,9 +174,7 @@ class TestFilterCheckpointRows:
     def test_filters_rows_at_checkpoint_time_with_lower_tid(self):
         """Rows at same time with trace_id <= checkpoint are filtered."""
         t = datetime(2026, 2, 2, 23, 0, 0, tzinfo=UTC)
-        poller = _make_poller(
-            trace_id_col="traceId", last_ingestion_time=t, last_trace_id="m"
-        )
+        poller = _make_poller(trace_id_col="traceId", last_ingestion_time=t, last_trace_id="m")
         rows = [
             {"ingestion_time": t, "traceId": "a"},  # a <= m  -> filtered
             {"ingestion_time": t, "traceId": "m"},  # m <= m  -> filtered
@@ -193,9 +187,7 @@ class TestFilterCheckpointRows:
     def test_keeps_rows_at_checkpoint_time_with_higher_tid(self):
         """Rows at same time with trace_id > checkpoint are kept."""
         t = datetime(2026, 2, 2, 23, 0, 0, tzinfo=UTC)
-        poller = _make_poller(
-            trace_id_col="traceId", last_ingestion_time=t, last_trace_id="abc"
-        )
+        poller = _make_poller(trace_id_col="traceId", last_ingestion_time=t, last_trace_id="abc")
         rows = [
             {"ingestion_time": t, "traceId": "def"},
             {"ingestion_time": t, "traceId": "ghi"},
@@ -206,9 +198,7 @@ class TestFilterCheckpointRows:
     def test_no_secondary_filter_without_checkpoint_tid(self):
         """Without a checkpoint trace_id, only time-based filtering."""
         t = datetime(2026, 2, 2, 23, 0, 0, tzinfo=UTC)
-        poller = _make_poller(
-            trace_id_col="traceId", last_ingestion_time=t, last_trace_id=""
-        )
+        poller = _make_poller(trace_id_col="traceId", last_ingestion_time=t, last_trace_id="")
         rows = [
             {"ingestion_time": t, "traceId": "a"},
             {"ingestion_time": t, "traceId": "z"},
@@ -219,9 +209,7 @@ class TestFilterCheckpointRows:
     def test_handles_string_timestamps(self):
         """Filter should handle rows with string timestamps (ISO format)."""
         t = datetime(2026, 2, 2, 23, 0, 0, tzinfo=UTC)
-        poller = _make_poller(
-            trace_id_col="traceId", last_ingestion_time=t, last_trace_id="m"
-        )
+        poller = _make_poller(trace_id_col="traceId", last_ingestion_time=t, last_trace_id="m")
         rows = [
             {"ingestion_time": "2026-02-02T23:00:00+00:00", "traceId": "z"},
         ]

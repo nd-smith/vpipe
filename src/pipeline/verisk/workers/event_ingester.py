@@ -82,9 +82,7 @@ class EventIngesterWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        self.enrichment_topic = self.producer_config.get_topic(
-            domain, "enrichment_pending"
-        )
+        self.enrichment_topic = self.producer_config.get_topic(domain, "enrichment_pending")
         self.producer = None
         self.consumer = None
 
@@ -108,9 +106,7 @@ class EventIngesterWorker:
         self._dedup_worker_name = "verisk-event-ingester"
 
         # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(
-            domain, "event_ingester", "processing"
-        )
+        processing_config = config.get_worker_config(domain, "event_ingester", "processing")
         health_port = processing_config.get("health_port", 8092)
         self.health_server = HealthCheckServer(
             port=health_port,
@@ -125,9 +121,7 @@ class EventIngesterWorker:
                 "worker_name": "event_ingester",
                 "instance_id": instance_id,
                 "events_topic": config.get_topic(domain, "events"),
-                "enrichment_topic": self.producer_config.get_topic(
-                    domain, "enrichment_pending"
-                ),
+                "enrichment_topic": self.producer_config.get_topic(domain, "enrichment_pending"),
                 "pipeline_domain": self.domain,
                 "separate_producer_config": producer_config is not None,
             },
@@ -323,9 +317,7 @@ class EventIngesterWorker:
     ) -> None:
         """Create and produce enrichment task for this event."""
         # Parse original timestamp from event
-        original_timestamp = datetime.fromisoformat(
-            event.utc_datetime.replace("Z", "+00:00")
-        )
+        original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
 
         # Create enrichment task with all event data
         enrichment_task = XACTEnrichmentTask(
@@ -360,9 +352,7 @@ class EventIngesterWorker:
                     "event_id": event_id,
                     "status_subtype": event.status_subtype,
                     "assignment_id": assignment_id,
-                    "attachment_count": (
-                        len(event.attachments) if event.attachments else 0
-                    ),
+                    "attachment_count": (len(event.attachments) if event.attachments else 0),
                     "partition": metadata.partition,
                     "offset": metadata.offset,
                 },
@@ -457,9 +447,7 @@ class EventIngesterWorker:
         # If memory cache is full, evict oldest entries (LRU)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
             # Sort by timestamp and remove oldest 10%
-            sorted_items = sorted(
-                self._dedup_cache_timestamps.items(), key=lambda x: x[1]
-            )
+            sorted_items = sorted(self._dedup_cache_timestamps.items(), key=lambda x: x[1])
             evict_count = self._dedup_cache_max_size // 10
             for trace_id_to_evict, _ in sorted_items[:evict_count]:
                 self._dedup_cache.pop(trace_id_to_evict, None)

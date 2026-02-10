@@ -6,7 +6,6 @@ Adds src directory to Python path for imports and sets up test environment.
 
 import os
 import sys
-import types
 from pathlib import Path
 from unittest.mock import MagicMock
 

@@ -13,9 +13,10 @@ Test Coverage:
     - Task deep copy behavior
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from config.config import MessageConfig
 from core.types import ErrorCategory
@@ -146,9 +147,7 @@ class TestRetryHandlerErrorCategoryRouting:
         assert dlq_message.retry_count == 0
 
     @pytest.mark.asyncio
-    async def test_transient_error_routes_to_retry_topic(
-        self, retry_handler, sample_task
-    ):
+    async def test_transient_error_routes_to_retry_topic(self, retry_handler, sample_task):
         """TRANSIENT errors route to retry topic with incremented count."""
         error = ConnectionError("Network timeout after 30s")
 
@@ -183,9 +182,7 @@ class TestRetryHandlerErrorCategoryRouting:
         retry_handler._dlq_producer.send.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_circuit_open_error_routes_to_retry_topic(
-        self, retry_handler, sample_task
-    ):
+    async def test_circuit_open_error_routes_to_retry_topic(self, retry_handler, sample_task):
         """CIRCUIT_OPEN errors route to retry topic (circuit may close)."""
         error = RuntimeError("Circuit breaker is open")
 
@@ -199,9 +196,7 @@ class TestRetryHandlerErrorCategoryRouting:
         retry_handler._dlq_producer.send.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_unknown_error_routes_to_retry_topic(
-        self, retry_handler, sample_task
-    ):
+    async def test_unknown_error_routes_to_retry_topic(self, retry_handler, sample_task):
         """UNKNOWN errors route to retry topic (conservative approach)."""
         error = Exception("Something unexpected happened")
 
@@ -352,9 +347,7 @@ class TestRetryHandlerMetadataAndTimestamp:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_adds_error_context_to_metadata(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_adds_error_context_to_metadata(self, retry_handler, sample_task):
         """Retry task includes error message and category in metadata."""
         error = ConnectionError("Connection timeout after 30 seconds")
 
@@ -388,9 +381,7 @@ class TestRetryHandlerMetadataAndTimestamp:
         assert retry_task.metadata["existing_key"] == "existing_value"
 
     @pytest.mark.asyncio
-    async def test_retry_calculates_retry_at_timestamp(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_calculates_retry_at_timestamp(self, retry_handler, sample_task):
         """Retry task includes retry_at timestamp based on delay."""
         sample_task.retry_count = 0
         error = ConnectionError("Network error")
@@ -436,9 +427,7 @@ class TestRetryHandlerMetadataAndTimestamp:
             assert headers["retry_delay_seconds"] == str(expected_delay)
 
     @pytest.mark.asyncio
-    async def test_error_message_truncated_to_500_chars(
-        self, retry_handler, sample_task
-    ):
+    async def test_error_message_truncated_to_500_chars(self, retry_handler, sample_task):
         """Long error messages are truncated to 500 characters in metadata."""
         long_error_message = "x" * 1000
         error = Exception(long_error_message)
@@ -497,9 +486,7 @@ class TestRetryHandlerRetryHeaders:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_headers_include_retry_count(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_headers_include_retry_count(self, retry_handler, sample_task):
         """Retry message headers include incremented retry_count."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -513,9 +500,7 @@ class TestRetryHandlerRetryHeaders:
         assert headers["retry_count"] == "3"
 
     @pytest.mark.asyncio
-    async def test_retry_headers_include_scheduled_retry_time(
-        self, retry_handler, sample_task
-    ):
+    async def test_retry_headers_include_scheduled_retry_time(self, retry_handler, sample_task):
         """Retry message headers include scheduled_retry_time."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -618,9 +603,7 @@ class TestRetryHandlerDLQMessage:
         assert dlq_message.trace_id == "test-trace-123"
 
     @pytest.mark.asyncio
-    async def test_dlq_message_includes_attachment_url(
-        self, retry_handler, sample_task
-    ):
+    async def test_dlq_message_includes_attachment_url(self, retry_handler, sample_task):
         """DLQ message includes attachment_url from original task."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -634,9 +617,7 @@ class TestRetryHandlerDLQMessage:
         assert dlq_message.attachment_url == "https://example.com/file.pdf"
 
     @pytest.mark.asyncio
-    async def test_dlq_message_includes_original_task(
-        self, retry_handler, sample_task
-    ):
+    async def test_dlq_message_includes_original_task(self, retry_handler, sample_task):
         """DLQ message includes complete original task for replay."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -651,9 +632,7 @@ class TestRetryHandlerDLQMessage:
         assert dlq_message.original_task.metadata == {"key": "value"}
 
     @pytest.mark.asyncio
-    async def test_dlq_message_includes_error_category(
-        self, retry_handler, sample_task
-    ):
+    async def test_dlq_message_includes_error_category(self, retry_handler, sample_task):
         """DLQ message includes error_category."""
         await retry_handler.handle_failure(
             task=sample_task,
@@ -681,9 +660,7 @@ class TestRetryHandlerDLQMessage:
         assert dlq_message.retry_count == 4
 
     @pytest.mark.asyncio
-    async def test_dlq_message_includes_failed_at_timestamp(
-        self, retry_handler, sample_task
-    ):
+    async def test_dlq_message_includes_failed_at_timestamp(self, retry_handler, sample_task):
         """DLQ message includes failed_at timestamp."""
         before_call = datetime.now(UTC)
         await retry_handler.handle_failure(
@@ -769,9 +746,7 @@ class TestRetryHandlerTaskImmutability:
         )
 
     @pytest.mark.asyncio
-    async def test_original_task_unchanged_after_retry(
-        self, retry_handler, sample_task
-    ):
+    async def test_original_task_unchanged_after_retry(self, retry_handler, sample_task):
         """Original task object is not modified by retry logic."""
         original_retry_count = sample_task.retry_count
         original_metadata = dict(sample_task.metadata)
@@ -857,7 +832,7 @@ class TestRetryHandlerDLQErrorTruncation:
         )
 
         dlq_call = retry_handler._dlq_producer.send.call_args
-        dlq_message = dlq_call.kwargs["value"]
+        dlq_call.kwargs["value"]
 
         # Note: DLQ doesn't store error message in FailedDownloadMessage
         # Truncation happens in logging only

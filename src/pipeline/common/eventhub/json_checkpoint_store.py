@@ -78,9 +78,7 @@ class JsonCheckpointStore:
         Returns:
             List of ownership dicts, one per claimed partition.
         """
-        file_path = self._ownership_path(
-            fully_qualified_namespace, eventhub_name, consumer_group
-        )
+        file_path = self._ownership_path(fully_qualified_namespace, eventhub_name, consumer_group)
         lock = self._get_lock(str(file_path))
         async with lock:
             data = self._read_json(file_path)
@@ -121,7 +119,7 @@ class JsonCheckpointStore:
 
             for ownership in ownership_items:
                 partition_id = ownership["partition_id"]
-                owner_id = ownership.get("owner_id", "UNKNOWN")
+                ownership.get("owner_id", "UNKNOWN")
                 existing = data["partitions"].get(partition_id)
 
                 # Claim succeeds if no existing owner or etag matches
@@ -186,9 +184,7 @@ class JsonCheckpointStore:
         Returns:
             List of checkpoint dicts, one per partition.
         """
-        file_path = self._checkpoint_path(
-            fully_qualified_namespace, eventhub_name, consumer_group
-        )
+        file_path = self._checkpoint_path(fully_qualified_namespace, eventhub_name, consumer_group)
         lock = self._get_lock(str(file_path))
         async with lock:
             data = self._read_json(file_path)
@@ -223,19 +219,11 @@ class JsonCheckpointStore:
             / self._sanitize_name(consumer_group)
         )
 
-    def _ownership_path(
-        self, namespace: str, eventhub_name: str, consumer_group: str
-    ) -> Path:
-        return (
-            self._get_dir(namespace, eventhub_name, consumer_group) / "ownership.json"
-        )
+    def _ownership_path(self, namespace: str, eventhub_name: str, consumer_group: str) -> Path:
+        return self._get_dir(namespace, eventhub_name, consumer_group) / "ownership.json"
 
-    def _checkpoint_path(
-        self, namespace: str, eventhub_name: str, consumer_group: str
-    ) -> Path:
-        return (
-            self._get_dir(namespace, eventhub_name, consumer_group) / "checkpoints.json"
-        )
+    def _checkpoint_path(self, namespace: str, eventhub_name: str, consumer_group: str) -> Path:
+        return self._get_dir(namespace, eventhub_name, consumer_group) / "checkpoints.json"
 
     def _read_json(self, file_path: Path) -> dict[str, Any]:
         """Read a JSON file, returning empty structure if missing or corrupt."""

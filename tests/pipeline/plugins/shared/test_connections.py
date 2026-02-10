@@ -11,7 +11,6 @@ from pipeline.plugins.shared.connections import (
     is_http_error,
 )
 
-
 # =====================
 # is_http_error tests
 # =====================
@@ -249,9 +248,7 @@ class TestConnectionManager:
             mock_response.status = 200
             mock_response.read = AsyncMock()
 
-            with patch(
-                "pipeline.plugins.shared.connections.with_retry_async"
-            ) as mock_retry:
+            with patch("pipeline.plugins.shared.connections.with_retry_async") as mock_retry:
                 # Make retry decorator pass through
                 mock_retry.return_value = lambda fn: fn
 
@@ -260,7 +257,7 @@ class TestConnectionManager:
                 mock_cm.__aenter__.return_value = mock_response
                 mock_session.request.return_value = mock_cm
 
-                response = await mgr.request(
+                await mgr.request(
                     connection_name="api",
                     method="GET",
                     path="/v1/items",
@@ -296,9 +293,7 @@ class TestConnectionManager:
             mock_response.status = 200
             mock_response.read = AsyncMock()
 
-            with patch(
-                "pipeline.plugins.shared.connections.with_retry_async"
-            ) as mock_retry:
+            with patch("pipeline.plugins.shared.connections.with_retry_async") as mock_retry:
                 mock_retry.return_value = lambda fn: fn
 
                 mock_cm = AsyncMock()
@@ -339,9 +334,7 @@ class TestConnectionManager:
             mock_response.status = 200
             mock_response.read = AsyncMock()
 
-            with patch(
-                "pipeline.plugins.shared.connections.with_retry_async"
-            ) as mock_retry:
+            with patch("pipeline.plugins.shared.connections.with_retry_async") as mock_retry:
                 mock_retry.return_value = lambda fn: fn
 
                 mock_cm = AsyncMock()
@@ -381,9 +374,7 @@ class TestConnectionManager:
             mock_response.status = 200
             mock_response.read = AsyncMock()
 
-            with patch(
-                "pipeline.plugins.shared.connections.with_retry_async"
-            ) as mock_retry:
+            with patch("pipeline.plugins.shared.connections.with_retry_async") as mock_retry:
                 mock_retry.return_value = lambda fn: fn
 
                 mock_cm = AsyncMock()
@@ -425,9 +416,7 @@ class TestConnectionManager:
             mock_response.status = 200
             mock_response.read = AsyncMock()
 
-            with patch(
-                "pipeline.plugins.shared.connections.with_retry_async"
-            ) as mock_retry:
+            with patch("pipeline.plugins.shared.connections.with_retry_async") as mock_retry:
                 mock_retry.return_value = lambda fn: fn
 
                 mock_cm = AsyncMock()

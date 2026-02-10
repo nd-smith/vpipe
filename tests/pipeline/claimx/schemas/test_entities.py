@@ -4,8 +4,6 @@ Tests for ClaimX entity row schemas.
 Validates EntityRowsMessage Pydantic model and helper methods.
 """
 
-import pytest
-
 from pipeline.claimx.schemas.entities import EntityRowsMessage
 
 
@@ -29,7 +27,7 @@ class TestEntityRowsMessageCreation:
         rows = EntityRowsMessage(
             projects=[
                 {"project_id": "proj_001", "project_name": "Claim 2024"},
-                {"project_id": "proj_002", "project_name": "Claim 2025"}
+                {"project_id": "proj_002", "project_name": "Claim 2025"},
             ]
         )
 
@@ -41,7 +39,7 @@ class TestEntityRowsMessageCreation:
         rows = EntityRowsMessage(
             projects=[{"project_id": "proj_001"}],
             contacts=[{"contact_id": "con_001"}],
-            media=[{"media_id": "media_001"}]
+            media=[{"media_id": "media_001"}],
         )
 
         assert len(rows.projects) == 1
@@ -57,7 +55,7 @@ class TestEntityRowsMessageCreation:
             tasks=[{"task_id": "task_001"}],
             task_templates=[{"template_id": "tmpl_001"}],
             external_links=[{"link_id": "link_001"}],
-            video_collab=[{"collaboration_id": "video_001"}]
+            video_collab=[{"collaboration_id": "video_001"}],
         )
 
         assert len(rows.projects) == 1
@@ -79,58 +77,43 @@ class TestEntityRowsMessageIsEmpty:
 
     def test_is_empty_false_when_has_projects(self):
         """is_empty returns False when projects exist."""
-        rows = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
+        rows = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_contacts(self):
         """is_empty returns False when contacts exist."""
-        rows = EntityRowsMessage(
-            contacts=[{"contact_id": "con_001"}]
-        )
+        rows = EntityRowsMessage(contacts=[{"contact_id": "con_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_media(self):
         """is_empty returns False when media exists."""
-        rows = EntityRowsMessage(
-            media=[{"media_id": "media_001"}]
-        )
+        rows = EntityRowsMessage(media=[{"media_id": "media_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_tasks(self):
         """is_empty returns False when tasks exist."""
-        rows = EntityRowsMessage(
-            tasks=[{"task_id": "task_001"}]
-        )
+        rows = EntityRowsMessage(tasks=[{"task_id": "task_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_task_templates(self):
         """is_empty returns False when task_templates exist."""
-        rows = EntityRowsMessage(
-            task_templates=[{"template_id": "tmpl_001"}]
-        )
+        rows = EntityRowsMessage(task_templates=[{"template_id": "tmpl_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_external_links(self):
         """is_empty returns False when external_links exist."""
-        rows = EntityRowsMessage(
-            external_links=[{"link_id": "link_001"}]
-        )
+        rows = EntityRowsMessage(external_links=[{"link_id": "link_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_video_collab(self):
         """is_empty returns False when video_collab exists."""
-        rows = EntityRowsMessage(
-            video_collab=[{"collaboration_id": "video_001"}]
-        )
+        rows = EntityRowsMessage(video_collab=[{"collaboration_id": "video_001"}])
         assert rows.is_empty() is False
 
     def test_is_empty_false_when_has_multiple_types(self):
         """is_empty returns False when multiple types exist."""
         rows = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}],
-            media=[{"media_id": "media_001"}]
+            projects=[{"project_id": "proj_001"}], media=[{"media_id": "media_001"}]
         )
         assert rows.is_empty() is False
 
@@ -149,7 +132,7 @@ class TestEntityRowsMessageRowCount:
             projects=[
                 {"project_id": "proj_001"},
                 {"project_id": "proj_002"},
-                {"project_id": "proj_003"}
+                {"project_id": "proj_003"},
             ]
         )
         assert rows.row_count() == 3
@@ -159,7 +142,7 @@ class TestEntityRowsMessageRowCount:
         rows = EntityRowsMessage(
             projects=[{"project_id": "proj_001"}, {"project_id": "proj_002"}],
             contacts=[{"contact_id": "con_001"}],
-            media=[{"media_id": "media_001"}, {"media_id": "media_002"}, {"media_id": "media_003"}]
+            media=[{"media_id": "media_001"}, {"media_id": "media_002"}, {"media_id": "media_003"}],
         )
         assert rows.row_count() == 6  # 2 + 1 + 3
 
@@ -172,7 +155,7 @@ class TestEntityRowsMessageRowCount:
             tasks=[{"task_id": "task_001"}],
             task_templates=[{"template_id": "tmpl_001"}],
             external_links=[{"link_id": "link_001"}],
-            video_collab=[{"collaboration_id": "video_001"}]
+            video_collab=[{"collaboration_id": "video_001"}],
         )
         assert rows.row_count() == 7
 
@@ -192,9 +175,7 @@ class TestEntityRowsMessageMerge:
     def test_merge_non_empty_into_empty(self):
         """Merging non-empty message into empty message."""
         rows1 = EntityRowsMessage()
-        rows2 = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
+        rows2 = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
 
         rows1.merge(rows2)
 
@@ -203,9 +184,7 @@ class TestEntityRowsMessageMerge:
 
     def test_merge_empty_into_non_empty(self):
         """Merging empty message into non-empty message."""
-        rows1 = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
+        rows1 = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
         rows2 = EntityRowsMessage()
 
         rows1.merge(rows2)
@@ -214,12 +193,8 @@ class TestEntityRowsMessageMerge:
 
     def test_merge_same_type_extends_list(self):
         """Merging messages with same entity type extends the list."""
-        rows1 = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
-        rows2 = EntityRowsMessage(
-            projects=[{"project_id": "proj_002"}, {"project_id": "proj_003"}]
-        )
+        rows1 = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
+        rows2 = EntityRowsMessage(projects=[{"project_id": "proj_002"}, {"project_id": "proj_003"}])
 
         rows1.merge(rows2)
 
@@ -230,12 +205,9 @@ class TestEntityRowsMessageMerge:
 
     def test_merge_different_types(self):
         """Merging messages with different entity types."""
-        rows1 = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
+        rows1 = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
         rows2 = EntityRowsMessage(
-            contacts=[{"contact_id": "con_001"}],
-            media=[{"media_id": "media_001"}]
+            contacts=[{"contact_id": "con_001"}], media=[{"media_id": "media_001"}]
         )
 
         rows1.merge(rows2)
@@ -250,13 +222,13 @@ class TestEntityRowsMessageMerge:
             projects=[{"project_id": "proj_001"}],
             contacts=[{"contact_id": "con_001"}],
             media=[{"media_id": "media_001"}],
-            tasks=[{"task_id": "task_001"}]
+            tasks=[{"task_id": "task_001"}],
         )
         rows2 = EntityRowsMessage(
             projects=[{"project_id": "proj_002"}],
             task_templates=[{"template_id": "tmpl_001"}],
             external_links=[{"link_id": "link_001"}],
-            video_collab=[{"collaboration_id": "video_001"}]
+            video_collab=[{"collaboration_id": "video_001"}],
         )
 
         rows1.merge(rows2)
@@ -272,12 +244,8 @@ class TestEntityRowsMessageMerge:
 
     def test_merge_updates_row_count(self):
         """Merge correctly updates row_count."""
-        rows1 = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
-        rows2 = EntityRowsMessage(
-            contacts=[{"contact_id": "con_001"}, {"contact_id": "con_002"}]
-        )
+        rows1 = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
+        rows2 = EntityRowsMessage(contacts=[{"contact_id": "con_001"}, {"contact_id": "con_002"}])
 
         initial_count = rows1.row_count()
         rows1.merge(rows2)
@@ -303,7 +271,7 @@ class TestEntityRowsMessageSerialization:
         """model_dump includes all entity data."""
         rows = EntityRowsMessage(
             projects=[{"project_id": "proj_001", "project_name": "Test"}],
-            media=[{"media_id": "media_001", "file_name": "test.jpg"}]
+            media=[{"media_id": "media_001", "file_name": "test.jpg"}],
         )
         dumped = rows.model_dump()
 
@@ -314,9 +282,7 @@ class TestEntityRowsMessageSerialization:
 
     def test_model_dump_json(self):
         """model_dump_json produces valid JSON."""
-        rows = EntityRowsMessage(
-            projects=[{"project_id": "proj_001"}]
-        )
+        rows = EntityRowsMessage(projects=[{"project_id": "proj_001"}])
         json_str = rows.model_dump_json()
 
         assert isinstance(json_str, str)
@@ -331,7 +297,7 @@ class TestEntityRowsMessageSerialization:
             "tasks": [],
             "task_templates": [],
             "external_links": [],
-            "video_collab": []
+            "video_collab": [],
         }
 
         rows = EntityRowsMessage.model_validate(data)
@@ -353,12 +319,8 @@ class TestEntityRowsMessageEdgeCases:
                     "metadata": {
                         "created_by": "user@example.com",
                         "tags": ["urgent", "property"],
-                        "nested": {
-                            "level2": {
-                                "value": "deep"
-                            }
-                        }
-                    }
+                        "nested": {"level2": {"value": "deep"}},
+                    },
                 }
             ]
         )
@@ -380,9 +342,7 @@ class TestEntityRowsMessageEdgeCases:
 
     def test_large_row_count(self):
         """Can handle large number of entity rows."""
-        rows = EntityRowsMessage(
-            media=[{"media_id": f"media_{i}"} for i in range(100)]
-        )
+        rows = EntityRowsMessage(media=[{"media_id": f"media_{i}"} for i in range(100)])
 
         assert rows.row_count() == 100
         assert not rows.is_empty()

@@ -131,8 +131,7 @@ class FailedDeltaBatch(BaseModel):
             first_failure_at=self.first_failure_at,
             last_error=error,
             error_category=self.error_category,
-            retry_at=datetime.now(UTC)
-            + __import__("datetime").timedelta(seconds=delay_seconds),
+            retry_at=datetime.now(UTC) + __import__("datetime").timedelta(seconds=delay_seconds),
             table_path=self.table_path,
             event_count=self.event_count,
         )

@@ -7,8 +7,8 @@ import yaml
 
 from config.pipeline_config import (
     ClaimXEventhouseSourceConfig,
-    EventHubConfig,
     EventhouseSourceConfig,
+    EventHubConfig,
     EventSourceType,
     PipelineConfig,
     _get_config_value,
@@ -29,7 +29,6 @@ def _write_config(tmp_path, data):
 
 
 class TestGetConfigValue:
-
     def test_prefers_env_var(self):
         with patch.dict(os.environ, {"MY_VAR": "from_env"}):
             assert _get_config_value("MY_VAR", "yaml_val") == "from_env"
@@ -60,7 +59,6 @@ class TestGetConfigValue:
 
 
 class TestParseBoolEnv:
-
     def test_true_from_env(self):
         with patch.dict(os.environ, {"FLAG": "true"}):
             assert _parse_bool_env("FLAG", False) is True
@@ -97,7 +95,6 @@ class TestParseBoolEnv:
 
 
 class TestEventSourceType:
-
     def test_eventhub_value(self):
         assert EventSourceType.EVENTHUB.value == "eventhub"
 
@@ -119,11 +116,12 @@ class TestEventSourceType:
 
 
 class TestEventHubConfigFromEnv:
-
     def test_raises_without_connection_string(self):
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="connection string is required"):
-                EventHubConfig.from_env()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ValueError, match="connection string is required"),
+        ):
+            EventHubConfig.from_env()
 
     def test_loads_from_namespace_connection_string(self):
         env = {"EVENTHUB_NAMESPACE_CONNECTION_STRING": "Endpoint=sb://ns.servicebus.windows.net/"}
@@ -135,7 +133,9 @@ class TestEventHubConfigFromEnv:
         env = {"EVENTHUB_CONNECTION_STRING": "Endpoint=sb://legacy.servicebus.windows.net/"}
         with patch.dict(os.environ, env, clear=True):
             config = EventHubConfig.from_env()
-            assert config.namespace_connection_string == "Endpoint=sb://legacy.servicebus.windows.net/"
+            assert (
+                config.namespace_connection_string == "Endpoint=sb://legacy.servicebus.windows.net/"
+            )
 
     def test_prefers_namespace_over_legacy(self):
         env = {
@@ -176,20 +176,23 @@ class TestEventHubConfigFromEnv:
 
 
 class TestEventhouseSourceConfigLoadConfig:
-
     def test_raises_without_cluster_url(self, tmp_path):
         data = {"verisk_eventhouse": {"database": "mydb"}}
         config_file = _write_config(tmp_path, data)
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="cluster_url is required"):
-                EventhouseSourceConfig.load_config(config_file)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ValueError, match="cluster_url is required"),
+        ):
+            EventhouseSourceConfig.load_config(config_file)
 
     def test_raises_without_database(self, tmp_path):
         data = {"verisk_eventhouse": {"cluster_url": "https://cluster.kusto.windows.net"}}
         config_file = _write_config(tmp_path, data)
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="database is required"):
-                EventhouseSourceConfig.load_config(config_file)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ValueError, match="database is required"),
+        ):
+            EventhouseSourceConfig.load_config(config_file)
 
     def test_loads_from_yaml(self, tmp_path):
         data = {
@@ -294,20 +297,23 @@ class TestEventhouseSourceConfigLoadConfig:
 
 
 class TestClaimXEventhouseSourceConfigLoadConfig:
-
     def test_raises_without_cluster_url(self, tmp_path):
         data = {"claimx_eventhouse": {"database": "mydb"}}
         config_file = _write_config(tmp_path, data)
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="cluster_url is required"):
-                ClaimXEventhouseSourceConfig.load_config(config_file)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ValueError, match="cluster_url is required"),
+        ):
+            ClaimXEventhouseSourceConfig.load_config(config_file)
 
     def test_raises_without_database(self, tmp_path):
         data = {"claimx_eventhouse": {"cluster_url": "https://cluster.kusto.windows.net"}}
         config_file = _write_config(tmp_path, data)
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="database is required"):
-                ClaimXEventhouseSourceConfig.load_config(config_file)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ValueError, match="database is required"),
+        ):
+            ClaimXEventhouseSourceConfig.load_config(config_file)
 
     def test_loads_from_yaml(self, tmp_path):
         data = {
@@ -386,7 +392,6 @@ class TestClaimXEventhouseSourceConfigLoadConfig:
 
 
 class TestPipelineConfig:
-
     def test_is_eventhub_source(self):
         config = PipelineConfig(event_source=EventSourceType.EVENTHUB)
         assert config.is_eventhub_source is True
@@ -439,9 +444,11 @@ class TestPipelineConfig:
     def test_invalid_event_source_raises(self, tmp_path):
         data = {"event_source": "invalid"}
         config_file = _write_config(tmp_path, data)
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Invalid event_source"):
-                PipelineConfig.load_config(config_file)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ValueError, match="Invalid event_source"),
+        ):
+            PipelineConfig.load_config(config_file)
 
     def test_loads_delta_config(self, tmp_path):
         data = {
@@ -571,7 +578,6 @@ class TestPipelineConfig:
 
 
 class TestGetEventSourceType:
-
     def test_returns_eventhub_by_default(self, tmp_path):
         data = {}
         config_file = _write_config(tmp_path, data)

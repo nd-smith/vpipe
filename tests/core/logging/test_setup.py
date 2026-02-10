@@ -2,23 +2,16 @@
 
 import logging
 import os
-import shutil
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from core.logging.context import clear_log_context, get_log_context
 from core.logging.setup import (
-    DEFAULT_BACKUP_COUNT,
-    DEFAULT_CONSOLE_LEVEL,
-    DEFAULT_FILE_LEVEL,
-    DEFAULT_LOG_DIR,
-    DEFAULT_ROTATION_INTERVAL,
-    DEFAULT_ROTATION_WHEN,
-    LogArchiver,
     NOISY_LOGGERS,
+    LogArchiver,
     OneLakeLogUploader,
     PipelineFileHandler,
     _create_eventhub_handler,
@@ -32,12 +25,9 @@ from core.logging.setup import (
 
 
 class TestGetLogFilePath:
-
     @patch("core.logging.setup._get_next_instance_id", return_value="happy-tiger")
     def test_builds_path_with_domain_and_stage(self, _):
-        path = get_log_file_path(
-            Path("logs"), domain="claimx", stage="download"
-        )
+        path = get_log_file_path(Path("logs"), domain="claimx", stage="download")
 
         assert "claimx" in str(path)
         assert "claimx_download_" in path.name
@@ -64,7 +54,9 @@ class TestGetLogFilePath:
 
     def test_uses_provided_instance_id(self):
         path = get_log_file_path(
-            Path("logs"), domain="claimx", stage="download",
+            Path("logs"),
+            domain="claimx",
+            stage="download",
             instance_id="worker-0",
         )
 
@@ -72,9 +64,7 @@ class TestGetLogFilePath:
 
     @patch("core.logging.setup._get_next_instance_id", return_value="blue-bird")
     def test_generates_instance_id_when_not_provided(self, _):
-        path = get_log_file_path(
-            Path("logs"), domain="claimx", stage="download"
-        )
+        path = get_log_file_path(Path("logs"), domain="claimx", stage="download")
 
         assert "blue-bird" in path.name
 
@@ -101,7 +91,6 @@ class TestGetLogFilePath:
 
 
 class TestLogArchiver:
-
     def test_creates_archive_directory(self, tmp_path):
         archive_dir = tmp_path / "archive"
         archiver = LogArchiver(archive_dir)
@@ -146,7 +135,6 @@ class TestLogArchiver:
 
 
 class TestOneLakeLogUploader:
-
     def test_uploads_and_deletes_rotated_files(self, tmp_path):
         archive_dir = tmp_path / "archive"
         archive_dir.mkdir()
@@ -226,14 +214,15 @@ class TestOneLakeLogUploader:
 
 
 class TestPipelineFileHandler:
-
     def test_creates_handler_with_archiver(self, tmp_path):
         log_file = tmp_path / "test.log"
         archive_dir = tmp_path / "archive"
         archiver = LogArchiver(archive_dir)
 
         handler = PipelineFileHandler(
-            log_file, when="midnight", archiver=archiver,
+            log_file,
+            when="midnight",
+            archiver=archiver,
         )
 
         assert handler.archiver is archiver
@@ -257,8 +246,10 @@ class TestPipelineFileHandler:
         uploader = OneLakeLogUploader(mock_client, log_retention_hours=24)
 
         handler = PipelineFileHandler(
-            log_file, when="midnight",
-            archiver=archiver, uploader=uploader,
+            log_file,
+            when="midnight",
+            archiver=archiver,
+            uploader=uploader,
         )
 
         assert handler.onelake_client is mock_client
@@ -269,12 +260,19 @@ class TestPipelineFileHandler:
         log_file.write_text("x" * 100)
 
         handler = PipelineFileHandler(
-            log_file, when="midnight", max_bytes=50,
+            log_file,
+            when="midnight",
+            max_bytes=50,
         )
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="message", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="message",
+            args=(),
+            exc_info=None,
         )
 
         # File is already over max_bytes so should rollover
@@ -286,12 +284,20 @@ class TestPipelineFileHandler:
         log_file.write_text("")
 
         handler = PipelineFileHandler(
-            log_file, when="H", interval=24, max_bytes=0,
+            log_file,
+            when="H",
+            interval=24,
+            max_bytes=0,
         )
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="msg", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="msg",
+            args=(),
+            exc_info=None,
         )
 
         # Time-based rollover shouldn't trigger for a new file
@@ -301,16 +307,16 @@ class TestPipelineFileHandler:
 
 
 class TestCreateEventhubHandler:
-
     def test_creates_handler_successfully(self):
         mock_handler = MagicMock()
         mock_handler_class = MagicMock(return_value=mock_handler)
 
-        with patch.dict("sys.modules", {
-            "core.logging.eventhub_handler": MagicMock(
-                EventHubLogHandler=mock_handler_class
-            ),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "core.logging.eventhub_handler": MagicMock(EventHubLogHandler=mock_handler_class),
+            },
+        ):
             result = _create_eventhub_handler(
                 connection_string="Endpoint=sb://test",
                 eventhub_name="test-hub",
@@ -328,11 +334,12 @@ class TestCreateEventhubHandler:
     def test_returns_none_on_failure(self):
         mock_handler_class = MagicMock(side_effect=Exception("connection failed"))
 
-        with patch.dict("sys.modules", {
-            "core.logging.eventhub_handler": MagicMock(
-                EventHubLogHandler=mock_handler_class
-            ),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "core.logging.eventhub_handler": MagicMock(EventHubLogHandler=mock_handler_class),
+            },
+        ):
             result = _create_eventhub_handler(
                 connection_string="bad",
                 eventhub_name="test-hub",
@@ -347,7 +354,6 @@ class TestCreateEventhubHandler:
 
 
 class TestSetupLogging:
-
     @pytest.fixture(autouse=True)
     def clear_context(self):
         clear_log_context()
@@ -377,9 +383,9 @@ class TestSetupLogging:
 
         root = logging.getLogger()
         stream_handlers = [
-            h for h in root.handlers
-            if isinstance(h, logging.StreamHandler)
-            and not isinstance(h, logging.FileHandler)
+            h
+            for h in root.handlers
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
         ]
         assert len(stream_handlers) == 1
 
@@ -439,9 +445,7 @@ class TestSetupLogging:
         )
 
         root = logging.getLogger()
-        file_handlers = [
-            h for h in root.handlers if isinstance(h, logging.FileHandler)
-        ]
+        file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) >= 1
 
     @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
@@ -537,7 +541,6 @@ class TestSetupLogging:
 
 
 class TestSetupMultiWorkerLogging:
-
     @pytest.fixture(autouse=True)
     def clear_context(self):
         clear_log_context()
@@ -555,9 +558,7 @@ class TestSetupMultiWorkerLogging:
         )
 
         root = logging.getLogger()
-        file_handlers = [
-            h for h in root.handlers if isinstance(h, PipelineFileHandler)
-        ]
+        file_handlers = [h for h in root.handlers if isinstance(h, PipelineFileHandler)]
         # 2 worker handlers + 1 combined handler
         assert len(file_handlers) == 3
 
@@ -571,9 +572,7 @@ class TestSetupMultiWorkerLogging:
         )
 
         root = logging.getLogger()
-        file_handlers = [
-            h for h in root.handlers if isinstance(h, logging.FileHandler)
-        ]
+        file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) == 0
 
     @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
@@ -589,7 +588,6 @@ class TestSetupMultiWorkerLogging:
 
 
 class TestGetLogger:
-
     def test_returns_logger_with_given_name(self):
         logger = get_logger("my.module")
 
@@ -598,7 +596,6 @@ class TestGetLogger:
 
 
 class TestLogWorkerStartup:
-
     def test_logs_startup_with_all_fields(self):
         logger = MagicMock()
         log_worker_startup(
@@ -611,8 +608,9 @@ class TestLogWorkerStartup:
             extra_config={"batch_size": 100},
         )
 
-        messages = [c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0]
-                     for c in logger.info.call_args_list]
+        messages = [
+            c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0] for c in logger.info.call_args_list
+        ]
         full_output = " ".join(messages)
         assert "Test Worker" in full_output
         assert "broker:9092" in full_output
@@ -626,8 +624,9 @@ class TestLogWorkerStartup:
         with patch.dict(os.environ, {"KAFKA_BOOTSTRAP_SERVERS": "env-broker:9092"}):
             log_worker_startup(logger, worker_name="Worker")
 
-        messages = [c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0]
-                     for c in logger.info.call_args_list]
+        messages = [
+            c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0] for c in logger.info.call_args_list
+        ]
         full_output = " ".join(messages)
         assert "env-broker:9092" in full_output
 
@@ -638,8 +637,9 @@ class TestLogWorkerStartup:
             os.environ.pop("KAFKA_BOOTSTRAP_SERVERS", None)
             log_worker_startup(logger, worker_name="Worker")
 
-        messages = [c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0]
-                     for c in logger.info.call_args_list]
+        messages = [
+            c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0] for c in logger.info.call_args_list
+        ]
         full_output = " ".join(messages)
         assert "not set" in full_output
 
@@ -647,8 +647,9 @@ class TestLogWorkerStartup:
         logger = MagicMock()
         log_worker_startup(logger, worker_name="Worker")
 
-        messages = [c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0]
-                     for c in logger.info.call_args_list]
+        messages = [
+            c[0][0] % c[0][1:] if len(c[0]) > 1 else c[0][0] for c in logger.info.call_args_list
+        ]
         full_output = " ".join(messages)
         assert "Input topic" not in full_output
         assert "Output topic" not in full_output
@@ -656,7 +657,6 @@ class TestLogWorkerStartup:
 
 
 class TestGenerateCycleId:
-
     def test_generates_unique_ids(self):
         id1 = generate_cycle_id()
         id2 = generate_cycle_id()

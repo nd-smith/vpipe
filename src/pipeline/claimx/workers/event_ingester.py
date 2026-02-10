@@ -56,9 +56,7 @@ class ClaimXEventIngesterWorker:
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.instance_id = instance_id
-        self.enrichment_topic = enrichment_topic or config.get_topic(
-            domain, "enrichment_pending"
-        )
+        self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
         self.producer = None
         self.consumer = None
 
@@ -91,9 +89,7 @@ class ClaimXEventIngesterWorker:
         # Persistent blob storage (survives worker restarts)
         self._dedup_store: DedupStoreProtocol | None = None
         self._dedup_worker_name = "claimx-event-ingester"
-        processing_config = config.get_worker_config(
-            domain, "event_ingester", "processing"
-        )
+        processing_config = config.get_worker_config(domain, "event_ingester", "processing")
         health_port = processing_config.get("health_port", 0)
         health_enabled = processing_config.get("health_enabled", True)
         self.health_server = HealthCheckServer(
@@ -465,9 +461,7 @@ class ClaimXEventIngesterWorker:
         # If memory cache is full, evict oldest entries (LRU)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
             # Sort by timestamp and remove oldest 10%
-            sorted_items = sorted(
-                self._dedup_cache.items(), key=lambda x: x[1]
-            )
+            sorted_items = sorted(self._dedup_cache.items(), key=lambda x: x[1])
             evict_count = self._dedup_cache_max_size // 10
             for event_id_to_evict, _ in sorted_items[:evict_count]:
                 self._dedup_cache.pop(event_id_to_evict, None)
