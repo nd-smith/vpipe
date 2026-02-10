@@ -406,7 +406,8 @@ class KQLEventPoller:
             except TimeoutError:
                 pass
             except Exception as e:
-                logger.error("Error in poll cycle", extra={"error": str(e)})
+                logger.error(f"Error in poll cycle: {e}", exc_info=True)
+                await asyncio.sleep(self.config.poll_interval_seconds)
 
     async def _bulk_backfill(self) -> None:
         """Execute paginated bulk backfill."""
