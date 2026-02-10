@@ -420,6 +420,61 @@ class TestEventHubProducerSendBatch:
     @patch("pipeline.common.eventhub.producer.record_message_produced")
     @patch("pipeline.common.eventhub.producer.message_processing_duration_seconds")
     @patch("pipeline.common.eventhub.producer.EventData")
+    async def test_send_batch_splits_when_batch_full(
+        self, MockEventData, mock_duration, mock_record
+    ):
+        from pipeline.common.eventhub.producer import EventHubProducer
+
+        producer = EventHubProducer(
+            connection_string="conn",
+            domain="verisk",
+            worker_name="test",
+            eventhub_name="my-entity",
+        )
+        producer._started = True
+        mock_client = MagicMock()
+
+        # First batch accepts 2 events, then raises on the 3rd
+        batch1 = MagicMock()
+        call_count = 0
+
+        def add_with_limit(event_data):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 2:
+                raise ValueError("EventDataBatch has reached its size limit: 1048576")
+
+        batch1.add.side_effect = add_with_limit
+        batch2 = MagicMock()
+
+        mock_client.create_batch.side_effect = [batch1, batch2]
+        producer._producer = mock_client
+
+        mock_event = MagicMock()
+        mock_event.properties = {}
+        MockEventData.return_value = mock_event
+
+        models = []
+        for i in range(3):
+            m = MagicMock()
+            m.model_dump_json.return_value = f'{{"i": {i}}}'
+            models.append(m)
+
+        results = await producer.send_batch(
+            messages=[("k0", models[0]), ("k1", models[1]), ("k2", models[2])]
+        )
+
+        assert len(results) == 3
+        # batch1 was sent when full, batch2 sent with remaining message
+        assert mock_client.send_batch.call_count == 2
+        mock_client.send_batch.assert_any_call(batch1)
+        mock_client.send_batch.assert_any_call(batch2)
+        # The overflowing event was added to batch2
+        batch2.add.assert_called_once()
+
+    @patch("pipeline.common.eventhub.producer.record_message_produced")
+    @patch("pipeline.common.eventhub.producer.message_processing_duration_seconds")
+    @patch("pipeline.common.eventhub.producer.EventData")
     async def test_send_batch_with_headers(
         self, MockEventData, mock_duration, mock_record
     ):

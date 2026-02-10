@@ -352,8 +352,8 @@ class EventHubProducer:
         total_bytes = 0
 
         try:
-            # Create batch and add all messages
             batch = self._producer.create_batch()
+            batches_sent = 0
 
             for key, value in messages:
                 value_bytes = value.model_dump_json().encode("utf-8")
@@ -366,10 +366,18 @@ class EventHubProducer:
                     for k, v in headers.items():
                         event_data.properties[k] = v
 
-                batch.add(event_data)
+                try:
+                    batch.add(event_data)
+                except ValueError:
+                    # Batch is full — send it and start a new one
+                    self._producer.send_batch(batch)
+                    batches_sent += 1
+                    batch = self._producer.create_batch()
+                    batch.add(event_data)
 
-            # Send batch (synchronous operation)
+            # Send remaining messages
             self._producer.send_batch(batch)
+            batches_sent += 1
 
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(
@@ -386,6 +394,7 @@ class EventHubProducer:
                 extra={
                     "entity": self.eventhub_name,
                     "message_count": len(messages),
+                    "batches_sent": batches_sent,
                     "duration_ms": round(duration * 1000, 2),
                 },
             )
