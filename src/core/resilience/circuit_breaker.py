@@ -41,6 +41,33 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# State value mapping for metrics
+_STATE_VALUES = {
+    "CLOSED": 0,
+    "OPEN": 1,
+    "HALF_OPEN": 2,
+}
+
+
+def _emit_state_metric(name: str, state: "CircuitState") -> None:
+    """Emit circuit breaker state metric. No-op if pipeline.common.metrics unavailable."""
+    try:
+        from pipeline.common.metrics import update_circuit_breaker_state
+
+        update_circuit_breaker_state(name, _STATE_VALUES.get(state.name, -1))
+    except ImportError:
+        pass
+
+
+def _emit_call_metric(name: str, result: str) -> None:
+    """Emit circuit breaker call metric. No-op if pipeline.common.metrics unavailable."""
+    try:
+        from pipeline.common.metrics import record_circuit_breaker_call
+
+        record_circuit_breaker_call(name, result)
+    except ImportError:
+        pass
+
 
 class CircuitState(Enum):
     CLOSED = "closed"
@@ -236,6 +263,7 @@ class CircuitBreaker:
         self._stats.state_changes += 1
         self._stats.last_state_change_time = time.time()
         self._stats.current_state = new_state.value
+        _emit_state_metric(self.name, new_state)
 
         # Reset counters on state change
         if new_state == CircuitState.CLOSED:
@@ -274,6 +302,7 @@ class CircuitBreaker:
     def _record_success(self) -> None:
         self._stats.successful_calls += 1
         self._stats.last_success_time = time.time()
+        _emit_call_metric(self.name, "success")
 
         if self._state == CircuitState.HALF_OPEN:
             self._success_count += 1
@@ -286,6 +315,7 @@ class CircuitBreaker:
     def _record_failure(self, exc: Exception) -> None:
         self._stats.failed_calls += 1
         self._stats.last_failure_time = time.time()
+        _emit_call_metric(self.name, "failure")
 
         # Check if this error should count
         if not self._should_count_failure(exc):
@@ -354,6 +384,7 @@ class CircuitBreaker:
 
             if not self._can_execute():
                 self._stats.rejected_calls += 1
+                _emit_call_metric(self.name, "rejected")
                 retry_after = self._get_retry_after()
                 raise CircuitOpenError(self.name, retry_after)
 
@@ -399,6 +430,7 @@ class CircuitBreaker:
             self._stats.total_calls += 1
             if not self._can_execute():
                 self._stats.rejected_calls += 1
+                _emit_call_metric(self.name, "rejected")
                 retry_after = self._get_retry_after()
                 raise CircuitOpenError(self.name, retry_after)
 

@@ -12,9 +12,11 @@ data transformation methods.
 
 import asyncio
 import logging
+import time
 
 import polars as pl
 
+from pipeline.common.metrics import delta_write_duration_seconds
 from pipeline.common.storage.delta import DeltaTableWriter
 
 
@@ -102,12 +104,18 @@ class BaseDeltaWriter:
         if df.is_empty():
             return True
 
+        table_name = self.table_path.rstrip("/").split("/")[-1]
+
         try:
+            start = time.monotonic()
             rows_written = await asyncio.to_thread(
                 self._delta_writer.append,
                 df,
                 batch_id=batch_id,
             )
+            delta_write_duration_seconds.labels(
+                table=table_name, operation="append"
+            ).observe(time.monotonic() - start)
 
             self.logger.info(
                 "Successfully appended to Delta table",
@@ -158,7 +166,10 @@ class BaseDeltaWriter:
         if df.is_empty():
             return True
 
+        table_name = self.table_path.rstrip("/").split("/")[-1]
+
         try:
+            start = time.monotonic()
             rows_affected = await asyncio.to_thread(
                 self._delta_writer.merge,
                 df,
@@ -166,6 +177,9 @@ class BaseDeltaWriter:
                 preserve_columns=preserve_columns,
                 update_condition=update_condition,
             )
+            delta_write_duration_seconds.labels(
+                table=table_name, operation="merge"
+            ).observe(time.monotonic() - start)
 
             self.logger.info(
                 "Successfully merged into Delta table",

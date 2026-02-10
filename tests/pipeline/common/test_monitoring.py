@@ -180,17 +180,14 @@ class TestMonitoringServerInit:
         server = MonitoringServer()
         assert server.port == 8080
         assert server.metrics_url == "http://localhost:8000/metrics"
-        assert server.bootstrap_servers == "localhost:9092"
 
     def test_custom_values(self):
         server = MonitoringServer(
             port=9999,
             metrics_url="http://prom:9090/metrics",
-            bootstrap_servers="kafka:9092",
         )
         assert server.port == 9999
         assert server.metrics_url == "http://prom:9090/metrics"
-        assert server.bootstrap_servers == "kafka:9092"
 
 
 class TestMonitoringServerEnsureSession:
@@ -326,6 +323,11 @@ class TestExtractTopicStats:
             "verisk-downloads-results",
             "verisk-dlq",
             "verisk_events",
+            "claimx-downloads-pending",
+            "claimx-downloads-cached",
+            "claimx-downloads-results",
+            "claimx-dlq",
+            "claimx_events",
         ]
         for name in expected_topics:
             assert name in data.topics
@@ -410,19 +412,25 @@ class TestExtractWorkerStats:
         server, data = self._make_server_and_data()
         server._extract_worker_stats({}, data)
 
+        assert "event_ingester" in data.workers
+        assert "enrichment_worker" in data.workers
         assert "download_worker" in data.workers
         assert "upload_worker" in data.workers
         assert "result_processor" in data.workers
-        assert "event_ingester" in data.workers
+        assert "delta_events_writer" in data.workers
+        assert "entity_delta_writer" in data.workers
 
     def test_worker_display_names_are_title_case(self):
         server, data = self._make_server_and_data()
         server._extract_worker_stats({}, data)
 
+        assert data.workers["event_ingester"].name == "Event Ingester"
+        assert data.workers["enrichment_worker"].name == "Enrichment Worker"
         assert data.workers["download_worker"].name == "Download Worker"
         assert data.workers["upload_worker"].name == "Upload Worker"
         assert data.workers["result_processor"].name == "Result Processor"
-        assert data.workers["event_ingester"].name == "Event Ingester"
+        assert data.workers["delta_events_writer"].name == "Delta Events Writer"
+        assert data.workers["entity_delta_writer"].name == "Entity Delta Writer"
 
     def test_consumer_connection_sets_all_workers_connected(self):
         server, data = self._make_server_and_data()
@@ -462,16 +470,12 @@ class TestExtractWorkerStats:
         for worker in data.workers.values():
             assert worker.connected is True
 
-    def test_concurrent_downloads_sets_in_flight(self):
+    def test_concurrent_downloads_metric_removed(self):
+        """The kafka_downloads_concurrent metric was removed; in_flight stays at default 0."""
         server, data = self._make_server_and_data()
-        metrics = {
-            "kafka_downloads_concurrent": [
-                {"labels": {"worker": "download_worker"}, "value": 7.0},
-            ]
-        }
-        server._extract_worker_stats(metrics, data)
+        server._extract_worker_stats({}, data)
 
-        assert data.workers["download_worker"].in_flight == 7
+        assert data.workers["download_worker"].in_flight == 0
 
     def test_processing_errors_pending_topic_goes_to_download_worker(self):
         server, data = self._make_server_and_data()
@@ -532,8 +536,8 @@ class TestExtractWorkerStats:
     def test_circuit_breaker_state_open(self):
         server, data = self._make_server_and_data()
         metrics = {
-            "kafka_circuit_breaker_state": [
-                {"labels": {"component": "download_worker"}, "value": 1.0},
+            "circuit_breaker_state": [
+                {"labels": {"name": "download_worker"}, "value": 1.0},
             ]
         }
         server._extract_worker_stats(metrics, data)
@@ -543,8 +547,8 @@ class TestExtractWorkerStats:
     def test_circuit_breaker_state_half_open(self):
         server, data = self._make_server_and_data()
         metrics = {
-            "kafka_circuit_breaker_state": [
-                {"labels": {"component": "upload_worker"}, "value": 2.0},
+            "circuit_breaker_state": [
+                {"labels": {"name": "upload_worker"}, "value": 2.0},
             ]
         }
         server._extract_worker_stats(metrics, data)
@@ -554,8 +558,8 @@ class TestExtractWorkerStats:
     def test_circuit_breaker_state_closed(self):
         server, data = self._make_server_and_data()
         metrics = {
-            "kafka_circuit_breaker_state": [
-                {"labels": {"component": "result_processor"}, "value": 0.0},
+            "circuit_breaker_state": [
+                {"labels": {"name": "result_processor"}, "value": 0.0},
             ]
         }
         server._extract_worker_stats(metrics, data)
@@ -565,19 +569,19 @@ class TestExtractWorkerStats:
     def test_circuit_breaker_unknown_state_value(self):
         server, data = self._make_server_and_data()
         metrics = {
-            "kafka_circuit_breaker_state": [
-                {"labels": {"component": "event_ingester"}, "value": 99.0},
+            "circuit_breaker_state": [
+                {"labels": {"name": "event_ingester"}, "value": 99.0},
             ]
         }
         server._extract_worker_stats(metrics, data)
 
         assert data.workers["event_ingester"].circuit_breaker == "unknown"
 
-    def test_circuit_breaker_ignores_unknown_component(self):
+    def test_circuit_breaker_ignores_unknown_name(self):
         server, data = self._make_server_and_data()
         metrics = {
-            "kafka_circuit_breaker_state": [
-                {"labels": {"component": "nonexistent"}, "value": 1.0},
+            "circuit_breaker_state": [
+                {"labels": {"name": "nonexistent"}, "value": 1.0},
             ]
         }
         server._extract_worker_stats(metrics, data)
@@ -724,12 +728,10 @@ class TestRenderDashboard:
     def test_renders_configuration_section(self):
         server = MonitoringServer(
             metrics_url="http://prom:9090/metrics",
-            bootstrap_servers="kafka:9092",
         )
         data = DashboardData(timestamp="")
         html = server.render_dashboard(data)
         assert "http://prom:9090/metrics" in html
-        assert "kafka:9092" in html
 
     def test_renders_timestamp(self):
         server = MonitoringServer()
@@ -754,7 +756,7 @@ class TestHandleIndex:
         response = await server.handle_index(request)
 
         assert response.content_type == "text/html"
-        assert "Kafka Pipeline Monitor" in response.text
+        assert "Pipeline Monitor" in response.text
 
 
 class TestHandleApiStats:

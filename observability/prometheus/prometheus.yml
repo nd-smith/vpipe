@@ -99,8 +99,3 @@ scrape_configs:
         labels:
           domain: 'claimx'
           worker_type: 'entity-writer'
-
-  # Kafka Exporter (optional - for Kafka metrics)
-  # - job_name: 'kafka'
-  #   static_configs:
-  #     - targets: ['kafka-exporter:9308']

@@ -24,6 +24,7 @@ from azure.storage.filedatalake import DataLakeServiceClient  # type: ignore
 from requests.adapters import HTTPAdapter
 
 from pipeline.common.auth import clear_token_cache, get_auth
+from pipeline.common.metrics import onelake_bytes_transferred_counter, onelake_operation_duration_seconds
 from pipeline.common.retry import RetryConfig, with_retry
 
 logger = logging.getLogger(__name__)
@@ -601,7 +602,15 @@ class OneLakeClient:
 
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
+
+            start = time.monotonic()
             file_client.upload_data(data, overwrite=overwrite)
+            onelake_operation_duration_seconds.labels(operation="upload").observe(
+                time.monotonic() - start
+            )
+            onelake_bytes_transferred_counter.labels(
+                operation="upload", direction="upload"
+            ).inc(bytes_count)
 
             result_path = f"{self.base_path}/{relative_path}"
             logger.debug(
@@ -665,10 +674,17 @@ class OneLakeClient:
         dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
         file_client = dir_client.get_file_client(filename)
 
+        start = time.monotonic()
         download = file_client.download_file()
         content = download.readall()
+        onelake_operation_duration_seconds.labels(operation="download").observe(
+            time.monotonic() - start
+        )
 
         bytes_count = len(content)
+        onelake_bytes_transferred_counter.labels(
+            operation="download", direction="download"
+        ).inc(bytes_count)
 
         logger.debug(
             "Download complete",
@@ -709,8 +725,15 @@ class OneLakeClient:
             dir_client = self._file_system_client.get_directory_client(directory)  # type: ignore
             file_client = dir_client.get_file_client(filename)
 
+            start = time.monotonic()
             with open(local_path, "rb") as f:
                 file_client.upload_data(f, overwrite=overwrite)
+            onelake_operation_duration_seconds.labels(operation="upload").observe(
+                time.monotonic() - start
+            )
+            onelake_bytes_transferred_counter.labels(
+                operation="upload", direction="upload"
+            ).inc(file_size)
 
             result_path = f"{self.base_path}/{relative_path}"
             logger.debug(

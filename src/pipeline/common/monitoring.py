@@ -1,5 +1,5 @@
 """
-Monitoring web UI for Kafka pipeline.
+Monitoring web UI for the pipeline.
 
 Provides a simple dashboard showing:
 - Topic stats (messages, lag, partitions)
@@ -14,7 +14,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,12 +27,11 @@ logger = logging.getLogger(__name__)
 # Default configuration
 DEFAULT_PORT = 8080
 DEFAULT_METRICS_URL = "http://localhost:8000/metrics"
-DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"
 
 
 @dataclass
 class TopicStats:
-    """Statistics for a single Kafka topic."""
+    """Statistics for a single topic."""
 
     name: str
     partitions: int = 0
@@ -120,11 +118,9 @@ class MonitoringServer:
         self,
         port: int = DEFAULT_PORT,
         metrics_url: str = DEFAULT_METRICS_URL,
-        bootstrap_servers: str = DEFAULT_BOOTSTRAP_SERVERS,
     ):
         self.port = port
         self.metrics_url = metrics_url
-        self.bootstrap_servers = bootstrap_servers
         self.parser = MetricsParser()
         self._app: web.Application | None = None
         self._runner: web.AppRunner | None = None
@@ -174,6 +170,11 @@ class MonitoringServer:
             "verisk-downloads-results",
             "verisk-dlq",
             "verisk_events",
+            "claimx-downloads-pending",
+            "claimx-downloads-cached",
+            "claimx-downloads-results",
+            "claimx-dlq",
+            "claimx_events",
         ]
 
         # Initialize topics
@@ -217,10 +218,13 @@ class MonitoringServer:
         """Extract worker statistics from parsed metrics."""
         # Initialize workers
         worker_names = [
+            "event_ingester",
+            "enrichment_worker",
             "download_worker",
             "upload_worker",
             "result_processor",
-            "event_ingester",
+            "delta_events_writer",
+            "entity_delta_writer",
         ]
         for name in worker_names:
             display_name = name.replace("_", " ").title()
@@ -232,23 +236,12 @@ class MonitoringServer:
             connected = entry["value"] == 1.0
             # Map component to worker
             if component == "consumer":
-                for w in [
-                    "download_worker",
-                    "upload_worker",
-                    "result_processor",
-                    "event_ingester",
-                ]:
+                for w in worker_names:
                     if w in data.workers:
                         data.workers[w].connected = connected
             elif component == "producer":
                 for w in data.workers.values():
                     w.connected = w.connected or connected
-
-        # Concurrent downloads
-        for entry in metrics.get("kafka_downloads_concurrent", []):
-            worker = entry["labels"].get("worker", "")
-            if worker in data.workers:
-                data.workers[worker].in_flight = int(entry["value"])
 
         # Processing errors
         for entry in metrics.get("pipeline_processing_errors_total", []):
@@ -262,12 +255,12 @@ class MonitoringServer:
                 data.workers.get("result_processor", WorkerStats("")).errors += int(entry["value"])
 
         # Circuit breaker state
-        for entry in metrics.get("kafka_circuit_breaker_state", []):
-            component = entry["labels"].get("component", "")
+        for entry in metrics.get("circuit_breaker_state", []):
+            name = entry["labels"].get("name", "")
             state_val = int(entry["value"])
             state = {0: "closed", 1: "open", 2: "half-open"}.get(state_val, "unknown")
-            if component in data.workers:
-                data.workers[component].circuit_breaker = state
+            if name in data.workers:
+                data.workers[name].circuit_breaker = state
 
     def render_dashboard(self, data: DashboardData) -> str:
         """Render HTML dashboard."""
@@ -339,7 +332,7 @@ class MonitoringServer:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kafka Pipeline Monitor</title>
+    <title>Pipeline Monitor</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {{ background-color: #1a1a2e; color: #eee; }}
@@ -354,7 +347,7 @@ class MonitoringServer:
 <body>
     <nav class="navbar navbar-dark mb-4">
         <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">Kafka Pipeline Monitor</span>
+            <span class="navbar-brand mb-0 h1">Pipeline Monitor</span>
             <div class="d-flex align-items-center">
                 <span class="text-muted me-3">{data.timestamp}</span>
                 <a href="/" class="btn btn-outline-light btn-sm">Refresh</a>
@@ -426,9 +419,6 @@ class MonitoringServer:
                             <div class="col-md-6">
                                 <p><strong>Metrics URL:</strong> <code>{self.metrics_url}</code></p>
                             </div>
-                            <div class="col-md-6">
-                                <p><strong>Kafka:</strong> <code>{self.bootstrap_servers}</code></p>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -489,7 +479,7 @@ class MonitoringServer:
 
 async def main() -> None:
     """Main entry point for standalone monitoring server."""
-    parser = argparse.ArgumentParser(description="Kafka Pipeline Monitoring Dashboard")
+    parser = argparse.ArgumentParser(description="Pipeline Monitoring Dashboard")
     parser.add_argument(
         "--port",
         type=int,
@@ -501,12 +491,6 @@ async def main() -> None:
         type=str,
         default=DEFAULT_METRICS_URL,
         help=f"Prometheus metrics URL (default: {DEFAULT_METRICS_URL})",
-    )
-    parser.add_argument(
-        "--bootstrap-servers",
-        type=str,
-        default=os.getenv("KAFKA_BOOTSTRAP_SERVERS", DEFAULT_BOOTSTRAP_SERVERS),
-        help="Kafka bootstrap servers",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
@@ -520,7 +504,6 @@ async def main() -> None:
     server = MonitoringServer(
         port=args.port,
         metrics_url=args.metrics_url,
-        bootstrap_servers=args.bootstrap_servers,
     )
 
     print(f"Starting monitoring dashboard at http://localhost:{args.port}")

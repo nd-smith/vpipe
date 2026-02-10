@@ -105,7 +105,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka.consumer.lag{domain=\"claimx\"})",
+          "expr": "sum(pipeline_consumer_lag{domain=\"claimx\"})",
           "refId": "A"
         }
       ],
@@ -162,7 +162,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.events.ingested{domain=\"claimx\", status=\"success\"}[5m]))",
+          "expr": "sum(rate(pipeline_messages_consumed_total{domain=\"claimx\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -219,11 +219,11 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(claimx.api.requests{status=\"success\"}[5m]))",
+          "expr": "sum(rate(claimx_handler_events_total{status=\"success\"}[5m]))",
           "refId": "A"
         }
       ],
-      "title": "ClaimX API Calls/sec",
+      "title": "ClaimX Handler Events/sec",
       "type": "stat"
     },
     {
@@ -276,7 +276,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(delta.writes{status=\"success\", table=~\"claimx.*\"}[5m]))",
+          "expr": "sum(rate(delta_writes_total{success=\"true\", table=~\"claimx.*\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -362,12 +362,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.consumed{domain=\"claimx\", status=\"success\"}[5m])) by (topic)",
+          "expr": "sum(rate(pipeline_messages_consumed_total{domain=\"claimx\"}[5m])) by (topic)",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }
       ],
-      "title": "ClaimX Worker Throughput (by topic)",
+      "title": "ClaimX Message Throughput (by topic)",
       "type": "timeseries"
     },
     {
@@ -449,7 +449,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka.consumer.lag{domain=\"claimx\"}) by (topic)",
+          "expr": "sum(pipeline_consumer_lag{domain=\"claimx\"}) by (topic)",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }
@@ -536,7 +536,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(claimx.api.request.duration_bucket[5m])) by (le, endpoint))",
+          "expr": "histogram_quantile(0.50, sum(rate(claimx_handler_duration_seconds_bucket[5m])) by (le, endpoint))",
           "legendFormat": "p50 - {{endpoint}}",
           "refId": "A"
         },
@@ -545,12 +545,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(claimx.api.request.duration_bucket[5m])) by (le, endpoint))",
+          "expr": "histogram_quantile(0.95, sum(rate(claimx_handler_duration_seconds_bucket[5m])) by (le, endpoint))",
           "legendFormat": "p95 - {{endpoint}}",
           "refId": "B"
         }
       ],
-      "title": "ClaimX API Response Time",
+      "title": "ClaimX Handler Response Time",
       "type": "timeseries"
     },
     {
@@ -632,7 +632,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(claimx.handler.duration_bucket[5m])) by (le, handler))",
+          "expr": "histogram_quantile(0.50, sum(rate(claimx_handler_duration_seconds_bucket[5m])) by (le, handler))",
           "legendFormat": "p50 - {{handler}}",
           "refId": "A"
         },
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(claimx.handler.duration_bucket[5m])) by (le, handler))",
+          "expr": "histogram_quantile(0.95, sum(rate(claimx_handler_duration_seconds_bucket[5m])) by (le, handler))",
           "legendFormat": "p95 - {{handler}}",
           "refId": "B"
         }
@@ -728,7 +728,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(claimx.handler.events{status=\"success\"}[5m])) by (handler)",
+          "expr": "sum(rate(claimx_handler_events_total{status=\"success\"}[5m])) by (handler)",
           "legendFormat": "{{handler}}",
           "refId": "A"
         }
@@ -815,7 +815,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.processing.errors{domain=\"claimx\"}[5m])) by (error_category)",
+          "expr": "sum(rate(pipeline_processing_errors_total{domain=\"claimx\"}[5m])) by (error_category)",
           "legendFormat": "{{error_category}}",
           "refId": "A"
         }
@@ -902,7 +902,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(delta.events.written{table=~\"claimx.*\"}[5m])) by (table)",
+          "expr": "sum(rate(delta_writes_total{table=~\"claimx.*\"}[5m])) by (table)",
           "legendFormat": "{{table}}",
           "refId": "A"
         }
@@ -989,7 +989,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(delta.write.duration_bucket{table=~\"claimx.*\"}[5m])) by (le, table))",
+          "expr": "histogram_quantile(0.50, sum(rate(delta_write_duration_seconds_bucket{table=~\"claimx.*\"}[5m])) by (le, table))",
           "legendFormat": "p50 - {{table}}",
           "refId": "A"
         },
@@ -998,7 +998,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(delta.write.duration_bucket{table=~\"claimx.*\"}[5m])) by (le, table))",
+          "expr": "histogram_quantile(0.95, sum(rate(delta_write_duration_seconds_bucket{table=~\"claimx.*\"}[5m])) by (le, table))",
           "legendFormat": "p95 - {{table}}",
           "refId": "B"
         }
@@ -1010,7 +1010,7 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["kafka-pipeline", "claimx", "domain"],
+  "tags": ["pipeline", "claimx", "domain"],
   "templating": {
     "list": [
       {

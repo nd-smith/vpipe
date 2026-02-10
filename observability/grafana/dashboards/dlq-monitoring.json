@@ -82,7 +82,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka.consumer.lag{topic=\"downloads.dlq\"})",
+          "expr": "sum(pipeline_dlq_messages_total{topic=~\".*dlq.*\"})",
           "refId": "A"
         }
       ],
@@ -150,7 +150,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.produced{topic=\"downloads.dlq\",status=\"success\"}[5m]))",
+          "expr": "sum(rate(pipeline_dlq_messages_total{topic=~\".*dlq.*\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -210,7 +210,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.consumed{topic=\"downloads.dlq\",status=\"success\"}[5m]))",
+          "expr": "sum(rate(pipeline_messages_consumed_total{topic=~\".*dlq.*\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -278,7 +278,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "time() - (kafka.consumer.offset{topic=\"downloads.dlq\"} / 1000)",
+          "expr": "time() - (pipeline_consumer_offset{topic=~\".*dlq.*\"} / 1000)",
           "refId": "A"
         }
       ],
@@ -368,7 +368,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.consumer.lag{topic=\"downloads.dlq\"}",
+          "expr": "pipeline_dlq_messages_total{topic=~\".*dlq.*\"}",
           "refId": "A",
           "legendFormat": "p{{partition}}"
         }
@@ -489,7 +489,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.produced{topic=\"downloads.dlq\",status=\"success\"}[5m]))",
+          "expr": "sum(rate(pipeline_dlq_messages_total{topic=~\".*dlq.*\"}[5m]))",
           "refId": "A",
           "legendFormat": "ingestion"
         },
@@ -498,7 +498,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.consumed{topic=\"downloads.dlq\",status=\"success\"}[5m]))",
+          "expr": "sum(rate(pipeline_messages_consumed_total{topic=~\".*dlq.*\"}[5m]))",
           "refId": "B",
           "legendFormat": "replay"
         }
@@ -567,7 +567,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(kafka.messages.produced{topic=\"downloads.dlq\",status=\"success\"}[1h])) by (error_category)",
+          "expr": "sum(increase(pipeline_dlq_messages_total{topic=~\".*dlq.*\"}[1h])) by (error_category)",
           "refId": "A",
           "legendFormat": "{{error_category}}"
         }
@@ -657,7 +657,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.produced{topic=\"downloads.dlq\",status=\"success\"}[5m])) by (error_category)",
+          "expr": "sum(rate(pipeline_dlq_messages_total{topic=~\".*dlq.*\"}[5m])) by (error_category)",
           "refId": "A",
           "legendFormat": "{{error_category}}"
         }
@@ -760,7 +760,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.consumer.lag{topic=\"downloads.dlq\"}",
+          "expr": "pipeline_dlq_messages_total{topic=~\".*dlq.*\"}",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -795,7 +795,7 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "kafka",
+    "pipeline",
     "dlq",
     "failures"
   ],
@@ -828,8 +828,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Kafka Pipeline - DLQ Monitoring",
-  "uid": "kafka-dlq-monitoring",
+  "title": "DLQ Monitoring",
+  "uid": "dlq-monitoring",
   "version": 1,
   "weekStart": ""
 }

@@ -126,7 +126,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.consumed{status=\"success\"}[5m])) by (domain)",
+          "expr": "sum(rate(pipeline_messages_consumed_total[5m])) by (domain)",
           "legendFormat": "{{domain}} consumed",
           "refId": "A"
         },
@@ -135,7 +135,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.produced{status=\"success\"}[5m])) by (domain)",
+          "expr": "sum(rate(pipeline_messages_produced_total[5m])) by (domain)",
           "legendFormat": "{{domain}} produced",
           "refId": "B"
         }
@@ -201,7 +201,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka.consumer.lag)",
+          "expr": "sum(pipeline_consumer_lag)",
           "refId": "A"
         }
       ],
@@ -275,7 +275,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max(kafka.circuit_breaker.state) by (component)",
+          "expr": "max(circuit_breaker_state) by (component)",
           "legendFormat": "{{component}}",
           "refId": "A"
         }
@@ -362,7 +362,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(kafka.message.processing.duration_bucket[5m])) by (le, domain))",
+          "expr": "histogram_quantile(0.50, sum(rate(pipeline_message_processing_duration_seconds_bucket[5m])) by (le, domain))",
           "legendFormat": "p50 - {{domain}}",
           "refId": "A"
         },
@@ -371,7 +371,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(kafka.message.processing.duration_bucket[5m])) by (le, domain))",
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_message_processing_duration_seconds_bucket[5m])) by (le, domain))",
           "legendFormat": "p95 - {{domain}}",
           "refId": "B"
         },
@@ -380,7 +380,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(kafka.message.processing.duration_bucket[5m])) by (le, domain))",
+          "expr": "histogram_quantile(0.99, sum(rate(pipeline_message_processing_duration_seconds_bucket[5m])) by (le, domain))",
           "legendFormat": "p99 - {{domain}}",
           "refId": "C"
         }
@@ -467,7 +467,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.processing.errors[5m])) by (error_category)",
+          "expr": "sum(rate(pipeline_processing_errors_total[5m])) by (error_category)",
           "legendFormat": "{{error_category}}",
           "refId": "A"
         }
@@ -554,7 +554,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(delta.writes{status=\"success\"}[5m])) by (table)",
+          "expr": "sum(rate(delta_writes_total{success=\"true\"}[5m])) by (table)",
           "legendFormat": "{{table}}",
           "refId": "A"
         }
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(onelake.operations{status=\"success\"}[5m])) by (operation)",
+          "expr": "sum(rate(onelake_operation_duration_seconds_count{status=\"success\"}[5m])) by (operation)",
           "legendFormat": "{{operation}}",
           "refId": "A"
         }
@@ -728,7 +728,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.retry.attempts[5m])) by (domain, error_category)",
+          "expr": "sum(rate(retry_messages_delayed_total[5m])) by (domain, error_category)",
           "legendFormat": "{{domain}} - {{error_category}}",
           "refId": "A"
         }
@@ -815,7 +815,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.dlq.messages[5m])) by (domain, reason)",
+          "expr": "sum(rate(pipeline_dlq_messages_total[5m])) by (domain, reason)",
           "legendFormat": "{{domain}} - {{reason}}",
           "refId": "A"
         }
@@ -827,7 +827,7 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["kafka-pipeline", "system", "overview"],
+  "tags": ["pipeline", "system", "overview"],
   "templating": {
     "list": [
       {

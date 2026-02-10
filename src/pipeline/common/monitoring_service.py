@@ -382,7 +382,7 @@ class MonitoringService:
 
 async def main():
     """Run the monitoring service."""
-    parser = argparse.ArgumentParser(description="Monitoring aggregator service for Kafka pipeline")
+    parser = argparse.ArgumentParser(description="Monitoring aggregator service for pipeline")
     parser.add_argument(
         "--prometheus-url",
         default="http://localhost:9090",

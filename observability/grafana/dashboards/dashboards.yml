@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'Kafka Pipeline'
+  - name: 'Pipeline'
     orgId: 1
-    folder: 'Kafka Pipeline'
+    folder: 'Pipeline'
     type: file
     disableDeletion: false
     editable: true

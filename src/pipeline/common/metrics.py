@@ -247,6 +247,41 @@ retry_messages_exhausted_counter = _create_counter(
     labelnames=["domain"],
 )
 
+# Circuit breaker
+circuit_breaker_state_gauge = _create_gauge(
+    "circuit_breaker_state",
+    "Circuit breaker state (0=closed, 1=open, 2=half_open)",
+    labelnames=["name"],
+)
+
+circuit_breaker_calls_counter = _create_counter(
+    "circuit_breaker_calls_total",
+    "Total circuit breaker calls by result",
+    labelnames=["name", "result"],
+)
+
+# Delta write duration
+delta_write_duration_seconds = _create_histogram(
+    "delta_write_duration_seconds",
+    "Time spent writing to Delta tables",
+    labelnames=["table", "operation"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+# OneLake operations
+onelake_operation_duration_seconds = _create_histogram(
+    "onelake_operation_duration_seconds",
+    "Time spent on OneLake operations",
+    labelnames=["operation"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+onelake_bytes_transferred_counter = _create_counter(
+    "onelake_bytes_transferred_total",
+    "Total bytes transferred to/from OneLake",
+    labelnames=["operation", "direction"],
+)
+
 # Disk usage
 disk_usage_bytes_gauge = _create_gauge(
     "pipeline_disk_usage_bytes",
@@ -338,6 +373,16 @@ def record_dlq_message(domain: str, reason: str) -> None:
     dlq_messages_counter.labels(domain=domain, reason=reason).inc()
 
 
+def update_circuit_breaker_state(name: str, state: int) -> None:
+    """Update circuit breaker state gauge. 0=closed, 1=open, 2=half_open."""
+    circuit_breaker_state_gauge.labels(name=name).set(state)
+
+
+def record_circuit_breaker_call(name: str, result: str) -> None:
+    """Record a circuit breaker call. result: 'success', 'failure', or 'rejected'."""
+    circuit_breaker_calls_counter.labels(name=name, result=result).inc()
+
+
 def update_disk_usage(path: str) -> None:
     """Update disk usage metrics for a directory path."""
     try:
@@ -364,6 +409,11 @@ __all__ = [
     "message_processing_duration_seconds",
     "claimx_handler_duration_seconds",
     "claimx_handler_events_total",
+    "circuit_breaker_state_gauge",
+    "circuit_breaker_calls_counter",
+    "delta_write_duration_seconds",
+    "onelake_operation_duration_seconds",
+    "onelake_bytes_transferred_counter",
     "disk_usage_bytes_gauge",
     "disk_available_bytes_gauge",
     "disk_usage_ratio_gauge",
@@ -378,5 +428,7 @@ __all__ = [
     "update_assigned_partitions",
     "record_delta_write",
     "record_dlq_message",
+    "update_circuit_breaker_state",
+    "record_circuit_breaker_call",
     "update_disk_usage",
 ]

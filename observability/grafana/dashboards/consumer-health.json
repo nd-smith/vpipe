@@ -89,14 +89,14 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.connection.status{component=\"consumer\"}",
+          "expr": "pipeline_connection_status{component=\"consumer\"}",
           "refId": "A",
           "legendFormat": "{{component}}"
         }
       ],
       "title": "Consumer Connection Status",
       "type": "stat",
-      "description": "Kafka consumer connection status (1=CONNECTED, 0=DISCONNECTED)"
+      "description": "Consumer connection status (1=CONNECTED, 0=DISCONNECTED)"
     },
     {
       "datasource": {
@@ -158,7 +158,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka.consumer.lag{consumer_group=~\"$consumer_group\"})",
+          "expr": "sum(pipeline_consumer_lag{consumer_group=~\"$consumer_group\"})",
           "refId": "A"
         }
       ],
@@ -218,7 +218,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kafka.consumer.assigned_partitions{consumer_group=~\"$consumer_group\"})",
+          "expr": "sum(pipeline_consumer_assigned_partitions{consumer_group=~\"$consumer_group\"})",
           "refId": "A"
         }
       ],
@@ -308,7 +308,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.consumer.lag{consumer_group=~\"$consumer_group\",topic=~\"$topic\"}",
+          "expr": "pipeline_consumer_lag{consumer_group=~\"$consumer_group\",topic=~\"$topic\"}",
           "refId": "A",
           "legendFormat": "{{topic}}-p{{partition}}"
         }
@@ -398,7 +398,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.consumer.offset{consumer_group=~\"$consumer_group\",topic=~\"$topic\"}",
+          "expr": "pipeline_consumer_offset{consumer_group=~\"$consumer_group\",topic=~\"$topic\"}",
           "refId": "A",
           "legendFormat": "{{topic}}-p{{partition}}"
         }
@@ -488,7 +488,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.consumer.assigned_partitions{consumer_group=~\"$consumer_group\"}",
+          "expr": "pipeline_consumer_assigned_partitions{consumer_group=~\"$consumer_group\"}",
           "refId": "A",
           "legendFormat": "{{consumer_group}}"
         }
@@ -579,7 +579,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(kafka.messages.consumed{consumer_group=~\"$consumer_group\",status=\"success\"}[5m])) by (consumer_group, topic)",
+          "expr": "sum(rate(pipeline_messages_consumed_total{consumer_group=~\"$consumer_group\"}[5m])) by (consumer_group, topic)",
           "refId": "A",
           "legendFormat": "{{consumer_group}} - {{topic}}"
         }
@@ -670,7 +670,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kafka.consumer.lag{consumer_group=~\"$consumer_group\",topic=~\"$topic\"}",
+          "expr": "pipeline_consumer_lag{consumer_group=~\"$consumer_group\",topic=~\"$topic\"}",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -705,7 +705,7 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "kafka",
+    "pipeline",
     "consumer",
     "health"
   ],
@@ -740,7 +740,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(kafka.messages.consumed, topic)",
+        "definition": "label_values(pipeline_messages_consumed_total, topic)",
         "hide": 0,
         "includeAll": true,
         "label": "Topic",
@@ -748,7 +748,7 @@
         "name": "topic",
         "options": [],
         "query": {
-          "query": "label_values(kafka.messages.consumed, topic)",
+          "query": "label_values(pipeline_messages_consumed_total, topic)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -767,7 +767,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(kafka.messages.consumed, consumer_group)",
+        "definition": "label_values(pipeline_messages_consumed_total, consumer_group)",
         "hide": 0,
         "includeAll": true,
         "label": "Consumer Group",
@@ -775,7 +775,7 @@
         "name": "consumer_group",
         "options": [],
         "query": {
-          "query": "label_values(kafka.messages.consumed, consumer_group)",
+          "query": "label_values(pipeline_messages_consumed_total, consumer_group)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -792,8 +792,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Kafka Pipeline - Consumer Health",
-  "uid": "kafka-consumer-health",
+  "title": "Consumer Health",
+  "uid": "consumer-health",
   "version": 1,
   "weekStart": ""
 }
