@@ -378,10 +378,11 @@ class TestProcessFilteredResults:
         count = await poller._process_filtered_results(rows)
 
         assert count == 2
-        assert sink.write.await_count == 2
-        # Check that trace_id was used as key
-        first_call_key = sink.write.call_args_list[0].kwargs["key"]
-        assert first_call_key == "t1"
+        sink.write_batch.assert_awaited_once()
+        messages = sink.write_batch.call_args[0][0]
+        assert len(messages) == 2
+        assert messages[0][0] == "t1"
+        assert messages[1][0] == "t2"
 
     async def test_processes_rows_without_trace_id_col(self):
         sink = AsyncMock()
@@ -396,6 +397,9 @@ class TestProcessFilteredResults:
         count = await poller._process_filtered_results(rows)
 
         assert count == 2
+        sink.write_batch.assert_awaited_once()
+        messages = sink.write_batch.call_args[0][0]
+        assert len(messages) == 2
 
     async def test_uses_event_id_when_no_trace_id(self):
         sink = AsyncMock()
@@ -417,8 +421,8 @@ class TestProcessFilteredResults:
         rows = [{"data": "a"}]
         await poller._process_filtered_results(rows)
 
-        key_used = sink.write.call_args_list[0].kwargs["key"]
-        assert key_used == "ev-123"
+        messages = sink.write_batch.call_args[0][0]
+        assert messages[0][0] == "ev-123"
 
 
 # =============================================================================

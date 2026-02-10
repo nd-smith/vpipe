@@ -51,6 +51,20 @@ class EventSink(Protocol):
         """
         ...
 
+    async def write_batch(
+        self,
+        messages: list[tuple[str, BaseModel]],
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """
+        Write a batch of events to the sink.
+
+        Args:
+            messages: List of (key, event) tuples
+            headers: Optional metadata headers applied to all messages
+        """
+        ...
+
     async def flush(self) -> None:
         """Flush any buffered data."""
         ...
@@ -124,6 +138,23 @@ class MessageSink:
         await self._producer.send(
             value=event,
             key=key,
+            headers=headers,
+        )
+
+    async def write_batch(
+        self,
+        messages: list[tuple[str, BaseModel]],
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Write a batch of events to message transport in a single call."""
+        if not self._producer or not self._topic:
+            raise RuntimeError("MessageSink not started. Call start() first.")
+
+        if not messages:
+            return
+
+        await self._producer.send_batch(
+            messages=messages,
             headers=headers,
         )
 
@@ -232,6 +263,15 @@ class JsonFileSink:
             # Auto-flush if buffer is full
             if len(self._buffer) >= self.config.buffer_size:
                 await self._flush_buffer()
+
+    async def write_batch(
+        self,
+        messages: list[tuple[str, BaseModel]],
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Buffer a batch of events for writing."""
+        for key, event in messages:
+            await self.write(key=key, event=event, headers=headers)
 
     async def flush(self) -> None:
         """Flush buffered events to file."""
