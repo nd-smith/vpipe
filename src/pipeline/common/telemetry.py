@@ -10,6 +10,7 @@ Telemetry is fully optional:
 - If prometheus-client not available, gracefully degrades to no-op
 """
 
+import contextlib
 import logging
 import os
 from typing import Any
@@ -127,6 +128,37 @@ def is_initialized() -> bool:
 def is_available() -> bool:
     """Check if telemetry libraries are available and loaded."""
     return _telemetry_available
+
+
+class _NoOpSpan:
+    """No-op span that accepts and ignores all set_tag calls."""
+
+    def set_tag(self, key: str, value: Any) -> None:
+        pass
+
+
+class _NoOpScope:
+    """No-op scope returned by the no-op tracer's context manager."""
+
+    def __init__(self) -> None:
+        self.span = _NoOpSpan()
+
+
+class _NoOpTracer:
+    """No-op tracer that provides an OpenTracing-compatible interface."""
+
+    @contextlib.contextmanager
+    def start_active_span(self, operation_name: str):
+        yield _NoOpScope()
+
+
+def get_tracer(name: str = "") -> _NoOpTracer:
+    """Return a no-op tracer.
+
+    Provides an OpenTracing-compatible interface so callers can
+    instrument code without requiring a tracing backend.
+    """
+    return _NoOpTracer()
 
 
 def shutdown_telemetry() -> None:
