@@ -581,3 +581,95 @@ class TestProcessDelayedMessages:
         # Message should have been requeued (queue not empty after first failure,
         # then processed again on second iteration)
         assert mock_producer.send.call_count == 2
+
+    async def test_routing_failure_requeues_with_5s_delay(self, scheduler, mock_producer):
+        """Route to target fails → message requeued in delay queue with 5s delay (not lost)."""
+        from datetime import UTC, datetime, timedelta
+
+        from pipeline.common.retry.delay_queue import DelayedMessage
+
+        past_time = datetime.now(UTC) - timedelta(seconds=10)
+        delayed_msg = DelayedMessage(
+            scheduled_time=past_time,
+            target_topic="verisk.downloads",
+            retry_count=1,
+            worker_type="download",
+            message_key=b"key",
+            message_value=b"value",
+            headers={},
+        )
+        scheduler._delay_queue.push(delayed_msg)
+        scheduler._running = True
+
+        # Fail once, then stop
+        async def fail_once(*args, **kwargs):
+            scheduler._running = False
+            raise Exception("Kafka down")
+
+        mock_producer.send.side_effect = fail_once
+
+        before = datetime.now(UTC)
+        await scheduler._process_delayed_messages()
+
+        # Message should be requeued (not lost)
+        assert len(scheduler._delay_queue) == 1
+        # Verify the requeued message has a ~5s delay from now
+        next_time = scheduler._delay_queue.next_scheduled_time
+        assert next_time is not None
+        expected_min = before + timedelta(seconds=4)
+        expected_max = before + timedelta(seconds=7)
+        assert expected_min <= next_time <= expected_max
+
+    async def test_exhausted_retries_route_to_dlq_not_another_retry(self, scheduler, mock_producer):
+        """retry_count >= max_retries → DLQ, not another retry (verifies DLQ topic used)."""
+        # max_retries is 3 from mock_config
+        headers = make_retry_headers(retry_count="3")
+        message = make_pipeline_message(headers=headers)
+
+        await scheduler._handle_retry_message(message)
+
+        mock_producer.send.assert_called_once()
+        call_kwargs = mock_producer.send.call_args[1]
+        assert call_kwargs["topic"] == "verisk.dlq"
+        sent_headers = call_kwargs["headers"]
+        assert sent_headers["dlq_reason"] == "Retries exhausted (3/3)"
+        assert scheduler._messages_exhausted == 1
+
+    async def test_processor_task_crash_restarts(self, scheduler, mock_producer):
+        """Background delayed message processor throws → error logged, loop continues."""
+        from pipeline.common.retry.delay_queue import DelayedMessage
+
+        past_time = datetime.now(UTC) - timedelta(seconds=10)
+        delayed_msg = DelayedMessage(
+            scheduled_time=past_time,
+            target_topic="verisk.downloads",
+            retry_count=1,
+            worker_type="download",
+            message_key=b"key",
+            message_value=b"value",
+            headers={},
+        )
+        scheduler._delay_queue.push(delayed_msg)
+        scheduler._running = True
+
+        call_count = 0
+
+        # First call: pop_ready works but route_to_target raises an unexpected error
+        # that's caught by the outer except (not the inner requeue handler)
+        original_pop_ready = scheduler._delay_queue.pop_ready
+
+        def exploding_pop_ready(now):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("unexpected internal error")
+            scheduler._running = False
+            return []
+
+        scheduler._delay_queue.pop_ready = exploding_pop_ready
+
+        with patch("pipeline.common.retry.unified_scheduler.asyncio.sleep", new_callable=AsyncMock):
+            await scheduler._process_delayed_messages()
+
+        # Loop continued past the crash (called pop_ready at least twice)
+        assert call_count >= 2

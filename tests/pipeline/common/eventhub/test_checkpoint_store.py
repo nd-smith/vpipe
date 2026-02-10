@@ -687,6 +687,103 @@ class TestCheckpointStoreLogging:
         assert any("container_name is empty" in msg for msg in log_messages)
 
 
+class TestCheckpointStoreProductionReadiness:
+    """Production readiness: blob unavailable behavior, commit failure handling."""
+
+    @pytest.fixture(autouse=True)
+    def reset_module_state(self):
+        from pipeline.common.eventhub.checkpoint_store import reset_checkpoint_store
+
+        reset_checkpoint_store()
+        yield
+        reset_checkpoint_store()
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_store_returns_none_when_blob_unavailable(self):
+        """Empty connection string → returns None (graceful degradation to in-memory checkpointing)."""
+        from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
+
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
+            mock_load.return_value = {
+                "blob_storage_connection_string": "",
+                "container_name": "eventhub-checkpoints",
+            }
+
+            store = await get_checkpoint_store()
+
+        assert store is None
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_store_creation_error_raises(self):
+        """Blob store creation fails → exception propagates (caller decides fallback)."""
+        from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
+
+        with patch(
+            "pipeline.common.eventhub.checkpoint_store._load_checkpoint_config"
+        ) as mock_load:
+            mock_load.return_value = {
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=k",
+                "container_name": "my-checkpoints",
+            }
+
+            with patch(
+                "azure.eventhub.extensions.checkpointstoreblobaio.BlobCheckpointStore"
+            ) as mock_blob_class:
+                mock_blob_class.from_connection_string.side_effect = RuntimeError("Azure unavailable")
+
+                with pytest.raises(RuntimeError, match="Azure unavailable"):
+                    await get_checkpoint_store()
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_commit_failure_does_not_raise_in_batch_consumer(self):
+        """update_checkpoint() fails → logged, message will be redelivered (at-least-once preserved).
+
+        This tests the batch_consumer's _flush_partition_batch behavior — checkpoint
+        errors are caught per-message and don't prevent processing remaining messages.
+        """
+        import time
+
+        from pipeline.common.eventhub.batch_consumer import (
+            BufferedMessage,
+            EventHubBatchConsumer,
+        )
+        from pipeline.common.types import PipelineMessage
+
+        handler = AsyncMock(return_value=True)
+        consumer = EventHubBatchConsumer(
+            connection_string="conn",
+            domain="verisk",
+            worker_name="w",
+            eventhub_name="entity",
+            consumer_group="$Default",
+            batch_handler=handler,
+        )
+
+        msg1 = PipelineMessage(topic="t", partition=0, offset=0, timestamp=0, value=b"a")
+        msg2 = PipelineMessage(topic="t", partition=0, offset=1, timestamp=0, value=b"b")
+
+        ctx1 = AsyncMock()
+        ctx1.update_checkpoint = AsyncMock(side_effect=RuntimeError("blob storage timeout"))
+        ctx2 = AsyncMock()
+        event1 = MagicMock()
+        event2 = MagicMock()
+
+        consumer._batch_buffers["0"] = [
+            BufferedMessage(ctx1, event1, msg1),
+            BufferedMessage(ctx2, event2, msg2),
+        ]
+        consumer._batch_timers["0"] = time.time()
+        consumer._flush_locks["0"] = asyncio.Lock()
+
+        # Should not raise — continues to next message
+        await consumer._flush_partition_batch("0")
+
+        # Second checkpoint should still be attempted despite first failing
+        ctx2.update_checkpoint.assert_awaited_once_with(event2)
+
+
 class TestCheckpointStoreFactoryJsonType:
     """Test checkpoint store factory with JSON backend."""
 

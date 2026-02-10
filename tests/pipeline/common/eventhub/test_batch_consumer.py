@@ -346,6 +346,41 @@ class TestFlushPartitionBatch:
         # Second checkpoint should still be attempted
         ctx2.update_checkpoint.assert_awaited_once_with(event2)
 
+    async def test_stop_flushes_all_partition_batches(self):
+        """stop() called → all buffered messages in all partitions flushed before close."""
+        from pipeline.common.eventhub.batch_consumer import BufferedMessage
+
+        handler = AsyncMock(return_value=True)
+        consumer = self._make_consumer(handler=handler)
+        consumer._running = True
+        consumer._consumer = AsyncMock()
+        consumer._flush_task = asyncio.create_task(asyncio.sleep(100))
+
+        msg0 = PipelineMessage(topic="t", partition=0, offset=0, timestamp=0, value=b"a")
+        msg1 = PipelineMessage(topic="t", partition=1, offset=0, timestamp=0, value=b"b")
+        ctx0 = AsyncMock()
+        ctx1 = AsyncMock()
+
+        consumer._batch_buffers["0"] = [BufferedMessage(ctx0, MagicMock(), msg0)]
+        consumer._batch_buffers["1"] = [BufferedMessage(ctx1, MagicMock(), msg1)]
+        consumer._batch_timers["0"] = time.time()
+        consumer._batch_timers["1"] = time.time()
+        consumer._flush_locks["0"] = asyncio.Lock()
+        consumer._flush_locks["1"] = asyncio.Lock()
+
+        with (
+            patch("pipeline.common.eventhub.batch_consumer.update_connection_status"),
+            patch("pipeline.common.eventhub.batch_consumer.update_assigned_partitions"),
+        ):
+            await consumer.stop()
+
+        # Handler should have been called twice — once per partition
+        assert handler.call_count == 2
+
+        # Both buffers should be empty after flush
+        assert consumer._batch_buffers["0"] == []
+        assert consumer._batch_buffers["1"] == []
+
     async def test_flush_resets_buffer_and_timer(self):
         from pipeline.common.eventhub.batch_consumer import BufferedMessage
 
@@ -365,3 +400,53 @@ class TestFlushPartitionBatch:
         assert consumer._batch_buffers["0"] == []
         # Timer should be reset (more recent)
         assert consumer._batch_timers["0"] > old_time
+
+
+# =============================================================================
+# Signal handling (setup_signal_handlers from __main__.py)
+# =============================================================================
+
+
+class TestSignalHandlers:
+    """Production readiness: graceful and forced shutdown via signal handlers."""
+
+    def test_second_sigterm_forces_immediate_shutdown(self):
+        """First SIGTERM → graceful, second SIGTERM → cancel all tasks immediately."""
+        import signal
+
+        from pipeline.__main__ import get_shutdown_event, setup_signal_handlers
+
+        loop = asyncio.new_event_loop()
+        try:
+            shutdown_event = get_shutdown_event()
+            shutdown_event.clear()
+
+            # Capture the handlers by patching add_signal_handler before setup
+            handlers = {}
+
+            def capture_handler(sig, handler):
+                handlers[sig] = handler
+
+            loop.add_signal_handler = capture_handler
+            setup_signal_handlers(loop)
+
+            assert signal.SIGINT in handlers
+
+            # First signal: sets shutdown event
+            assert not shutdown_event.is_set()
+            handlers[signal.SIGINT]()
+            assert shutdown_event.is_set()
+
+            # Create a task to verify it gets cancelled on second signal
+            async def sleeper():
+                await asyncio.sleep(3600)
+
+            task = loop.create_task(sleeper())
+
+            # Second signal: cancels all tasks
+            handlers[signal.SIGINT]()
+            assert task.cancelling()
+
+        finally:
+            shutdown_event.clear()
+            loop.close()

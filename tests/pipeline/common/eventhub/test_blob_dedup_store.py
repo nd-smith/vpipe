@@ -376,6 +376,45 @@ class TestBlobDedupStoreCleanupExpired:
 # =============================================================================
 
 
+class TestBlobDedupStoreProductionReadiness:
+    """Production readiness: check_duplicate and mark_processed fire-and-forget safety."""
+
+    async def test_dedup_check_returns_false_when_blob_unavailable(self):
+        """Blob read fails → returns not-duplicate (safe: allows processing, doesn't block)."""
+        from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore
+
+        store = BlobDedupStore(connection_string="conn", container_name="dedup")
+        store._container = _make_container_mock()
+
+        mock_blob_client = MagicMock()
+        mock_blob_client.download_blob = AsyncMock(
+            side_effect=ConnectionError("blob storage unreachable")
+        )
+        store._container.get_blob_client.return_value = mock_blob_client
+
+        is_dup, metadata = await store.check_duplicate("worker", "key1", 3600)
+
+        # Must return False (not duplicate) — processing should continue
+        assert is_dup is False
+        assert metadata is None
+
+    async def test_dedup_mark_processed_failure_is_fire_and_forget(self):
+        """Blob write fails → logged, no exception raised, processing continues."""
+        from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore
+
+        store = BlobDedupStore(connection_string="conn", container_name="dedup")
+        store._container = _make_container_mock()
+
+        mock_blob_client = MagicMock()
+        mock_blob_client.upload_blob = AsyncMock(
+            side_effect=RuntimeError("storage write timeout")
+        )
+        store._container.get_blob_client.return_value = mock_blob_client
+
+        # Should NOT raise — fire and forget
+        await store.mark_processed("worker", "key1", {"event_id": "e1"})
+
+
 class TestBlobDedupStoreClose:
     async def test_close_closes_client(self):
         from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore

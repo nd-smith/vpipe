@@ -278,6 +278,25 @@ class TestDelayQueuePersistence:
         # Should not raise even though directory does not exist
         queue.persist_to_disk()
 
+    def test_persistence_failure_continues_processing(self, tmp_path):
+        """Disk write fails → logged warning, queue stays in memory, processing continues."""
+        persistence_file = tmp_path / "queue.json"
+        queue = DelayQueue("verisk", persistence_file)
+
+        msg = make_delayed_message()
+        queue.push(msg)
+        assert len(queue) == 1
+
+        # Make the write fail by patching open() to raise
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch("builtins.open", side_effect=PermissionError("read-only filesystem")):
+            # Should not raise
+            queue.persist_to_disk()
+
+        # Queue is still intact in memory — messages are not lost
+        assert len(queue) == 1
+
     def test_restore_from_disk_with_valid_file(self, tmp_path):
         """restore_from_disk restores messages from a valid file."""
         persistence_file = tmp_path / "queue.json"

@@ -1139,6 +1139,80 @@ class TestOneLakeClientCreateClients:
 # ---------------------------------------------------------------------------
 
 
+class TestOneLakeProductionReadiness:
+    """Production readiness: auth error refresh, recursion guard, connection timeout retry, startup smoke test."""
+
+    def test_auth_error_triggers_client_refresh(self):
+        """401/403 → _refresh_client() called → retried with fresh credentials."""
+        client = OneLakeClient(VALID_BASE_PATH)
+        with patch.object(client, "_refresh_client") as mock_refresh:
+            client._handle_auth_error(Exception("Server returned 401 Unauthorized"))
+            mock_refresh.assert_called_once()
+
+    def test_token_expired_triggers_client_refresh(self):
+        """'token expired' error also triggers refresh via _handle_auth_error."""
+        client = OneLakeClient(VALID_BASE_PATH)
+        with patch.object(client, "_refresh_client") as mock_refresh:
+            client._handle_auth_error(Exception("token expired"))
+            mock_refresh.assert_called_once()
+
+    def test_recursive_upload_returns_dummy_path(self):
+        """Upload triggers auth refresh which triggers upload → guard catches recursion, returns dummy path."""
+        client = OneLakeClient(VALID_BASE_PATH)
+        mock_fs = MagicMock()
+        client._file_system_client = mock_fs
+        _set_in_upload(True)
+        try:
+            result = client.upload_bytes("claims/file.txt", b"hello")
+            # Should return a dummy path (not uploaded for real)
+            assert "claims/file.txt" in result
+            # upload_data should NOT have been called (recursion was prevented)
+            mock_fs.get_directory_client.assert_not_called()
+        finally:
+            _set_in_upload(False)
+
+    def test_connection_timeout_retries_via_config(self):
+        """ONELAKE_RETRY_CONFIG allows 3 attempts with backoff for connection timeouts."""
+        assert ONELAKE_RETRY_CONFIG.max_attempts == 3
+        assert ONELAKE_RETRY_CONFIG.base_delay == 1.0
+        assert ONELAKE_RETRY_CONFIG.max_delay == 10.0
+
+    @patch("pipeline.common.storage.onelake.get_auth")
+    @patch("pipeline.common.storage.onelake.DataLakeServiceClient")
+    @patch("pipeline.common.storage.onelake.RequestsTransport")
+    @patch("pipeline.common.storage.onelake.requests.Session")
+    @patch("pipeline.common.storage.onelake.TCPKeepAliveAdapter")
+    def test_startup_smoke_test_failure_is_warning_only(
+        self, mock_adapter, mock_session, mock_transport, mock_dls, mock_auth, caplog
+    ):
+        """OneLake unreachable at startup → warning logged, pipeline continues (not a hard gate)."""
+        import logging
+
+        auth_instance = MagicMock()
+        auth_instance.token_file = None
+        auth_instance.use_cli = True
+        auth_instance.get_storage_token.return_value = "cli-token"
+        mock_auth.return_value = auth_instance
+
+        # Make the smoke test fail (get_file_system_properties raises)
+        mock_fs_client = MagicMock()
+        mock_fs_client.get_file_system_properties.side_effect = ConnectionError("OneLake unreachable")
+        mock_dls.return_value.get_file_system_client.return_value = mock_fs_client
+
+        client = OneLakeClient(VALID_BASE_PATH)
+
+        with caplog.at_level(logging.WARNING):
+            # Should NOT raise — just log a warning
+            client._create_clients()
+
+        # Verify warning was logged
+        warning_messages = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("connectivity check failed" in msg.lower() for msg in warning_messages)
+
+        # Client should still be initialized (not None)
+        assert client._service_client is not None
+
+
 class TestOnelakeRetryConfig:
     def test_retry_config_values(self):
         assert ONELAKE_RETRY_CONFIG.max_attempts == 3
