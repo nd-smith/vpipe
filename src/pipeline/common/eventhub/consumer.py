@@ -442,13 +442,16 @@ class EventHubConsumer:
             """Called when error occurs during consumption."""
             partition_id = partition_context.partition_id if partition_context else "unknown"
             logger.error(
-                "Event Hub consumer error",
+                "Event Hub consumer error on partition %s: %s: %s",
+                partition_id,
+                type(error).__name__,
+                error,
                 extra={
                     "partition_id": partition_id,
                     "error_type": type(error).__name__,
                     "error": str(error),
                 },
-                exc_info=True,
+                exc_info=error,
             )
 
         try:
