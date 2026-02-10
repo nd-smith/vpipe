@@ -226,7 +226,7 @@ class TestGetDedupStore:
             with pytest.raises(ValueError, match="Unknown dedup store type"):
                 await dedup_module.get_dedup_store()
 
-    async def test_raises_on_blob_initialization_failure(self):
+    async def test_returns_none_on_blob_initialization_failure(self):
         mock_blob_store = MagicMock()
         mock_blob_store.initialize = AsyncMock(side_effect=RuntimeError("blob fail"))
 
@@ -243,8 +243,8 @@ class TestGetDedupStore:
                 "pipeline.common.eventhub.blob_dedup_store.BlobDedupStore",
                 return_value=mock_blob_store,
             ):
-                with pytest.raises(RuntimeError, match="blob fail"):
-                    await dedup_module.get_dedup_store()
+                result = await dedup_module.get_dedup_store()
+                assert result is None
 
     async def test_blob_store_uses_default_container_when_empty(self):
         mock_blob_store = MagicMock()

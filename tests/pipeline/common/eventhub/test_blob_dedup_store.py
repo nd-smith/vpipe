@@ -53,7 +53,7 @@ class TestBlobDedupStoreInitialize:
         await store.initialize()
 
     @patch("pipeline.common.eventhub.blob_dedup_store.BlobServiceClient")
-    async def test_initialize_handles_other_container_error(self, MockBlobService):
+    async def test_initialize_raises_on_other_container_error(self, MockBlobService):
         from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore
 
         mock_client = MagicMock()
@@ -66,8 +66,9 @@ class TestBlobDedupStoreInitialize:
 
         store = BlobDedupStore(connection_string="conn", container_name="dedup-cache")
 
-        # Should not raise (logs warning)
-        await store.initialize()
+        # Should raise so caller can fall back to memory-only
+        with pytest.raises(Exception, match="PermissionDenied"):
+            await store.initialize()
 
 
 # =============================================================================

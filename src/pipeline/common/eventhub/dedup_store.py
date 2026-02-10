@@ -206,11 +206,6 @@ async def get_dedup_store() -> DedupStoreProtocol | None:
     if _dedup_store is not None:
         return _dedup_store
 
-    # Fast path: already attempted and determined not configured
-    if _initialization_attempted and _dedup_store is None:
-        return None
-
-    # Slow path: need to initialize
     async with _dedup_store_lock:
         # Double-check after acquiring lock
         if _dedup_store is not None:
@@ -295,7 +290,7 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
 
     except Exception as e:
         logger.error(
-            "Failed to initialize BlobDedupStore",
+            "Failed to initialize BlobDedupStore - falling back to memory-only dedup",
             extra={
                 "container_name": container_name,
                 "connection_string_configured": bool(connection_string),
@@ -303,7 +298,7 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
             },
             exc_info=True,
         )
-        raise
+        return None
 
 
 async def close_dedup_store() -> None:

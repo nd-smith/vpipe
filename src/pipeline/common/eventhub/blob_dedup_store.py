@@ -37,19 +37,19 @@ class BlobDedupStore:
         )
         self._container = self._client.get_container_client(self.container_name)
 
-        # Create container if it doesn't exist
+        # Create container if it doesn't exist (15s timeout to fail fast
+        # when blob storage is unreachable instead of hanging for minutes)
         try:
-            await self._container.create_container()
+            await asyncio.wait_for(
+                self._container.create_container(),
+                timeout=15,
+            )
             logger.info(f"Created dedup container: {self.container_name}")
         except Exception as e:
-            # Container already exists or other error
             if "ContainerAlreadyExists" in str(e):
                 logger.debug(f"Dedup container already exists: {self.container_name}")
             else:
-                logger.warning(
-                    f"Could not create container (may already exist): {e}",
-                    exc_info=False,
-                )
+                raise
 
         logger.info(
             "Blob storage connectivity verified for dedup store",
