@@ -47,7 +47,7 @@ class TestTokenCache:
 
     def test_set_and_get_token(self, cache, storage_resource):
         """Should cache and retrieve token."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGc..."
+        token = "test-token-value"
         cache.set(storage_resource, token)
         assert cache.get(storage_resource) == token
 
@@ -57,8 +57,8 @@ class TestTokenCache:
 
     def test_multiple_resources(self, cache):
         """Should cache multiple resources independently."""
-        storage_token = "storage_token_123"
-        kusto_token = "kusto_token_456"
+        storage_token = "test-storage-tok"
+        kusto_token = "test-kusto-tok"
 
         cache.set("https://storage.azure.com/", storage_token)
         cache.set("https://help.kusto.windows.net", kusto_token)
@@ -289,7 +289,7 @@ class TestLocalDevelopmentIntegration:
         assert cache.get(resource) is None
 
         # Simulate auth layer reading tokens.json and caching
-        fresh_token = "eyJ0eXAiOiJKV1QiLCJhbGc..."
+        fresh_token = "test-token-value"
         cache.set(resource, fresh_token)
 
         # Subsequent requests hit cache
@@ -331,7 +331,7 @@ class TestLocalDevelopmentIntegration:
         4. All workers re-read after 50 min expiry
         """
         resource = "https://storage.azure.com/"
-        token = "shared_token_123"
+        token = "test-shared-tok"
 
         # First worker reads and caches
         cache.set(resource, token)

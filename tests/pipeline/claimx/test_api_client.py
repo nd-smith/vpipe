@@ -120,7 +120,7 @@ def api_client(mock_circuit_breaker):
     ):
         client = ClaimXApiClient(
             base_url="https://api.claimx.test/service/cxedirest",
-            token="test-token-123",
+            token="test-tok",
             timeout_seconds=30,
             max_concurrent=20,
             sender_username="test@example.com",
@@ -135,7 +135,7 @@ class TestClaimXApiClientInit:
         """Test initialization sets configuration properly."""
         assert api_client.base_url == "https://api.claimx.test/service/cxedirest"
         # Note: token is stored in _auth_header as "Basic <token>", not as raw token
-        assert api_client._auth_header == "Basic test-token-123"
+        assert api_client._auth_header == "Basic test-tok"
         assert api_client.timeout_seconds == 30
         assert api_client.max_concurrent == 20
         assert api_client.sender_username == "test@example.com"
@@ -200,7 +200,7 @@ class TestClaimXApiClientSessionManagement:
         assert headers["Content-Type"] == "application/json"
         assert headers["Accept"] == "application/json"
         # Auth header is stored separately for per-request use
-        assert api_client._auth_header == "Basic test-token-123"
+        assert api_client._auth_header == "Basic test-tok"
 
         await api_client.close()
 

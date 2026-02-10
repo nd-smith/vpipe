@@ -39,12 +39,12 @@ class TestCreateEventhubOauthCallback:
     def test_callback_returns_token(self):
         provider = MagicMock(spec=AzureCredentialProvider)
         provider.auth_mode = "spn_secret"
-        provider.get_token_for_resource.return_value = "my_eh_token"
+        provider.get_token_for_resource.return_value = "test-eh-tok"
 
         callback = create_eventhub_oauth_callback(provider)
         result = callback()
 
-        assert result == "my_eh_token"
+        assert result == "test-eh-tok"
         provider.get_token_for_resource.assert_called_once_with(EVENTHUB_RESOURCE)
 
     def test_callback_raises_eventhub_auth_error_on_azure_auth_error(self):
@@ -111,20 +111,20 @@ class TestGetEventhubOauthToken:
 
     def test_returns_token_with_provided_provider(self):
         provider = MagicMock(spec=AzureCredentialProvider)
-        provider.get_token_for_resource.return_value = "direct_token"
+        provider.get_token_for_resource.return_value = "test-tok"
 
         result = get_eventhub_oauth_token(provider)
-        assert result == "direct_token"
+        assert result == "test-tok"
         provider.get_token_for_resource.assert_called_once_with(
             EVENTHUB_RESOURCE, False
         )
 
     def test_passes_force_refresh(self):
         provider = MagicMock(spec=AzureCredentialProvider)
-        provider.get_token_for_resource.return_value = "fresh_token"
+        provider.get_token_for_resource.return_value = "test-fresh-tok"
 
         result = get_eventhub_oauth_token(provider, force_refresh=True)
-        assert result == "fresh_token"
+        assert result == "test-fresh-tok"
         provider.get_token_for_resource.assert_called_once_with(
             EVENTHUB_RESOURCE, True
         )

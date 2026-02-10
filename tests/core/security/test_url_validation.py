@@ -86,7 +86,7 @@ class TestValidateDownloadUrl:
         validate_download_url(url, allowed_domains={"example.com"})
 
     def test_accepts_url_with_query_params(self):
-        url = "https://claimxperience.com/file.pdf?key=value&foo=bar"
+        url = "https://claimxperience.com/file.pdf?page=1&sort=name"
         validate_download_url(url)
 
     def test_accepts_url_with_fragment(self):
@@ -132,7 +132,7 @@ class TestValidateDownloadUrl:
             validate_download_url(url, allowed_domains={"example.com"})
 
     def test_accepts_url_with_credentials_if_domain_matches(self):
-        url = "https://user:pass@claimxperience.com/file.pdf"
+        url = "https://u:p@claimxperience.com/file.pdf"
         validate_download_url(url)
 
     def test_accepts_url_with_standard_port(self):
@@ -226,7 +226,7 @@ class TestValidateDownloadUrlLocalhost:
 
     @patch.dict(os.environ, {}, clear=True)
     def test_rejects_credential_injection_on_localhost(self):
-        url = "http://user:PLACEHOLDER@localhost:8080/file"
+        url = "http://u:p@localhost:8080/file"
         with pytest.raises(URLValidationError, match="Credential injection"):
             validate_download_url(url, allow_localhost=True)
 
@@ -453,7 +453,7 @@ class TestExtractFilenameFromUrl:
 
     def test_handles_query_params_in_url(self):
         filename, file_type = extract_filename_from_url(
-            "https://example.com/file.pdf?sig=abc&token=123"
+            "https://example.com/file.pdf?page=1&sort=asc"
         )
         assert filename == "file"
         assert file_type == "PDF"
@@ -485,40 +485,40 @@ class TestSanitizeUrl:
         assert sanitize_url(url) == url
 
     def test_redacts_sig_parameter(self):
-        url = "https://example.com/file?sig=secret123&name=test"
+        url = "https://example.com/file?sig=test-val&name=test"
         result = sanitize_url(url)
         assert "sig=[REDACTED]" in result
-        assert "secret123" not in result
+        assert "test-val" not in result
         assert "name=test" in result
 
     def test_redacts_token_parameter(self):
-        url = "https://example.com/file?token=abc123"
+        url = "https://example.com/file?token=FAKE"
         result = sanitize_url(url)
         assert "token=[REDACTED]" in result
-        assert "abc123" not in result
+        assert "FAKE" not in result
 
     def test_redacts_access_token_parameter(self):
-        url = "https://example.com/file?access_token=xyz"
+        url = "https://example.com/file?access_token=FAKE"
         result = sanitize_url(url)
         assert "access_token=[REDACTED]" in result
 
     def test_redacts_api_key_parameter(self):
-        url = "https://example.com/file?api_key=mykey"
+        url = "https://example.com/file?api_key=FAKE"
         result = sanitize_url(url)
         assert "api_key=[REDACTED]" in result
 
     def test_redacts_password_parameter(self):
-        url = "https://example.com/file?password=secret"
+        url = "https://example.com/file?password=test-val"
         result = sanitize_url(url)
         assert "password=[REDACTED]" in result
 
     def test_redacts_aws_signature(self):
-        url = "https://bucket.s3.amazonaws.com/file?x-amz-signature=sig123&x-amz-credential=cred456"
+        url = "https://bucket.s3.amazonaws.com/file?x-amz-signature=test-sig&x-amz-credential=test-cred"
         result = sanitize_url(url)
         assert "x-amz-signature=[REDACTED]" in result
         assert "x-amz-credential=[REDACTED]" in result
-        assert "sig123" not in result
-        assert "cred456" not in result
+        assert "test-sig" not in result
+        assert "test-cred" not in result
 
     def test_preserves_non_sensitive_params(self):
         url = "https://example.com/file?page=1&sort=name"
@@ -531,17 +531,17 @@ class TestSanitizeUrl:
         assert "name=test" in result
 
     def test_redacts_azure_sas_params(self):
-        url = "https://storage.blob.core.windows.net/file?sv=2020&se=2025&sp=r&sig=abc"
+        url = "https://storage.blob.core.windows.net/file?sv=FAKE&se=FAKE&sp=r&sig=FAKE"
         result = sanitize_url(url)
         assert "sv=[REDACTED]" in result
         assert "se=[REDACTED]" in result
         assert "sig=[REDACTED]" in result
 
     def test_case_insensitive_redaction(self):
-        url = "https://example.com/file?Token=abc&SIG=def"
+        url = "https://example.com/file?Token=FAKE1&SIG=FAKE2"
         result = sanitize_url(url)
-        assert "abc" not in result
-        assert "def" not in result
+        assert "FAKE1" not in result
+        assert "FAKE2" not in result
 
 
 # =========================================================================
@@ -555,28 +555,28 @@ class TestSanitizeErrorMessage:
         assert sanitize_error_message("") == ""
 
     def test_redacts_sig_in_message(self):
-        msg = "Failed to download: sig=abc123def"
+        msg = "Failed to download: sig=FAKE"
         result = sanitize_error_message(msg)
         assert "sig=[REDACTED]" in result
-        assert "abc123def" not in result
+        assert "FAKE" not in result
 
     def test_redacts_token_in_message(self):
-        msg = "Error: token=mytoken123"
+        msg = "Error: token=test-val"
         result = sanitize_error_message(msg)
         assert "token=[REDACTED]" in result
 
     def test_redacts_bearer_token(self):
-        msg = "Auth failed: bearer eyJhbGciOiJSUzI1NiJ9.payload.sig"
+        msg = "Auth failed: bearer test-redacted.payload.sig"
         result = sanitize_error_message(msg)
         assert "bearer [REDACTED]" in result
 
     def test_redacts_api_key_in_message(self):
-        msg = "Request error: api_key=12345"
+        msg = "Request error: api_key=FAKE"
         result = sanitize_error_message(msg)
         assert "api_key=[REDACTED]" in result
 
     def test_redacts_aws_signature_in_message(self):
-        msg = "Fetch failed: x-amz-signature=abcdef"
+        msg = "Fetch failed: x-amz-signature=FAKE"
         result = sanitize_error_message(msg)
         assert "x-amz-signature=[REDACTED]" in result
 
@@ -592,9 +592,9 @@ class TestSanitizeErrorMessage:
         assert result == msg
 
     def test_sanitizes_embedded_url(self):
-        msg = "Download failed: https://example.com/file?sig=secret123&name=test"
+        msg = "Download failed: https://example.com/file?sig=test-val&name=test"
         result = sanitize_error_message(msg)
-        assert "secret123" not in result
+        assert "test-val" not in result
 
     def test_custom_max_length(self):
         msg = "a" * 100
@@ -603,12 +603,12 @@ class TestSanitizeErrorMessage:
         assert result.endswith("...")
 
     def test_redacts_password_in_message(self):
-        msg = "Connection string: password=DUMMY_VALUE"
+        msg = "Connection string: password=test-val"
         result = sanitize_error_message(msg)
         assert "password=[REDACTED]" in result
-        assert "DUMMY_VALUE" not in result
+        assert "test-val" not in result
 
     def test_redacts_secret_in_message(self):
-        msg = "Config error: secret=myvalue"
+        msg = "Config error: secret=test-val"
         result = sanitize_error_message(msg)
         assert "secret=[REDACTED]" in result

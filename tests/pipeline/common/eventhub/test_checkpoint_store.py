@@ -191,7 +191,7 @@ class TestCheckpointStoreFactory:
         # Mock configuration with valid connection string
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -204,7 +204,7 @@ class TestCheckpointStoreFactory:
 
         # Verify from_connection_string was called with correct parameters
         mock_blob_class.from_connection_string.assert_called_once_with(
-            conn_str="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+            conn_str="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
             container_name="my-checkpoints"
         )
 
@@ -217,7 +217,7 @@ class TestCheckpointStoreFactory:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -289,7 +289,7 @@ class TestCheckpointStoreFactory:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -312,7 +312,7 @@ class TestCheckpointStoreFactory:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -331,7 +331,7 @@ class TestCheckpointStoreFactory:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": ""  # Empty container name
             }
 
@@ -342,7 +342,7 @@ class TestCheckpointStoreFactory:
 
         # Should use default container name
         mock_blob_class.from_connection_string.assert_called_once_with(
-            conn_str="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+            conn_str="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
             container_name="eventhub-checkpoints"
         )
 
@@ -371,7 +371,7 @@ class TestCheckpointStoreCleanup:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -391,7 +391,7 @@ class TestCheckpointStoreCleanup:
         # Verify state is reset (next call creates new instance)
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load2:
             mock_load2.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -425,7 +425,7 @@ class TestCheckpointStoreCleanup:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -457,7 +457,7 @@ class TestCheckpointStoreCleanup:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -486,7 +486,7 @@ class TestCheckpointStoreCleanup:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -576,7 +576,7 @@ class TestCheckpointStoreLogging:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": "my-checkpoints"
             }
 
@@ -602,7 +602,7 @@ class TestCheckpointStoreLogging:
 
         with patch("pipeline.common.eventhub.checkpoint_store._load_checkpoint_config") as mock_load:
             mock_load.return_value = {
-                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test123",
+                "blob_storage_connection_string": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake-key",
                 "container_name": ""
             }
 

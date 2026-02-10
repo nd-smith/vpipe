@@ -53,19 +53,19 @@ class TestGetTransportType:
 class TestStripEntityPath:
 
     def test_strips_entity_path(self):
-        conn = "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=abc123;EntityPath=my-hub"
+        conn = "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=fake-key;EntityPath=my-hub"
         result = _strip_entity_path(conn)
         assert "EntityPath" not in result
         assert "Endpoint=sb://ns.servicebus.windows.net/" in result
         assert "SharedAccessKeyName=RootManageSharedAccessKey" in result
 
     def test_no_entity_path_unchanged(self):
-        conn = "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=abc123"
+        conn = "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=fake-key"
         result = _strip_entity_path(conn)
         assert result == conn
 
     def test_strips_empty_parts(self):
-        conn = "Endpoint=sb://ns.servicebus.windows.net/;;SharedAccessKey=abc123"
+        conn = "Endpoint=sb://ns.servicebus.windows.net/;;SharedAccessKey=fake-key"
         result = _strip_entity_path(conn)
         assert ";;" not in result
 

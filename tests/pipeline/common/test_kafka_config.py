@@ -11,7 +11,7 @@ def _make_config(**overrides):
     config.security_protocol = overrides.get("security_protocol", "PLAINTEXT")
     config.sasl_mechanism = overrides.get("sasl_mechanism", "PLAIN")
     config.sasl_plain_username = overrides.get("sasl_plain_username", "user")
-    config.sasl_plain_password = overrides.get("sasl_plain_password", "pass")
+    config.sasl_plain_password = overrides.get("sasl_plain_password", "p")
     config.sasl_kerberos_service_name = overrides.get(
         "sasl_kerberos_service_name", "kafka"
     )
@@ -32,15 +32,15 @@ class TestBuildKafkaSecurityConfigSASLPlain:
         config = _make_config(
             security_protocol="SASL_PLAINTEXT",
             sasl_mechanism="PLAIN",
-            sasl_plain_username="myuser",
-            sasl_plain_password="mypass",
+            sasl_plain_username="u",
+            sasl_plain_password="p",
         )
         result = build_kafka_security_config(config)
 
         assert result["security_protocol"] == "SASL_PLAINTEXT"
         assert result["sasl_mechanism"] == "PLAIN"
-        assert result["sasl_plain_username"] == "myuser"
-        assert result["sasl_plain_password"] == "mypass"
+        assert result["sasl_plain_username"] == "u"
+        assert result["sasl_plain_password"] == "p"
         assert "ssl_context" not in result
 
     def test_sasl_ssl_plain_includes_ssl_context(self):

@@ -92,7 +92,7 @@ class TestConnectionConfig:
             name="test",
             base_url="https://api.example.com",
             auth_type=AuthType.BASIC,
-            auth_token="base64creds",
+            auth_token="test-creds",
         )
         assert config.auth_header == "Authorization"
 
@@ -101,7 +101,7 @@ class TestConnectionConfig:
             name="test",
             base_url="https://api.example.com",
             auth_type=AuthType.API_KEY,
-            auth_token="key123",
+            auth_token="test-key",
         )
         assert config.auth_header == "X-API-Key"
 
@@ -231,7 +231,7 @@ class TestConnectionManager:
             name="api",
             base_url="https://api.example.com",
             auth_type=AuthType.BEARER,
-            auth_token="secret-token",
+            auth_token="test-tok",
         )
         mgr.add_connection(config)
 
@@ -280,7 +280,7 @@ class TestConnectionManager:
             name="api",
             base_url="https://api.example.com",
             auth_type=AuthType.API_KEY,
-            auth_token="my-api-key",
+            auth_token="test-api-key",
         )
         mgr.add_connection(config)
 
@@ -312,7 +312,7 @@ class TestConnectionManager:
                 )
 
                 call_kwargs = mock_session.request.call_args.kwargs
-                assert call_kwargs["headers"]["X-API-Key"] == "my-api-key"
+                assert call_kwargs["headers"]["X-API-Key"] == "test-api-key"
 
             mock_session.close = AsyncMock()
             await mgr.close()
@@ -323,7 +323,7 @@ class TestConnectionManager:
             name="api",
             base_url="https://api.example.com",
             auth_type=AuthType.BASIC,
-            auth_token="dXNlcjpwYXNz",  # base64 user:pass
+            auth_token="fake-basic-creds",
         )
         mgr.add_connection(config)
 
@@ -355,7 +355,7 @@ class TestConnectionManager:
                 )
 
                 call_kwargs = mock_session.request.call_args.kwargs
-                assert call_kwargs["headers"]["Authorization"] == "Basic dXNlcjpwYXNz"
+                assert call_kwargs["headers"]["Authorization"] == "Basic fake-basic-creds"
 
             mock_session.close = AsyncMock()
             await mgr.close()

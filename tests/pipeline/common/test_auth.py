@@ -98,7 +98,7 @@ class TestAzureAuthMode:
         monkeypatch.delenv("AZURE_TOKEN_FILE", raising=False)
         monkeypatch.delenv("AZURE_AUTH_INTERACTIVE", raising=False)
         monkeypatch.setenv("AZURE_CLIENT_ID", "cid")
-        monkeypatch.setenv("AZURE_CLIENT_SECRET", "secret")
+        monkeypatch.setenv("AZURE_CLIENT_SECRET", "cs")
         monkeypatch.setenv("AZURE_TENANT_ID", "tid")
         auth = AzureAuth()
         assert auth.auth_mode == "spn"
@@ -350,7 +350,7 @@ class TestAzureAuthGetStorageToken:
         monkeypatch.delenv("AZURE_TOKEN_FILE", raising=False)
         monkeypatch.delenv("AZURE_AUTH_INTERACTIVE", raising=False)
         monkeypatch.setenv("AZURE_CLIENT_ID", "cid")
-        monkeypatch.setenv("AZURE_CLIENT_SECRET", "secret")
+        monkeypatch.setenv("AZURE_CLIENT_SECRET", "cs")
         monkeypatch.setenv("AZURE_TENANT_ID", "tid")
 
         auth = AzureAuth()
@@ -438,13 +438,13 @@ class TestAzureAuthGetStorageOptions:
         monkeypatch.delenv("AZURE_TOKEN_FILE", raising=False)
         monkeypatch.delenv("AZURE_AUTH_INTERACTIVE", raising=False)
         monkeypatch.setenv("AZURE_CLIENT_ID", "cid")
-        monkeypatch.setenv("AZURE_CLIENT_SECRET", "secret")
+        monkeypatch.setenv("AZURE_CLIENT_SECRET", "cs")
         monkeypatch.setenv("AZURE_TENANT_ID", "tid")
 
         auth = AzureAuth()
         opts = auth.get_storage_options()
         assert opts["azure_client_id"] == "cid"
-        assert opts["azure_client_secret"] == "secret"
+        assert opts["azure_client_secret"] == "cs"
         assert opts["azure_tenant_id"] == "tid"
 
     def test_returns_empty_when_no_auth(self, monkeypatch):
@@ -551,7 +551,7 @@ class TestGetStorageOptionsFunction:
         monkeypatch.delenv("AZURE_TOKEN_FILE", raising=False)
         monkeypatch.delenv("AZURE_AUTH_INTERACTIVE", raising=False)
         monkeypatch.setenv("AZURE_CLIENT_ID", "cid")
-        monkeypatch.setenv("AZURE_CLIENT_SECRET", "secret")
+        monkeypatch.setenv("AZURE_CLIENT_SECRET", "cs")
         monkeypatch.setenv("AZURE_TENANT_ID", "tid")
 
         auth_module._auth_instance = None

@@ -29,7 +29,7 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.bootstrap_servers = "localhost:9092"
     config.sasl_username = "test_user"
-    config.sasl_password = "test_pass"
+    config.sasl_password = "p"
     config.security_protocol = "SASL_SSL"
     config.sasl_mechanism = "PLAIN"
     return config

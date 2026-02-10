@@ -14,7 +14,7 @@ class TestOAuth2Token:
     def sample_response(self):
         """Sample OAuth2 token response."""
         return {
-            "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+            "access_token": "test-access-token",
             "token_type": "Bearer",
             "expires_in": 3600,
             "scope": "read write",
@@ -50,10 +50,10 @@ class TestOAuth2Token:
 
     def test_from_response_with_refresh_token(self, sample_response):
         """Should include refresh token if provided."""
-        sample_response["refresh_token"] = "refresh_token_123"
+        sample_response["refresh_token"] = "test-refresh-tok"
         token = OAuth2Token.from_response(sample_response)
 
-        assert token.refresh_token == "refresh_token_123"
+        assert token.refresh_token == "test-refresh-tok"
 
     def test_is_expired_fresh_token(self):
         """Fresh token should not be expired."""
@@ -112,13 +112,13 @@ class TestOAuth2Config:
         config = OAuth2Config(
             provider_name="test_provider",
             client_id="client_123",
-            client_secret="test-dummy-placeholder",
+            client_secret="test-cs",
             token_url="https://auth.example.com/token",
         )
 
         assert config.provider_name == "test_provider"
         assert config.client_id == "client_123"
-        assert config.client_secret == "test-dummy-placeholder"
+        assert config.client_secret == "test-cs"
         assert config.token_url == "https://auth.example.com/token"
 
     def test_scope_as_string(self):
@@ -126,7 +126,7 @@ class TestOAuth2Config:
         config = OAuth2Config(
             provider_name="test",
             client_id="id",
-            client_secret="secret",
+            client_secret="cs",
             token_url="https://auth.example.com/token",
             scope="read write admin",
         )
@@ -138,7 +138,7 @@ class TestOAuth2Config:
         config = OAuth2Config(
             provider_name="test",
             client_id="id",
-            client_secret="secret",
+            client_secret="cs",
             token_url="https://auth.example.com/token",
             scope=["read", "write", "admin"],
         )
@@ -150,7 +150,7 @@ class TestOAuth2Config:
         config = OAuth2Config(
             provider_name="test",
             client_id="id",
-            client_secret="secret",
+            client_secret="cs",
             token_url="https://auth.example.com/token",
         )
 
@@ -161,7 +161,7 @@ class TestOAuth2Config:
         config = OAuth2Config(
             provider_name="test",
             client_id="id",
-            client_secret="secret",
+            client_secret="cs",
             token_url="https://auth.example.com/token",
             additional_params={"audience": "https://api.example.com"},
         )

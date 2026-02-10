@@ -23,14 +23,14 @@ class TestAzureADProviderInit:
         provider = AzureADProvider(
             provider_name="test_azure",
             client_id="cid",
-            client_secret="csecret",
+            client_secret="cs",
             tenant_id="tid",
         )
         assert provider.provider_name == "test_azure"
         assert provider.client_id == "cid"
         assert provider.tenant_id == "tid"
         mock_csc.assert_called_once_with(
-            tenant_id="tid", client_id="cid", client_secret="csecret"
+            tenant_id="tid", client_id="cid", client_secret="cs"
         )
 
     @patch("core.oauth2.providers.azure.AZURE_IDENTITY_AVAILABLE", True)
@@ -114,7 +114,7 @@ class TestAcquireToken:
             (datetime.now(UTC) + timedelta(hours=1)).timestamp()
         )
         mock_access_token = MagicMock()
-        mock_access_token.token = "azure_token_123"
+        mock_access_token.token = "test-tok"
         mock_access_token.expires_on = expires_timestamp
         mock_csc.return_value.get_token.return_value = mock_access_token
 
@@ -129,7 +129,7 @@ class TestAcquireToken:
         token = await provider.acquire_token()
 
         assert isinstance(token, OAuth2Token)
-        assert token.access_token == "azure_token_123"
+        assert token.access_token == "test-tok"
         assert token.token_type == "Bearer"
         assert token.scope == "https://storage.azure.com/.default"
         mock_csc.return_value.get_token.assert_called_once_with(
@@ -141,7 +141,7 @@ class TestAcquireToken:
     async def test_handles_datetime_expires_on(self, mock_csc):
         expires_dt = datetime.now(UTC) + timedelta(hours=1)
         mock_access_token = MagicMock()
-        mock_access_token.token = "azure_token"
+        mock_access_token.token = "test-tok"
         mock_access_token.expires_on = expires_dt
         mock_csc.return_value.get_token.return_value = mock_access_token
 
@@ -243,7 +243,7 @@ class TestRefreshToken:
     async def test_refresh_acquires_new_token(self, mock_csc):
         """Azure client credentials flow has no refresh tokens; refresh == acquire."""
         mock_access_token = MagicMock()
-        mock_access_token.token = "new_token"
+        mock_access_token.token = "test-new-tok"
         mock_access_token.expires_on = int(datetime.now(UTC).timestamp()) + 3600
         mock_csc.return_value.get_token.return_value = mock_access_token
 
@@ -255,13 +255,13 @@ class TestRefreshToken:
         )
 
         old_token = OAuth2Token(
-            access_token="old_token",
+            access_token="test-old-tok",
             token_type="Bearer",
             expires_at=datetime.now(UTC) - timedelta(minutes=5),
         )
 
         result = await provider.refresh_token(old_token)
-        assert result.access_token == "new_token"
+        assert result.access_token == "test-new-tok"
         mock_csc.return_value.get_token.assert_called_once()
 
     @patch("core.oauth2.providers.azure.AZURE_IDENTITY_AVAILABLE", True)

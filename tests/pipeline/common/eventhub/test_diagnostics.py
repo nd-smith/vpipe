@@ -31,10 +31,10 @@ class TestMaskConnectionString:
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=RootManageSharedAccessKey;"
-            "SharedAccessKey=dGVzdEtleQ=="
+            "SharedAccessKey=fake-key"
         )
         result = mask_connection_string(conn)
-        assert "dGVzdEtleQ==" not in result
+        assert "fake-key" not in result
         assert "***MASKED***" in result
         assert "RootManageSharedAccessKey" in result
         assert "myhub.servicebus.windows.net" in result
@@ -50,18 +50,18 @@ class TestMaskConnectionString:
         assert mask_connection_string(conn) == conn
 
     def test_case_insensitive_masking(self):
-        conn = "sharedaccesskey=secretvalue;Endpoint=sb://x.net/"
+        conn = "sharedaccesskey=fakevalue;Endpoint=sb://x.net/"
         result = mask_connection_string(conn)
-        assert "secretvalue" not in result
+        assert "fakevalue" not in result
         assert "***MASKED***" in result
 
     def test_key_with_special_characters(self):
         conn = (
             "Endpoint=sb://x.net/;"
-            "SharedAccessKey=abc+def/ghi=123"
+            "SharedAccessKey=test+key/val=1"
         )
         result = mask_connection_string(conn)
-        assert "abc+def/ghi=123" not in result
+        assert "test+key/val=1" not in result
         assert "***MASKED***" in result
 
 
@@ -75,12 +75,12 @@ class TestParseConnectionString:
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=RootPolicy;"
-            "SharedAccessKey=dGVzdEtleQ=="
+            "SharedAccessKey=fake-key"
         )
         parts = parse_connection_string(conn)
         assert parts["Endpoint"] == "sb://myhub.servicebus.windows.net/"
         assert parts["SharedAccessKeyName"] == "RootPolicy"
-        assert parts["SharedAccessKey"] == "dGVzdEtleQ=="
+        assert parts["SharedAccessKey"] == "fake-key"
 
     def test_empty_string_returns_empty_dict(self):
         assert parse_connection_string("") == {}
@@ -92,16 +92,16 @@ class TestParseConnectionString:
         conn = (
             "Endpoint=sb://myhub.servicebus.windows.net/;"
             "SharedAccessKeyName=Policy;"
-            "SharedAccessKey=key;"
+            "SharedAccessKey=fake-key;"
             "EntityPath=myentity"
         )
         parts = parse_connection_string(conn)
         assert parts["EntityPath"] == "myentity"
 
     def test_handles_value_with_equals_sign(self):
-        conn = "SharedAccessKey=dGVz=dEtl=eQ=="
+        conn = "SharedAccessKey=a=b=c=="
         parts = parse_connection_string(conn)
-        assert parts["SharedAccessKey"] == "dGVz=dEtl=eQ=="
+        assert parts["SharedAccessKey"] == "a=b=c=="
 
 
 # =============================================================================
@@ -111,14 +111,14 @@ class TestParseConnectionString:
 
 class TestExtractNamespaceHost:
     def test_extracts_hostname_from_standard_connection_string(self):
-        conn = "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKey=x"
+        conn = "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKey=fake-key"
         assert extract_namespace_host(conn) == "myhub.servicebus.windows.net"
 
     def test_returns_none_for_empty_string(self):
         assert extract_namespace_host("") is None
 
     def test_returns_none_when_no_endpoint(self):
-        conn = "SharedAccessKey=abc"
+        conn = "SharedAccessKey=fake-key"
         assert extract_namespace_host(conn) is None
 
     def test_returns_none_when_no_sb_scheme(self):
@@ -198,7 +198,7 @@ class TestLogConnectionDiagnostics:
         for v in env_vars:
             os.environ.pop(v, None)
 
-        conn = "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKeyName=P;SharedAccessKey=s"
+        conn = "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKeyName=n;SharedAccessKey=fake-key"
         with caplog.at_level(logging.DEBUG):
             log_connection_diagnostics(conn, "my-entity")
 
@@ -211,7 +211,7 @@ class TestLogConnectionDiagnostics:
     def test_logs_custom_ca_bundle(self, mock_dns, caplog):
         mock_dns.return_value = {"resolved": True, "ip_addresses": ["10.0.0.1"], "error": None}
 
-        conn = "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKey=s"
+        conn = "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKey=fake-key"
         with caplog.at_level(logging.DEBUG):
             log_connection_diagnostics(conn, "entity")
 
@@ -220,7 +220,7 @@ class TestLogConnectionDiagnostics:
     @patch("pipeline.common.eventhub.diagnostics.test_dns_resolution")
     def test_handles_missing_hostname(self, mock_dns, caplog):
         with caplog.at_level(logging.DEBUG):
-            log_connection_diagnostics("SharedAccessKey=abc", "entity")
+            log_connection_diagnostics("SharedAccessKey=fake-key", "entity")
 
         assert "Could not extract hostname" in caplog.text
         mock_dns.assert_not_called()

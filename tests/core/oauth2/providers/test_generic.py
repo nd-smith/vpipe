@@ -14,7 +14,7 @@ def _make_config(**overrides):
     defaults = {
         "provider_name": "test_provider",
         "client_id": "test_client",
-        "client_secret": "test_secret",
+        "client_secret": "test-cs",
         "token_url": "https://auth.example.com/token",
     }
     defaults.update(overrides)
@@ -124,7 +124,7 @@ class TestAcquireToken:
         provider = GenericOAuth2Provider(_make_config())
 
         resp = _ok_response({
-            "access_token": "acquired_token",
+            "access_token": "test-acquired-tok",
             "token_type": "Bearer",
             "expires_in": 3600,
         })
@@ -133,7 +133,7 @@ class TestAcquireToken:
 
         token = await provider.acquire_token()
         assert isinstance(token, OAuth2Token)
-        assert token.access_token == "acquired_token"
+        assert token.access_token == "test-acquired-tok"
 
     async def test_sends_correct_request_data(self):
         provider = GenericOAuth2Provider(_make_config(scope="read write"))
@@ -149,7 +149,7 @@ class TestAcquireToken:
         data = call_kwargs[1]["data"]
         assert data["grant_type"] == "client_credentials"
         assert data["client_id"] == "test_client"
-        assert data["client_secret"] == "test_secret"
+        assert data["client_secret"] == "test-cs"
         assert data["scope"] == "read write"
 
     async def test_includes_additional_params(self):
@@ -234,7 +234,7 @@ class TestRefreshToken:
     def _make_token(self, refresh_token=None):
         from datetime import UTC, datetime, timedelta
         return OAuth2Token(
-            access_token="old_token",
+            access_token="test-old-tok",
             token_type="Bearer",
             expires_at=datetime.now(UTC) + timedelta(hours=1),
             refresh_token=refresh_token,
@@ -243,13 +243,13 @@ class TestRefreshToken:
     async def test_acquires_new_token_when_no_refresh_token(self):
         provider = GenericOAuth2Provider(_make_config())
 
-        resp = _ok_response({"access_token": "new_token", "expires_in": 3600})
+        resp = _ok_response({"access_token": "test-new-tok", "expires_in": 3600})
         session = _mock_session_with_response(resp)
         provider._session = session
 
         token = self._make_token(refresh_token=None)
         result = await provider.refresh_token(token)
-        assert result.access_token == "new_token"
+        assert result.access_token == "test-new-tok"
 
         data = session.post.call_args[1]["data"]
         assert data["grant_type"] == "client_credentials"
@@ -257,37 +257,37 @@ class TestRefreshToken:
     async def test_uses_refresh_token_when_available(self):
         provider = GenericOAuth2Provider(_make_config())
 
-        resp = _ok_response({"access_token": "refreshed_token", "expires_in": 3600})
+        resp = _ok_response({"access_token": "test-refreshed-tok", "expires_in": 3600})
         session = _mock_session_with_response(resp)
         provider._session = session
 
-        token = self._make_token(refresh_token="my_refresh_tok")
+        token = self._make_token(refresh_token="test-refresh-tok")
         result = await provider.refresh_token(token)
-        assert result.access_token == "refreshed_token"
+        assert result.access_token == "test-refreshed-tok"
 
         data = session.post.call_args[1]["data"]
         assert data["grant_type"] == "refresh_token"
-        assert data["refresh_token"] == "my_refresh_tok"
+        assert data["refresh_token"] == "test-refresh-tok"
 
     async def test_falls_back_to_acquire_on_refresh_failure(self):
         provider = GenericOAuth2Provider(_make_config())
 
         fail_resp = _error_response(401, "invalid refresh token")
-        success_resp = _ok_response({"access_token": "fallback_token", "expires_in": 3600})
+        success_resp = _ok_response({"access_token": "test-fallback-tok", "expires_in": 3600})
 
         session = MagicMock()
         session.closed = False
         session.post = MagicMock(side_effect=[fail_resp, success_resp])
         provider._session = session
 
-        token = self._make_token(refresh_token="expired_refresh")
+        token = self._make_token(refresh_token="test-expired-ref")
         result = await provider.refresh_token(token)
-        assert result.access_token == "fallback_token"
+        assert result.access_token == "test-fallback-tok"
 
     async def test_falls_back_to_acquire_on_exception(self):
         provider = GenericOAuth2Provider(_make_config())
 
-        success_resp = _ok_response({"access_token": "fallback_token", "expires_in": 3600})
+        success_resp = _ok_response({"access_token": "test-fallback-tok", "expires_in": 3600})
 
         session = MagicMock()
         session.closed = False
@@ -296,9 +296,9 @@ class TestRefreshToken:
         )
         provider._session = session
 
-        token = self._make_token(refresh_token="some_refresh")
+        token = self._make_token(refresh_token="test-some-ref")
         result = await provider.refresh_token(token)
-        assert result.access_token == "fallback_token"
+        assert result.access_token == "test-fallback-tok"
 
 
 # ---------------------------------------------------------------------------

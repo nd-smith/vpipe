@@ -36,12 +36,12 @@ class TestCredentialProviderInit:
         provider = AzureCredentialProvider(
             token_file="/tmp/token",
             client_id="cid",
-            client_secret="csecret",
+            client_secret="cs",
             tenant_id="tid",
         )
         assert provider.token_file == "/tmp/token"
         assert provider.client_id == "cid"
-        assert provider.client_secret == "csecret"
+        assert provider.client_secret == "cs"
         assert provider.tenant_id == "tid"
 
     @patch.dict(
@@ -49,7 +49,7 @@ class TestCredentialProviderInit:
         {
             "AZURE_TOKEN_FILE": "/env/token",
             "AZURE_CLIENT_ID": "env_cid",
-            "AZURE_CLIENT_SECRET": "env_secret",
+            "AZURE_CLIENT_SECRET": "test-env-cs",
             "AZURE_TENANT_ID": "env_tid",
         },
     )
@@ -57,7 +57,7 @@ class TestCredentialProviderInit:
         provider = AzureCredentialProvider()
         assert provider.token_file == "/env/token"
         assert provider.client_id == "env_cid"
-        assert provider.client_secret == "env_secret"
+        assert provider.client_secret == "test-env-cs"
         assert provider.tenant_id == "env_tid"
 
     @patch.dict("os.environ", {}, clear=True)
@@ -233,34 +233,34 @@ class TestReadTokenFile:
 
     def test_reads_plain_text_token(self, tmp_path):
         token_file = tmp_path / "token.txt"
-        token_file.write_text("eyJplaintoken...")
+        token_file.write_text("test-plain-token")
         provider = AzureCredentialProvider(token_file=str(token_file))
         result = provider._read_token_file("https://storage.azure.com/")
-        assert result == "eyJplaintoken..."
+        assert result == "test-plain-token"
 
     def test_reads_json_with_exact_resource_match(self, tmp_path):
         tokens = {
-            "https://storage.azure.com/": "storage_token",
-            "https://eventhubs.azure.net/": "eh_token",
+            "https://storage.azure.com/": "test-st-tok",
+            "https://eventhubs.azure.net/": "test-eh-tok",
         }
         token_file = tmp_path / "tokens.json"
         token_file.write_text(json.dumps(tokens))
         provider = AzureCredentialProvider(token_file=str(token_file))
 
         result = provider._read_token_file("https://storage.azure.com/")
-        assert result == "storage_token"
+        assert result == "test-st-tok"
 
     def test_reads_json_with_normalized_slash_match(self, tmp_path):
-        tokens = {"https://storage.azure.com": "storage_token_no_slash"}
+        tokens = {"https://storage.azure.com": "test-st-noslash"}
         token_file = tmp_path / "tokens.json"
         token_file.write_text(json.dumps(tokens))
         provider = AzureCredentialProvider(token_file=str(token_file))
 
         result = provider._read_token_file("https://storage.azure.com/")
-        assert result == "storage_token_no_slash"
+        assert result == "test-st-noslash"
 
     def test_raises_when_resource_not_in_json(self, tmp_path):
-        tokens = {"https://other.azure.com/": "other_token"}
+        tokens = {"https://other.azure.com/": "test-other-tok"}
         token_file = tmp_path / "tokens.json"
         token_file.write_text(json.dumps(tokens))
         provider = AzureCredentialProvider(token_file=str(token_file))
@@ -270,11 +270,11 @@ class TestReadTokenFile:
 
     def test_handles_utf8_bom(self, tmp_path):
         token_file = tmp_path / "token_bom.txt"
-        token_file.write_bytes(b"\xef\xbb\xbfmy_token_value")
+        token_file.write_bytes(b"\xef\xbb\xbftest-tok-value")
         provider = AzureCredentialProvider(token_file=str(token_file))
 
         result = provider._read_token_file("https://storage.azure.com/")
-        assert result == "my_token_value"
+        assert result == "test-tok-value"
 
     def test_raises_on_os_error(self, tmp_path):
         token_file = tmp_path / "token.txt"
@@ -302,26 +302,26 @@ class TestGetTokenForResource:
 
     def test_returns_token_from_file(self, tmp_path):
         token_file = tmp_path / "token.txt"
-        token_file.write_text("file_token_123")
+        token_file.write_text("test-file-tok")
         provider = AzureCredentialProvider(token_file=str(token_file))
 
         result = provider.get_token_for_resource("https://storage.azure.com/")
-        assert result == "file_token_123"
+        assert result == "test-file-tok"
 
     def test_caches_token_from_file(self, tmp_path):
         token_file = tmp_path / "token.txt"
-        token_file.write_text("file_token_123")
+        token_file.write_text("test-file-tok")
         cache = TokenCache()
         provider = AzureCredentialProvider(token_file=str(token_file), cache=cache)
 
         provider.get_token_for_resource("https://storage.azure.com/")
-        assert cache.get("https://storage.azure.com/") == "file_token_123"
+        assert cache.get("https://storage.azure.com/") == "test-file-tok"
 
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.auth.credentials.ClientSecretCredential")
     def test_falls_back_to_spn_when_token_file_fails(self, mock_csc, tmp_path):
         mock_access_token = MagicMock()
-        mock_access_token.token = "spn_token_456"
+        mock_access_token.token = "test-spn-tok"
         mock_csc.return_value.get_token.return_value = mock_access_token
 
         # Token file doesn't exist, but is configured
@@ -333,25 +333,25 @@ class TestGetTokenForResource:
         )
 
         result = provider.get_token_for_resource("https://storage.azure.com/")
-        assert result == "spn_token_456"
+        assert result == "test-spn-tok"
 
     def test_returns_cached_token(self):
         cache = TokenCache()
-        cache.set("https://storage.azure.com/", "cached_token")
+        cache.set("https://storage.azure.com/", "test-cached-tok")
         provider = AzureCredentialProvider(client_id="cid", cache=cache)
 
         result = provider.get_token_for_resource("https://storage.azure.com/")
-        assert result == "cached_token"
+        assert result == "test-cached-tok"
 
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.auth.credentials.ClientSecretCredential")
     def test_skips_cache_when_force_refresh(self, mock_csc):
         mock_access_token = MagicMock()
-        mock_access_token.token = "fresh_token"
+        mock_access_token.token = "test-fresh-tok"
         mock_csc.return_value.get_token.return_value = mock_access_token
 
         cache = TokenCache()
-        cache.set("https://storage.azure.com/", "old_cached_token")
+        cache.set("https://storage.azure.com/", "test-old-cached")
         provider = AzureCredentialProvider(
             client_id="cid", client_secret="cs", tenant_id="tid", cache=cache
         )
@@ -359,20 +359,20 @@ class TestGetTokenForResource:
         result = provider.get_token_for_resource(
             "https://storage.azure.com/", force_refresh=True
         )
-        assert result == "fresh_token"
+        assert result == "test-fresh-tok"
 
     @patch("core.auth.credentials.AZURE_IDENTITY_AVAILABLE", True)
     @patch("core.auth.credentials.ClientSecretCredential")
     def test_acquires_token_via_spn(self, mock_csc):
         mock_access_token = MagicMock()
-        mock_access_token.token = "spn_token"
+        mock_access_token.token = "test-spn-tok"
         mock_csc.return_value.get_token.return_value = mock_access_token
 
         provider = AzureCredentialProvider(
             client_id="cid", client_secret="cs", tenant_id="tid"
         )
         result = provider.get_token_for_resource("https://storage.azure.com/")
-        assert result == "spn_token"
+        assert result == "test-spn-tok"
         mock_csc.return_value.get_token.assert_called_once_with(
             "https://storage.azure.com/.default"
         )
@@ -381,7 +381,7 @@ class TestGetTokenForResource:
     @patch("core.auth.credentials.ClientSecretCredential")
     def test_caches_spn_token(self, mock_csc):
         mock_access_token = MagicMock()
-        mock_access_token.token = "spn_token"
+        mock_access_token.token = "test-spn-tok"
         mock_csc.return_value.get_token.return_value = mock_access_token
 
         cache = TokenCache()
@@ -389,7 +389,7 @@ class TestGetTokenForResource:
             client_id="cid", client_secret="cs", tenant_id="tid", cache=cache
         )
         provider.get_token_for_resource("https://storage.azure.com/")
-        assert cache.get("https://storage.azure.com/") == "spn_token"
+        assert cache.get("https://storage.azure.com/") == "test-spn-tok"
 
     def test_raises_azure_auth_error_on_failure(self):
         provider = AzureCredentialProvider(client_id="only_id")
@@ -439,7 +439,7 @@ class TestConvenienceMethods:
 
     def test_get_storage_options_returns_token_when_file_mode(self, tmp_path):
         token_file = tmp_path / "token.txt"
-        token_file.write_text("my_storage_token")
+        token_file.write_text("test-storage-tok")
         provider = AzureCredentialProvider(
             token_file=str(token_file),
             client_id="cid",
@@ -447,7 +447,7 @@ class TestConvenienceMethods:
             tenant_id="tid",
         )
         opts = provider.get_storage_options()
-        assert opts == {"azure_storage_token": "my_storage_token"}
+        assert opts == {"azure_storage_token": "test-storage-tok"}
 
     def test_get_storage_options_returns_empty_on_auth_failure(self):
         provider = AzureCredentialProvider(client_id="only_id")

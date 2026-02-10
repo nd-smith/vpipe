@@ -172,7 +172,7 @@ def test_url_sanitization():
     logger.info(
         "Download complete",
         extra={
-            "download_url": "https://api.example.com/file?id=123&sig=secret_token_here&other=value",
+            "download_url": "https://api.example.com/file?id=123&sig=test-val&other=value",
             "batch_size": 50,
         }
     )
@@ -188,7 +188,7 @@ def test_url_sanitization():
 
     if "sig=[REDACTED]" in sanitized_url:
         print("✅ Sensitive parameter sanitized")
-        secret_removed = "secret_token_here" not in sanitized_url
+        secret_removed = "test-val" not in sanitized_url
         if secret_removed:
             print("✅ Original secret removed")
             return True

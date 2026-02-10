@@ -49,7 +49,7 @@ class TestEventHubProducerInit:
         from pipeline.common.eventhub.producer import EventHubProducer
 
         producer = EventHubProducer(
-            connection_string="Endpoint=sb://test.net/;SharedAccessKey=k",
+            connection_string="Endpoint=sb://test.net/;SharedAccessKey=fake-key",
             domain="verisk",
             worker_name="test-worker",
             eventhub_name="my-entity",
@@ -83,7 +83,7 @@ class TestEventHubProducerLifecycle:
         from pipeline.common.eventhub.producer import EventHubProducer
 
         return EventHubProducer(
-            connection_string="Endpoint=sb://test.net/;SharedAccessKeyName=P;SharedAccessKey=k",
+            connection_string="Endpoint=sb://test.net/;SharedAccessKeyName=n;SharedAccessKey=fake-key",
             domain="verisk",
             worker_name="test",
             eventhub_name="my-entity",
