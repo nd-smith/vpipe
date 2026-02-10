@@ -406,6 +406,9 @@ class KQLEventPoller:
             except TimeoutError:
                 pass
             except Exception as e:
+                import traceback
+                print(f"[POLLER ERROR] Error in poll cycle: {type(e).__name__}: {e}")
+                traceback.print_exc()
                 logger.error(f"Error in poll cycle: {e}", exc_info=True)
                 await asyncio.sleep(self.config.poll_interval_seconds)
 
