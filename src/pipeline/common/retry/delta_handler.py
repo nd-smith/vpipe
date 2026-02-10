@@ -470,8 +470,8 @@ class DeltaRetryHandler:
         """
         delay_seconds = self._retry_delays[retry_count]
 
-        # NEW: Single unified retry topic per domain
-        retry_topic = self.config.get_retry_topic(self.domain)
+        # Single unified retry topic per domain
+        retry_topic = self.config.get_topic(self.domain, "retry")
 
         # Calculate retry timestamp
         retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)

@@ -167,8 +167,12 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
     extracted_schema = dict.fromkeys(extracted_columns.keys(), pl.Utf8)
     extracted_df = pl.DataFrame(extracted_columns, schema=extracted_schema)
 
-    # Add raw_json column (the original data column)
-    raw_json_col = df.select([pl.struct(pl.all()).cast(pl.Utf8).alias("raw_json")])
+    # Add raw_json column (the original data as JSON string per row)
+    raw_json_col = pl.Series(
+        "raw_json",
+        [json.dumps(row, default=str) for row in df.iter_rows(named=True)],
+        dtype=pl.Utf8,
+    ).to_frame()
 
     # Combine all columns
     result = pl.concat([base_df, extracted_df, raw_json_col], how="horizontal")
