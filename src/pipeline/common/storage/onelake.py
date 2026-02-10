@@ -418,6 +418,35 @@ class OneLakeClient:
             },
         )
 
+        # Startup connectivity smoke test — verify OneLake is reachable before
+        # first real operation. Warning only (not a gate) since retry logic on
+        # actual operations will handle transient failures.
+        try:
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(
+                    self._file_system_client.get_file_system_properties
+                ).result(timeout=15)
+            logger.info(
+                "OneLake connectivity verified",
+                extra={
+                    "account_host": self.account_host,
+                    "container": self.container,
+                    "auth_mode": auth_mode,
+                },
+            )
+        except Exception as e:
+            logger.warning(
+                "OneLake connectivity check failed (will retry on first operation)",
+                extra={
+                    "error": str(e)[:200],
+                    "error_type": type(e).__name__,
+                    "account_host": self.account_host,
+                    "container": self.container,
+                },
+            )
+
     def __enter__(self):
         self._create_clients(max_pool_size=self._max_pool_size)
         return self
