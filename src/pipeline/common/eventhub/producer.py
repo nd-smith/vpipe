@@ -381,7 +381,7 @@ class EventHubProducer:
 
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(
-                topic=self.eventhub_name
+                topic=self.eventhub_name, consumer_group="producer"
             ).observe(duration)
 
             for _ in messages:
@@ -410,7 +410,7 @@ class EventHubProducer:
         except Exception as e:
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(
-                topic=self.eventhub_name
+                topic=self.eventhub_name, consumer_group="producer"
             ).observe(duration)
 
             for _ in messages:
