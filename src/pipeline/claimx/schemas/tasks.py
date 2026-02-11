@@ -92,6 +92,7 @@ class ClaimXEnrichmentTask(BaseModel):
         return timestamp.isoformat()
 
     model_config = {
+        "coerce_numbers_to_str": True,
         "json_schema_extra": {
             "examples": [
                 {
@@ -189,6 +190,7 @@ class ClaimXDownloadTask(BaseModel):
         return v
 
     model_config = {
+        "coerce_numbers_to_str": True,
         "json_schema_extra": {
             "examples": [
                 {
