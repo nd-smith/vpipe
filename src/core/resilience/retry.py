@@ -50,6 +50,7 @@ def _log_retry_failure(
             "Permanent error for %s, not retrying: %s",
             func_name,
             str(e)[:200],
+            exc_info=e,
             extra={
                 "operation": func_name,
                 "error_type": error_type,
@@ -63,6 +64,7 @@ def _log_retry_failure(
         "Max retries exhausted for %s: %s",
         func_name,
         str(e)[:200],
+        exc_info=e,
         extra={
             "operation": func_name,
             "error_type": error_type,
