@@ -173,19 +173,13 @@ class EventHubConfig:
             "event_ingester": {
                 "consumer": {
                     "group_id": self.consumer_group,
+                    "auto_offset_reset": self.auto_offset_reset,
                 }
             },
         }
 
         return MessageConfig(
             bootstrap_servers=self.bootstrap_servers,
-            security_protocol=self.security_protocol,
-            sasl_mechanism=self.sasl_mechanism,
-            sasl_plain_username=self.sasl_username,
-            sasl_plain_password=self.sasl_password,
-            consumer_defaults={
-                "auto_offset_reset": self.auto_offset_reset,
-            },
             verisk=verisk_config,
         )
 
