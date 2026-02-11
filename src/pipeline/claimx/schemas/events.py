@@ -132,20 +132,25 @@ class ClaimXEventMessage(BaseModel):
             composite_key = "|".join(composite_parts)
             event_id = hashlib.sha256(composite_key.encode()).hexdigest()
 
+        media_id = row.get("media_id") or row.get("mediaId")
+        task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
+        video_id = row.get("video_collaboration_id") or row.get("videoCollaborationId")
+        master_file = row.get("master_file_name") or row.get("masterFileName")
+
         return cls(
             event_id=event_id,
             event_type=event_type,
             project_id=project_id,
             ingested_at=ingested_at,
-            media_id=row.get("media_id") or row.get("mediaId"),
-            task_assignment_id=row.get("task_assignment_id") or row.get("taskAssignmentId"),
-            video_collaboration_id=row.get("video_collaboration_id")
-            or row.get("videoCollaborationId"),
-            master_file_name=row.get("master_file_name") or row.get("masterFileName"),
+            media_id=str(media_id) if media_id is not None else None,
+            task_assignment_id=str(task_id) if task_id is not None else None,
+            video_collaboration_id=str(video_id) if video_id is not None else None,
+            master_file_name=str(master_file) if master_file is not None else None,
             raw_data=row,
         )
 
     model_config = {
+        "coerce_numbers_to_str": True,
         "json_schema_extra": {
             "examples": [
                 {
