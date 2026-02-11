@@ -233,6 +233,7 @@ class TestGetDedupStore:
     async def test_returns_none_on_blob_initialization_failure(self):
         mock_blob_store = MagicMock()
         mock_blob_store.initialize = AsyncMock(side_effect=RuntimeError("blob fail"))
+        mock_blob_store.close = AsyncMock()
 
         with patch.object(dedup_module, "_load_dedup_config") as mock_load:
             mock_load.return_value = {
