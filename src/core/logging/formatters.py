@@ -51,6 +51,13 @@ class JSONFormatter(logging.Formatter):
         "status_code",
         # Resilience
         "circuit_state",
+        "attempt",
+        "max_attempts",
+        "total_attempts",
+        "delay_seconds",
+        "delay_source",
+        "server_retry_after",
+        "callback_error",
         # Storage
         "download_url",
         "blob_path",
@@ -101,8 +108,13 @@ class JSONFormatter(logging.Formatter):
         "processing_time_ms": float,
         "duration_ms": float,
         "memory_mb": float,
+        "delay_seconds": float,
+        "server_retry_after": float,
         # Count fields (as int for smaller counts)
         "retry_count": int,
+        "attempt": int,
+        "max_attempts": int,
+        "total_attempts": int,
         "http_status": int,
         "status_code": int,
         "message_partition": int,
