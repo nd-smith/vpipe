@@ -100,7 +100,7 @@ class ClaimXEventMessage(BaseModel):
         """
         event_id = row.get("event_id") or row.get("eventId") or ""
         event_type = row.get("event_type") or row.get("eventType") or ""
-        project_id = row.get("project_id") or row.get("projectId") or ""
+        project_id = str(row.get("project_id") or row.get("projectId") or "")
         ingested_at = row.get("ingested_at") or row.get("ingestedAt") or datetime.now()
 
         # Generate deterministic ID if missing

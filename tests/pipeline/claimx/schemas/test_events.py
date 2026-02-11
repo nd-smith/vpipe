@@ -305,6 +305,18 @@ class TestClaimXEventMessageFromRawEvent:
         assert event.master_file_name == "claim.pdf"
         assert event.raw_data["extra_field"] == "extra_value"
 
+    def test_from_raw_event_with_integer_project_id(self):
+        """Handles projectId as integer from JSON payload."""
+        row = {
+            "eventType": "PROJECT_CREATED",
+            "projectId": 67890,
+            "ingestedAt": datetime.now(UTC),
+        }
+
+        event = ClaimXEventMessage.from_raw_event(row)
+
+        assert event.project_id == "67890"
+
 
 class TestClaimXEventMessageSerialization:
     """Test JSON serialization and deserialization."""
