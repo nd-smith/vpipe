@@ -129,7 +129,7 @@ def load_production_config():
     kafka_config = get_config()
 
     logger.info("Running in PRODUCTION mode (Event Hub pipeline)")
-    eventhub_config = pipeline_config.eventhub.to_kafka_config()
+    eventhub_config = pipeline_config.eventhub.to_message_config()
 
     return pipeline_config, eventhub_config, kafka_config
 
@@ -272,7 +272,7 @@ async def run_all_workers(
 
     events_table_path = pipeline_config.events_table_path
 
-    eventhub_config = pipeline_config.eventhub.to_kafka_config()
+    eventhub_config = pipeline_config.eventhub.to_message_config()
     tasks.append(
         asyncio.create_task(
             verisk_runners.run_event_ingester(
