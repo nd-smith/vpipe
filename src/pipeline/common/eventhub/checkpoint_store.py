@@ -211,26 +211,10 @@ async def _create_blob_store(config: dict) -> Any:
             container_name=container_name,
         )
 
-        # Smoke test: verify connection string and permissions work
-        # 15s timeout to fail fast when blob storage is unreachable
-        # instead of hanging for minutes on the default TCP timeout
-        from azure.storage.blob.aio import ContainerClient
-
-        container_client = ContainerClient.from_connection_string(
-            conn_str=connection_string,
-            container_name=container_name,
+        logger.info(
+            "BlobCheckpointStore initialized",
+            extra={"container_name": container_name},
         )
-        try:
-            await asyncio.wait_for(
-                container_client.get_container_properties(),
-                timeout=15,
-            )
-            logger.info(
-                "Blob storage connectivity verified for checkpoint store",
-                extra={"container_name": container_name},
-            )
-        finally:
-            await container_client.close()
 
         return store
 

@@ -655,7 +655,7 @@ class TestCheckpointStoreLogging:
         # Check for initialization log messages
         log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
         assert any("initializing" in msg.lower() for msg in log_messages)
-        assert any("connectivity verified" in msg.lower() for msg in log_messages)
+        assert any("initialized" in msg.lower() for msg in log_messages)
 
     @pytest.mark.asyncio
     async def test_logs_warning_when_container_name_empty(self, caplog):
