@@ -358,10 +358,33 @@ def _mask_credential(value: str | None, visible_chars: int = 4) -> str:
     return f"{value[:visible_chars]}...({len(value)} chars)"
 
 
+def _ensure_ssl_cert_env() -> None:
+    """Propagate CA bundle path to SSL_CERT_FILE for delta-rs.
+
+    Corporate environments often set REQUESTS_CA_BUNDLE or CURL_CA_BUNDLE
+    for Python HTTP libraries, but delta-rs uses Rust's native TLS which
+    only reads SSL_CERT_FILE. If SSL_CERT_FILE is not set, propagate
+    from the other env vars so delta-rs can verify certificates.
+    """
+    if os.getenv("SSL_CERT_FILE"):
+        return
+
+    ca_bundle = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("CURL_CA_BUNDLE")
+    if ca_bundle:
+        os.environ["SSL_CERT_FILE"] = ca_bundle
+        logger.info(
+            "Set SSL_CERT_FILE for delta-rs TLS verification",
+            extra={"ca_bundle": ca_bundle},
+        )
+
+
 def get_storage_options(force_refresh: bool = False) -> dict[str, str]:
     """Get storage auth options from singleton."""
     auth = get_auth()
     opts = auth.get_storage_options(force_refresh)
+
+    # Ensure delta-rs can find the CA bundle for SSL verification
+    _ensure_ssl_cert_env()
 
     # Log detailed auth context for debugging 403 errors
     auth_mode = auth.auth_mode
