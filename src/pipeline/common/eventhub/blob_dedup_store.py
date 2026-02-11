@@ -13,6 +13,7 @@ Example:
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -32,7 +33,20 @@ class BlobDedupStore:
 
     async def initialize(self) -> None:
         """Initialize blob client and ensure container exists."""
-        self._client = BlobServiceClient.from_connection_string(self.connection_string)
+        # Use corporate CA bundle for SSL verification (same pattern as
+        # consumer/producer/batch_consumer)
+        kwargs = {}
+        ca_bundle = (
+            os.getenv("SSL_CERT_FILE")
+            or os.getenv("REQUESTS_CA_BUNDLE")
+            or os.getenv("CURL_CA_BUNDLE")
+        )
+        if ca_bundle:
+            kwargs["connection_verify"] = ca_bundle
+
+        self._client = BlobServiceClient.from_connection_string(
+            self.connection_string, **kwargs
+        )
         self._container = self._client.get_container_client(self.container_name)
 
         # Create container if it doesn't exist (15s timeout to fail fast
