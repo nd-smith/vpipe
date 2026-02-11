@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import sys
+import uuid
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
@@ -398,6 +399,46 @@ def setup_signal_handlers(loop: asyncio.AbstractEventLoop):
         loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
 
 
+def verify_storage_permissions(storage_path: Path) -> bool:
+    """Verify read/write permissions on persistent storage at startup.
+
+    Writes a temporary file, reads it back, and cleans up.
+    Returns True if all operations succeed, False otherwise.
+    """
+    test_file = storage_path / f".vpipe_permission_check_{uuid.uuid4().hex[:8]}"
+    test_content = "vpipe storage permission check"
+
+    try:
+        if not storage_path.exists():
+            print(f"[STARTUP] Storage check FAILED: {storage_path} does not exist", flush=True)
+            return False
+
+        test_file.write_text(test_content)
+        read_back = test_file.read_text()
+
+        if read_back != test_content:
+            print(
+                f"[STARTUP] Storage check FAILED: read-back mismatch at {storage_path}",
+                flush=True,
+            )
+            return False
+
+        test_file.unlink()
+        print(f"[STARTUP] Storage check PASSED: read/write OK at {storage_path}", flush=True)
+        return True
+    except PermissionError:
+        print(
+            f"[STARTUP] Storage check FAILED: permission denied at {storage_path}", flush=True
+        )
+        return False
+    except OSError as e:
+        print(f"[STARTUP] Storage check FAILED: {e}", flush=True)
+        return False
+    finally:
+        if test_file.exists():
+            test_file.unlink(missing_ok=True)
+
+
 def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
@@ -562,6 +603,9 @@ def main():
         "Health server started early (before main initialization)",
         extra={"port": early_health_server.actual_port, "worker": args.worker},
     )
+
+    # Verify persistent storage permissions
+    verify_storage_permissions(Path("/mnt/pcesdopodapp"))
 
     _debug_token_file = os.getenv("AZURE_TOKEN_FILE")
     if _debug_token_file:
