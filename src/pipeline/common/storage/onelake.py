@@ -425,10 +425,14 @@ class OneLakeClient:
         try:
             import concurrent.futures
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                pool.submit(
-                    self._file_system_client.get_file_system_properties
-                ).result(timeout=15)
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(self._file_system_client.get_file_system_properties)
+            try:
+                future.result(timeout=15)
+            finally:
+                # shutdown(wait=False) so a hung network call doesn't block
+                # the entire application from starting
+                pool.shutdown(wait=False, cancel_futures=True)
             logger.info(
                 "OneLake connectivity verified",
                 extra={
