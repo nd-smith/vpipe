@@ -142,6 +142,20 @@ class TestEventHubConsumerRecord:
 
         assert msg.value == b"hello world"
 
+    def test_raw_bytes_body(self):
+        from pipeline.common.eventhub.consumer import EventHubConsumerRecord
+
+        event = MagicMock()
+        event.body = b'{"key": "value"}'
+        event.properties = {}
+        event.enqueued_time = None
+        event.offset = "0"
+
+        record = EventHubConsumerRecord(event, "entity", "0")
+        msg = record.to_pipeline_message()
+
+        assert msg.value == b'{"key": "value"}'
+
 
 # =============================================================================
 # EventHubConsumer

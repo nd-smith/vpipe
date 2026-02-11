@@ -101,7 +101,7 @@ class EventHubConsumerRecord:
             offset=event_data.offset if hasattr(event_data, "offset") else 0,
             timestamp=timestamp_ms,
             key=key_bytes,
-            value=b"".join(event_data.body),
+            value=event_data.body if isinstance(event_data.body, bytes) else b"".join(event_data.body),
             headers=headers if headers else None,
         )
 
