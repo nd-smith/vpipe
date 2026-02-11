@@ -38,6 +38,8 @@ import logging
 import os
 from typing import Any
 
+from core.security.ssl_utils import get_ca_bundle_kwargs
+
 logger = logging.getLogger(__name__)
 
 
@@ -209,6 +211,7 @@ async def _create_blob_store(config: dict) -> Any:
         store = BlobCheckpointStore.from_connection_string(
             conn_str=connection_string,
             container_name=container_name,
+            **get_ca_bundle_kwargs(),
         )
 
         # Smoke test: verify connection string and permissions work
@@ -219,6 +222,7 @@ async def _create_blob_store(config: dict) -> Any:
         container_client = ContainerClient.from_connection_string(
             conn_str=connection_string,
             container_name=container_name,
+            **get_ca_bundle_kwargs(),
         )
         try:
             await asyncio.wait_for(

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from core.auth.token_cache import TokenCache
+from core.security.ssl_utils import get_ca_bundle_kwargs
 
 try:
     from azure.core.credentials import AccessToken
@@ -90,25 +91,11 @@ class AzureCredentialProvider:
                 extra={"tenant_id": self.tenant_id, "client_id": self.client_id},
             )
 
-            # Apply SSL configuration for corporate proxy environments
-            credential_kwargs = {}
-            ca_bundle = (
-                os.getenv("SSL_CERT_FILE")
-                or os.getenv("REQUESTS_CA_BUNDLE")
-                or os.getenv("CURL_CA_BUNDLE")
-            )
-            if ca_bundle:
-                credential_kwargs["connection_verify"] = ca_bundle
-                logger.debug(
-                    "Using custom CA bundle for credential",
-                    extra={"ca_bundle": ca_bundle},
-                )
-
             self._credential = ClientSecretCredential(
                 tenant_id=self.tenant_id,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
-                **credential_kwargs,
+                **get_ca_bundle_kwargs(),
             )
             return self._credential
 

@@ -24,6 +24,7 @@ from azure.core.pipeline.transport import RequestsTransport
 from azure.storage.filedatalake import DataLakeServiceClient  # type: ignore
 from requests.adapters import HTTPAdapter
 
+from core.security.ssl_utils import get_ca_bundle_kwargs
 from pipeline.common.auth import clear_token_cache, get_auth
 from pipeline.common.metrics import onelake_bytes_transferred_counter, onelake_operation_duration_seconds
 from pipeline.common.retry import RetryConfig, with_retry
@@ -369,6 +370,7 @@ class OneLakeClient:
                 tenant_id=auth.tenant_id,
                 client_id=auth.client_id,
                 client_secret=auth.client_secret,
+                **get_ca_bundle_kwargs(),
             )
             self._credential = credential
             auth_mode = "spn"

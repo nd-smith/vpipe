@@ -12,13 +12,13 @@ Architecture notes:
 
 import json
 import logging
-import os
 import time
 from typing import Any
 
 from azure.eventhub import EventData, EventHubProducerClient, TransportType
 from pydantic import BaseModel
 
+from core.security.ssl_utils import get_ca_bundle_kwargs
 from core.utils.json_serializers import json_serializer
 from pipeline.common.eventhub.diagnostics import (
     log_connection_attempt_details,
@@ -119,16 +119,7 @@ class EventHubProducer:
             # Log comprehensive connection diagnostics
             log_connection_diagnostics(self.connection_string, self.eventhub_name)
 
-            # Apply SSL configuration for production CA bundle
-            # Check for custom CA bundle (production TLS-intercepting proxy)
-            ssl_kwargs = {}
-            ca_bundle = (
-                os.getenv("SSL_CERT_FILE")
-                or os.getenv("REQUESTS_CA_BUNDLE")
-                or os.getenv("CURL_CA_BUNDLE")
-            )
-            if ca_bundle:
-                ssl_kwargs = {"connection_verify": ca_bundle}
+            ssl_kwargs = get_ca_bundle_kwargs()
 
             # Log connection attempt details
             log_connection_attempt_details(

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from core.oauth2.exceptions import InvalidConfigurationError, TokenAcquisitionError
 from core.oauth2.models import OAuth2Token
 from core.oauth2.providers.base import BaseOAuth2Provider
+from core.security.ssl_utils import get_ca_bundle_kwargs
 
 try:
     from azure.identity import ClientSecretCredential
@@ -71,6 +72,7 @@ class AzureADProvider(BaseOAuth2Provider):
             tenant_id=tenant_id,
             client_id=client_id,
             client_secret=client_secret,
+            **get_ca_bundle_kwargs(),
         )
 
     async def acquire_token(self) -> OAuth2Token:

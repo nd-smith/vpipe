@@ -20,7 +20,6 @@ Checkpoint persistence:
 import asyncio
 import json
 import logging
-import os
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -29,6 +28,7 @@ from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
 from core.errors.exceptions import ErrorCategory
+from core.security.ssl_utils import get_ca_bundle_kwargs
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
 from core.utils import generate_worker_id
@@ -218,16 +218,7 @@ class EventHubConsumer:
             # Log comprehensive connection diagnostics
             log_connection_diagnostics(self.connection_string, self.eventhub_name)
 
-            # Apply SSL configuration for production CA bundle
-            # Check for custom CA bundle (production TLS-intercepting proxy)
-            ssl_kwargs = {}
-            ca_bundle = (
-                os.getenv("SSL_CERT_FILE")
-                or os.getenv("REQUESTS_CA_BUNDLE")
-                or os.getenv("CURL_CA_BUNDLE")
-            )
-            if ca_bundle:
-                ssl_kwargs = {"connection_verify": ca_bundle}
+            ssl_kwargs = get_ca_bundle_kwargs()
 
             # Log connection attempt details
             log_connection_attempt_details(

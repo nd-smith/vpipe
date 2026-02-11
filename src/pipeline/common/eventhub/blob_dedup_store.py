@@ -13,11 +13,12 @@ Example:
 import asyncio
 import json
 import logging
-import os
 import time
 from typing import Any
 
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient
+
+from core.security.ssl_utils import get_ca_bundle_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -33,19 +34,9 @@ class BlobDedupStore:
 
     async def initialize(self) -> None:
         """Initialize blob client."""
-        # Use corporate CA bundle for SSL verification (same pattern as
-        # consumer/producer/batch_consumer)
-        kwargs = {}
-        ca_bundle = (
-            os.getenv("SSL_CERT_FILE")
-            or os.getenv("REQUESTS_CA_BUNDLE")
-            or os.getenv("CURL_CA_BUNDLE")
-        )
-        if ca_bundle:
-            kwargs["connection_verify"] = ca_bundle
-
         self._client = BlobServiceClient.from_connection_string(
-            self.connection_string, **kwargs
+            self.connection_string,
+            **get_ca_bundle_kwargs(),
         )
         self._container = self._client.get_container_client(self.container_name)
 

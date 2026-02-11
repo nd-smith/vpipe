@@ -17,7 +17,6 @@ processing of multiple messages.
 import asyncio
 import contextlib
 import logging
-import os
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from typing import Any
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
+from core.security.ssl_utils import get_ca_bundle_kwargs
 from pipeline.common.eventhub.consumer import EventHubConsumerRecord
 from pipeline.common.metrics import (
     update_assigned_partitions,
@@ -162,17 +162,6 @@ class EventHubBatchConsumer:
         )
 
         try:
-            # Apply SSL configuration for production CA bundle
-            # Check for custom CA bundle (production TLS-intercepting proxy)
-            ssl_kwargs = {}
-            ca_bundle = (
-                os.getenv("SSL_CERT_FILE")
-                or os.getenv("REQUESTS_CA_BUNDLE")
-                or os.getenv("CURL_CA_BUNDLE")
-            )
-            if ca_bundle:
-                ssl_kwargs = {"connection_verify": ca_bundle}
-
             # Create consumer with AMQP over WebSocket transport
             self._consumer = EventHubConsumerClient.from_connection_string(
                 conn_str=self.connection_string,
@@ -180,7 +169,7 @@ class EventHubBatchConsumer:
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
                 checkpoint_store=self.checkpoint_store,
-                **ssl_kwargs,
+                **get_ca_bundle_kwargs(),
             )
 
             self._running = True

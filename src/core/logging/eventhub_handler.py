@@ -14,12 +14,13 @@ Features:
 import asyncio
 import contextlib
 import logging
-import os
 import queue
 import threading
 
 from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubProducerClient
+
+from core.security.ssl_utils import get_ca_bundle_kwargs
 
 
 class EventHubLogHandler(logging.Handler):
@@ -146,20 +147,11 @@ class EventHubLogHandler(logging.Handler):
         try:
             # Use AMQP over WebSocket (port 443) instead of AMQP over TCP (port 5671)
             # This works better in corporate networks where 5671 may be blocked
-            ssl_kwargs = {}
-            ca_bundle = (
-                os.getenv("SSL_CERT_FILE")
-                or os.getenv("REQUESTS_CA_BUNDLE")
-                or os.getenv("CURL_CA_BUNDLE")
-            )
-            if ca_bundle:
-                ssl_kwargs = {"connection_verify": ca_bundle}
-
             producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
-                **ssl_kwargs,
+                **get_ca_bundle_kwargs(),
             )
             print(
                 "[EVENTHUB_LOGS] EventHub producer client created successfully (using AMQP over WebSocket on port 443)"
