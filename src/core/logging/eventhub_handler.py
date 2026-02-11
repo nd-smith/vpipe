@@ -107,10 +107,6 @@ class EventHubLogHandler(logging.Handler):
             # Queue for async sending (don't block the worker)
             try:
                 self.log_queue.put_nowait(log_entry)
-                # Print first few queued logs for visibility
-                queue_size = self.log_queue.qsize()
-                if queue_size <= 3:
-                    print(f"[EVENTHUB_LOGS] Log queued (queue size: {queue_size})")
             except queue.Full:
                 # Queue is full - drop this log to avoid blocking
                 # This is acceptable for real-time streaming
