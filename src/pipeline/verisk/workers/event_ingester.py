@@ -15,6 +15,7 @@ Input topic: events.raw
 Output topic: enrichment.pending
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -195,10 +196,15 @@ class EventIngesterWorker:
         try:
             # Start consumer (this blocks until stopped)
             await self.consumer.start()
+        except asyncio.CancelledError:
+            logger.info("EventIngesterWorker cancelled, shutting down...")
+            raise
         finally:
             self._running = False
 
     async def stop(self) -> None:
+        if not self._running:
+            return
         logger.info("Stopping EventIngesterWorker")
         self._running = False
 
@@ -231,7 +237,7 @@ class EventIngesterWorker:
         # Decode and parse EventMessage
         try:
             message_data = json.loads(record.value.decode("utf-8"))
-            event = EventMessage.from_eventhouse_row(message_data)
+            event = EventMessage.from_raw_event(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse EventMessage",

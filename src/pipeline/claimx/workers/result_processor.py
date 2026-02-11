@@ -202,6 +202,9 @@ class ClaimXResultProcessor:
         try:
             # Start consumer (this blocks until stopped)
             await self.consumer.start()
+        except asyncio.CancelledError:
+            logger.info("ClaimXResultProcessor cancelled, shutting down...")
+            raise
         finally:
             self._running = False
 
@@ -212,6 +215,8 @@ class ClaimXResultProcessor:
         Gracefully shuts down the consumer, flushes pending batches,
         and logs final statistics.
         """
+        if not self._running:
+            return
         logger.info("Stopping ClaimXResultProcessor")
         self._running = False
 

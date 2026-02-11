@@ -117,6 +117,7 @@ class ClaimXEntityDeltaWorker:
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
         self._last_cycle_failed = 0
+        self._running = False
 
         # Health check server - use worker-specific port from config
         health_port = processing_config.get("health_port", 8086)
@@ -142,6 +143,8 @@ class ClaimXEntityDeltaWorker:
 
     async def start(self) -> None:
         """Start the worker."""
+        self._running = True
+
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
 
@@ -180,10 +183,21 @@ class ClaimXEntityDeltaWorker:
         self.health_server.set_ready(kafka_connected=True)
 
         # Start the consumer
-        await self._consumer.start()
+        try:
+            await self._consumer.start()
+        except asyncio.CancelledError:
+            logger.info("ClaimXEntityDeltaWorker cancelled, shutting down...")
+            raise
+        finally:
+            self._running = False
 
     async def stop(self) -> None:
         """Stop the worker."""
+        if not self._running:
+            return
+
+        self._running = False
+
         # Cancel cycle output task
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()

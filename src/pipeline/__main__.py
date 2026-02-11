@@ -105,22 +105,16 @@ def load_dev_config():
     """Load configuration for development mode (EventHub only)."""
     logger.info("Running in DEVELOPMENT mode (EventHub only)")
     from config import get_config
-    from config.pipeline_config import (
-        EventSourceType,
-        PipelineConfig,
-    )
+    from config.pipeline_config import PipelineConfig
 
     kafka_config = get_config()
-
-    pipeline_config = PipelineConfig(
-        event_source=EventSourceType.EVENTHUB,
-    )
+    pipeline_config = PipelineConfig()
 
     return pipeline_config, kafka_config, kafka_config
 
 
 def load_production_config():
-    """Load configuration for production mode (Event Hub/Eventhouse).
+    """Load configuration for production mode (Event Hub).
 
     Returns:
         Tuple of (pipeline_config, eventhub_config, kafka_config)
@@ -129,17 +123,13 @@ def load_production_config():
         ValueError: If configuration is invalid
     """
     from config import get_config
-    from config.pipeline_config import EventSourceType, get_pipeline_config
+    from config.pipeline_config import get_pipeline_config
 
     pipeline_config = get_pipeline_config()
     kafka_config = get_config()
 
-    if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-        logger.info("Running in PRODUCTION mode (Eventhouse → EventHub pipeline)")
-        eventhub_config = None
-    else:
-        logger.info("Running in PRODUCTION mode (Event Hub → EventHub pipeline)")
-        eventhub_config = pipeline_config.eventhub.to_kafka_config()
+    logger.info("Running in PRODUCTION mode (Event Hub pipeline)")
+    eventhub_config = pipeline_config.eventhub.to_kafka_config()
 
     return pipeline_config, eventhub_config, kafka_config
 
@@ -271,7 +261,6 @@ async def run_all_workers(
     Architecture: events.raw → EventIngester → downloads.pending → DownloadWorker → ...
                   events.raw → DeltaEventsWorker → Delta table (parallel)"""
     from config import get_config
-    from config.pipeline_config import EventSourceType
     from pipeline.runners import verisk_runners
 
     logger.info("Starting all pipeline workers...")
@@ -281,46 +270,21 @@ async def run_all_workers(
 
     tasks = []
 
-    if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-        events_table_path = (
-            pipeline_config.verisk_eventhouse.verisk_events_table_path
-            or pipeline_config.events_table_path
-        )
-    else:
-        events_table_path = pipeline_config.events_table_path
+    events_table_path = pipeline_config.events_table_path
 
-    if pipeline_config.event_source == EventSourceType.EVENTHOUSE:
-        tasks.append(
-            asyncio.create_task(
-                verisk_runners.run_eventhouse_poller(pipeline_config, shutdown_event),
-                name="eventhouse-poller",
-            )
+    eventhub_config = pipeline_config.eventhub.to_kafka_config()
+    tasks.append(
+        asyncio.create_task(
+            verisk_runners.run_event_ingester(
+                eventhub_config,
+                kafka_config,
+                shutdown_event,
+                domain=pipeline_config.domain,
+            ),
+            name="xact-event-ingester",
         )
-        tasks.append(
-            asyncio.create_task(
-                verisk_runners.run_local_event_ingester(
-                    kafka_config,
-                    shutdown_event,
-                    domain=pipeline_config.domain,
-                ),
-                name="xact-event-ingester",
-            )
-        )
-        logger.info("Using Eventhouse as event source")
-    else:
-        eventhub_config = pipeline_config.eventhub.to_kafka_config()
-        tasks.append(
-            asyncio.create_task(
-                verisk_runners.run_event_ingester(
-                    eventhub_config,
-                    kafka_config,
-                    shutdown_event,
-                    domain=pipeline_config.domain,
-                ),
-                name="xact-event-ingester",
-            )
-        )
-        logger.info("Using Event Hub as event source")
+    )
+    logger.info("Using Event Hub as event source")
 
     if enable_delta_writes and events_table_path:
         tasks.append(
@@ -650,7 +614,7 @@ def main():
         except ValueError as e:
             error_msg = str(e)
             logger.exception("Configuration error", extra={"error": error_msg})
-            logger.error("Use --dev flag for local development without Eventhouse")
+            logger.error("Use --dev flag for local development")
 
             # Set error on early health server and wait for shutdown
             early_health_server.set_error(f"Configuration error: {error_msg}")
@@ -699,6 +663,8 @@ def main():
                 )
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
+    except asyncio.CancelledError:
+        logger.info("Tasks cancelled, shutting down...")
     except Exception as e:
         # Fatal error handling
         # Note: Workers with health servers handle their own error mode in

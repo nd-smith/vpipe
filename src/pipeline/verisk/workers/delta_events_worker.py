@@ -240,6 +240,9 @@ class DeltaEventsWorker:
         try:
             # Start consumer (this blocks until stopped)
             await self.consumer.start()
+        except asyncio.CancelledError:
+            logger.info("DeltaEventsWorker cancelled, shutting down...")
+            raise
         finally:
             self._running = False
 
@@ -250,6 +253,8 @@ class DeltaEventsWorker:
         Flushes any pending batch, then gracefully shuts down consumer,
         committing any pending offsets.
         """
+        if not self._running:
+            return
         logger.info("Stopping DeltaEventsWorker")
         self._running = False
 

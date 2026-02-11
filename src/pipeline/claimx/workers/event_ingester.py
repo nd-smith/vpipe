@@ -79,6 +79,7 @@ class ClaimXEventIngesterWorker:
         # Cycle-specific metrics (reset each cycle)
         self._last_cycle_processed = 0
         self._last_cycle_deduped = 0
+        self._running = False
 
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
         # In-memory cache: event_id -> timestamp
@@ -118,6 +119,7 @@ class ClaimXEventIngesterWorker:
 
     async def start(self) -> None:
         logger.info("Starting ClaimXEventIngesterWorker")
+        self._running = True
 
         # Clean up resources from a previous failed start attempt (retry safety)
         if self._cycle_task and not self._cycle_task.done():
@@ -168,9 +170,18 @@ class ClaimXEventIngesterWorker:
         )
 
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)
-        await self.consumer.start()
+
+        try:
+            await self.consumer.start()
+        except asyncio.CancelledError:
+            logger.info("ClaimXEventIngesterWorker cancelled, shutting down...")
+            raise
+        finally:
+            self._running = False
 
     async def stop(self) -> None:
+        if not self._running:
+            return
         logger.info("Stopping ClaimXEventIngesterWorker")
         if self._cycle_task and not self._cycle_task.done():
             self._cycle_task.cancel()
@@ -313,7 +324,7 @@ class ClaimXEventIngesterWorker:
         start_time = time.perf_counter()
         try:
             message_data = json.loads(record.value.decode("utf-8"))
-            event = ClaimXEventMessage.from_eventhouse_row(message_data)
+            event = ClaimXEventMessage.from_raw_event(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(
                 "Failed to parse ClaimXEventMessage",

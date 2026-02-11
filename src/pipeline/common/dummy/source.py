@@ -130,6 +130,8 @@ class DummyDataSource:
 
     async def stop(self) -> None:
         """Gracefully shutdown all components."""
+        if not self._running:
+            return
         logger.info("Stopping DummyDataSource")
         self._running = False
         self._shutdown_event.set()

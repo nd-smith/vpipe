@@ -1,7 +1,7 @@
 """ClaimX domain worker runners.
 
 Contains all runner functions for ClaimX pipeline workers:
-- Event ingestion from Eventhouse
+- Event ingestion (Event Hub)
 - Enrichment with entity extraction
 - Download/Upload
 - Delta writes (events and entities)
@@ -14,72 +14,11 @@ import logging
 from pathlib import Path
 
 from pipeline.runners.common import (
-    execute_poller_with_shutdown,
     execute_worker_with_producer,
     execute_worker_with_shutdown,
 )
 
 logger = logging.getLogger(__name__)
-
-
-async def run_claimx_eventhouse_poller(
-    pipeline_config,
-    shutdown_event: asyncio.Event,
-    local_kafka_config,
-):
-    """Polls Eventhouse for claimx events and produces to claimx.events.raw topic.
-    Deduplication handled by daily Fabric maintenance job."""
-    from pipeline.claimx.schemas.events import ClaimXEventMessage
-    from pipeline.common.eventhouse.kql_client import EventhouseConfig
-    from pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
-
-    claimx_eventhouse = pipeline_config.claimx_eventhouse
-    if not claimx_eventhouse:
-        raise ValueError(
-            "ClaimX Eventhouse configuration required for claimx-poller worker. "
-            "Set in config.yaml under 'claimx_eventhouse:' or via CLAIMX_EVENTHOUSE_* env vars."
-        )
-
-    eventhouse_config = EventhouseConfig(
-        cluster_url=claimx_eventhouse.cluster_url,
-        database=claimx_eventhouse.database,
-        query_timeout_seconds=claimx_eventhouse.query_timeout_seconds,
-    )
-    claimx_kafka_config = local_kafka_config
-    if "claimx" not in claimx_kafka_config.claimx or not claimx_kafka_config.claimx:
-        claimx_kafka_config.claimx = {"topics": {}}
-    if "topics" not in claimx_kafka_config.claimx:
-        claimx_kafka_config.claimx["topics"] = {}
-    claimx_kafka_config.claimx["topics"]["events"] = claimx_eventhouse.events_topic
-
-    poller_config = PollerConfig(
-        eventhouse=eventhouse_config,
-        kafka=claimx_kafka_config,
-        event_schema_class=ClaimXEventMessage,
-        domain="claimx",
-        poll_interval_seconds=claimx_eventhouse.poll_interval_seconds,
-        batch_size=claimx_eventhouse.batch_size,
-        source_table=claimx_eventhouse.source_table,
-        column_mapping={
-            "event_type": "event_type",
-            "event_subtype": "event_subtype",
-            "timestamp": "timestamp",
-            "source_system": "source_system",
-            "payload": "payload",
-            "attachments": "attachments",
-        },
-        events_table_path=claimx_eventhouse.claimx_events_table_path,
-        backfill_start_stamp=claimx_eventhouse.backfill_start_stamp,
-        backfill_stop_stamp=claimx_eventhouse.backfill_stop_stamp,
-        bulk_backfill=claimx_eventhouse.bulk_backfill,
-    )
-
-    await execute_poller_with_shutdown(
-        KQLEventPoller,
-        poller_config,
-        stage_name="claimx-poller",
-        shutdown_event=shutdown_event,
-    )
 
 
 async def run_claimx_event_ingester(
@@ -196,39 +135,19 @@ async def run_claimx_result_processor(
     instance_id: int | None = None,
 ):
     """ClaimX result processor."""
-    from core.logging.context import set_log_context
     from pipeline.claimx.workers.result_processor import ClaimXResultProcessor
-
-    set_log_context(stage="claimx-result-processor")
-    logger.info("Starting ClaimX Result Processor...")
 
     processor = ClaimXResultProcessor(
         config=kafka_config,
         inventory_table_path=pipeline_config.claimx_inventory_table_path,
         instance_id=instance_id,
     )
-
-    async def shutdown_watcher():
-        """Wait for shutdown signal and stop processor gracefully."""
-        await shutdown_event.wait()
-        logger.info("Shutdown signal received, stopping claimx result processor...")
-        await processor.stop()
-
-    # Start shutdown watcher alongside processor
-    watcher_task = asyncio.create_task(shutdown_watcher())
-
-    try:
-        await processor.start()
-    finally:
-        # Guard against event loop being closed during shutdown
-        try:
-            watcher_task.cancel()
-            await watcher_task
-        except (asyncio.CancelledError, RuntimeError):
-            # RuntimeError occurs if event loop is closed
-            pass
-        # Clean up resources after processor exits
-        await processor.stop()
+    await execute_worker_with_shutdown(
+        processor,
+        "claimx-result-processor",
+        shutdown_event,
+        instance_id=instance_id,
+    )
 
 
 async def run_claimx_delta_events_worker(
@@ -292,13 +211,9 @@ async def run_claimx_entity_delta_worker(
     instance_id: int | None = None,
 ):
     """Consumes EntityRowsMessage from claimx.entities.rows and writes to Delta tables."""
-    from core.logging.context import set_log_context
     from pipeline.claimx.workers.entity_delta_worker import (
         ClaimXEntityDeltaWorker,
     )
-
-    set_log_context(stage="claimx-entity-writer")
-    logger.info("Starting ClaimX Entity Delta worker...")
 
     worker = ClaimXEntityDeltaWorker(
         config=kafka_config,
@@ -312,21 +227,9 @@ async def run_claimx_entity_delta_worker(
         video_collab_table_path=video_collab_table_path,
         instance_id=instance_id,
     )
-
-    async def shutdown_watcher():
-        await shutdown_event.wait()
-        logger.info("Shutdown signal received, stopping claimx entity delta worker...")
-        await worker.stop()
-
-    watcher_task = asyncio.create_task(shutdown_watcher())
-
-    try:
-        await worker.start()
-    finally:
-        # Guard against event loop being closed during shutdown
-        try:
-            watcher_task.cancel()
-            await watcher_task
-        except (asyncio.CancelledError, RuntimeError):
-            pass
-        await worker.stop()
+    await execute_worker_with_shutdown(
+        worker,
+        "claimx-entity-writer",
+        shutdown_event,
+        instance_id=instance_id,
+    )
