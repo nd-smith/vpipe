@@ -48,10 +48,8 @@ export AZURE_CLIENT_SECRET=<client-secret>
 export AZURE_WORKSPACE_ID=<workspace-id>
 export AZURE_LAKEHOUSE_ID=<lakehouse-id>
 
-# Eventhouse
-export EVENTHOUSE_CLUSTER_URL=https://trd-...
-export XACT_EVENTHOUSE_DATABASE=VERISK_XACTANALYSIS_DB
-export CLAIMX_EVENTHOUSE_DATABASE=VERISK_CLAIMXPERIENCE_DB
+# Source EventHub (where raw events originate)
+export SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://..."
 ```
 
 ### Event Hub Transport (Optional)
@@ -101,13 +99,11 @@ python -m pipeline [OPTIONS]
 ## Verisk (XACT) Workers
 
 ### Overview
-Processes XACT assignment events from Eventhouse through enrichment, download, and upload stages.
+Processes XACT assignment events from source EventHub through enrichment, download, and upload stages.
 
 | Worker | Purpose | Launch Command |
 |--------|---------|----------------|
-| **xact-poller** | Poll Eventhouse for XACT events | `python -m pipeline --worker xact-poller` |
-| **xact-json-poller** | JSON variant of Eventhouse poller | `python -m pipeline --worker xact-json-poller` |
-| **xact-event-ingester** | Route Event Hub → local Kafka | `python -m pipeline --worker xact-event-ingester` |
+| **xact-event-ingester** | Ingest raw events from source EventHub | `python -m pipeline --worker xact-event-ingester` |
 | **xact-delta-writer** | Write events to Delta Lake | `python -m pipeline --worker xact-delta-writer` |
 | **xact-retry-scheduler** | Handle retry logic for failed events | `python -m pipeline --worker xact-retry-scheduler` |
 | **xact-enricher** | Enrich events with ClaimX data | `python -m pipeline --worker xact-enricher` |
@@ -137,8 +133,7 @@ Processes ClaimX events for entities, tasks, projects, and contacts.
 
 | Worker | Purpose | Launch Command |
 |--------|---------|----------------|
-| **claimx-poller** | Poll Eventhouse for ClaimX events | `python -m pipeline --worker claimx-poller` |
-| **claimx-ingester** | Ingest events into local Kafka | `python -m pipeline --worker claimx-ingester` |
+| **claimx-ingester** | Ingest raw events from source EventHub | `python -m pipeline --worker claimx-ingester` |
 | **claimx-enricher** | Enrich ClaimX events | `python -m pipeline --worker claimx-enricher` |
 | **claimx-downloader** | Download ClaimX attachments | `python -m pipeline --worker claimx-downloader` |
 | **claimx-uploader** | Upload ClaimX data | `python -m pipeline --worker claimx-uploader` |
@@ -671,8 +666,6 @@ python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
 ### All Worker Names
 
 **Verisk (XACT):**
-- `xact-poller`
-- `xact-json-poller`
 - `xact-event-ingester`
 - `xact-delta-writer`
 - `xact-retry-scheduler`
@@ -682,7 +675,6 @@ python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
 - `xact-result-processor`
 
 **ClaimX:**
-- `claimx-poller`
 - `claimx-ingester`
 - `claimx-enricher`
 - `claimx-downloader`

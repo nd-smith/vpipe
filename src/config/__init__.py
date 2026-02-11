@@ -78,11 +78,7 @@ from config.config import (
     set_config,
 )
 from config.pipeline_config import (
-    ClaimXEventhouseSourceConfig,
-    EventhouseSourceConfig,
-    EventSourceType,
     PipelineConfig,
-    get_event_source_type,
     get_pipeline_config,
 )
 
@@ -96,10 +92,6 @@ __all__ = [
     "MessageConfig",
     # Pipeline config functions
     "get_pipeline_config",
-    "get_event_source_type",
     # Pipeline config classes
     "PipelineConfig",
-    "EventhouseSourceConfig",
-    "ClaimXEventhouseSourceConfig",
-    "EventSourceType",
 ]

@@ -139,7 +139,7 @@ With recommended settings (25 MB max, 10 min rotation, 1 hour retention):
 
 ### Local Testing (without upload):
 ```bash
-LOG_UPLOAD_ENABLED=false python -m pipeline --worker xact-poller
+LOG_UPLOAD_ENABLED=false python -m pipeline --worker xact-event-ingester
 ```
 
 ### Test Upload to OneLake:
@@ -147,7 +147,7 @@ LOG_UPLOAD_ENABLED=false python -m pipeline --worker xact-poller
 LOG_UPLOAD_ENABLED=true \
 LOG_MAX_SIZE_MB=1 \
 LOG_ROTATION_MINUTES=1 \
-python -m pipeline --worker xact-poller
+python -m pipeline --worker xact-event-ingester
 ```
 
 Check OneLake after 1 minute or 1 MB - should see uploaded log files.

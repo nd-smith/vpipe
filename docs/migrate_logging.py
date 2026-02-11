@@ -163,8 +163,6 @@ def main():
         # Common
         "src/pipeline/common/__init__.py",
         "src/pipeline/common/transport.py",
-        "src/pipeline/common/eventhouse/poller.py",
-        "src/pipeline/common/eventhouse/sinks.py",
         "src/pipeline/common/writers/base.py",
         # Core
         "src/core/security/url_validation.py",

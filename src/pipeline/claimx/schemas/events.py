@@ -13,21 +13,10 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ClaimXEventMessage(BaseModel):
-    """Schema for raw ClaimX event messages from Eventhouse/EventHub.
+    """Schema for raw ClaimX event messages from EventHub.
 
     Schema matches verisk_pipeline.claimx.claimx_models.ClaimXEvent for compatibility.
     Represents raw ClaimX webhook event data before enrichment.
-
-    Eventhouse source columns:
-        - event_id: Unique event identifier
-        - event_type: Event type string (e.g., "PROJECT_CREATED", "PROJECT_FILE_ADDED")
-        - project_id: ClaimX project identifier
-        - ingested_at: Event ingestion timestamp
-        - media_id: Optional media file identifier
-        - task_assignment_id: Optional task assignment identifier
-        - video_collaboration_id: Optional video collaboration identifier
-        - master_file_name: Optional master file name
-        - raw_data: Raw event payload (JSON object)
 
     Attributes:
         event_id: Unique identifier for the event
@@ -97,14 +86,14 @@ class ClaimXEventMessage(BaseModel):
         return v.strip()
 
     @classmethod
-    def from_eventhouse_row(cls, row: dict[str, Any]) -> "ClaimXEventMessage":
+    def from_raw_event(cls, row: dict[str, Any]) -> "ClaimXEventMessage":
         """
-        Create from raw Eventhouse row dict.
+        Create from raw event dict.
 
-        Handles both camelCase and snake_case field names from Kusto.
+        Handles both camelCase and snake_case field names.
 
         Args:
-            row: Dict with Eventhouse columns
+            row: Dict with event fields
 
         Returns:
             ClaimXEventMessage instance
@@ -112,25 +101,18 @@ class ClaimXEventMessage(BaseModel):
         event_id = row.get("event_id") or row.get("eventId") or ""
         event_type = row.get("event_type") or row.get("eventType") or ""
         project_id = row.get("project_id") or row.get("projectId") or ""
-        ingested_at = row.get("ingested_at") or row.get("IngestionTime") or datetime.now()
+        ingested_at = row.get("ingested_at") or row.get("ingestedAt") or datetime.now()
 
         # Generate deterministic ID if missing
         if not event_id:
-            # Create a stable composite key from immutable Eventhouse fields
-            # DO NOT use ingested_at (poller timestamp) - use ingestion_time from Eventhouse
-            # Get stable Eventhouse ingestion timestamp from raw data
-            ingestion_time = (
-                row.get("ingestion_time") or row.get("$IngestionTime") or row.get("IngestionTime")
-            )
-
             composite_parts = [project_id, event_type]
 
-            # Add stable timestamp from Eventhouse (NOT poller-added ingested_at)
-            if ingestion_time:
-                if isinstance(ingestion_time, datetime):
-                    composite_parts.append(ingestion_time.isoformat())
+            # Use ingested_at (webhook timestamp) as the stable timestamp
+            if ingested_at:
+                if isinstance(ingested_at, datetime):
+                    composite_parts.append(ingested_at.isoformat())
                 else:
-                    composite_parts.append(str(ingestion_time))
+                    composite_parts.append(str(ingested_at))
 
             # Add optional identifiers for additional uniqueness
             media_id = row.get("media_id") or row.get("mediaId")

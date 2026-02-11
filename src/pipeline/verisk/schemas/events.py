@@ -15,17 +15,10 @@ if TYPE_CHECKING:
 
 
 class EventMessage(BaseModel):
-    """Schema for raw event messages from Eventhouse/EventHub.
+    """Schema for raw event messages from EventHub.
 
     Schema matches verisk_pipeline.verisk.xact_models.EventRecord for compatibility.
     Represents raw event data before transformation.
-
-    Eventhouse source columns:
-        - type: Full event type string (e.g., "verisk.claims.property.xn.documentsReceived")
-        - version: Event version (integer)
-        - utcDateTime: Event timestamp
-        - traceId: Trace identifier (camelCase in source)
-        - data: JSON object with nested event data
 
     Attributes:
         type: Full event type string (e.g., "verisk.claims.property.xn.documentsReceived")
@@ -146,12 +139,12 @@ class EventMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
-    def to_eventhouse_row(self) -> dict[str, Any]:
+    def to_raw_dict(self) -> dict[str, Any]:
         """
-        Convert back to Eventhouse row format for flatten_events().
+        Convert back to raw dict format for flatten_events().
 
         Returns:
-            Dict with Eventhouse column names (type, version, utcDateTime, traceId, data)
+            Dict with source column names (type, version, utcDateTime, traceId, data)
         """
         return {
             "type": self.type,
@@ -179,12 +172,12 @@ class EventMessage(BaseModel):
         )
 
     @classmethod
-    def from_eventhouse_row(cls, row: dict[str, Any]) -> "EventMessage":
+    def from_raw_event(cls, row: dict[str, Any]) -> "EventMessage":
         """
-        Create from raw Eventhouse row dict.
+        Create from raw event dict.
 
         Args:
-            row: Dict with Eventhouse columns (type, version, utcDateTime, traceId, data)
+            row: Dict with event fields (type, version, utcDateTime, traceId, data)
 
         Returns:
             EventMessage instance

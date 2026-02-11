@@ -35,7 +35,7 @@ from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
-from pipeline.common.transport import create_consumer
+from pipeline.common.transport import create_consumer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.workers.worker_defaults import WorkerDefaults
 from pipeline.verisk.writers import DeltaEventsWriter
@@ -232,6 +232,7 @@ class DeltaEventsWorker:
             enable_message_commit=False,
             instance_id=self.instance_id,
             topic_key="events",
+            connection_string=get_source_connection_string(),
         )
 
         # Update health check readiness

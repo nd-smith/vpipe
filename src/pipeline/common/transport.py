@@ -39,6 +39,7 @@ NAMESPACE_CONNECTION_STRING_KEY = "namespace_connection_string"
 EVENTHUB_NAME_KEY = "eventhub_name"
 CONSUMER_GROUPS_KEY = "consumer_groups"
 DEFAULT_CONSUMER_GROUP_KEY = "default_consumer_group"
+SOURCE_CONFIG_KEY = "source"
 
 
 class TransportType(StrEnum):
@@ -130,6 +131,51 @@ def _get_namespace_connection_string() -> str:
     )
 
 
+def get_source_connection_string() -> str:
+    """Get source EventHub namespace connection string.
+
+    Source EventHubs (where raw Verisk/ClaimX events originate) may live in a
+    different namespace than the internal pipeline EventHubs.
+
+    Priority:
+    1. SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING env var
+    2. eventhub.source.namespace_connection_string from config.yaml
+    3. Falls back to _get_namespace_connection_string() for backward compatibility
+
+    Returns:
+        Namespace connection string with EntityPath removed (if present).
+
+    Raises:
+        ValueError: If no connection string is configured anywhere.
+    """
+    # 1. Dedicated env var
+    conn = os.getenv("SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING")
+    if conn:
+        stripped = _strip_entity_path(conn)
+        if not stripped or not stripped.strip():
+            raise ValueError(
+                "SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING is set but empty or contains only whitespace. "
+                "Ensure the environment variable contains a valid Event Hub connection string."
+            )
+        return stripped
+
+    # 2. Config file (eventhub.source.namespace_connection_string)
+    config = _load_eventhub_config()
+    source_config = config.get(SOURCE_CONFIG_KEY, {})
+    conn = source_config.get(NAMESPACE_CONNECTION_STRING_KEY, "")
+    if conn:
+        stripped = _strip_entity_path(conn)
+        if not stripped or not stripped.strip():
+            raise ValueError(
+                "eventhub.source.namespace_connection_string in config.yaml is set but empty or "
+                "contains only whitespace. Ensure the configuration contains a valid Event Hub connection string."
+            )
+        return stripped
+
+    # 3. Fall back to regular namespace connection string
+    return _get_namespace_connection_string()
+
+
 def _strip_entity_path(connection_string: str) -> str:
     """Remove EntityPath from a connection string if present.
 
@@ -166,9 +212,23 @@ def _resolve_eventhub_name(
     Raises:
         ValueError: If Event Hub name cannot be resolved
     """
-    # 1. Config file lookup (preferred)
+    # 1. Config file lookup (preferred) — check source section first
     if topic_key:
         config = _load_eventhub_config()
+
+        # Check eventhub.source.{domain}.{topic_key} first
+        source_config = config.get(SOURCE_CONFIG_KEY, {})
+        source_domain = source_config.get(domain, {})
+        source_topic = source_domain.get(topic_key, {})
+        eventhub_name = source_topic.get(EVENTHUB_NAME_KEY)
+        if eventhub_name:
+            logger.debug(
+                f"Resolved Event Hub from source config: "
+                f"eventhub.source.{domain}.{topic_key}.eventhub_name={eventhub_name}"
+            )
+            return eventhub_name
+
+        # Then check eventhub.{domain}.{topic_key}
         domain_config = config.get(domain, {})
         topic_config = domain_config.get(topic_key, {})
         eventhub_name = topic_config.get(EVENTHUB_NAME_KEY)
@@ -214,8 +274,22 @@ def _resolve_eventhub_consumer_group(
     """
     config = _load_eventhub_config()
 
-    # 1. Worker-specific consumer group under the topic
+    # 1. Worker-specific consumer group — check source section first
     if topic_key:
+        # Check eventhub.source.{domain}.{topic_key}.consumer_groups.{worker_name}
+        source_config = config.get(SOURCE_CONFIG_KEY, {})
+        source_domain = source_config.get(domain, {})
+        source_topic = source_domain.get(topic_key, {})
+        source_groups = source_topic.get(CONSUMER_GROUPS_KEY, {})
+        consumer_group = source_groups.get(worker_name)
+        if consumer_group:
+            logger.debug(
+                f"Resolved consumer group from source config: "
+                f"eventhub.source.{domain}.{topic_key}.consumer_groups.{worker_name}={consumer_group}"
+            )
+            return consumer_group
+
+        # Then check eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}
         domain_config = config.get(domain, {})
         topic_config = domain_config.get(topic_key, {})
         consumer_groups = topic_config.get(CONSUMER_GROUPS_KEY, {})
@@ -347,6 +421,7 @@ async def create_consumer(
     instance_id: str | None = None,
     transport_type: TransportType | None = None,
     topic_key: str | None = None,
+    connection_string: str | None = None,
 ):
     """Create a consumer instance based on transport configuration.
 
@@ -361,6 +436,10 @@ async def create_consumer(
         transport_type: Optional override for transport type (defaults to env var)
         topic_key: Optional topic key for Event Hub / consumer group resolution
                    from config.yaml (e.g., "events", "downloads_pending").
+        connection_string: Optional Event Hub connection string override.
+                           When provided, uses this instead of the default namespace
+                           connection string. Use for source topics that live in a
+                           different namespace.
 
     Returns:
         MessageConsumer or EventHubConsumer instance
@@ -377,7 +456,7 @@ async def create_consumer(
         from pipeline.common.eventhub.consumer import EventHubConsumer
 
         # Get namespace connection string
-        namespace_connection_string = _get_namespace_connection_string()
+        namespace_connection_string = connection_string or _get_namespace_connection_string()
 
         # Resolve Event Hub name: use topic_key config lookup, or fall back to topics[0]
         if topic_key:
@@ -460,6 +539,7 @@ async def create_batch_consumer(
     instance_id: str | None = None,
     transport_type: TransportType | None = None,
     topic_key: str | None = None,
+    connection_string: str | None = None,
 ):
     """Create a batch consumer for concurrent message processing.
 
@@ -515,7 +595,7 @@ async def create_batch_consumer(
         from pipeline.common.eventhub.batch_consumer import EventHubBatchConsumer
 
         # Get namespace connection string
-        namespace_connection_string = _get_namespace_connection_string()
+        namespace_connection_string = connection_string or _get_namespace_connection_string()
 
         # Resolve Event Hub name
         if topic_key:
@@ -597,4 +677,5 @@ __all__ = [
     "create_producer",
     "create_consumer",
     "create_batch_consumer",
+    "get_source_connection_string",
 ]

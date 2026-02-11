@@ -9,6 +9,7 @@ from pipeline.common.transport import (
     _resolve_eventhub_consumer_group,
     _resolve_eventhub_name,
     _strip_entity_path,
+    get_source_connection_string,
     get_transport_type,
 )
 
@@ -67,6 +68,46 @@ class TestStripEntityPath:
 
 
 class TestResolveEventHubName:
+    def test_resolves_from_source_config(self):
+        mock_config = {
+            "source": {
+                "verisk": {
+                    "events": {
+                        "eventhub_name": "source-event-hub",
+                    }
+                }
+            }
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            name = _resolve_eventhub_name("verisk", "events", "event_ingester")
+        assert name == "source-event-hub"
+
+    def test_source_config_takes_priority_over_domain_config(self):
+        mock_config = {
+            "source": {
+                "verisk": {
+                    "events": {"eventhub_name": "source-hub"},
+                }
+            },
+            "verisk": {
+                "events": {"eventhub_name": "domain-hub"},
+            },
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            name = _resolve_eventhub_name("verisk", "events", "event_ingester")
+        assert name == "source-hub"
+
+    def test_falls_back_to_domain_config_when_not_in_source(self):
+        mock_config = {
+            "source": {},
+            "verisk": {
+                "enrichment_pending": {"eventhub_name": "domain-hub"},
+            },
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            name = _resolve_eventhub_name("verisk", "enrichment_pending", "enrichment_worker")
+        assert name == "domain-hub"
+
     def test_resolves_from_config(self):
         mock_config = {
             "verisk": {
@@ -124,6 +165,63 @@ class TestResolveEventHubName:
 
 
 class TestResolveEventHubConsumerGroup:
+    def test_resolves_from_source_config(self):
+        mock_config = {
+            "source": {
+                "verisk": {
+                    "events": {
+                        "consumer_groups": {
+                            "event_ingester": "source-group",
+                        },
+                    }
+                }
+            }
+        }
+        message_config = Mock()
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            group = _resolve_eventhub_consumer_group(
+                "verisk", "events", "event_ingester", message_config
+            )
+        assert group == "source-group"
+
+    def test_source_config_takes_priority_over_domain_config(self):
+        mock_config = {
+            "source": {
+                "verisk": {
+                    "events": {
+                        "consumer_groups": {"event_ingester": "source-group"},
+                    }
+                }
+            },
+            "verisk": {
+                "events": {
+                    "consumer_groups": {"event_ingester": "domain-group"},
+                }
+            },
+        }
+        message_config = Mock()
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            group = _resolve_eventhub_consumer_group(
+                "verisk", "events", "event_ingester", message_config
+            )
+        assert group == "source-group"
+
+    def test_falls_back_to_domain_config_when_not_in_source(self):
+        mock_config = {
+            "source": {},
+            "verisk": {
+                "enrichment_pending": {
+                    "consumer_groups": {"enrichment_worker": "domain-group"},
+                }
+            },
+        }
+        message_config = Mock()
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            group = _resolve_eventhub_consumer_group(
+                "verisk", "enrichment_pending", "enrichment_worker", message_config
+            )
+        assert group == "domain-group"
+
     def test_resolves_from_config(self):
         mock_config = {
             "verisk": {
@@ -432,3 +530,134 @@ class TestGetNamespaceConnectionString:
             pytest.raises(ValueError, match="namespace connection string is required"),
         ):
             _get_namespace_connection_string()
+
+
+class TestGetSourceConnectionString:
+    def test_from_env_var(self, monkeypatch):
+        monkeypatch.setenv(
+            "SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING",
+            "Endpoint=sb://source-ns.servicebus.windows.net/;SharedAccessKey=abc",
+        )
+        result = get_source_connection_string()
+        assert "source-ns" in result
+
+    def test_from_config_file(self, monkeypatch):
+        monkeypatch.delenv("SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING", raising=False)
+        mock_config = {
+            "source": {
+                "namespace_connection_string": "Endpoint=sb://source-ns.servicebus.windows.net/;SharedAccessKey=abc"
+            }
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            result = get_source_connection_string()
+        assert "source-ns" in result
+
+    def test_falls_back_to_regular_connection_string(self, monkeypatch):
+        monkeypatch.delenv("SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING", raising=False)
+        monkeypatch.setenv(
+            "EVENTHUB_NAMESPACE_CONNECTION_STRING",
+            "Endpoint=sb://regular-ns.servicebus.windows.net/;SharedAccessKey=abc",
+        )
+        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
+            result = get_source_connection_string()
+        assert "regular-ns" in result
+
+    def test_raises_when_env_var_whitespace_only(self, monkeypatch):
+        monkeypatch.setenv("SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING", "   ")
+        with pytest.raises(ValueError, match="empty or contains only whitespace"):
+            get_source_connection_string()
+
+    def test_strips_entity_path(self, monkeypatch):
+        monkeypatch.setenv(
+            "SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING",
+            "Endpoint=sb://source-ns.servicebus.windows.net/;SharedAccessKey=abc;EntityPath=hub",
+        )
+        result = get_source_connection_string()
+        assert "EntityPath" not in result
+
+
+class TestConsumerConnectionStringOverride:
+    async def test_consumer_uses_provided_connection_string(self):
+        from pipeline.common.transport import create_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch("pipeline.common.transport._resolve_eventhub_name", return_value="hub"),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.consumer.EventHubConsumer") as mock_cls,
+        ):
+            await create_consumer(
+                config,
+                "verisk",
+                "event_ingester",
+                ["verisk_events"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+                topic_key="events",
+                connection_string="source-conn",
+            )
+        assert mock_cls.call_args[1]["connection_string"] == "source-conn"
+
+    async def test_consumer_falls_back_to_default_without_connection_string(self):
+        from pipeline.common.transport import create_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string",
+                return_value="default-conn",
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.consumer.EventHubConsumer") as mock_cls,
+        ):
+            await create_consumer(
+                config,
+                "verisk",
+                "enrichment_worker",
+                ["verisk-enrichment-pending"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+            )
+        assert mock_cls.call_args[1]["connection_string"] == "default-conn"
+
+    async def test_batch_consumer_uses_provided_connection_string(self):
+        from pipeline.common.transport import create_batch_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch("pipeline.common.transport._resolve_eventhub_name", return_value="hub"),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.batch_consumer.EventHubBatchConsumer") as mock_cls,
+        ):
+            await create_batch_consumer(
+                config,
+                "verisk",
+                "delta_events_writer",
+                ["verisk_events"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+                topic_key="events",
+                connection_string="source-conn",
+            )
+        assert mock_cls.call_args[1]["connection_string"] == "source-conn"

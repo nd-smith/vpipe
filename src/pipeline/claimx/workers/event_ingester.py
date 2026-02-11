@@ -28,7 +28,7 @@ from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
 )
-from pipeline.common.transport import create_consumer, create_producer
+from pipeline.common.transport import create_consumer, create_producer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
@@ -167,6 +167,7 @@ class ClaimXEventIngesterWorker:
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
             topic_key="events",
+            connection_string=get_source_connection_string(),
         )
 
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)

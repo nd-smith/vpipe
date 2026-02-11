@@ -5,11 +5,8 @@ Test Coverage:
     - Worker registry structure
     - run_worker_from_registry with valid workers
     - Unknown worker handling
-    - Deprecated worker handling
-    - Requirement validation (eventhouse)
     - Parameter filtering for runner signatures
     - Instance ID propagation
-    - Event ingester routing logic
 """
 
 import asyncio
@@ -19,7 +16,6 @@ import pytest
 
 from pipeline.runners.registry import (
     WORKER_REGISTRY,
-    _run_event_ingester_router,
     run_worker_from_registry,
 )
 
@@ -30,7 +26,6 @@ class TestWorkerRegistry:
     def test_registry_contains_expected_workers(self):
         """Registry contains all expected worker definitions."""
         # XACT workers
-        assert "xact-poller" in WORKER_REGISTRY
         assert "xact-event-ingester" in WORKER_REGISTRY
         assert "xact-delta-writer" in WORKER_REGISTRY
         assert "xact-enricher" in WORKER_REGISTRY
@@ -38,7 +33,6 @@ class TestWorkerRegistry:
         assert "xact-upload" in WORKER_REGISTRY
 
         # ClaimX workers
-        assert "claimx-poller" in WORKER_REGISTRY
         assert "claimx-ingester" in WORKER_REGISTRY
         assert "claimx-enricher" in WORKER_REGISTRY
         assert "claimx-downloader" in WORKER_REGISTRY
@@ -63,54 +57,6 @@ class TestWorkerRegistry:
             worker_def = WORKER_REGISTRY[worker_name]
             assert "message" in worker_def
             assert isinstance(worker_def["message"], str)
-
-
-class TestEventIngesterRouter:
-    """Tests for _run_event_ingester_router."""
-
-    @pytest.mark.asyncio
-    async def test_routes_to_local_when_only_local_config(self):
-        """Routes to local ingester when eventhub_config is absent."""
-        with patch(
-            "pipeline.runners.registry.verisk_runners.run_local_event_ingester",
-            autospec=True,
-        ) as mock_local:
-            await _run_event_ingester_router(
-                local_kafka_config=Mock(),
-                shutdown_event=asyncio.Event(),
-            )
-
-        mock_local.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_routes_to_eventhub_when_eventhub_config_present(self):
-        """Routes to Event Hub ingester when eventhub_config provided."""
-        with patch(
-            "pipeline.runners.registry.verisk_runners.run_event_ingester",
-            autospec=True,
-        ) as mock_eventhub:
-            await _run_event_ingester_router(
-                local_kafka_config=Mock(),
-                eventhub_config=Mock(),
-                shutdown_event=asyncio.Event(),
-            )
-
-        mock_eventhub.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_routes_to_eventhub_when_only_eventhub_config(self):
-        """Routes to Event Hub ingester when only eventhub_config provided."""
-        with patch(
-            "pipeline.runners.registry.verisk_runners.run_event_ingester",
-            autospec=True,
-        ) as mock_eventhub:
-            await _run_event_ingester_router(
-                eventhub_config=Mock(),
-                local_kafka_config=Mock(),
-                shutdown_event=asyncio.Event(),
-            )
-
-        mock_eventhub.assert_called_once()
 
 
 class TestRunWorkerFromRegistry:
@@ -149,30 +95,6 @@ class TestRunWorkerFromRegistry:
         with pytest.raises(ValueError, match="Unknown worker: nonexistent-worker"):
             await run_worker_from_registry(
                 worker_name="nonexistent-worker",
-                pipeline_config=pipeline_config,
-                shutdown_event=shutdown_event,
-            )
-
-    @pytest.mark.asyncio
-    async def test_validates_eventhouse_requirement(self):
-        """Validates eventhouse requirement when specified."""
-        from config.pipeline_config import EventSourceType
-
-        mock_runner = AsyncMock()
-        pipeline_config = Mock()
-        pipeline_config.domain = "xact"
-        pipeline_config.event_source = EventSourceType.EVENTHUB  # Not EVENTHOUSE
-        shutdown_event = asyncio.Event()
-
-        with (
-            patch.dict(
-                "pipeline.runners.registry.WORKER_REGISTRY",
-                {"test-poller": {"runner": mock_runner, "requires_eventhouse": True}},
-            ),
-            pytest.raises(ValueError, match="requires EVENT_SOURCE=eventhouse"),
-        ):
-            await run_worker_from_registry(
-                worker_name="test-poller",
                 pipeline_config=pipeline_config,
                 shutdown_event=shutdown_event,
             )

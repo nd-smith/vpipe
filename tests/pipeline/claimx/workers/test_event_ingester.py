@@ -42,8 +42,8 @@ def mock_config():
 
 
 @pytest.fixture
-def sample_eventhouse_row():
-    """Sample Eventhouse row data."""
+def sample_raw_event():
+    """Sample raw event data."""
     return {
         "event_id": "evt-123",
         "event_type": "PROJECT_CREATED",
@@ -57,14 +57,14 @@ def sample_eventhouse_row():
 
 
 @pytest.fixture
-def sample_message(sample_eventhouse_row):
-    """Sample Kafka message with Eventhouse event."""
+def sample_message(sample_raw_event):
+    """Sample Kafka message with event data."""
     return PipelineMessage(
         topic="claimx.events.raw",
         partition=0,
         offset=1,
         key=b"evt-123",
-        value=json.dumps(sample_eventhouse_row).encode(),
+        value=json.dumps(sample_raw_event).encode(),
         timestamp=None,
         headers=None,
     )

@@ -39,7 +39,7 @@ from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_processing_error,
 )
-from pipeline.common.transport import create_consumer, create_producer
+from pipeline.common.transport import create_consumer, create_producer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
@@ -188,6 +188,7 @@ class EventIngesterWorker:
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
             topic_key="events",
+            connection_string=get_source_connection_string(),
         )
 
         # Update health check readiness

@@ -95,7 +95,7 @@ async def test_enrichment_worker_routes_to_correct_handler(
 | **Delta Writers** | Complete | `test_delta_events.py`, `test_delta_entities.py`, `test_delta_inventory.py` |
 | **Schemas** | Complete | `test_events.py`, `test_entities.py`, `test_tasks.py`, `test_results.py` |
 | **API Client** | Complete | `test_api_client.py` |
-| **Checkpoint Stores** | Complete | `test_checkpoint_store.py`, `test_poller_checkpoint.py` |
+| **Checkpoint Stores** | Complete | `test_checkpoint_store.py` |
 | **Plugin System** | Partial | `test_loader.py` |
 | **Storage Utilities** | Partial | `test_delta_resource_cleanup.py` |
 

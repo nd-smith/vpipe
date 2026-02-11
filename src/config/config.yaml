@@ -17,8 +17,6 @@
 # =============================================================================
 # ENVIRONMENT & PLATFORM
 # =============================================================================
-event_source: ${EVENT_SOURCE:-eventhouse}
-
 # =============================================================================
 # PIPELINE CONFIGURATION
 # =============================================================================
@@ -47,39 +45,6 @@ pipeline:
     temp_dir: ${TEMP_DIR:-/tmp/pipeline_temp}
 
 # =============================================================================
-# EVENTHOUSE - VERISK DOMAIN
-# =============================================================================
-verisk_eventhouse:
-  cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
-  database: ${XACT_EVENTHOUSE_DATABASE}
-  query_timeout_seconds: 120
-  poller:
-    source_table: ${XACT_EVENTHOUSE_SOURCE_TABLE}
-    poll_interval_seconds: 30
-    batch_size: 1000
-  dedup:
-    verisk_events_window_hours: 24
-    eventhouse_query_window_hours: 1
-    overlap_minutes: 5
-
-# =============================================================================
-# EVENTHOUSE - CLAIMX DOMAIN
-# =============================================================================
-claimx_eventhouse:
-  cluster_url: ${EVENTHOUSE_CLUSTER_URL:-https://trd-atjd28cdnn65pbxjek.z8.kusto.fabric.microsoft.com}
-  database: ${CLAIMX_EVENTHOUSE_DATABASE}
-  query_timeout_seconds: 120
-  poller:
-    source_table: ${CLAIMX_EVENTHOUSE_SOURCE_TABLE}
-    poll_interval_seconds: 30
-    batch_size: 1000
-    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE}
-  dedup:
-    claimx_events_window_hours: 24
-    eventhouse_query_window_hours: 1
-    overlap_minutes: 5
-
-# =============================================================================
 # AZURE AUTHENTICATION
 # =============================================================================
 # Secrets use env var references — never stored as plain text in this file.
@@ -91,25 +56,6 @@ azure:
   client_secret: ${AZURE_CLIENT_SECRET}
   workspace_id: ${AZURE_WORKSPACE_ID:-7729c159-0674-42ba-abf7-a6756723c62f}
   lakehouse_id: ${AZURE_LAKEHOUSE_ID:-584315ee-2f41-4943-949f-901d438bcd36}
-
-# =============================================================================
-# EVENTHOUSE - SHARED CONFIGURATION
-# =============================================================================
-eventhouse:
-  # Poller checkpoint store configuration for progress tracking across restarts.
-  # Pollers use checkpoints to remember their last processed record position.
-  # Supported types:
-  #   "blob" - Azure Blob Storage (production, persists across pod restarts)
-  #   "json" - Local filesystem JSON files (development only)
-  poller_checkpoint_store:
-    # Store type: "blob" or "json"
-    type: ${POLLER_CHECKPOINT_STORE_TYPE:-blob}
-    # Blob storage settings (used when type=blob)
-    # Reuses same storage account and container as Event Hub checkpoint store
-    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
-    container_name: ${POLLER_CHECKPOINT_CONTAINER_NAME:-eventhub-checkpoints}
-    # JSON file storage path (used when type=json)
-    storage_path: ${POLLER_CHECKPOINT_JSON_PATH:-./.checkpoints}
 
 # =============================================================================
 # DELTA LAKE TABLE PATHS
@@ -229,15 +175,31 @@ eventhub:
     storage_path: ${EVENTHUB_DEDUP_JSON_PATH:-./data/eventhub-dedup-cache}
 
   # ---------------------------------------------------------------------------
+  # Source EventHubs (external namespace)
+  # ---------------------------------------------------------------------------
+  # Source event topics live in a separate EventHub namespace from the internal
+  # pipeline topics. This section provides the connection string and topic
+  # configuration for reading raw events from the source namespace.
+  source:
+    namespace_connection_string: ${SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
+    verisk:
+      events:
+        eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-verisk_events}
+        consumer_groups:
+          event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-verisk-event-ingester}
+          delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-verisk-delta-events-writer}
+    claimx:
+      events:
+        eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+        consumer_groups:
+          event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-claimx-event-ingester}
+          delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-claimx-delta-events-writer}
+
+  # ---------------------------------------------------------------------------
   # Verisk Domain (formerly XACT)
   # ---------------------------------------------------------------------------
   # Event Hub entities for Verisk/XACT event processing pipeline
   verisk:
-    events:
-      eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-verisk_events}
-      consumer_groups:
-        event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-verisk-event-ingester}
-        delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-verisk-delta-events-writer}
     enrichment_pending:
       eventhub_name: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_NAME:-verisk-enrichment-pending}
       consumer_groups:
@@ -268,11 +230,6 @@ eventhub:
   # ---------------------------------------------------------------------------
   # Event Hub entities for ClaimX event processing pipeline
   claimx:
-    events:
-      eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
-      consumer_groups:
-        event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-claimx-event-ingester}
-        delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-claimx-delta-events-writer}
     enrichment_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_NAME:-claimx-enrichment-pending}
       consumer_groups:

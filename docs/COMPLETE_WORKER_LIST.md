@@ -1,13 +1,13 @@
 # Complete Worker Deployment List
 
-## Total: 19 Workers (7 XACT + 9 ClaimX + 3 Plugin)
+## Total: 17 Workers (6 XACT + 8 ClaimX + 3 Plugin)
 
 ---
 
 ## Architecture Overview
 
 ```
-Event Sources (Eventhouse)
+Event Sources (Source EventHub)
          ↓
     Event Ingestion
          ↓
@@ -40,13 +40,13 @@ Writers  Writers
 
 ---
 
-## 1. XACT Workers (7)
+## 1. XACT Workers (6)
 
-### xact-poller
-**Launch**: `python -m pipeline --worker xact-poller`
-**Purpose**: Polls Eventhouse for XACT events
-**Input**: Eventhouse table `tbl_VERISK_XACTANALYSIS_STATUS_EXPORT`
-**Output**: Kafka topic `xact.events.raw`
+### xact-event-ingester
+**Launch**: `python -m pipeline --worker xact-event-ingester`
+**Purpose**: Ingests raw XACT events from source EventHub
+**Input**: Source EventHub topic `verisk_events`
+**Output**: EventHub topic `xact.enrichment.pending`
 
 ### xact-enricher
 **Launch**: `python -m pipeline --worker xact-enricher`
@@ -87,19 +87,13 @@ Writers  Writers
 
 ---
 
-## 2. ClaimX Workers (9)
-
-### claimx-poller
-**Launch**: `python -m pipeline --worker claimx-poller`
-**Purpose**: Polls Eventhouse for ClaimX events
-**Input**: Eventhouse table `tbl_CLAIMXPERIENCE_EVENTS`
-**Output**: Kafka topic `claimx.events.raw`
+## 2. ClaimX Workers (8)
 
 ### claimx-ingester
 **Launch**: `python -m pipeline --worker claimx-ingester`
-**Purpose**: Ingests ClaimX events into pipeline
-**Input**: Kafka topic `claimx.events.raw`
-**Output**: Kafka topic `claimx.enrichment.pending`
+**Purpose**: Ingests raw ClaimX events from source EventHub
+**Input**: Source EventHub topic `claimx_events`
+**Output**: EventHub topic `claimx.enrichment.pending`
 
 ### claimx-enricher
 **Launch**: `python -m pipeline --worker claimx-enricher`
@@ -189,7 +183,7 @@ Writers  Writers
 ```
 1. ClaimX Event arrives (task_id=32513)
    ↓
-2. claimx-poller reads from Eventhouse
+2. claimx-ingester reads from source EventHub
    ↓
 3. claimx-ingester publishes to enrichment.pending
    ↓
@@ -216,7 +210,7 @@ Writers  Writers
 
 ```groovy
 def XACT_WORKERS = [
-    'xact-poller',
+    'xact-event-ingester',
     'xact-enricher',
     'xact-download',
     'xact-upload',
@@ -226,7 +220,6 @@ def XACT_WORKERS = [
 ]
 
 def CLAIMX_WORKERS = [
-    'claimx-poller',
     'claimx-ingester',
     'claimx-enricher',
     'claimx-downloader',
@@ -286,8 +279,6 @@ python -m pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker
 - `claimx-uploader`
 
 ### Single Instance Workers:
-- `xact-poller` (only need one poller)
-- `claimx-poller` (only need one poller)
 - Plugin workers (unless high volume)
 
 ### Moderate Scaling (2-3 instances):

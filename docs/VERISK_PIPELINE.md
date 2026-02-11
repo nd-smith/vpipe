@@ -4,15 +4,14 @@ This document describes the Verisk (XACT) event processing pipeline, showing the
 
 ## Overview
 
-The Verisk pipeline processes XACT estimation events from an Eventhouse (Kusto) database. The KQL poller continuously polls Eventhouse, applies deduplication, and feeds events into the pipeline. The pipeline executes custom plugins for filtering and routing, then downloads and stores associated attachments. Unlike ClaimX, Verisk uses an extensible plugin system at the enrichment stage and has simpler storage (2 Delta tables vs ClaimX's 8).
+The Verisk pipeline processes XACT estimation events from a source EventHub namespace. The event ingester consumes raw events, applies deduplication, and feeds them into the pipeline. The pipeline executes custom plugins for filtering and routing, then downloads and stores associated attachments. Unlike ClaimX, Verisk uses an extensible plugin system at the enrichment stage and has simpler storage (2 Delta tables vs ClaimX's 8).
 
 ## Pipeline Flow Diagram
 
 ```mermaid
 flowchart TB
     %% Event Source
-    Eventhouse[("Eventhouse<br/>Kusto Database")]
-    KQLPoller[KQL Event Poller<br/>Deduplication]
+    SourceEventHub[("Source EventHub<br/>Namespace")]
 
     %% Main Pipeline Workers
     Ingester[Event Ingester Worker]
@@ -52,8 +51,7 @@ flowchart TB
     end
 
     %% Source Flow
-    Eventhouse -->|Poll Every 30s| KQLPoller
-    KQLPoller -->|Delta Dedup| EventsRaw
+    SourceEventHub --> EventsRaw
 
     %% Main Flow
     EventsRaw --> Ingester
@@ -98,7 +96,8 @@ flowchart TB
     classDef plugin fill:#3498DB,stroke:#333,stroke-width:2px,color:#fff
     classDef source fill:#F39C12,stroke:#333,stroke-width:2px,color:#fff
 
-    class KQLPoller,Ingester ingestion
+    class SourceEventHub source
+    class Ingester ingestion
     class Enricher enrichment
     class Downloader download
     class Uploader upload
@@ -109,22 +108,11 @@ flowchart TB
 
 ## Component Details
 
-### Event Source
-
-#### Eventhouse (Kusto Database)
-- **Source**: Microsoft Fabric Eventhouse running Kusto/KQL
-- **KQL Poller**: `src/pipeline/common/eventhouse/poller.py`
-- **Polling**: Continuous polling at 30-second intervals (configurable)
-- **Deduplication**: Query-side dedup against xact_events Delta table (24-hour window)
-- **Produces to**: `events.raw` topic
-- **Checkpoint**: Tracks last processed (ingestion_time, trace_id) for resume
-- **Backfill Support**: Can run historical backfill with start/stop timestamps
-
 ### Event Ingester Worker
-- **Consumes from**: `events.raw` (fed by KQL Poller)
+- **Consumes from**: `events` topic (source EventHub namespace)
 - **Produces to**: `enrichment.pending`
-- **Function**: Ingests polled events and creates enrichment tasks
-- **Deduplication**: 24-hour in-memory cache based on trace_id (secondary dedup after KQL poller)
+- **Function**: Ingests raw events and creates enrichment tasks
+- **Deduplication**: 24-hour hybrid cache (in-memory + blob storage) based on trace_id
 - **Key Generation**: Deterministic UUID5 event_id from trace_id
 - **File**: `src/pipeline/verisk/workers/event_ingester.py`
 
@@ -205,8 +193,7 @@ flowchart TB
 
 ## Data Flow Summary
 
-1. **Polling**: KQL Poller queries Eventhouse every 30s → Deduplicates against Delta table → Produces to events.raw
-2. **Ingestion**: Event Ingester consumes from events.raw → Additional deduplication → Produces to enrichment_pending
+1. **Ingestion**: Event Ingester consumes from source EventHub events topic → Deduplication → Produces to enrichment_pending
 3. **Parallel Delta Write**: Delta Events Worker (separate consumer group) transforms events.raw and writes to xact_events table
 4. **Enrichment**: Enrichment Worker executes plugins → Validates URLs → Produces download tasks
 5. **Download**: Download Worker fetches attachments → Caches locally
@@ -217,9 +204,8 @@ flowchart TB
 ## Key Differences from ClaimX Pipeline
 
 ### Event Source
-- **Eventhouse Polling**: KQL poller continuously queries Kusto database with Delta-based deduplication
-- **Batch Processing**: 1000 events per poll (configurable)
-- **ClaimX**: Direct EventHub consumption (different source pattern)
+- **Source EventHub**: Consumes raw events directly from source EventHub namespace
+- **Same Pattern as ClaimX**: Both pipelines consume from source EventHub topics
 
 ### Simpler Storage Model
 - **2 Delta Tables**: events + attachments (vs ClaimX's 8 tables)
@@ -244,26 +230,18 @@ flowchart TB
 
 ## Configuration
 
-### Eventhouse Source
+### Event Source
 ```bash
-# Required
-EVENTHOUSE_CLUSTER_URL="https://your-cluster.kusto.windows.net"
-VERISK_EVENTHOUSE_DATABASE="YourDatabase"
-
-# Optional
-POLL_INTERVAL_SECONDS=30
-POLL_BATCH_SIZE=1000
-VERISK_EVENTS_TABLE_PATH="path/to/xact_events"  # For deduplication
+# Source EventHub namespace (where raw events originate)
+SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://..."
 ```
 
 ### Key Environment Variables
 - `PIPELINE_DOMAIN=verisk`
-- `EVENTHOUSE_CLUSTER_URL`: Kusto cluster URL
-- `VERISK_EVENTHOUSE_DATABASE`: Database name
+- `SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING`: Source EventHub namespace connection string
+- `EVENTHUB_NAMESPACE_CONNECTION_STRING`: Internal EventHub namespace connection string
 - `VERISK_EVENTS_TABLE_PATH`: Path to xact_events Delta table (for dedup)
 - `VERISK_INVENTORY_TABLE_PATH`: Path to xact_attachments Delta table
-- `POLL_INTERVAL_SECONDS`: Polling interval (default: 30)
-- `POLL_BATCH_SIZE`: Events per poll (default: 1000)
 - Plugin directory: `config/plugins/verisk/`
 
 See `src/config/pipeline_config.py` for complete configuration options.
@@ -271,15 +249,13 @@ See `src/config/pipeline_config.py` for complete configuration options.
 ## Operational Characteristics
 
 ### Scaling
-- **KQL Poller**: Single instance recommended (checkpointing is per-poller)
-- **Event Ingester**: Horizontal scaling supported (shares events.raw consumption)
+- **Event Ingester**: Horizontal scaling supported (shares events topic consumption)
 - **Delta Events Writer**: Horizontal scaling with partition distribution
 - **Enrichment Worker**: Horizontal scaling supported
 - **Download/Upload Workers**: Horizontal scaling with partition distribution
 
 ### Performance
-- **Eventhouse Polling**: 30-second intervals, 1000 events/batch (configurable)
-- **Deduplication**: Two-layer (KQL query-side + in-memory cache)
+- **Deduplication**: In-memory cache with blob storage persistence
 - **Parallel Delta Writes**: Separate consumer group allows independent scaling
 - **Plugin Execution**: Minimal overhead, plugins run synchronously
 - **Batching**: Smaller batches (100 vs ClaimX's 2000) for faster Delta writes

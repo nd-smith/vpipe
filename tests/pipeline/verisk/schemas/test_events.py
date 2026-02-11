@@ -246,8 +246,8 @@ class TestEventMessageSerialization:
         assert event.type == "verisk.claims.property.xn.estimateCreated"
         assert event.version == 2
 
-    def test_from_eventhouse_row(self):
-        """EventMessage can be created from Eventhouse row dict."""
+    def test_from_raw_event(self):
+        """EventMessage can be created from raw event dict."""
         row = {
             "type": "verisk.claims.property.xn.documentsReceived",
             "version": 1,
@@ -256,15 +256,15 @@ class TestEventMessageSerialization:
             "data": {"assignmentId": "C-456", "attachments": ["https://example.com/file.pdf"]},
         }
 
-        event = EventMessage.from_eventhouse_row(row)
+        event = EventMessage.from_raw_event(row)
 
         assert event.type == "verisk.claims.property.xn.documentsReceived"
         assert event.version == 1
         assert event.trace_id == "evt-123"
         assert event.assignment_id == "C-456"
 
-    def test_from_eventhouse_row_converts_string_version_to_int(self):
-        """from_eventhouse_row converts string version to int if numeric."""
+    def test_from_raw_event_converts_string_version_to_int(self):
+        """from_raw_event converts string version to int if numeric."""
         row = {
             "type": "verisk.claims.property.xn.documentsReceived",
             "version": "2",
@@ -273,13 +273,13 @@ class TestEventMessageSerialization:
             "data": "{}",
         }
 
-        event = EventMessage.from_eventhouse_row(row)
+        event = EventMessage.from_raw_event(row)
 
         assert event.version == 2
         assert isinstance(event.version, int)
 
-    def test_to_eventhouse_row(self):
-        """to_eventhouse_row returns dict with Eventhouse column names."""
+    def test_to_raw_dict(self):
+        """to_raw_dict returns dict with event column names."""
         event = EventMessage(
             type="verisk.claims.property.xn.documentsReceived",
             version=1,
@@ -288,7 +288,7 @@ class TestEventMessageSerialization:
             data='{"assignmentId": "C-456"}',
         )
 
-        row = event.to_eventhouse_row()
+        row = event.to_raw_dict()
 
         assert row["type"] == "verisk.claims.property.xn.documentsReceived"
         assert row["version"] == 1

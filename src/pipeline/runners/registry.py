@@ -3,7 +3,6 @@
 This registry defines all available workers and how to execute them.
 Each worker entry specifies:
 - runner: The async function to execute
-- requires: Optional list of requirements (e.g., "eventhouse")
 """
 
 import asyncio
@@ -13,41 +12,11 @@ from typing import Any
 from pipeline.runners import claimx_runners, plugin_runners, verisk_runners
 
 
-def _filter_kwargs(func, kwargs):
-    """Filter kwargs to only those accepted by func's signature."""
-    sig = inspect.signature(func)
-    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-    if has_var_keyword:
-        return kwargs
-    return {k: v for k, v in kwargs.items() if k in sig.parameters}
-
-
-async def _run_event_ingester_router(**kwargs):
-    """Route to appropriate event ingester based on configuration.
-
-    Uses local ingester if only local_kafka_config provided (dev mode),
-    otherwise uses Event Hub ingester.
-    """
-    if kwargs.get("eventhub_config") is None:
-        runner = verisk_runners.run_local_event_ingester
-    else:
-        runner = verisk_runners.run_event_ingester
-    return await runner(**_filter_kwargs(runner, kwargs))
-
-
 # Worker registry mapping worker names to their runner functions and config builders
 WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     # XACT workers
-    "xact-poller": {
-        "runner": verisk_runners.run_eventhouse_poller,
-        "requires_eventhouse": True,
-    },
-    "xact-json-poller": {
-        "runner": verisk_runners.run_eventhouse_json_poller,
-        "requires_eventhouse": True,
-    },
     "xact-event-ingester": {
-        "runner": _run_event_ingester_router,
+        "runner": verisk_runners.run_event_ingester,
     },
     "xact-delta-writer": {
         "runner": verisk_runners.run_delta_events_worker,
@@ -68,9 +37,6 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
         "runner": verisk_runners.run_result_processor,
     },
     # ClaimX workers
-    "claimx-poller": {
-        "runner": claimx_runners.run_claimx_eventhouse_poller,
-    },
     "claimx-ingester": {
         "runner": claimx_runners.run_claimx_event_ingester,
     },
@@ -133,13 +99,6 @@ async def run_worker_from_registry(
 
     worker_def = WORKER_REGISTRY[worker_name]
 
-    # Check requirements
-    if worker_def.get("requires_eventhouse"):
-        from config.pipeline_config import EventSourceType
-
-        if pipeline_config.event_source != EventSourceType.EVENTHOUSE:
-            raise ValueError(f"{worker_name} requires EVENT_SOURCE=eventhouse")
-
     # Build arguments - pass all common parameters directly
     # Note: Previously used args_builder pattern was removed in favor of direct parameter passing
     kwargs = {
@@ -159,13 +118,7 @@ async def run_worker_from_registry(
     if worker_name == "xact-delta-writer":
         kwargs["events_table_path"] = pipeline_config.events_table_path
     elif worker_name == "claimx-delta-writer":
-        # Use delta config path (CLAIMX_DELTA_EVENTS_TABLE env var)
-        # Falls back to eventhouse poller path if delta path not configured
-        kwargs["events_table_path"] = pipeline_config.claimx_events_table_path or (
-            pipeline_config.claimx_eventhouse.claimx_events_table_path
-            if pipeline_config.claimx_eventhouse
-            else ""
-        )
+        kwargs["events_table_path"] = pipeline_config.claimx_events_table_path
     elif worker_name == "claimx-entity-writer":
         kwargs["projects_table_path"] = pipeline_config.claimx_projects_table_path
         kwargs["contacts_table_path"] = pipeline_config.claimx_contacts_table_path

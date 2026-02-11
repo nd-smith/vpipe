@@ -127,52 +127,6 @@ CLAIMX_VIDEO_COLLAB_TABLE_PATH=abfss://...    # ✅ USE THIS
 
 ---
 
-### Eventhouse Configuration
-
-**Before:** Supported domain-specific AND shared fallback for cluster URL
-```bash
-VERISK_EVENTHOUSE_CLUSTER_URL=https://...     # ❌ REMOVED
-CLAIMX_EVENTHOUSE_CLUSTER_URL=https://...     # ❌ REMOVED
-EVENTHOUSE_CLUSTER_URL=https://...            # ✅ CANONICAL (shared)
-```
-
-**After:** Only shared cluster URL, domain-specific databases
-```bash
-# Shared across all domains
-EVENTHOUSE_CLUSTER_URL=https://your-cluster.kusto.fabric.microsoft.com  # ✅ SHARED
-
-# Domain-specific databases
-VERISK_EVENTHOUSE_DATABASE=your_verisk_db     # ✅ DOMAIN-SPECIFIC
-CLAIMX_EVENTHOUSE_DATABASE=your_claimx_db     # ✅ DOMAIN-SPECIFIC
-```
-
-**Rationale:** Eventhouse clusters are typically shared; databases are domain-specific.
-
-**Migration:**
-- Use `EVENTHOUSE_CLUSTER_URL` for shared cluster
-- Use `VERISK_EVENTHOUSE_DATABASE` and `CLAIMX_EVENTHOUSE_DATABASE` for databases
-- Remove domain-specific `*_EVENTHOUSE_CLUSTER_URL` variables
-
----
-
-### Eventhouse Source Tables
-
-**Before:** Supported domain-specific AND generic fallback
-```bash
-VERISK_EVENTHOUSE_SOURCE_TABLE=tbl_EVENTS     # ✅ CANONICAL
-EVENTHOUSE_SOURCE_TABLE=tbl_EVENTS            # ❌ REMOVED (generic fallback)
-```
-
-**After:** Only domain-specific names
-```bash
-VERISK_EVENTHOUSE_SOURCE_TABLE=tbl_VERISK_EVENTS   # ✅ USE THIS
-CLAIMX_EVENTHOUSE_SOURCE_TABLE=tbl_CLAIMX_EVENTS   # ✅ USE THIS
-```
-
-**Migration:** Use domain-prefixed source table names. Remove generic `EVENTHOUSE_SOURCE_TABLE`.
-
----
-
 ### Deduplication Backfill Configuration
 
 **Before:** Generic `DEDUP_*` prefixes
@@ -329,16 +283,6 @@ This is maintained via the `_get_domain_config()` helper for backward compatibil
 | API Token | `CLAIMX_API_TOKEN` | `base64-token` |
 | API Timeout | `CLAIMX_API_TIMEOUT_SECONDS` | `30` |
 | API Concurrency | `CLAIMX_API_CONCURRENCY` | `20` |
-| **Eventhouse (Shared)** | | |
-| Cluster URL | `EVENTHOUSE_CLUSTER_URL` | `https://cluster.kusto.fabric.microsoft.com` |
-| **Verisk Eventhouse** | | |
-| Database | `VERISK_EVENTHOUSE_DATABASE` | `verisk_events_db` |
-| Source Table | `VERISK_EVENTHOUSE_SOURCE_TABLE` | `tbl_VERISK_EVENTS` |
-| Bulk Backfill | `VERISK_DEDUP_BULK_BACKFILL` | `false` |
-| **ClaimX Eventhouse** | | |
-| Database | `CLAIMX_EVENTHOUSE_DATABASE` | `claimx_events_db` |
-| Source Table | `CLAIMX_EVENTHOUSE_SOURCE_TABLE` | `tbl_CLAIMX_EVENTS` |
-| Bulk Backfill | `CLAIMX_DEDUP_BULK_BACKFILL` | `false` |
 | **Verisk Delta Tables** | | |
 | Events Table | `VERISK_EVENTS_TABLE_PATH` | `abfss://.../verisk_events` |
 | Inventory Table | `VERISK_INVENTORY_TABLE_PATH` | `abfss://.../verisk_attachments` |
@@ -365,10 +309,6 @@ This is maintained via the `_get_domain_config()` helper for backward compatibil
 | `VERISK_DELTA_FAILED_TABLE` | `VERISK_FAILED_TABLE_PATH` |
 | `DELTA_FAILED_TABLE_PATH` | `VERISK_FAILED_TABLE_PATH` |
 | `CLAIMX_DELTA_*_TABLE` | `CLAIMX_*_TABLE_PATH` |
-| `VERISK_EVENTHOUSE_CLUSTER_URL` | `EVENTHOUSE_CLUSTER_URL` (shared) |
-| `CLAIMX_EVENTHOUSE_CLUSTER_URL` | `EVENTHOUSE_CLUSTER_URL` (shared) |
-| `EVENTHOUSE_SOURCE_TABLE` | `VERISK_EVENTHOUSE_SOURCE_TABLE` or `CLAIMX_EVENTHOUSE_SOURCE_TABLE` |
-| `EVENTHOUSE_DATABASE` | `VERISK_EVENTHOUSE_DATABASE` or `CLAIMX_EVENTHOUSE_DATABASE` |
 | `DEDUP_BULK_BACKFILL` | `VERISK_DEDUP_BULK_BACKFILL` or `CLAIMX_DEDUP_BULK_BACKFILL` |
 
 ---
@@ -380,8 +320,6 @@ This is maintained via the `_get_domain_config()` helper for backward compatibil
 - [ ] Remove all `CLAIMX_API_BASE_PATH` references
 - [ ] Remove all `*_DELTA_*_TABLE` environment variables
 - [ ] Remove all `DELTA_*_TABLE_PATH` environment variables
-- [ ] Use shared `EVENTHOUSE_CLUSTER_URL` instead of domain-specific cluster URLs
-- [ ] Use domain-specific database and source table names
 - [ ] Update deployment scripts/CI/CD with new variable names
 - [ ] Update documentation with canonical names
 - [ ] Test configuration loading in all environments

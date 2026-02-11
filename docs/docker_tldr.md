@@ -67,19 +67,19 @@ docker-compose -f scripts/docker/docker-compose.yml build --parallel
 docker-compose -f scripts/docker/docker-compose.yml up -d
 
 # Specific workers
-docker-compose -f scripts/docker/docker-compose.yml up -d xact-poller xact-enricher
+docker-compose -f scripts/docker/docker-compose.yml up -d xact-event-ingester xact-enricher
 
 # With local Kafka
 docker-compose -f scripts/docker/docker-compose.yml --profile kafka up -d
 
 # Run single worker
-docker run --rm -it --env-file .env kafka-pipeline:latest --worker xact-poller
+docker run --rm -it --env-file .env kafka-pipeline:latest --worker xact-event-ingester
 
 # With custom env/volumes
 docker run --rm -it --env-file .env \
   -e LOG_LEVEL=DEBUG \
   -v $(pwd)/logs:/app/logs \
-  kafka-pipeline:latest --worker xact-poller
+  kafka-pipeline:latest --worker xact-event-ingester
 ```
 
 ---
@@ -108,7 +108,7 @@ docker-compose -f scripts/docker/docker-compose.yml up -d --scale xact-download=
 ### Resource Limits
 
 Workers have predefined limits in docker-compose.yml:
-- Light workers (pollers, schedulers): 256M-512M RAM
+- Light workers (ingesters, schedulers): 256M-512M RAM
 - Heavy workers (downloaders, uploaders): 1G-2G RAM
 - Kafka: 2G RAM limit, 1G reservation
 
@@ -123,15 +123,15 @@ docker stats  # Monitor resource usage
 ```bash
 # View logs
 docker-compose -f scripts/docker/docker-compose.yml logs -f
-docker-compose -f scripts/docker/docker-compose.yml logs -f xact-poller
-docker-compose -f scripts/docker/docker-compose.yml logs --tail=100 --since 2h xact-poller
+docker-compose -f scripts/docker/docker-compose.yml logs -f xact-event-ingester
+docker-compose -f scripts/docker/docker-compose.yml logs --tail=100 --since 2h xact-event-ingester
 docker logs -f <container_id>
 
 # Health & status
 docker inspect -f '{{.State.Health.Status}}' kafka-pipeline-local
 docker ps --format "table {{.Names}}\t{{.Status}}"
 docker stats
-docker top xact-poller
+docker top xact-event-ingester
 ```
 
 ### Kafka Monitoring
@@ -170,8 +170,8 @@ docker-compose -f scripts/docker/docker-compose.yml restart [service]
 docker-compose -f scripts/docker/docker-compose.yml up -d --force-recreate [service]
 
 # Execute commands
-docker exec -it xact-poller /bin/bash
-docker exec xact-poller python --version
+docker exec -it xact-event-ingester /bin/bash
+docker exec xact-event-ingester python --version
 ```
 
 ---
@@ -186,10 +186,10 @@ docker-compose -f scripts/docker/docker-compose.kafka.yml restart kafka
 docker-compose -f scripts/docker/docker-compose.kafka.yml down -v  # Hard reset
 
 # Worker issues
-docker logs --tail=200 xact-poller
-docker inspect -f '{{.State.ExitCode}}' xact-poller
-docker stats xact-poller
-docker run --rm -it --env-file .env -e LOG_LEVEL=DEBUG kafka-pipeline:latest --worker xact-poller
+docker logs --tail=200 xact-event-ingester
+docker inspect -f '{{.State.ExitCode}}' xact-event-ingester
+docker stats xact-event-ingester
+docker run --rm -it --env-file .env -e LOG_LEVEL=DEBUG kafka-pipeline:latest --worker xact-event-ingester
 
 # Network/volume issues
 docker network inspect pipeline_network
@@ -291,13 +291,13 @@ env_file:
   - .env
 
 # With docker run
-docker run --rm -it --env-file .env kafka-pipeline:latest --worker xact-poller
+docker run --rm -it --env-file .env kafka-pipeline:latest --worker xact-event-ingester
 
 # Override variables
 docker run --rm -it --env-file .env \
   -e LOG_LEVEL=DEBUG \
   -e KAFKA_BOOTSTRAP_SERVERS=my-kafka:9092 \
-  kafka-pipeline:latest --worker xact-poller
+  kafka-pipeline:latest --worker xact-event-ingester
 ```
 
 ---
@@ -327,7 +327,7 @@ docker-compose -f scripts/docker/docker-compose.yml down
 docker-compose -f scripts/docker/docker-compose.yml down -v
 
 # Shell into container
-docker exec -it xact-poller /bin/bash
+docker exec -it xact-event-ingester /bin/bash
 
 # Check status
 docker-compose -f scripts/docker/docker-compose.yml ps
@@ -354,9 +354,9 @@ docker-compose -f scripts/docker/docker-compose.yml up -d \
 docker stats
 
 # Debug worker
-docker logs --tail=200 xact-poller
-docker run --rm -it --env-file .env -e LOG_LEVEL=DEBUG kafka-pipeline:latest --worker xact-poller
-docker exec xact-poller ping kafka
+docker logs --tail=200 xact-event-ingester
+docker run --rm -it --env-file .env -e LOG_LEVEL=DEBUG kafka-pipeline:latest --worker xact-event-ingester
+docker exec xact-event-ingester ping kafka
 ```
 
 ---

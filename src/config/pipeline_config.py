@@ -1,24 +1,18 @@
 """
-Pipeline configuration for hybrid Event Hub + Local Kafka setup.
+Pipeline configuration for Event Hub pipeline.
 
 Architecture:
-    - Event Source (Event Hub or Eventhouse): Source of raw events
-    - Local Kafka: Internal pipeline communication between workers
+    - Event Source: Azure Event Hub
+    - Internal communication: EventHub (AMQP transport)
 
 Workers:
-    - EventIngesterWorker (Event Hub mode): Reads from Event Hub, writes to Local Kafka
-    - KQLEventPoller (Eventhouse mode): Polls Eventhouse, writes to Local Kafka
-    - DownloadWorker: Reads/writes Local Kafka only
-    - ResultProcessor: Reads from Local Kafka only
-
-Event Source Configuration:
-    Set EVENT_SOURCE=eventhub (default) or EVENT_SOURCE=eventhouse
+    - EventIngesterWorker: Reads from Event Hub, produces enrichment tasks
+    - DownloadWorker: Reads/writes via EventHub
+    - ResultProcessor: Reads from EventHub
 """
 
-import contextlib
 import os
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -99,13 +93,6 @@ def _load_config_data(config_path: Path) -> dict[str, Any]:
 
     config_data = load_yaml(config_path)
     return _expand_env_vars(config_data)
-
-
-class EventSourceType(StrEnum):
-    """Type of event source for the pipeline."""
-
-    EVENTHUB = "eventhub"
-    EVENTHOUSE = "eventhouse"
 
 
 @dataclass
@@ -213,311 +200,14 @@ class EventHubConfig:
 
 
 @dataclass
-class EventhouseSourceConfig:
-    """Configuration for Eventhouse as event source.
-
-    Used when EVENT_SOURCE=eventhouse.
-    """
-
-    cluster_url: str
-    database: str
-    source_table: str = "Events"
-
-    # Polling configuration
-    poll_interval_seconds: int = 30
-    batch_size: int = 1000
-
-    # Query configuration
-    query_timeout_seconds: int = 120
-
-    # Deduplication configuration
-    verisk_events_table_path: str = ""
-    verisk_events_window_hours: int = 24
-    eventhouse_query_window_hours: int = 1
-    overlap_minutes: int = 5
-
-    # Backfill configuration
-    backfill_start_stamp: str | None = None
-    backfill_stop_stamp: str | None = None
-    bulk_backfill: bool = False
-
-    # KQL start stamp for real-time mode
-    kql_start_stamp: str | None = None
-
-    @classmethod
-    def load_config(cls, config_path: Path | None = None) -> "EventhouseSourceConfig":
-        """Load Eventhouse configuration from config directory and environment variables.
-
-        Configuration priority (highest to lowest):
-        1. Environment variables
-        2. Config files in config/ directory (under 'verisk_eventhouse:' key, fallback to 'eventhouse:')
-        3. Dataclass defaults
-
-        Optional env var overrides:
-            VERISK_EVENTHOUSE_CLUSTER_URL: Kusto cluster URL
-            VERISK_EVENTHOUSE_DATABASE: Database name
-            VERISK_EVENTHOUSE_SOURCE_TABLE: KQL source table name (default: Events)
-            EVENTHOUSE_SOURCE_TABLE: Legacy env var for source table (fallback)
-            POLL_INTERVAL_SECONDS: Poll interval (default: 30)
-            POLL_BATCH_SIZE: Max events per poll (default: 1000)
-            EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
-            VERISK_EVENTS_TABLE_PATH: Path to verisk_events Delta table
-        """
-        # Use default config directory if not specified
-        resolved_path = config_path or DEFAULT_CONFIG_FILE
-
-        # Load configuration data from config directory
-        yaml_data = _load_config_data(resolved_path)
-
-        eventhouse_data = yaml_data.get("verisk_eventhouse", {})
-        poller_data = eventhouse_data.get("poller", {})
-        dedup_data = eventhouse_data.get("dedup", {})
-
-        cluster_url = _get_config_value(
-            "EVENTHOUSE_CLUSTER_URL", eventhouse_data.get("cluster_url", "")
-        )
-        database = _get_config_value(
-            "VERISK_EVENTHOUSE_DATABASE", eventhouse_data.get("database", "")
-        )
-
-        if not cluster_url:
-            raise ValueError(
-                "Eventhouse cluster_url is required. "
-                "Set EVENTHOUSE_CLUSTER_URL env var or in config.yaml under 'verisk_eventhouse.cluster_url'"
-            )
-        if not database:
-            raise ValueError(
-                "Verisk Eventhouse database is required. "
-                "Set VERISK_EVENTHOUSE_DATABASE env var or in config.yaml under 'verisk_eventhouse.database'"
-            )
-
-        bulk_backfill = _parse_bool_env(
-            "VERISK_DEDUP_BULK_BACKFILL", poller_data.get("bulk_backfill", False)
-        )
-
-        return cls(
-            cluster_url=cluster_url,
-            database=database,
-            source_table=_get_config_value(
-                "VERISK_EVENTHOUSE_SOURCE_TABLE",
-                poller_data.get("source_table", "Events"),
-            ),
-            poll_interval_seconds=int(
-                os.getenv(
-                    "POLL_INTERVAL_SECONDS",
-                    str(poller_data.get("poll_interval_seconds", 30)),
-                )
-            ),
-            batch_size=int(os.getenv("POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))),
-            query_timeout_seconds=int(
-                os.getenv(
-                    "EVENTHOUSE_QUERY_TIMEOUT",
-                    str(eventhouse_data.get("query_timeout_seconds", 120)),
-                )
-            ),
-            verisk_events_table_path=os.getenv(
-                "VERISK_EVENTS_TABLE_PATH", poller_data.get("events_table_path", "")
-            ),
-            verisk_events_window_hours=int(
-                os.getenv(
-                    "DEDUP_VERISK_EVENTS_WINDOW_HOURS",
-                    str(dedup_data.get("verisk_events_window_hours", 24)),
-                )
-            ),
-            eventhouse_query_window_hours=int(
-                os.getenv(
-                    "DEDUP_EVENTHOUSE_WINDOW_HOURS",
-                    str(dedup_data.get("eventhouse_query_window_hours", 1)),
-                )
-            ),
-            overlap_minutes=int(
-                os.getenv("DEDUP_OVERLAP_MINUTES", str(dedup_data.get("overlap_minutes", 5)))
-            ),
-            # Backfill configuration
-            backfill_start_stamp=os.getenv(
-                "DEDUP_BACKFILL_START_TIMESTAMP",
-                poller_data.get("backfill_start_stamp"),
-            ),
-            backfill_stop_stamp=os.getenv(
-                "DEDUP_BACKFILL_STOP_TIMESTAMP", poller_data.get("backfill_stop_stamp")
-            ),
-            bulk_backfill=bulk_backfill,
-            # KQL start stamp for real-time mode
-            kql_start_stamp=os.getenv(
-                "DEDUP_KQL_START_TIMESTAMP", dedup_data.get("kql_start_stamp")
-            ),
-        )
-
-
-@dataclass
-class ClaimXEventhouseSourceConfig:
-    """Configuration for ClaimX Eventhouse poller.
-
-    Used for polling ClaimX events from Eventhouse.
-    """
-
-    cluster_url: str
-    database: str
-    source_table: str = "ClaimXEvents"
-
-    # Polling configuration
-    poll_interval_seconds: int = 30
-    batch_size: int = 1000
-
-    # Query configuration
-    query_timeout_seconds: int = 120
-
-    # Deduplication configuration
-    claimx_events_table_path: str = ""
-    claimx_events_window_hours: int = 24
-    eventhouse_query_window_hours: int = 1
-    overlap_minutes: int = 5
-
-    # Kafka topic
-    events_topic: str = "claimx_events"
-
-    # Backfill configuration
-    backfill_start_stamp: str | None = None
-    backfill_stop_stamp: str | None = None
-    bulk_backfill: bool = False
-
-    # KQL start stamp for real-time mode
-    kql_start_stamp: str | None = None
-
-    @classmethod
-    def load_config(cls, config_path: Path | None = None) -> "ClaimXEventhouseSourceConfig":
-        """Load ClaimX Eventhouse configuration from config directory and environment variables.
-
-        Configuration priority (highest to lowest):
-        1. Environment variables
-        2. Config files in config/ directory (under 'claimx_eventhouse:' key)
-        3. Dataclass defaults
-
-        Optional env var overrides:
-            CLAIMX_EVENTHOUSE_CLUSTER_URL: Kusto cluster URL
-            CLAIMX_EVENTHOUSE_DATABASE: Database name
-            CLAIMX_EVENTHOUSE_SOURCE_TABLE: Table name (default: ClaimXEvents)
-            CLAIMX_POLL_INTERVAL_SECONDS: Poll interval (default: 30)
-            CLAIMX_POLL_BATCH_SIZE: Max events per poll (default: 1000)
-            CLAIMX_EVENTHOUSE_QUERY_TIMEOUT: Query timeout (default: 120)
-            CLAIMX_DELTA_EVENTS_TABLE: Path to claimx_events Delta table
-            CLAIMX_EVENTS_TOPIC: Event Hub topic (default: claimx_events)
-        """
-        # Use default config directory if not specified
-        resolved_path = config_path or DEFAULT_CONFIG_FILE
-
-        # Load configuration data from config directory
-        yaml_data = _load_config_data(resolved_path)
-
-        claimx_eventhouse_data = yaml_data.get("claimx_eventhouse", {})
-        poller_data = claimx_eventhouse_data.get("poller", {})
-        dedup_data = claimx_eventhouse_data.get("dedup", {})
-
-        cluster_url = _get_config_value(
-            "EVENTHOUSE_CLUSTER_URL", claimx_eventhouse_data.get("cluster_url", "")
-        )
-        database = _get_config_value(
-            "CLAIMX_EVENTHOUSE_DATABASE", claimx_eventhouse_data.get("database", "")
-        )
-
-        if not cluster_url:
-            raise ValueError(
-                "Eventhouse cluster_url is required. "
-                "Set EVENTHOUSE_CLUSTER_URL env var or in config.yaml under 'claimx_eventhouse.cluster_url'"
-            )
-        if not database:
-            raise ValueError(
-                "ClaimX Eventhouse database is required. "
-                "Set CLAIMX_EVENTHOUSE_DATABASE env var or in config.yaml under 'claimx_eventhouse.database'"
-            )
-
-        bulk_backfill = _parse_bool_env(
-            "CLAIMX_DEDUP_BULK_BACKFILL", poller_data.get("bulk_backfill", False)
-        )
-
-        return cls(
-            cluster_url=cluster_url,
-            database=database,
-            source_table=os.getenv(
-                "CLAIMX_EVENTHOUSE_SOURCE_TABLE",
-                poller_data.get("source_table", "ClaimXEvents"),
-            ),
-            poll_interval_seconds=int(
-                os.getenv(
-                    "CLAIMX_POLL_INTERVAL_SECONDS",
-                    str(poller_data.get("poll_interval_seconds", 30)),
-                )
-            ),
-            batch_size=int(
-                os.getenv("CLAIMX_POLL_BATCH_SIZE", str(poller_data.get("batch_size", 1000)))
-            ),
-            query_timeout_seconds=int(
-                os.getenv(
-                    "CLAIMX_EVENTHOUSE_QUERY_TIMEOUT",
-                    str(claimx_eventhouse_data.get("query_timeout_seconds", 120)),
-                )
-            ),
-            claimx_events_table_path=_get_config_value(
-                "CLAIMX_DELTA_EVENTS_TABLE", poller_data.get("events_table_path", "")
-            ),
-            claimx_events_window_hours=int(
-                os.getenv(
-                    "CLAIMX_DEDUP_EVENTS_WINDOW_HOURS",
-                    str(dedup_data.get("claimx_events_window_hours", 24)),
-                )
-            ),
-            eventhouse_query_window_hours=int(
-                os.getenv(
-                    "CLAIMX_DEDUP_EVENTHOUSE_WINDOW_HOURS",
-                    str(dedup_data.get("eventhouse_query_window_hours", 1)),
-                )
-            ),
-            overlap_minutes=int(
-                os.getenv(
-                    "CLAIMX_DEDUP_OVERLAP_MINUTES",
-                    str(dedup_data.get("overlap_minutes", 5)),
-                )
-            ),
-            events_topic=os.getenv(
-                "CLAIMX_EVENTS_TOPIC",
-                poller_data.get("events_topic", "claimx_events"),
-            ),
-            # Backfill configuration
-            backfill_start_stamp=os.getenv(
-                "CLAIMX_DEDUP_BACKFILL_START_TIMESTAMP",
-                poller_data.get("backfill_start_stamp"),
-            ),
-            backfill_stop_stamp=os.getenv(
-                "CLAIMX_DEDUP_BACKFILL_STOP_TIMESTAMP",
-                poller_data.get("backfill_stop_stamp"),
-            ),
-            bulk_backfill=bulk_backfill,
-            # KQL start stamp for real-time mode
-            kql_start_stamp=os.getenv(
-                "CLAIMX_DEDUP_KQL_START_TIMESTAMP", dedup_data.get("kql_start_stamp")
-            ),
-        )
-
-
-@dataclass
 class PipelineConfig:
     """Complete pipeline configuration.
 
-    Combines event source (EventHub or Eventhouse) with EventHub transport.
-    Kafka has been removed - EventHub is now used for all pipeline communication.
+    EventHub is the sole event source. Kafka has been removed.
     """
 
-    # Event source type (eventhub or eventhouse)
-    event_source: EventSourceType
-
-    # Event Hub config (only populated if event_source == eventhub)
+    # Event Hub config
     eventhub: EventHubConfig | None = None
-
-    # Eventhouse config (only populated if event_source == eventhouse)
-    verisk_eventhouse: EventhouseSourceConfig | None = None
-
-    # ClaimX Eventhouse config (optional)
-    claimx_eventhouse: ClaimXEventhouseSourceConfig | None = None
 
     # Domain identifier for OneLake routing (e.g., "verisk", "claimx")
     domain: str = "verisk"
@@ -547,11 +237,6 @@ class PipelineConfig:
         1. Environment variables
         2. Config files in config/ directory
         3. Dataclass defaults
-
-        The event_source field in config files (or EVENT_SOURCE env var) determines
-        which source is used:
-        - eventhub: Use Azure Event Hub via Kafka protocol
-        - eventhouse: Poll Microsoft Fabric Eventhouse
         """
         # Use default config directory if not specified
         resolved_path = config_path or DEFAULT_CONFIG_FILE
@@ -559,38 +244,7 @@ class PipelineConfig:
         # Load configuration data from config directory
         yaml_data = _load_config_data(resolved_path)
 
-        # Get event source from config files first, then env var override
-        source_str = os.getenv("EVENT_SOURCE", yaml_data.get("event_source", "eventhub")).lower()
-
-        try:
-            event_source = EventSourceType(source_str)
-        except ValueError:
-            raise ValueError(
-                f"Invalid event_source '{source_str}'. Must be 'eventhub' or 'eventhouse'"
-            ) from None
-
-        eventhub_config = None
-        eventhouse_config = None
-        claimx_eventhouse_config = None
-
-        if event_source == EventSourceType.EVENTHUB:
-            eventhub_config = EventHubConfig.from_env()
-        else:
-            eventhouse_config = EventhouseSourceConfig.load_config(resolved_path)
-
-        # Optionally load ClaimX Eventhouse config if configured
-        # Check for config section or env vars
-        # Note: CLAIMX_EVENTHOUSE_DATABASE indicates intent to use ClaimX;
-        # EVENTHOUSE_CLUSTER_URL serves as a shared fallback for cluster_url
-        has_claimx_config = (
-            "claimx_eventhouse" in yaml_data
-            or os.getenv("CLAIMX_EVENTHOUSE_CLUSTER_URL")
-            or os.getenv("CLAIMX_EVENTHOUSE_DATABASE")
-            or os.getenv("CLAIMX_DELTA_EVENTS_TABLE")
-        )
-        if has_claimx_config:
-            with contextlib.suppress(ValueError):
-                claimx_eventhouse_config = ClaimXEventhouseSourceConfig.load_config(resolved_path)
+        eventhub_config = EventHubConfig.from_env()
 
         # Load delta configuration from yaml with env var override
         delta_config = yaml_data.get("delta", {})
@@ -605,10 +259,7 @@ class PipelineConfig:
             enable_delta_writes = delta_config.get("enable_writes", True)
 
         return cls(
-            event_source=event_source,
             eventhub=eventhub_config,
-            verisk_eventhouse=eventhouse_config,
-            claimx_eventhouse=claimx_eventhouse_config,
             domain=domain,
             enable_delta_writes=enable_delta_writes,
             events_table_path=_get_config_value(
@@ -661,16 +312,6 @@ class PipelineConfig:
             ),
         )
 
-    @property
-    def is_eventhub_source(self) -> bool:
-        """Check if using Event Hub as source."""
-        return self.event_source == EventSourceType.EVENTHUB
-
-    @property
-    def is_eventhouse_source(self) -> bool:
-        """Check if using Eventhouse as source."""
-        return self.event_source == EventSourceType.EVENTHOUSE
-
 
 def get_pipeline_config(config_path: Path | None = None) -> PipelineConfig:
     """Get pipeline configuration from config directory and environment.
@@ -678,20 +319,3 @@ def get_pipeline_config(config_path: Path | None = None) -> PipelineConfig:
     This is the main entry point for loading configuration.
     """
     return PipelineConfig.load_config(config_path)
-
-
-def get_event_source_type(config_path: Path | None = None) -> EventSourceType:
-    """Get the configured event source type.
-
-    Quick check without loading full config. Reads from config directory first,
-    then checks EVENT_SOURCE env var for override.
-    """
-    # Use default config directory if not specified
-    resolved_path = config_path or DEFAULT_CONFIG_FILE
-
-    # Load configuration data from config directory
-    yaml_data = _load_config_data(resolved_path)
-    yaml_source = yaml_data.get("event_source", "eventhub")
-
-    source_str = os.getenv("EVENT_SOURCE", yaml_source).lower()
-    return EventSourceType(source_str)

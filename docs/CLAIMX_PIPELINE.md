@@ -4,15 +4,14 @@ This document describes the ClaimX event processing pipeline, showing the comple
 
 ## Overview
 
-The ClaimX pipeline processes events from an Eventhouse (Kusto) database containing ClaimX project management events. The KQL poller continuously polls the ClaimXEvents table, then events are enriched with API data and associated media files are downloaded. Unlike the Verisk pipeline, ClaimX requires API enrichment to fetch entity data before any downloads can occur.
+The ClaimX pipeline processes events from a source EventHub namespace containing ClaimX project management events. The event ingester consumes raw events, then events are enriched with API data and associated media files are downloaded. Unlike the Verisk pipeline, ClaimX requires API enrichment to fetch entity data before any downloads can occur.
 
 ## Pipeline Flow Diagram
 
 ```mermaid
 flowchart TB
     %% Event Source
-    Eventhouse[("Eventhouse<br/>ClaimXEvents Table")]
-    KQLPoller[ClaimX KQL Poller<br/>Deduplication]
+    SourceEventHub[("Source EventHub<br/>Namespace")]
 
     %% Main Pipeline Workers
     Ingester[Event Ingester Worker]
@@ -57,8 +56,7 @@ flowchart TB
     API[ClaimX API<br/>Handler Registry<br/>7+ Event Handlers]
 
     %% Source Flow
-    Eventhouse -->|Poll Every 30s| KQLPoller
-    KQLPoller -->|Delta Dedup| EventsTopic
+    SourceEventHub --> EventsTopic
 
     %% Main Flow
     EventsTopic --> Ingester
@@ -109,7 +107,8 @@ flowchart TB
     classDef error fill:#E74C3C,stroke:#333,stroke-width:2px,color:#fff
     classDef api fill:#F39C12,stroke:#333,stroke-width:2px,color:#fff
 
-    class KQLPoller,Ingester ingestion
+    class SourceEventHub source
+    class Ingester ingestion
     class Enricher enrichment
     class Downloader download
     class Uploader upload
@@ -120,20 +119,11 @@ flowchart TB
 
 ## Component Details
 
-### ClaimX KQL Poller
-- **Source**: Eventhouse ClaimXEvents table
-- **Polling**: Continuous polling at 30-second intervals (configurable)
-- **Deduplication**: Query-side dedup against claimx_events Delta table (24-hour window)
-- **Produces to**: `claimx.events` topic
-- **Checkpoint**: Tracks last processed event for resume
-- **Backfill Support**: Can run historical backfill with start/stop timestamps
-- **File**: `src/pipeline/common/eventhouse/poller.py`
-
 ### Event Ingester Worker
-- **Consumes from**: `claimx.events` (fed by KQL Poller)
+- **Consumes from**: `claimx.events` topic (source EventHub namespace)
 - **Produces to**: `claimx.enrichment_pending`
-- **Function**: Ingests polled events and creates enrichment tasks
-- **Deduplication**: 24-hour in-memory cache based on event_id (secondary dedup)
+- **Function**: Ingests raw events and creates enrichment tasks
+- **Deduplication**: 24-hour hybrid cache (in-memory + blob storage) based on event_id
 - **Key Logic**: All events trigger enrichment (not just file events)
 - **File**: `src/pipeline/claimx/workers/event_ingester.py`
 
@@ -218,8 +208,7 @@ flowchart TB
 
 ## Data Flow Summary
 
-1. **Polling**: ClaimX KQL Poller queries Eventhouse every 30s → Deduplicates against Delta table → Produces to claimx.events
-2. **Ingestion**: Event Ingester consumes from claimx.events → Additional deduplication → Produces to enrichment_pending
+1. **Ingestion**: Event Ingester consumes from source EventHub claimx.events topic → Deduplication → Produces to enrichment_pending
 3. **Enrichment**: Enrichment Worker calls ClaimX API via handler registry → Produces entity rows and download tasks
 4. **Parallel Delta Writes**: Entity and Events writers (separate consumer groups) consume from enriched topic → Write to 8 Delta tables
 5. **Download**: Download Worker fetches media files → Caches locally
@@ -229,7 +218,6 @@ flowchart TB
 
 ## Key Differences from Verisk Pipeline
 
-- **Event Source**: Both pipelines poll from Eventhouse (ClaimXEvents vs Events tables)
 - **API Enrichment Required**: ClaimX requires API calls to get entity data before downloads
 - **Multiple Entity Tables**: 7 entity tables vs Verisk's 2 tables (events + attachments)
 - **Handler Registry**: Event type routing system for specialized enrichment logic
@@ -238,22 +226,16 @@ flowchart TB
 
 ## Configuration
 
-### Eventhouse Source
+### Event Source
 ```bash
-# Required
-EVENTHOUSE_CLUSTER_URL="https://your-cluster.kusto.windows.net"
-CLAIMX_EVENTHOUSE_DATABASE="YourDatabase"
-
-# Optional
-CLAIMX_POLL_INTERVAL_SECONDS=30
-CLAIMX_POLL_BATCH_SIZE=1000
-CLAIMX_EVENTS_TABLE_PATH="path/to/claimx_events"  # For deduplication
+# Source EventHub namespace (where raw events originate)
+SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING="Endpoint=sb://..."
 ```
 
 ### Key Environment Variables
 - `PIPELINE_DOMAIN=claimx`
-- `EVENTHOUSE_CLUSTER_URL`: Kusto cluster URL
-- `CLAIMX_EVENTHOUSE_DATABASE`: Database name
+- `SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING`: Source EventHub namespace connection string
+- `EVENTHUB_NAMESPACE_CONNECTION_STRING`: Internal EventHub namespace connection string
 - `CLAIMX_EVENTS_TABLE_PATH`: Path to claimx_events Delta table (for dedup)
 - `CLAIMX_API_URL`: ClaimX API endpoint
 - `CLAIMX_API_TOKEN`: API authentication token
@@ -265,15 +247,13 @@ See `src/config/pipeline_config.py` for complete configuration options.
 ## Operational Characteristics
 
 ### Scaling
-- **KQL Poller**: Single instance recommended (checkpointing is per-poller)
-- **Event Ingester**: Single instance recommended (dedup cache is in-memory)
+- **Event Ingester**: Horizontal scaling supported (shares events topic consumption)
 - **Enrichment Worker**: Horizontal scaling supported (separate instances)
 - **Delta Writers**: Independent scaling (different consumer groups)
 - **Download/Upload Workers**: Horizontal scaling with partition distribution
 
 ### Performance
-- **Eventhouse Polling**: 30-second intervals, 1000 events/batch (configurable)
-- **Deduplication**: Two-layer (KQL query-side + in-memory cache)
+- **Deduplication**: In-memory cache with blob storage persistence
 - **API Calls**: Circuit breaker prevents cascading failures
 - **Concurrency**: 10 parallel downloads/uploads per worker instance
 - **Batching**: Delta writers handle batching internally (larger batches: 2000 rows vs Verisk's 100)

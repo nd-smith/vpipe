@@ -1,7 +1,7 @@
 """Verisk domain worker runners.
 
 Contains all runner functions for XACT pipeline workers:
-- Event ingestion (Event Hub and Eventhouse)
+- Event ingestion (Event Hub)
 - Enrichment
 - Download/Upload
 - Delta writes
@@ -14,7 +14,6 @@ import logging
 from pathlib import Path
 
 from pipeline.runners.common import (
-    execute_poller_with_shutdown,
     execute_worker_with_producer,
     execute_worker_with_shutdown,
 )
@@ -44,127 +43,6 @@ async def run_event_ingester(
         stage_name="xact-event-ingester",
         shutdown_event=shutdown_event,
         instance_id=instance_id,
-    )
-
-
-async def run_eventhouse_poller(pipeline_config, shutdown_event: asyncio.Event, local_kafka_config):
-    """Polls Microsoft Fabric Eventhouse for events and produces to events.raw topic.
-    Deduplication handled by daily Fabric maintenance job."""
-    from pipeline.common.eventhouse.kql_client import EventhouseConfig
-    from pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
-
-    print("\n[XACT-POLLER] Initializing Eventhouse poller configuration")
-
-    eventhouse_source = pipeline_config.verisk_eventhouse
-    if not eventhouse_source:
-        raise ValueError("Xact Eventhouse configuration required for EVENT_SOURCE=eventhouse")
-
-    print("[XACT-POLLER] Eventhouse configuration:")
-    print(f"[XACT-POLLER]   - Cluster URL: {eventhouse_source.cluster_url}")
-    print(f"[XACT-POLLER]   - Database: {eventhouse_source.database}")
-    print(f"[XACT-POLLER]   - Source table: {eventhouse_source.source_table}")
-    print(f"[XACT-POLLER]   - Query timeout: {eventhouse_source.query_timeout_seconds}s")
-    print(f"[XACT-POLLER]   - Poll interval: {eventhouse_source.poll_interval_seconds}s")
-    print(f"[XACT-POLLER]   - Batch size: {eventhouse_source.batch_size}")
-    print(f"[XACT-POLLER]   - Bulk backfill: {eventhouse_source.bulk_backfill}")
-    if eventhouse_source.backfill_start_stamp:
-        print(f"[XACT-POLLER]   - Backfill start: {eventhouse_source.backfill_start_stamp}")
-    if eventhouse_source.backfill_stop_stamp:
-        print(f"[XACT-POLLER]   - Backfill stop: {eventhouse_source.backfill_stop_stamp}")
-
-    eventhouse_config = EventhouseConfig(
-        cluster_url=eventhouse_source.cluster_url,
-        database=eventhouse_source.database,
-        query_timeout_seconds=eventhouse_source.query_timeout_seconds,
-    )
-
-    print("[XACT-POLLER] Message configuration: Loaded")
-    print("[XACT-POLLER]   - Output topic: events.raw")
-
-    poller_config = PollerConfig(
-        eventhouse=eventhouse_config,
-        kafka=local_kafka_config,
-        poll_interval_seconds=eventhouse_source.poll_interval_seconds,
-        batch_size=eventhouse_source.batch_size,
-        source_table=eventhouse_source.source_table,
-        events_table_path=eventhouse_source.verisk_events_table_path,
-        backfill_start_stamp=eventhouse_source.backfill_start_stamp,
-        backfill_stop_stamp=eventhouse_source.backfill_stop_stamp,
-        bulk_backfill=eventhouse_source.bulk_backfill,
-    )
-
-    print("[XACT-POLLER] Configuration complete, starting poller...\n")
-
-    await execute_poller_with_shutdown(
-        KQLEventPoller,
-        poller_config,
-        stage_name="xact-poller",
-        shutdown_event=shutdown_event,
-    )
-
-
-async def run_eventhouse_json_poller(
-    pipeline_config,
-    shutdown_event: asyncio.Event,
-    output_path: str = "output/xact_events.jsonl",
-    rotate_size_mb: float = 100.0,
-    pretty_print: bool = False,
-    include_metadata: bool = True,
-):
-    """Polls Microsoft Fabric Eventhouse for events and writes to JSON file.
-
-    This is a Kafka-free version of the poller for debugging, testing, or
-    exporting events to JSON format for external processing.
-
-    Args:
-        pipeline_config: Pipeline configuration with eventhouse settings
-        shutdown_event: Shutdown event for graceful shutdown
-        output_path: Path to output JSON Lines file (default: output/xact_events.jsonl)
-        rotate_size_mb: Rotate file when it reaches this size in MB (default: 100)
-        pretty_print: Format JSON with indentation (default: False)
-        include_metadata: Include _key, _timestamp, _headers in output (default: True)
-    """
-
-    from pipeline.common.eventhouse.kql_client import EventhouseConfig
-    from pipeline.common.eventhouse.poller import KQLEventPoller, PollerConfig
-    from pipeline.common.eventhouse.sinks import create_json_sink
-
-    eventhouse_source = pipeline_config.verisk_eventhouse
-    if not eventhouse_source:
-        raise ValueError("Xact Eventhouse configuration required")
-
-    eventhouse_config = EventhouseConfig(
-        cluster_url=eventhouse_source.cluster_url,
-        database=eventhouse_source.database,
-        query_timeout_seconds=eventhouse_source.query_timeout_seconds,
-    )
-
-    # Create JSON sink
-    json_sink = create_json_sink(
-        output_path=output_path,
-        rotate_size_mb=rotate_size_mb,
-        pretty_print=pretty_print,
-        include_metadata=include_metadata,
-    )
-
-    poller_config = PollerConfig(
-        eventhouse=eventhouse_config,
-        kafka=None,  # Not using Kafka
-        sink=json_sink,  # Use JSON file sink
-        poll_interval_seconds=eventhouse_source.poll_interval_seconds,
-        batch_size=eventhouse_source.batch_size,
-        source_table=eventhouse_source.source_table,
-        events_table_path=eventhouse_source.verisk_events_table_path,
-        backfill_start_stamp=eventhouse_source.backfill_start_stamp,
-        backfill_stop_stamp=eventhouse_source.backfill_stop_stamp,
-        bulk_backfill=eventhouse_source.bulk_backfill,
-    )
-
-    await execute_poller_with_shutdown(
-        KQLEventPoller,
-        poller_config,
-        stage_name="xact-json-poller",
-        shutdown_event=shutdown_event,
     )
 
 
@@ -335,29 +213,6 @@ async def run_result_processor(
             "batch_timeout_seconds": 5.0,
         },
         producer_worker_name="result_processor",
-        instance_id=instance_id,
-    )
-
-
-async def run_local_event_ingester(
-    local_kafka_config,
-    shutdown_event: asyncio.Event,
-    domain: str = "verisk",
-    instance_id: int | None = None,
-):
-    """Consumes from local Kafka events.raw topic and processes events to downloads.pending.
-    Used in Eventhouse mode. Delta Lake writes handled by separate DeltaEventsWorker."""
-    from pipeline.verisk.workers.event_ingester import EventIngesterWorker
-
-    worker = EventIngesterWorker(
-        config=local_kafka_config,
-        domain=domain,
-        instance_id=instance_id,
-    )
-    await execute_worker_with_shutdown(
-        worker,
-        stage_name="xact-event-ingester",
-        shutdown_event=shutdown_event,
         instance_id=instance_id,
     )
 

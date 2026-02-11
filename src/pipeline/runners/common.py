@@ -22,9 +22,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_STARTUP_RETRIES = 5
 DEFAULT_STARTUP_BACKOFF_BASE = 5  # seconds
 
-# Poller-specific defaults (for Kusto/Eventhouse connectivity)
-DEFAULT_POLLER_RETRIES = 10
-DEFAULT_POLLER_BACKOFF_BASE = 60  # seconds (constant delays)
 
 
 async def _cleanup_watcher_task(task: asyncio.Task) -> None:
@@ -287,64 +284,3 @@ async def execute_worker_with_producer(
         await producer.stop()
 
 
-async def execute_poller_with_shutdown(
-    poller_class,
-    poller_config,
-    stage_name: str,
-    shutdown_event: asyncio.Event,
-) -> None:
-    """Execute an Eventhouse poller with shutdown handling.
-
-    On fatal error, if poller has a health_server attribute, enters error mode
-    to keep health endpoint alive for debugging. Otherwise re-raises for
-    top-level error handling.
-
-    Args:
-        poller_class: Poller class to instantiate
-        poller_config: Poller configuration object
-        stage_name: Name for logging context
-        shutdown_event: Event to signal graceful shutdown
-    """
-    set_log_context(stage=stage_name)
-    logger.info("Starting %s...", stage_name)
-
-    async def shutdown_watcher(poller):
-        """Wait for shutdown signal and stop poller gracefully."""
-        await shutdown_event.wait()
-        logger.info("Shutdown signal received, stopping %s...", stage_name)
-        await poller.stop()
-
-    async with poller_class(poller_config) as poller:
-        # Start shutdown watcher alongside poller
-        watcher_task = asyncio.create_task(shutdown_watcher(poller))
-
-        try:
-            poller_max_retries = int(
-                os.getenv("POLLER_STARTUP_MAX_RETRIES", str(DEFAULT_POLLER_RETRIES))
-            )
-            poller_backoff = int(
-                os.getenv("POLLER_STARTUP_BACKOFF_SECONDS", str(DEFAULT_POLLER_BACKOFF_BASE))
-            )
-            await _start_with_retry(
-                poller.run,
-                stage_name,
-                max_retries=poller_max_retries,
-                backoff_base=poller_backoff,
-                use_constant_backoff=True,
-            )
-        except Exception as e:
-            # If poller has health server, enter error mode to keep it alive
-            if hasattr(poller, "health_server"):
-                await _cleanup_watcher_task(watcher_task)
-                await _enter_worker_error_mode(
-                    poller.health_server,
-                    stage_name,
-                    f"Fatal error: {e}",
-                    shutdown_event,
-                )
-                # After shutdown signal, context manager will handle cleanup
-            else:
-                # No health server - re-raise for top-level error mode
-                raise
-        finally:
-            await _cleanup_watcher_task(watcher_task)

@@ -216,11 +216,11 @@ class TestClaimXEventMessageValidation:
         assert event.project_id == "proj_001"
 
 
-class TestClaimXEventMessageFromEventhouseRow:
-    """Test creating ClaimXEventMessage from Eventhouse row data."""
+class TestClaimXEventMessageFromRawEvent:
+    """Test creating ClaimXEventMessage from raw event data."""
 
-    def test_from_eventhouse_row_snake_case(self):
-        """Can create from Eventhouse row with snake_case fields."""
+    def test_from_raw_event_snake_case(self):
+        """Can create from raw event with snake_case fields."""
         now = datetime.now(UTC)
         row = {
             "event_id": "evt_12345",
@@ -234,7 +234,7 @@ class TestClaimXEventMessageFromEventhouseRow:
             "fileName": "photo.jpg",
         }
 
-        event = ClaimXEventMessage.from_eventhouse_row(row)
+        event = ClaimXEventMessage.from_raw_event(row)
 
         assert event.event_id == "evt_12345"
         assert event.event_type == "PROJECT_FILE_ADDED"
@@ -243,19 +243,19 @@ class TestClaimXEventMessageFromEventhouseRow:
         assert event.media_id == "media_111"
         assert event.raw_data == row
 
-    def test_from_eventhouse_row_camel_case(self):
-        """Can create from Eventhouse row with camelCase fields."""
+    def test_from_raw_event_camel_case(self):
+        """Can create from raw event with camelCase fields."""
         now = datetime.now(UTC)
         row = {
             "eventId": "evt_12345",
             "eventType": "PROJECT_CREATED",
             "projectId": "proj_67890",
-            "IngestionTime": now,
+            "ingestedAt": now,
             "mediaId": "media_111",
             "projectName": "Claim 2024",
         }
 
-        event = ClaimXEventMessage.from_eventhouse_row(row)
+        event = ClaimXEventMessage.from_raw_event(row)
 
         assert event.event_id == "evt_12345"
         assert event.event_type == "PROJECT_CREATED"
@@ -264,26 +264,26 @@ class TestClaimXEventMessageFromEventhouseRow:
         assert event.media_id == "media_111"
         assert event.raw_data == row
 
-    def test_from_eventhouse_row_mixed_case(self):
-        """Can create from Eventhouse row with mixed case fields."""
+    def test_from_raw_event_mixed_case(self):
+        """Can create from raw event with mixed case fields."""
         now = datetime.now(UTC)
         row = {
             "event_id": "evt_001",
             "eventType": "CUSTOM_TASK_ASSIGNED",
             "project_id": "proj_001",
-            "IngestionTime": now,
+            "ingestedAt": now,
             "taskAssignmentId": "task_222",
         }
 
-        event = ClaimXEventMessage.from_eventhouse_row(row)
+        event = ClaimXEventMessage.from_raw_event(row)
 
         assert event.event_id == "evt_001"
         assert event.event_type == "CUSTOM_TASK_ASSIGNED"
         assert event.project_id == "proj_001"
         assert event.task_assignment_id == "task_222"
 
-    def test_from_eventhouse_row_with_all_optional_fields(self):
-        """Can create from Eventhouse row with all optional fields."""
+    def test_from_raw_event_with_all_optional_fields(self):
+        """Can create from raw event with all optional fields."""
         now = datetime.now(UTC)
         row = {
             "event_id": "evt_full",
@@ -297,7 +297,7 @@ class TestClaimXEventMessageFromEventhouseRow:
             "extra_field": "extra_value",
         }
 
-        event = ClaimXEventMessage.from_eventhouse_row(row)
+        event = ClaimXEventMessage.from_raw_event(row)
 
         assert event.media_id == "media_111"
         assert event.task_assignment_id == "task_222"
