@@ -451,7 +451,6 @@ class EventHubConsumer:
                     "error_type": type(error).__name__,
                     "error": str(error),
                 },
-                exc_info=error,
             )
 
         try:
