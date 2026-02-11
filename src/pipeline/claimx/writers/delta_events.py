@@ -117,7 +117,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             ]
 
             if len(valid_events) < len(processed_events):
-                self.logger.warning(
+                self.logger.debug(
                     "Dropped events with null event_id or event_type",
                     extra={
                         "dropped_count": len(processed_events) - len(valid_events),
@@ -126,7 +126,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
                 )
 
             if not valid_events:
-                self.logger.warning("No valid events to write after filtering nulls")
+                self.logger.debug("No valid events to write after filtering nulls")
                 return True
 
             df = pl.DataFrame(valid_events, schema=EVENTS_SCHEMA)
