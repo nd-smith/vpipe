@@ -277,6 +277,8 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
 
     max_attempts = 3
 
+    store = None
+
     for attempt in range(1, max_attempts + 1):
         try:
             logger.info(
@@ -303,6 +305,11 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
             return store
 
         except (TimeoutError, OSError, ConnectionError) as e:
+            # Close the client from the failed attempt to avoid leaked sessions
+            if store:
+                await store.close()
+                store = None
+
             if attempt < max_attempts:
                 backoff = 2 ** attempt
                 logger.warning(
@@ -329,6 +336,9 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
                 )
 
         except Exception as e:
+            if store:
+                await store.close()
+
             logger.error(
                 "Failed to initialize BlobDedupStore - falling back to memory-only dedup",
                 extra={
