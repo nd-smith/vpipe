@@ -32,7 +32,7 @@ class BlobDedupStore:
         self._container: ContainerClient | None = None
 
     async def initialize(self) -> None:
-        """Initialize blob client and ensure container exists."""
+        """Initialize blob client."""
         # Use corporate CA bundle for SSL verification (same pattern as
         # consumer/producer/batch_consumer)
         kwargs = {}
@@ -49,22 +49,8 @@ class BlobDedupStore:
         )
         self._container = self._client.get_container_client(self.container_name)
 
-        # Create container if it doesn't exist (15s timeout to fail fast
-        # when blob storage is unreachable instead of hanging for minutes)
-        try:
-            await asyncio.wait_for(
-                self._container.create_container(),
-                timeout=15,
-            )
-            logger.info(f"Created dedup container: {self.container_name}")
-        except Exception as e:
-            if "ContainerAlreadyExists" in str(e):
-                logger.debug(f"Dedup container already exists: {self.container_name}")
-            else:
-                raise
-
         logger.info(
-            "Blob storage connectivity verified for dedup store",
+            "BlobDedupStore client initialized",
             extra={"container_name": self.container_name},
         )
 
