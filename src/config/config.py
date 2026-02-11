@@ -245,6 +245,9 @@ class MessageConfig:
     def get_max_retries(self, domain: str) -> int:
         return len(self.get_retry_delays(domain))
 
+    def get_retry_topic(self, domain: str) -> str:
+        return self.get_topic(domain, "retry")
+
     def get_storage_config(self) -> StorageConfig:
         return StorageConfig(
             onelake_base_path=self.onelake_base_path,
