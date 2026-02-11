@@ -338,29 +338,34 @@ class DeltaEventsWorker:
             set_log_context(trace_id=trace_id)
 
         # Add to batch with lock (raw dict with data already as dict)
+        flush_needed = False
         async with self._batch_lock:
             self._batch.append(message_data)
-
-            # Flush batch if full
             if len(self._batch) >= self.batch_size:
-                await self._flush_batch()
-                self._reset_batch_timer()
+                flush_needed = True
+
+        # Flush outside lock so the batch lock isn't held during
+        # the potentially long write + retry cycle
+        if flush_needed:
+            await self._flush_batch()
+            self._reset_batch_timer()
 
     async def _flush_batch(self) -> None:
         """
         Write the accumulated batch to Delta Lake.
 
         On success: clears batch and updates counters.
-        On failure: routes batch to Kafka retry topic.
+        On failure: routes batch to retry topic with classified error.
         """
-        if not self._batch:
-            return
-
-        # Generate short batch ID for log correlation
-        batch_id = uuid.uuid4().hex[:8]
-        batch_size = len(self._batch)
-        batch_to_write = self._batch
-        self._batch = []  # Clear immediately to accept new events
+        # Snapshot and clear batch under lock, then write outside lock
+        # so the lock isn't held during the potentially long write + retry cycle
+        async with self._batch_lock:
+            if not self._batch:
+                return
+            batch_id = uuid.uuid4().hex[:8]
+            batch_size = len(self._batch)
+            batch_to_write = self._batch
+            self._batch = []
 
         success = await self._write_batch(batch_to_write, batch_id)
 
@@ -404,7 +409,17 @@ class DeltaEventsWorker:
                 if self.consumer:
                     await self.consumer.stop()
         else:
-            # Route to Kafka retry topic
+            # Use actual error from _write_batch for proper classification
+            error = getattr(self, "_last_write_error", None) or Exception(
+                "Delta write failed"
+            )
+            error_category = getattr(self, "_last_error_category", None)
+            category_str = (
+                error_category.value
+                if hasattr(error_category, "value")
+                else "transient"
+            )
+
             trace_ids = []
             event_ids = []
             for event_dict in batch_to_write[:10]:
@@ -417,17 +432,26 @@ class DeltaEventsWorker:
                 extra={
                     "batch_id": batch_id,
                     "batch_size": batch_size,
+                    "error_category": category_str,
                     "trace_ids": trace_ids,
                     "event_ids": event_ids,
                 },
             )
-            await self.retry_handler.handle_batch_failure(
-                batch=batch_to_write,
-                error=Exception("Delta write returned failure status"),
-                retry_count=0,
-                error_category="transient",
-                batch_id=batch_id,
-            )
+            try:
+                await self.retry_handler.handle_batch_failure(
+                    batch=batch_to_write,
+                    error=error,
+                    retry_count=0,
+                    error_category=category_str,
+                    batch_id=batch_id,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to route batch to retry handler, events will be "
+                    "redelivered from last checkpoint",
+                    extra={"batch_id": batch_id, "batch_size": batch_size},
+                    exc_info=True,
+                )
 
     async def _write_batch(self, batch: list[dict[str, Any]], batch_id: str) -> bool:
         """
@@ -522,16 +546,7 @@ class DeltaEventsWorker:
         try:
             while self._running:
                 await asyncio.sleep(self.batch_timeout_seconds)
-                async with self._batch_lock:
-                    if self._batch:
-                        logger.debug(
-                            "Flushing batch on timeout",
-                            extra={
-                                "batch_size": len(self._batch),
-                                "timeout_seconds": self.batch_timeout_seconds,
-                            },
-                        )
-                        await self._flush_batch()
+                await self._flush_batch()
         except asyncio.CancelledError:
             logger.debug("Periodic flush task cancelled")
             raise
