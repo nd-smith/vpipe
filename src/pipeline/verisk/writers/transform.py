@@ -142,8 +142,17 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("type"),
             pl.col("type").str.split(".").list.last().alias("status_subtype"),
             pl.col("version"),
-            pl.col("utcDateTime").cast(pl.Datetime("us", "UTC")).alias("ingested_at"),
-            pl.col("utcDateTime").cast(pl.Datetime("us", "UTC")).dt.date().alias("event_date"),
+            pl.col("utcDateTime")
+            .str.replace("Z$", "")
+            .str.to_datetime("%Y-%m-%dT%H:%M:%S")
+            .dt.replace_time_zone("UTC")
+            .alias("ingested_at"),
+            pl.col("utcDateTime")
+            .str.replace("Z$", "")
+            .str.to_datetime("%Y-%m-%dT%H:%M:%S")
+            .dt.replace_time_zone("UTC")
+            .dt.date()
+            .alias("event_date"),
             pl.col("traceId").alias("trace_id"),
             event_id_expr,  # Successfully added to the schema here
         ]
