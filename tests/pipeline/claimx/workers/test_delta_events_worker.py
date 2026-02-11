@@ -15,6 +15,7 @@ No infrastructure required - all dependencies mocked.
 """
 
 import contextlib
+import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -228,7 +229,7 @@ class TestDeltaEventsWorkerMessageProcessing:
     async def test_event_message_parsed_successfully(
         self, mock_config, mock_producer, sample_event_message
     ):
-        """Worker parses event message."""
+        """Worker parses event message with normalized fields and generated event_id."""
         with patch("pipeline.claimx.workers.delta_events_worker.DeltaRetryHandler"):
             worker = ClaimXDeltaEventsWorker(
                 config=mock_config,
@@ -241,6 +242,50 @@ class TestDeltaEventsWorkerMessageProcessing:
             # Verify message was processed
             assert worker._records_processed == 1
             assert len(worker._batch) == 1
+
+            # Verify batch contains normalized snake_case fields
+            batch_event = worker._batch[0]
+            assert batch_event["event_id"] == "evt-123"
+            assert batch_event["event_type"] == "PROJECT_CREATED"
+            assert batch_event["project_id"] == "proj-456"
+            assert "raw_data" not in batch_event
+
+    @pytest.mark.asyncio
+    async def test_event_message_generates_event_id_when_missing(
+        self, mock_config, mock_producer
+    ):
+        """Worker generates deterministic event_id when source has none."""
+        event_data = {
+            "eventType": "PROJECT_CREATED",
+            "projectId": "proj-456",
+            "ingestedAt": "2024-01-01T00:00:00Z",
+        }
+
+        message = PipelineMessage(
+            topic="claimx.events",
+            partition=0,
+            offset=1,
+            key=b"key",
+            value=json.dumps(event_data).encode(),
+            timestamp=None,
+            headers=None,
+        )
+
+        with patch("pipeline.claimx.workers.delta_events_worker.DeltaRetryHandler"):
+            worker = ClaimXDeltaEventsWorker(
+                config=mock_config,
+                producer=mock_producer,
+                events_table_path="abfss://test/claimx_events",
+            )
+
+            await worker._handle_event_message(message)
+
+            assert len(worker._batch) == 1
+            batch_event = worker._batch[0]
+            # event_id should be a SHA256 hex digest (64 chars)
+            assert len(batch_event["event_id"]) == 64
+            assert batch_event["event_type"] == "PROJECT_CREATED"
+            assert batch_event["project_id"] == "proj-456"
 
     @pytest.mark.asyncio
     async def test_invalid_json_logs_error(self, mock_config, mock_producer):
@@ -264,6 +309,36 @@ class TestDeltaEventsWorkerMessageProcessing:
 
             # Should log exception and return without raising
             await worker._handle_event_message(invalid_message)
+
+    @pytest.mark.asyncio
+    async def test_validation_error_logs_and_skips(self, mock_config, mock_producer):
+        """Worker handles validation errors gracefully."""
+        # Event missing all required fields
+        event_data = {"some_unknown_field": "value"}
+
+        message = PipelineMessage(
+            topic="claimx.events",
+            partition=0,
+            offset=1,
+            key=b"key",
+            value=json.dumps(event_data).encode(),
+            timestamp=None,
+            headers=None,
+        )
+
+        with patch("pipeline.claimx.workers.delta_events_worker.DeltaRetryHandler"):
+            worker = ClaimXDeltaEventsWorker(
+                config=mock_config,
+                producer=mock_producer,
+                events_table_path="abfss://test/claimx_events",
+            )
+
+            # Should log exception and return without raising
+            await worker._handle_event_message(message)
+
+            # Event was counted but not added to batch
+            assert worker._records_processed == 1
+            assert len(worker._batch) == 0
 
 
 class TestDeltaEventsWorkerBatching:

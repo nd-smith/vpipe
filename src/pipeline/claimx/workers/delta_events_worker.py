@@ -11,9 +11,12 @@ import time
 import uuid
 from typing import Any
 
+from pydantic import ValidationError
+
 from config.config import MessageConfig
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
+from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.writers import ClaimXEventsDeltaWriter
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
@@ -252,6 +255,10 @@ class ClaimXDeltaEventsWorker:
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         """
         Process a single event message.
+
+        Parses raw event through ClaimXEventMessage.from_raw_event() to normalize
+        field names (camelCase → snake_case) and generate deterministic event_id
+        when the source does not provide one.
         """
         self._records_processed += 1
 
@@ -261,8 +268,15 @@ class ClaimXDeltaEventsWorker:
             logger.exception("Failed to parse message JSON")
             return
 
+        try:
+            event = ClaimXEventMessage.from_raw_event(message_data)
+            event_data = event.model_dump(exclude={"raw_data"})
+        except ValidationError:
+            logger.exception("Failed to parse ClaimXEventMessage")
+            return
+
         async with self._batch_lock:
-            self._batch.append(message_data)
+            self._batch.append(event_data)
             if len(self._batch) >= self.batch_size:
                 await self._flush_batch()
                 self._reset_batch_timer()
