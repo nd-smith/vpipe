@@ -128,6 +128,7 @@ class BaseDeltaWriter:
             return True
 
         except Exception as e:
+            self._last_append_error = e
             self.logger.error(
                 "Failed to append to Delta table",
                 extra={

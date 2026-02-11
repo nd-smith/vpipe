@@ -98,52 +98,42 @@ class DeltaEventsWriter(BaseDeltaWriter):
         if not raw_events:
             return True
 
-        try:
-            # Run synchronous transform in thread to avoid blocking event loop.
-            # This is critical: flatten_events() does row-by-row JSON parsing which
-            # can take 30+ seconds for large batches. Blocking the event loop would
-            # prevent Kafka heartbeats, causing consumer group rebalancing.
-            def _sync_transform() -> pl.DataFrame:
-                raw_df = pl.DataFrame(raw_events)
-                flattened_df = flatten_events(raw_df)
-                now = datetime.now(UTC)
-                return flattened_df.with_columns(
-                    [
-                        pl.lit(now).alias("created_at"),
-                        pl.lit(now.date()).alias("created_date"),
-                    ]
-                )
+        # Run synchronous transform in thread to avoid blocking event loop.
+        # This is critical: flatten_events() does row-by-row JSON parsing which
+        # can take 30+ seconds for large batches. Blocking the event loop would
+        # prevent Kafka heartbeats, causing consumer group rebalancing.
+        def _sync_transform() -> pl.DataFrame:
+            raw_df = pl.DataFrame(raw_events)
+            flattened_df = flatten_events(raw_df)
+            now = datetime.now(UTC)
+            return flattened_df.with_columns(
+                [
+                    pl.lit(now).alias("created_at"),
+                    pl.lit(now.date()).alias("created_date"),
+                ]
+            )
 
-            flattened_df = await asyncio.to_thread(_sync_transform)
+        flattened_df = await asyncio.to_thread(_sync_transform)
 
-            # Use base class async append method
-            success = await self._async_append(flattened_df, batch_id=batch_id)
+        success = await self._async_append(flattened_df, batch_id=batch_id)
 
-            if success:
-                self.logger.info(
-                    "Successfully wrote events to Delta",
-                    extra={
-                        "batch_id": batch_id,
-                        "event_count": len(raw_events),
-                        "columns": len(flattened_df.columns),
-                        "table_path": self.table_path,
-                    },
-                )
-
-            return success
-
-        except Exception as e:
-            self.logger.error(
-                "Failed to write events to Delta",
+        if success:
+            self.logger.info(
+                "Successfully wrote events to Delta",
                 extra={
                     "batch_id": batch_id,
                     "event_count": len(raw_events),
+                    "columns": len(flattened_df.columns),
                     "table_path": self.table_path,
-                    "error": str(e),
                 },
-                exc_info=True,
             )
-            return False
+            return True
+
+        # Propagate the storage error so _write_batch can classify it
+        error = getattr(self, "_last_append_error", None)
+        if error:
+            raise error
+        raise RuntimeError(f"Delta append failed for batch {batch_id}")
 
 
 __all__ = ["DeltaEventsWriter"]

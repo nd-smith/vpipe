@@ -587,9 +587,11 @@ class DeltaTableWriter:
         # otherwise use configured partition column. This prevents partition mismatch
         # errors when appending to tables with different/no partitioning.
         partition_by = None
+        version_before = None
         if table_existed_before:
             try:
                 dt = DeltaTable(self.table_path, storage_options=opts)
+                version_before = dt.version()
                 existing_partitions = dt.metadata().partition_columns
                 partition_by = existing_partitions if existing_partitions else None
             except Exception:
@@ -634,20 +636,47 @@ class DeltaTableWriter:
             },
         )
 
-        # Verify table now exists and log details
+        # Verify write actually committed by checking version increment
+        # and counting files added in the new commit
         try:
             dt = DeltaTable(self.table_path, storage_options=opts)
-            version = dt.version()
+            version_after = dt.version()
             metadata = dt.metadata()
+
+            # Count data files added by the latest commit
+            files_added = 0
+            try:
+                last_action = dt.history(limit=1)
+                if last_action:
+                    op_metrics = last_action[0].get("operationMetrics", {})
+                    files_added = int(op_metrics.get("numFiles", 0) or op_metrics.get("numAddedFiles", 0))
+            except Exception:
+                pass
+
+            version_incremented = version_before is None or version_after > version_before
             logger.info(
                 "Delta table verified after write",
                 extra={
                     "batch_id": batch_id,
                     "table_path": self.table_path,
-                    "table_version": version,
+                    "version_before": version_before,
+                    "version_after": version_after,
+                    "version_incremented": version_incremented,
+                    "files_added": files_added,
                     "partition_columns": metadata.partition_columns,
                 },
             )
+
+            if not version_incremented:
+                logger.error(
+                    "Delta write did NOT increment table version — commit may have been lost",
+                    extra={
+                        "batch_id": batch_id,
+                        "table_path": self.table_path,
+                        "version_before": version_before,
+                        "version_after": version_after,
+                    },
+                )
         except Exception as e:
             logger.error(
                 "Failed to verify Delta table after write",
