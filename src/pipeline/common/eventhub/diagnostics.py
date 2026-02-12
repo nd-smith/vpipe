@@ -13,21 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def mask_connection_string(conn_str: str) -> str:
-    """Mask sensitive parts of Event Hub connection string for safe logging.
-
-    Shows endpoint and policy name but masks the SharedAccessKey.
-
-    Args:
-        conn_str: Full Event Hub connection string
-
-    Returns:
-        Masked connection string safe for logging
-
-    Example:
-        Input: "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=abc123xyz"
-        Output: "Endpoint=sb://myhub.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=***MASKED***"
-    """
+def mask_connection_string(conn_str: str) -> str:    
     if not conn_str:
         return ""
 
