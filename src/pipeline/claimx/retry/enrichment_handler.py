@@ -9,7 +9,6 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
-from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.handlers.utils import (
     LOG_ERROR_TRUNCATE_LONG,
@@ -270,15 +269,17 @@ class EnrichmentRetryHandler:
             failed_at=datetime.now(UTC),
         )
 
-        log_worker_error(
-            logger,
+        reason = "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
+        logger.warning(
             "Sending task to DLQ",
-            event_id=task.event_id,
-            error_category=error_category.value,
-            exc=error,
-            event_type=task.event_type,
-            project_id=task.project_id,
-            retry_count=task.retry_count,
+            extra={
+                "event_id": task.event_id,
+                "error_category": error_category.value,
+                "event_type": task.event_type,
+                "project_id": task.project_id,
+                "retry_count": task.retry_count,
+                "dlq_reason": reason,
+            },
         )
 
         await self._dlq_producer.send(
@@ -287,7 +288,7 @@ class EnrichmentRetryHandler:
             headers=create_dlq_headers(task.retry_count, error_category),
         )
 
-        logger.info(
+        logger.debug(
             "Task sent to DLQ successfully",
             extra={
                 "event_id": task.event_id,

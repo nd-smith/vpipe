@@ -736,7 +736,7 @@ class DownloadWorker:
                 error_category=error_category,
             )
 
-            logger.info(
+            logger.debug(
                 "Routed failed task through retry handler",
                 extra={
                     "trace_id": task_message.trace_id,

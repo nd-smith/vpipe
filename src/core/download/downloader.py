@@ -71,7 +71,7 @@ class AttachmentDownloader:
                 expires_at = url_info.expires_at.isoformat() if url_info.expires_at else "unknown"
                 signed_at = url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
 
-                logger.warning(
+                logger.debug(
                     "Presigned URL expired, sending to DLQ",
                     extra={
                         "url_type": url_info.url_type,
