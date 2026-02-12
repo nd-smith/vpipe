@@ -10,7 +10,6 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
-from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.handlers.utils import (
@@ -407,15 +406,15 @@ class DownloadRetryHandler:
             failed_at=datetime.now(UTC),
         )
 
-        log_worker_error(
-            logger,
+        logger.info(
             "Sending task to DLQ",
-            event_id=task.media_id,
-            error_category=error_category.value,
-            exc=error,
-            project_id=task.project_id,
-            retry_count=task.retry_count,
-            url_refresh_attempted=url_refresh_attempted,
+            extra={
+                "media_id": task.media_id,
+                "error_category": error_category.value,
+                "project_id": task.project_id,
+                "retry_count": task.retry_count,
+                "url_refresh_attempted": url_refresh_attempted,
+            },
         )
 
         # Record DLQ routing metric
@@ -431,7 +430,7 @@ class DownloadRetryHandler:
             headers=dlq_headers,
         )
 
-        logger.info(
+        logger.debug(
             "Task sent to DLQ successfully",
             extra={
                 "media_id": task.media_id,
