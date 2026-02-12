@@ -168,6 +168,13 @@ class DownloadWorker:
             topic_key="downloads_cached",
         )
 
+        self.results_producer = create_producer(
+            config=config,
+            domain=domain,
+            worker_name=self.WORKER_NAME,
+            topic_key="downloads_results",
+        )
+
         self.downloader = AttachmentDownloader()
 
         self.retry_handler: RetryHandler | None = None
@@ -258,6 +265,11 @@ class DownloadWorker:
         # differ from the Kafka topic name resolved by get_topic()).
         if hasattr(self.producer, "eventhub_name"):
             self.cached_topic = self.producer.eventhub_name
+
+        await self.results_producer.start()
+
+        if hasattr(self.results_producer, "eventhub_name"):
+            self.results_topic = self.results_producer.eventhub_name
 
         self.retry_handler = RetryHandler(self.config)
         await self.retry_handler.start()
@@ -371,6 +383,7 @@ class DownloadWorker:
             self._http_session = None
 
         await self.producer.stop()
+        await self.results_producer.stop()
 
         if self.retry_handler:
             await self.retry_handler.stop()
@@ -759,7 +772,7 @@ class DownloadWorker:
             created_at=datetime.now(UTC),
         )
 
-        await self.producer.send(
+        await self.results_producer.send(
             value=result_message,
             key=task_message.trace_id,
         )
