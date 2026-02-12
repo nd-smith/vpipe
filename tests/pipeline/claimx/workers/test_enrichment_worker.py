@@ -659,14 +659,31 @@ class TestEnrichmentWorkerProjectCache:
     """Test project cache integration."""
 
     @pytest.mark.asyncio
-    async def test_ensure_projects_exist_is_noop(
+    async def test_ensure_project_exists_fetches_from_api(
         self, mock_config, mock_api_client, patched_project_cache
     ):
-        """Worker's _ensure_projects_exist is disabled (no-op)."""
+        """Worker's _ensure_project_exists fetches project data via ProjectHandler."""
+        patched_project_cache.return_value.has.return_value = False
+        mock_api_client.get_project = AsyncMock(
+            return_value={"data": {"project": {"projectId": 456}, "teamMembers": []}}
+        )
         worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
-        # Should not raise or do anything
-        await worker._ensure_projects_exist(["proj-123"])
+        rows = await worker._ensure_project_exists("456")
 
-        # No API calls should be made
-        assert not mock_api_client.get_project.called
+        mock_api_client.get_project.assert_called_once_with(456)
+        assert len(rows.projects) == 1
+        assert rows.projects[0]["project_id"] == "456"
+
+    @pytest.mark.asyncio
+    async def test_ensure_project_exists_skips_api_when_cached(
+        self, mock_config, mock_api_client, patched_project_cache
+    ):
+        """Worker's _ensure_project_exists returns empty when project is cached."""
+        patched_project_cache.return_value.has.return_value = True
+        worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
+
+        rows = await worker._ensure_project_exists("456")
+
+        mock_api_client.get_project.assert_not_called()
+        assert rows.is_empty()

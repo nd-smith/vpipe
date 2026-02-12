@@ -204,8 +204,10 @@ class ProjectHandler(EventHandler):
             response,
             event_id=source_event_id,
         )
-        if project_row.get("project_id") is not None:
-            rows.projects.append(project_row)
+        # Use input project_id as fallback when API response structure varies
+        if project_row.get("project_id") is None:
+            project_row["project_id"] = project_id_str
+        rows.projects.append(project_row)
 
         contact_rows = transformers.project_to_contacts(
             response,
@@ -214,8 +216,8 @@ class ProjectHandler(EventHandler):
         )
         rows.contacts.extend(contact_rows)
 
-        # Add to cache after successful fetch
-        if self.project_cache:
+        # Add to cache only after successfully producing a project row
+        if self.project_cache and rows.projects:
             self.project_cache.add(project_id_str)
 
         return rows

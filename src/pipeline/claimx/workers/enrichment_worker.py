@@ -432,9 +432,22 @@ class ClaimXEnrichmentWorker:
         """
         start_time = datetime.now(UTC)
 
-        # Step 1: Ensure project exists in cache
+        # Step 1: Pre-flight project verification
+        # Guarantees project row exists in Delta for any event with a project_id,
+        # even if the downstream handler fails or the event type has no handler.
         if task.project_id:
-            await self._ensure_projects_exist([task.project_id])
+            try:
+                project_rows = await self._ensure_project_exists(task.project_id)
+                if not project_rows.is_empty():
+                    await self._dispatch_entity_rows(task, project_rows)
+            except Exception:
+                logger.debug(
+                    "Pre-flight project verification failed, handler will retry",
+                    extra={
+                        "project_id": task.project_id,
+                        "event_id": task.event_id,
+                    },
+                )
 
         # Step 2: Create event message from task
         event = ClaimXEventMessage(
@@ -571,12 +584,23 @@ class ClaimXEnrichmentWorker:
         # Message will be replaced by PeriodicStatsLogger
         return "", extra
 
-    async def _ensure_projects_exist(
+    async def _ensure_project_exists(
         self,
-        project_ids: list[str],
-    ) -> None:
-        """Pre-flight check disabled - project existence handled by downstream delta writer."""
-        return
+        project_id: str,
+    ) -> EntityRowsMessage:
+        """Fetch project data from API if not already in cache.
+
+        Universal pre-flight check that guarantees every event's project
+        exists in the Delta table, regardless of which handler processes
+        the event or whether that handler succeeds.
+        """
+        from pipeline.claimx.handlers.project import ProjectHandler
+
+        project_handler = ProjectHandler(self.api_client, project_cache=self.project_cache)
+        return await project_handler.fetch_project_data(
+            int(project_id),
+            source_event_id=None,
+        )
 
     async def _produce_entity_rows(
         self,
