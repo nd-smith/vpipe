@@ -7,7 +7,7 @@
 # Required Environment Variables:
 #   - ITEL_CABINET_API_BASE_URL: iTel Cabinet API base URL
 #   - ITEL_CABINET_API_CLIENT_ID: OAuth2 client ID
-#   - ITEL_CABINET_API_CLIENT_SECRET: OAuth2 client secret
+#   - ITEL_CABINET_API_CLIENT_CREDENTIAL: OAuth2 client credential
 #   - ITEL_CABINET_API_TOKEN_URL: OAuth2 token endpoint URL
 #   - ITEL_CABINET_API_SCOPE: OAuth2 scope
 #
@@ -24,7 +24,7 @@ connections:
     oauth2:
       grant_type: client_credentials
       client_id: ${ITEL_CABINET_API_CLIENT_ID}
-      client_secret: ${ITEL_CABINET_API_CLIENT_SECRET}
+      client_credential: ${ITEL_CABINET_API_CLIENT_CREDENTIAL}
       token_url: ${ITEL_CABINET_API_TOKEN_URL}
       scope: ${ITEL_CABINET_API_SCOPE}
     timeout_seconds: 45

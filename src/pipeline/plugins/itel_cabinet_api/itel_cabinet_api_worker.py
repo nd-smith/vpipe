@@ -16,7 +16,7 @@ Configuration:
 Environment Variables:
     ITEL_CABINET_API_BASE_URL: iTel API base URL
     ITEL_CABINET_API_CLIENT_ID: OAuth2 client ID
-    ITEL_CABINET_API_CLIENT_SECRET: OAuth2 client secret
+    ITEL_CABINET_API_CLIENT_CREDENTIAL: OAuth2 client credential
     ITEL_CABINET_API_TOKEN_URL: OAuth2 token endpoint URL
     KAFKA_BOOTSTRAP_SERVERS: Kafka broker addresses (default: localhost:9094)
 """

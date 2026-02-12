@@ -78,20 +78,20 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
         # Load OAuth2 config if present
         oauth2_data = conn_data.get("oauth2", {})
         oauth2_client_id = None
-        oauth2_client_secret = None
+        oauth2_client_credential = None
         oauth2_token_url = None
         oauth2_scope = None
 
         if oauth2_data:
             oauth2_client_id = os.path.expandvars(oauth2_data.get("client_id", "")) or None
-            oauth2_client_secret = os.path.expandvars(oauth2_data.get("client_secret", "")) or None
+            oauth2_client_credential = os.path.expandvars(oauth2_data.get("client_credential", "")) or None
             oauth2_token_url = os.path.expandvars(oauth2_data.get("token_url", "")) or None
             oauth2_scope = oauth2_data.get("scope")
 
             # Validate env var expansion for OAuth2 fields
             for field_name, field_value in [
                 ("client_id", oauth2_client_id),
-                ("client_secret", oauth2_client_secret),
+                ("client_credential", oauth2_client_credential),
                 ("token_url", oauth2_token_url),
             ]:
                 if field_value and "${" in field_value:
@@ -113,7 +113,7 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
             retry_backoff_max=conn_data.get("retry_backoff_max", 60),
             headers=conn_data.get("headers", {}),
             oauth2_client_id=oauth2_client_id,
-            oauth2_client_secret=oauth2_client_secret,
+            oauth2_client_credential=oauth2_client_credential,
             oauth2_token_url=oauth2_token_url,
             oauth2_scope=oauth2_scope,
         )

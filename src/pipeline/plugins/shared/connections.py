@@ -70,7 +70,7 @@ class ConnectionConfig:
     retry_backoff_max: int = 60
     headers: dict[str, str] = field(default_factory=dict)
     oauth2_client_id: str | None = None
-    oauth2_client_secret: str | None = None
+    oauth2_client_credential: str | None = None
     oauth2_token_url: str | None = None
     oauth2_scope: str | None = None
 
@@ -95,8 +95,8 @@ class ConnectionConfig:
             missing = []
             if not self.oauth2_client_id:
                 missing.append("oauth2_client_id")
-            if not self.oauth2_client_secret:
-                missing.append("oauth2_client_secret")
+            if not self.oauth2_client_credential:
+                missing.append("oauth2_client_credential")
             if not self.oauth2_token_url:
                 missing.append("oauth2_token_url")
             if missing:
@@ -258,7 +258,7 @@ class ConnectionManager:
                 oauth2_config = OAuth2Config(
                     provider_name=conn.name,
                     client_id=conn.oauth2_client_id,
-                    client_secret=conn.oauth2_client_secret,
+                    client_secret=conn.oauth2_client_credential,
                     token_url=conn.oauth2_token_url,
                     scope=conn.oauth2_scope,
                 )

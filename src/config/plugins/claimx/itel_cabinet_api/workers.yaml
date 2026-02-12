@@ -92,7 +92,7 @@ workers:
 # iTel API connection (required for API worker)
 # export ITEL_CABINET_API_BASE_URL="https://api.qa.itelinc.net/cabinet-repair-orv"
 # export ITEL_CABINET_API_CLIENT_ID="your-client-id"
-# export ITEL_CABINET_API_CLIENT_SECRET="your-client-secret"
+# export ITEL_CABINET_API_CLIENT_CREDENTIAL="your-client-credential"
 # export ITEL_CABINET_API_TOKEN_URL="https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token"
 # export ITEL_CABINET_API_SCOPE="your-scope"
 # export ITEL_CABINET_API_CARRIER_ID="your-carrier-guid"
