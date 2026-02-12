@@ -8,6 +8,7 @@ _stage_name: ContextVar[str] = ContextVar("stage_name", default="")
 _worker_id: ContextVar[str] = ContextVar("worker_id", default="")
 _domain: ContextVar[str] = ContextVar("domain", default="")
 _trace_id: ContextVar[str] = ContextVar("trace_id", default="")
+_media_id: ContextVar[str] = ContextVar("media_id", default="")
 
 # Message transport context
 _message_topic: ContextVar[str] = ContextVar("message_topic", default="")
@@ -23,6 +24,7 @@ def set_log_context(
     worker_id: str | None = None,
     domain: str | None = None,
     trace_id: str | None = None,
+    media_id: str | None = None,
 ) -> None:
     if cycle_id is not None:
         _cycle_id.set(cycle_id)
@@ -34,6 +36,8 @@ def set_log_context(
         _domain.set(domain)
     if trace_id is not None:
         _trace_id.set(trace_id)
+    if media_id is not None:
+        _media_id.set(media_id)
 
 
 def get_log_context() -> dict[str, str]:
@@ -43,6 +47,7 @@ def get_log_context() -> dict[str, str]:
         "worker_id": _worker_id.get(),
         "domain": _domain.get(),
         "trace_id": _trace_id.get(),
+        "media_id": _media_id.get(),
     }
 
     # Note: Distributed tracing (OpenTracing) has been removed
@@ -56,6 +61,7 @@ def clear_log_context() -> None:
     _worker_id.set("")
     _domain.set("")
     _trace_id.set("")
+    _media_id.set("")
 
 
 def set_message_context(

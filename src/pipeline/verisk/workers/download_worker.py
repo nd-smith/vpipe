@@ -518,7 +518,7 @@ class DownloadWorker:
                 error=e,
             )
 
-        set_log_context(trace_id=task_message.trace_id)
+        set_log_context(trace_id=task_message.trace_id, media_id=task_message.media_id)
 
         self._records_processed += 1
 

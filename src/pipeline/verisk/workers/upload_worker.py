@@ -467,7 +467,7 @@ class UploadWorker:
             trace_id = cached_message.trace_id
 
             # Set logging context for correlation
-            set_log_context(trace_id=trace_id)
+            set_log_context(trace_id=trace_id, media_id=cached_message.media_id)
 
             # Track messages received for cycle output
             self._records_processed += 1

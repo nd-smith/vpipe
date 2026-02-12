@@ -495,7 +495,7 @@ class ClaimXUploadWorker:
             media_id = cached_message.media_id
 
             # Set logging context for correlation
-            set_log_context(trace_id=cached_message.source_event_id)
+            set_log_context(trace_id=cached_message.source_event_id, media_id=cached_message.media_id)
 
             # Track in-flight
             async with self._in_flight_lock:

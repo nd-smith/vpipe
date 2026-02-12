@@ -224,6 +224,8 @@ class JSONFormatter(logging.Formatter):
         # Inject trace_id from context if available (can be overridden by extra)
         if log_context["trace_id"]:
             log_entry["trace_id"] = log_context["trace_id"]
+        if log_context["media_id"]:
+            log_entry["media_id"] = log_context["media_id"]
 
         # Note: Distributed tracing (OpenTracing) has been removed
 
@@ -303,12 +305,18 @@ class ConsoleFormatter(logging.Formatter):
         # Add batch_id and/or trace_id if present
         batch_id = getattr(record, "batch_id", None)
         trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
+        media_id = getattr(record, "media_id", None) or log_context.get("media_id")
 
-        if batch_id and trace_id:
-            return f"{prefix} - [batch:{batch_id}] [{trace_id[:8]}] {record.getMessage()}"
-        elif batch_id:
-            return f"{prefix} - [batch:{batch_id}] {record.getMessage()}"
-        elif trace_id:
-            return f"{prefix} - [{trace_id[:8]}] {record.getMessage()}"
+        # Build context tags
+        tags = []
+        if batch_id:
+            tags.append(f"[batch:{batch_id}]")
+        if trace_id:
+            tags.append(f"[{trace_id[:8]}]")
+        if media_id:
+            tags.append(f"[mid:{media_id[:8]}]")
+
+        if tags:
+            return f"{prefix} - {' '.join(tags)} {record.getMessage()}"
 
         return f"{prefix} - {record.getMessage()}"
