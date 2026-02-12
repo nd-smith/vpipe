@@ -10,9 +10,17 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
+from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
+)
+from pipeline.common.retry.retry_utils import (
+    create_dlq_headers,
+    create_retry_headers,
+    log_retry_decision,
+    should_send_to_dlq,
+    truncate_error_message,
 )
 from pipeline.common.transport import create_producer
 from pipeline.verisk.schemas.results import FailedDownloadMessage
@@ -166,35 +174,16 @@ class RetryHandler:
             },
         )
 
-        # PERMANENT errors skip retry and go straight to DLQ
-        if error_category == ErrorCategory.PERMANENT:
-            logger.warning(
-                "Permanent error detected, sending to DLQ without retry",
-                extra={
-                    "trace_id": task.trace_id,
-                    "error": str(error)[:200],
-                },
-            )
-            record_dlq_message(domain=self.domain, reason="permanent")
+        send_to_dlq, dlq_reason = should_send_to_dlq(error_category, retry_count, self._max_retries)
+
+        if send_to_dlq:
+            action = "dlq_permanent" if dlq_reason == "permanent" else "dlq_exhausted"
+            log_retry_decision(action, task.trace_id, retry_count, error_category, error)
+            record_dlq_message(domain=self.domain, reason=dlq_reason)
             await self._send_to_dlq(task, error, error_category)
             return
 
-        # Check if retries exhausted
-        if retry_count >= self._max_retries:
-            logger.warning(
-                "Retries exhausted, sending to DLQ",
-                extra={
-                    "trace_id": task.trace_id,
-                    "retry_count": retry_count,
-                    "max_retries": self._max_retries,
-                },
-            )
-            # record_retry_exhausted removed - metrics simplified
-            record_dlq_message(domain=self.domain, reason="exhausted")
-            await self._send_to_dlq(task, error, error_category)
-            return
-
-        # Send to next retry topic
+        log_retry_decision("retry", task.trace_id, retry_count, error_category, error)
         await self._send_to_retry_topic(task, error, error_category)
 
     async def _send_to_retry_topic(
@@ -228,9 +217,8 @@ class RetryHandler:
         updated_task = task.model_copy(deep=True)
         updated_task.retry_count += 1
 
-        # Add error context to metadata (truncate to prevent huge messages)
-        error_message = str(error)[:500]
-        updated_task.metadata["last_error"] = error_message
+        # Add error context to metadata
+        updated_task.metadata["last_error"] = truncate_error_message(error)
         updated_task.metadata["error_category"] = error_category.value
 
         # Calculate retry timestamp
@@ -263,16 +251,16 @@ class RetryHandler:
         await self._retry_producer.send(
             value=updated_task,
             key=task.trace_id,
-            headers={
-                "retry_count": str(updated_task.retry_count),
-                "scheduled_retry_time": retry_at.isoformat(),
-                "retry_delay_seconds": str(delay_seconds),
-                "target_topic": target_topic,
-                "worker_type": "download_worker",
-                "original_key": task.trace_id,
-                "error_category": error_category.value,
-                "domain": self.domain,
-            },
+            headers=create_retry_headers(
+                retry_count=updated_task.retry_count,
+                retry_at=retry_at,
+                delay_seconds=delay_seconds,
+                target_topic=target_topic,
+                worker_type="download_worker",
+                original_key=task.trace_id,
+                error_category=error_category,
+                domain=self.domain,
+            ),
         )
 
         logger.debug(
@@ -305,11 +293,6 @@ class RetryHandler:
             RuntimeError: If producer is not started
             Exception: If send to DLQ fails
         """
-        # Truncate error message to prevent huge DLQ messages
-        error_message = str(error)
-        if len(error_message) > 500:
-            error_message = error_message[:497] + "..."
-
         # Create DLQ message
         dlq_message = FailedDownloadMessage(
             trace_id=task.trace_id,
@@ -320,24 +303,19 @@ class RetryHandler:
             failed_at=datetime.now(UTC),
         )
 
-        logger.error(
+        log_worker_error(
+            logger,
             "Sending task to DLQ",
-            extra={
-                "trace_id": task.trace_id,
-                "retry_count": task.retry_count,
-                "error_category": error_category.value,
-                "final_error": error_message[:200],
-            },
+            event_id=task.trace_id,
+            error_category=error_category.value,
+            exc=error,
+            retry_count=task.retry_count,
         )
 
         await self._dlq_producer.send(
             value=dlq_message,
             key=task.trace_id,
-            headers={
-                "retry_count": str(task.retry_count),
-                "error_category": error_category.value,
-                "failed": "true",
-            },
+            headers=create_dlq_headers(task.retry_count, error_category),
         )
 
         logger.info(

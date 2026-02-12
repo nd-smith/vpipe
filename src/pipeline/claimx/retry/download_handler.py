@@ -10,6 +10,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
+from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.handlers.utils import (
@@ -21,6 +22,13 @@ from pipeline.claimx.schemas.results import FailedDownloadMessage
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
 from pipeline.common.metrics import (
     record_dlq_message,
+)
+from pipeline.common.retry.retry_utils import (
+    create_dlq_headers,
+    create_retry_headers,
+    log_retry_decision,
+    should_send_to_dlq,
+    truncate_error_message,
 )
 from pipeline.common.transport import create_producer
 
@@ -143,26 +151,15 @@ class DownloadRetryHandler:
             },
         )
 
-        # PERMANENT errors skip retry and go straight to DLQ
-        if error_category == ErrorCategory.PERMANENT:
-            logger.warning(
-                "Permanent error detected, sending to DLQ without retry",
-                extra={
-                    "media_id": task.media_id,
-                    "error": str(error)[:LOG_ERROR_TRUNCATE_SHORT],
-                },
-            )
-            await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
-            return
+        send_to_dlq_flag, dlq_reason = should_send_to_dlq(
+            error_category, retry_count, self._max_retries
+        )
 
-        if retry_count >= self._max_retries:
-            logger.warning(
-                "Retries exhausted, sending to DLQ",
-                extra={
-                    "media_id": task.media_id,
-                    "retry_count": retry_count,
-                    "max_retries": self._max_retries,
-                },
+        if send_to_dlq_flag:
+            action = "dlq_permanent" if dlq_reason == "permanent" else "dlq_exhausted"
+            log_retry_decision(
+                action, task.media_id, retry_count, error_category, error,
+                extra_context={"project_id": task.project_id},
             )
             await self._send_to_dlq(task, error, error_category, url_refresh_attempted=False)
             return
@@ -338,11 +335,9 @@ class DownloadRetryHandler:
         updated_task = task.model_copy(deep=True)
         updated_task.retry_count += 1
 
-        # Add error context to metadata (truncate to prevent huge messages)
-        error_message = str(error)[:LOG_ERROR_TRUNCATE_LONG]
         if updated_task.metadata is None:
             updated_task.metadata = {}
-        updated_task.metadata["last_error"] = error_message
+        updated_task.metadata["last_error"] = truncate_error_message(error)
         updated_task.metadata["error_category"] = error_category.value
         retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
@@ -366,16 +361,16 @@ class DownloadRetryHandler:
         await self._retry_producer.send(
             value=updated_task,
             key=task.source_event_id,
-            headers={
-                "retry_count": str(updated_task.retry_count),
-                "scheduled_retry_time": retry_at.isoformat(),
-                "retry_delay_seconds": str(delay_seconds),
-                "target_topic": target_topic,
-                "worker_type": "download_worker",
-                "original_key": task.source_event_id,
-                "error_category": error_category.value,
-                "domain": self.domain,
-            },
+            headers=create_retry_headers(
+                retry_count=updated_task.retry_count,
+                retry_at=retry_at,
+                delay_seconds=delay_seconds,
+                target_topic=target_topic,
+                worker_type="download_worker",
+                original_key=task.source_event_id,
+                error_category=error_category,
+                domain=self.domain,
+            ),
         )
 
         logger.debug(
@@ -402,8 +397,6 @@ class DownloadRetryHandler:
 
             Exception: If send to DLQ fails
         """
-        # Truncate error message to prevent huge DLQ messages
-        error_message = str(error)
         dlq_message = FailedDownloadMessage(
             media_id=task.media_id,
             project_id=task.project_id,
@@ -414,33 +407,28 @@ class DownloadRetryHandler:
             failed_at=datetime.now(UTC),
         )
 
-        logger.error(
+        log_worker_error(
+            logger,
             "Sending task to DLQ",
-            extra={
-                "media_id": task.media_id,
-                "project_id": task.project_id,
-                "retry_count": task.retry_count,
-                "error_category": error_category.value,
-                "url_refresh_attempted": url_refresh_attempted,
-                "final_error": error_message[:LOG_ERROR_TRUNCATE_SHORT],
-            },
+            event_id=task.media_id,
+            error_category=error_category.value,
+            exc=error,
+            project_id=task.project_id,
+            retry_count=task.retry_count,
+            url_refresh_attempted=url_refresh_attempted,
         )
 
         # Record DLQ routing metric
-        # Determine reason: permanent error or exhausted retries
         reason = "permanent" if error_category == ErrorCategory.PERMANENT else "exhausted"
         record_dlq_message(domain="claimx", reason=reason)
 
         # Use source_event_id as key for consistent partitioning across all ClaimX topics
+        dlq_headers = create_dlq_headers(task.retry_count, error_category)
+        dlq_headers["url_refresh_attempted"] = str(url_refresh_attempted)
         await self._dlq_producer.send(
             value=dlq_message,
             key=task.source_event_id,
-            headers={
-                "retry_count": str(task.retry_count),
-                "error_category": error_category.value,
-                "url_refresh_attempted": str(url_refresh_attempted),
-                "failed": "true",
-            },
+            headers=dlq_headers,
         )
 
         logger.info(

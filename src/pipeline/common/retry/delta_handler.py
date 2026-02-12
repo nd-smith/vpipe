@@ -54,9 +54,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from config.config import MessageConfig
+from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
+)
+from pipeline.common.retry.retry_utils import (
+    create_dlq_headers,
+    create_retry_headers,
+    log_retry_decision,
+    should_send_to_dlq,
+    truncate_error_message,
 )
 from pipeline.common.transport import create_producer
 from pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
@@ -388,39 +396,15 @@ class DeltaRetryHandler:
             },
         )
 
-        # PERMANENT errors skip retry and go straight to DLQ
-        if error_cat == ErrorCategory.PERMANENT:
-            logger.warning(
-                "Permanent error detected, sending batch to DLQ without retry",
-                extra={
-                    "batch_id": batch_id,
-                    "event_count": len(batch),
-                    "error": str(error)[:200],
-                },
-            )
-            record_dlq_message(domain=self.domain, reason="permanent")
-            await self._send_to_dlq(
-                batch=batch,
-                error=error,
-                error_category=error_cat,
-                retry_count=retry_count,
-                batch_id=batch_id,
-                first_failure_at=first_failure_at,
-            )
-            return
+        send_to_dlq, dlq_reason = should_send_to_dlq(error_cat, retry_count, self._max_retries)
 
-        # Check if retries exhausted
-        if retry_count >= self._max_retries:
-            logger.warning(
-                "Retries exhausted, sending batch to DLQ",
-                extra={
-                    "batch_id": batch_id,
-                    "event_count": len(batch),
-                    "retry_count": retry_count,
-                    "max_retries": self._max_retries,
-                },
+        if send_to_dlq:
+            action = "dlq_permanent" if dlq_reason == "permanent" else "dlq_exhausted"
+            log_retry_decision(
+                action, batch_id or "unknown", retry_count, error_cat, error,
+                extra_context={"event_count": len(batch)},
             )
-            record_dlq_message(domain=self.domain, reason="exhausted")
+            record_dlq_message(domain=self.domain, reason=dlq_reason)
             await self._send_to_dlq(
                 batch=batch,
                 error=error,
@@ -432,6 +416,10 @@ class DeltaRetryHandler:
             return
 
         # Send to next retry topic
+        log_retry_decision(
+            "retry", batch_id or "unknown", retry_count, error_cat, error,
+            extra_context={"event_count": len(batch)},
+        )
         await self._send_to_retry_topic(
             batch=batch,
             error=error,
@@ -485,7 +473,7 @@ class DeltaRetryHandler:
             events=batch,
             retry_count=retry_count + 1,
             first_failure_at=first_failure_at or datetime.now(UTC),
-            last_error=str(error)[:500],
+            last_error=truncate_error_message(error),
             error_category=error_category.value,
             retry_at=retry_at,
             table_path=self.table_path,
@@ -518,16 +506,16 @@ class DeltaRetryHandler:
         await self._retry_producer.send(
             value=failed_batch,
             key=batch_id or "batch",
-            headers={
-                "retry_count": str(retry_count + 1),
-                "scheduled_retry_time": retry_at.isoformat(),
-                "retry_delay_seconds": str(delay_seconds),
-                "target_topic": target_topic,
-                "worker_type": "delta_worker",
-                "original_key": batch_id or "batch",
-                "error_category": error_category.value,
-                "domain": self.domain,
-            },
+            headers=create_retry_headers(
+                retry_count=retry_count + 1,
+                retry_at=retry_at,
+                delay_seconds=delay_seconds,
+                target_topic=target_topic,
+                worker_type="delta_worker",
+                original_key=batch_id or "batch",
+                error_category=error_category,
+                domain=self.domain,
+            ),
         )
 
         logger.debug(
@@ -566,10 +554,7 @@ class DeltaRetryHandler:
             RuntimeError: If producer is not started
             Exception: If send to DLQ fails
         """
-        # Truncate error message to prevent huge DLQ messages
-        error_message = str(error)
-        if len(error_message) > 500:
-            error_message = error_message[:497] + "..."
+        error_message = truncate_error_message(error)
 
         # Create DLQ message (no retry_at since this is final)
         dlq_message = FailedDeltaBatch(
@@ -591,26 +576,21 @@ class DeltaRetryHandler:
             if trace_id:
                 sample_trace_ids.append(trace_id)
 
-        logger.error(
+        log_worker_error(
+            logger,
             "Sending batch to DLQ",
-            extra={
-                "batch_id": batch_id,
-                "event_count": len(batch),
-                "retry_count": retry_count,
-                "error_category": error_category.value,
-                "final_error": error_message[:200],
-                "sample_trace_ids": sample_trace_ids,
-            },
+            event_id=batch_id,
+            error_category=error_category.value,
+            exc=error,
+            event_count=len(batch),
+            retry_count=retry_count,
+            sample_trace_ids=sample_trace_ids,
         )
 
         await self._dlq_producer.send(
             value=dlq_message,
             key=batch_id or "batch",
-            headers={
-                "retry_count": str(retry_count),
-                "error_category": error_category.value,
-                "failed": "true",
-            },
+            headers=create_dlq_headers(retry_count, error_category),
         )
 
         logger.info(

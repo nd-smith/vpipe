@@ -9,7 +9,6 @@ Test Coverage:
     - truncate_error_message: short messages, long messages, boundary
     - add_error_metadata_to_dict: modifies dict in place
     - log_retry_decision: all action types logged correctly
-    - record_retry_metrics: no-op (simplified)
     - record_dlq_metrics: delegates to record_dlq_message
 """
 
@@ -24,7 +23,6 @@ from pipeline.common.retry.retry_utils import (
     create_retry_headers,
     log_retry_decision,
     record_dlq_metrics,
-    record_retry_metrics,
     should_send_to_dlq,
     truncate_error_message,
 )
@@ -331,20 +329,6 @@ class TestLogRetryDecision:
             )
             mock_logger.warning.assert_not_called()
             mock_logger.info.assert_not_called()
-
-
-class TestRecordRetryMetrics:
-    """Test record_retry_metrics."""
-
-    def test_is_a_noop(self):
-        """record_retry_metrics is a no-op after metrics simplification."""
-        # Should not raise
-        record_retry_metrics(
-            domain="verisk",
-            error_category=ErrorCategory.TRANSIENT,
-            delay_seconds=300,
-            worker_type="download",
-        )
 
 
 class TestRecordDlqMetrics:

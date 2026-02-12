@@ -68,7 +68,7 @@ def create_retry_headers(
     domain: str,
 ) -> dict[str, str]:
     """
-    Create standard Kafka headers for retry messages.
+    Create standard headers for retry messages.
 
     Args:
         retry_count: Current retry attempt count
@@ -76,7 +76,7 @@ def create_retry_headers(
         delay_seconds: Delay before retry in seconds
         target_topic: Topic to route message when retry is ready
         worker_type: Type of worker for observability
-        original_key: Original Kafka partition key
+        original_key: Original message partition key
         error_category: Classification of the error
         domain: Domain identifier (e.g., "verisk", "claimx")
 
@@ -100,7 +100,7 @@ def create_dlq_headers(
     error_category: ErrorCategory,
 ) -> dict[str, str]:
     """
-    Create standard Kafka headers for DLQ messages.
+    Create standard headers for DLQ messages.
 
     Args:
         retry_count: Final retry attempt count
@@ -118,7 +118,7 @@ def create_dlq_headers(
 
 def truncate_error_message(error: Exception, max_length: int = 500) -> str:
     """
-    Truncate error message to prevent huge Kafka messages.
+    Truncate error message to prevent oversized messages.
 
     Args:
         error: Exception to extract message from
@@ -201,28 +201,6 @@ def log_retry_decision(
         )
 
 
-def record_retry_metrics(
-    domain: str,
-    error_category: ErrorCategory,
-    delay_seconds: int,
-    worker_type: str | None = None,
-) -> None:
-    """
-    Record retry attempt metrics.
-
-    Note: Simplified after metrics refactor - granular retry metrics removed.
-    Retries are now tracked via DLQ messages and processing errors.
-
-    Args:
-        domain: Domain identifier (e.g., "verisk", "claimx")
-        error_category: Classification of the error
-        delay_seconds: Delay before retry in seconds
-        worker_type: Optional worker type for additional granularity
-    """
-    # Metrics simplified - no per-retry tracking needed
-    pass
-
-
 def record_dlq_metrics(
     domain: str,
     reason: str,
@@ -247,6 +225,5 @@ __all__ = [
     "truncate_error_message",
     "add_error_metadata_to_dict",
     "log_retry_decision",
-    "record_retry_metrics",
     "record_dlq_metrics",
 ]

@@ -183,17 +183,17 @@ async def run_claimx_retry_scheduler(
 ):
     """Unified retry scheduler for all ClaimX retry types.
     Routes messages from claimx.retry topic to target topics based on headers."""
-    from pipeline.common.producer import MessageProducer
     from pipeline.common.retry.unified_scheduler import UnifiedRetryScheduler
 
-    await execute_worker_with_producer(
-        worker_class=UnifiedRetryScheduler,
-        producer_class=MessageProducer,
-        kafka_config=kafka_config,
+    scheduler = UnifiedRetryScheduler(
+        config=kafka_config,
         domain="claimx",
+        target_topic_keys=["downloads_pending", "enrichment_pending", "downloads_results"],
+    )
+    await execute_worker_with_shutdown(
+        scheduler,
         stage_name="claimx-retry-scheduler",
         shutdown_event=shutdown_event,
-        producer_worker_name="unified_retry_scheduler",
         instance_id=instance_id,
     )
 

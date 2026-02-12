@@ -9,6 +9,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
+from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.handlers.utils import (
     LOG_ERROR_TRUNCATE_LONG,
@@ -16,6 +17,13 @@ from pipeline.claimx.handlers.utils import (
 )
 from pipeline.claimx.schemas.results import FailedEnrichmentMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
+from pipeline.common.retry.retry_utils import (
+    create_dlq_headers,
+    create_retry_headers,
+    log_retry_decision,
+    should_send_to_dlq,
+    truncate_error_message,
+)
 from pipeline.common.transport import create_producer
 
 logger = logging.getLogger(__name__)
@@ -139,31 +147,15 @@ class EnrichmentRetryHandler:
             },
         )
 
-        # PERMANENT errors skip retry and go straight to DLQ
-        if error_category == ErrorCategory.PERMANENT:
-            logger.warning(
-                "Permanent error detected, sending to DLQ without retry",
-                extra={
-                    "event_id": task.event_id,
-                    "error": str(error)[:LOG_ERROR_TRUNCATE_SHORT],
-                },
-            )
+        send_to_dlq, dlq_reason = should_send_to_dlq(error_category, retry_count, self._max_retries)
+
+        if send_to_dlq:
+            action = "dlq_permanent" if dlq_reason == "permanent" else "dlq_exhausted"
+            log_retry_decision(action, task.event_id, retry_count, error_category, error)
             await self._send_to_dlq(task, error, error_category)
             return
 
-        if retry_count >= self._max_retries:
-            logger.warning(
-                "Retries exhausted, sending to DLQ",
-                extra={
-                    "event_id": task.event_id,
-                    "retry_count": retry_count,
-                    "max_retries": self._max_retries,
-                },
-            )
-            await self._send_to_dlq(task, error, error_category)
-            return
-
-        # Send to next retry topic
+        log_retry_decision("retry", task.event_id, retry_count, error_category, error)
         await self._send_to_retry_topic(task, error, error_category)
 
     async def _send_to_retry_topic(
@@ -197,11 +189,9 @@ class EnrichmentRetryHandler:
         updated_task = task.model_copy(deep=True)
         updated_task.retry_count += 1
 
-        # Add error context to metadata (truncate to prevent huge messages)
-        error_message = str(error)[:LOG_ERROR_TRUNCATE_LONG]
         if updated_task.metadata is None:
             updated_task.metadata = {}
-        updated_task.metadata["last_error"] = error_message
+        updated_task.metadata["last_error"] = truncate_error_message(error)
         updated_task.metadata["error_category"] = error_category.value
 
         # Calculate retry timestamp
@@ -226,16 +216,16 @@ class EnrichmentRetryHandler:
         await self._retry_producer.send(
             value=updated_task,
             key=task.event_id,
-            headers={
-                "retry_count": str(updated_task.retry_count),
-                "scheduled_retry_time": retry_at.isoformat(),
-                "retry_delay_seconds": str(delay_seconds),
-                "target_topic": target_topic,
-                "worker_type": "enrichment_worker",
-                "original_key": task.event_id,
-                "error_category": error_category.value,
-                "domain": self.domain,
-            },
+            headers=create_retry_headers(
+                retry_count=updated_task.retry_count,
+                retry_at=retry_at,
+                delay_seconds=delay_seconds,
+                target_topic=target_topic,
+                worker_type="enrichment_worker",
+                original_key=task.event_id,
+                error_category=error_category,
+                domain=self.domain,
+            ),
         )
 
         logger.debug(
@@ -268,43 +258,33 @@ class EnrichmentRetryHandler:
             RuntimeError: If producer is not started
             Exception: If send to DLQ fails
         """
-        # Truncate error message to prevent huge DLQ messages
-        error_message = str(error)
-        if len(error_message) > 500:
-            error_message = error_message[:497] + "..."
-
         # Create DLQ message
         dlq_message = FailedEnrichmentMessage(
             event_id=task.event_id,
             event_type=task.event_type,
             project_id=task.project_id,
             original_task=task,
-            final_error=error_message,
+            final_error=truncate_error_message(error),
             error_category=error_category.value,
             retry_count=task.retry_count,
             failed_at=datetime.now(UTC),
         )
 
-        logger.error(
+        log_worker_error(
+            logger,
             "Sending task to DLQ",
-            extra={
-                "event_id": task.event_id,
-                "event_type": task.event_type,
-                "project_id": task.project_id,
-                "retry_count": task.retry_count,
-                "error_category": error_category.value,
-                "final_error": error_message[:LOG_ERROR_TRUNCATE_SHORT],
-            },
+            event_id=task.event_id,
+            error_category=error_category.value,
+            exc=error,
+            event_type=task.event_type,
+            project_id=task.project_id,
+            retry_count=task.retry_count,
         )
 
         await self._dlq_producer.send(
             value=dlq_message,
             key=task.event_id,
-            headers={
-                "retry_count": str(task.retry_count),
-                "error_category": error_category.value,
-                "failed": "true",
-            },
+            headers=create_dlq_headers(task.retry_count, error_category),
         )
 
         logger.info(
