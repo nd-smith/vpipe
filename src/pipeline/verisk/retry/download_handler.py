@@ -10,7 +10,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
-from core.logging.utilities import log_worker_error
+
 from core.types import ErrorCategory
 from pipeline.common.metrics import (
     record_dlq_message,
@@ -164,7 +164,7 @@ class RetryHandler:
         """
         retry_count = task.retry_count
 
-        logger.info(
+        logger.debug(
             "Handling task failure",
             extra={
                 "trace_id": task.trace_id,
@@ -303,13 +303,13 @@ class RetryHandler:
             failed_at=datetime.now(UTC),
         )
 
-        log_worker_error(
-            logger,
+        logger.info(
             "Sending task to DLQ",
-            event_id=task.trace_id,
-            error_category=error_category.value,
-            exc=error,
-            retry_count=task.retry_count,
+            extra={
+                "trace_id": task.trace_id,
+                "error_category": error_category.value,
+                "retry_count": task.retry_count,
+            },
         )
 
         await self._dlq_producer.send(
@@ -318,7 +318,7 @@ class RetryHandler:
             headers=create_dlq_headers(task.retry_count, error_category),
         )
 
-        logger.info(
+        logger.debug(
             "Task sent to DLQ successfully",
             extra={
                 "trace_id": task.trace_id,

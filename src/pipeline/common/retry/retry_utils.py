@@ -185,12 +185,12 @@ def log_retry_decision(
         log_context.update(extra_context)
 
     if action == "dlq_permanent":
-        logger.warning(
+        logger.debug(
             "Permanent error detected, sending to DLQ without retry",
             extra={**log_context, "error": str(error)[:200]},
         )
     elif action == "dlq_exhausted":
-        logger.warning(
+        logger.debug(
             "Retries exhausted, sending to DLQ",
             extra=log_context,
         )
