@@ -1,0 +1,20 @@
+{
+  "partitions": {
+    "2": {
+      "fully_qualified_namespace": "eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net",
+      "eventhub_name": "claimx_events",
+      "consumer_group": "claimx-event-ingester",
+      "partition_id": "2",
+      "offset": "16320",
+      "sequence_number": 26
+    },
+    "1": {
+      "fully_qualified_namespace": "eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net",
+      "eventhub_name": "claimx_events",
+      "consumer_group": "claimx-event-ingester",
+      "partition_id": "1",
+      "offset": "182248",
+      "sequence_number": 288
+    }
+  }
+}

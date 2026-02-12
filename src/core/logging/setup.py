@@ -72,8 +72,8 @@ class OneLakeLogUploader:
         self.onelake_client = onelake_client
         self.log_retention_hours = log_retention_hours
 
-    def upload_and_cleanup(self, archive_dir: Path, base_name: str, log_dir: Path) -> None:
-        """Upload archived rotated files to OneLake, delete after success."""
+    def upload_archived(self, archive_dir: Path, base_name: str, log_dir: Path) -> None:
+        """Upload archived rotated files to OneLake."""
         for rotated_file in archive_dir.glob(f"{base_name}.*"):
             try:
                 relative_path = rotated_file.resolve().relative_to(log_dir.parent.parent)
@@ -83,8 +83,6 @@ class OneLakeLogUploader:
                     local_path=str(rotated_file),
                     overwrite=True,
                 )
-                rotated_file.unlink()
-                print(f"Uploaded and deleted log: {rotated_file.name}", file=sys.stderr)
             except Exception as e:
                 print(
                     f"Warning: Failed to upload log {rotated_file}: {e}",
@@ -174,7 +172,7 @@ class PipelineFileHandler(TimedRotatingFileHandler):
             self.archiver.archive_rotated_files(log_dir, base_name)
 
         if self.uploader and self.archiver:
-            self.uploader.upload_and_cleanup(self.archiver.archive_dir, base_name, log_dir)
+            self.uploader.upload_archived(self.archiver.archive_dir, base_name, log_dir)
         elif self.uploader:
             self.uploader.cleanup_old_logs(log_dir, log_dir)
 

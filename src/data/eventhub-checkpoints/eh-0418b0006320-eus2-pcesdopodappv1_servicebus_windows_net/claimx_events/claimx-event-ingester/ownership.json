@@ -1,0 +1,31 @@
+{
+  "partitions": {
+    "1": {
+      "fully_qualified_namespace": "eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net",
+      "eventhub_name": "claimx_events",
+      "consumer_group": "claimx-event-ingester",
+      "partition_id": "1",
+      "owner_id": "9ef8b5c5-946f-4985-a4bf-19159ab5473d",
+      "last_modified_time": 1770774991.2847037,
+      "etag": "bea7db3c-3a42-4ccb-918d-a904bcf3ec31"
+    },
+    "2": {
+      "fully_qualified_namespace": "eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net",
+      "eventhub_name": "claimx_events",
+      "consumer_group": "claimx-event-ingester",
+      "partition_id": "2",
+      "owner_id": "9ef8b5c5-946f-4985-a4bf-19159ab5473d",
+      "last_modified_time": 1770774991.2846763,
+      "etag": "ddad5433-337f-4fae-97ed-c37c34083abf"
+    },
+    "0": {
+      "fully_qualified_namespace": "eh-0418b0006320-eus2-pcesdopodappv1.servicebus.windows.net",
+      "eventhub_name": "claimx_events",
+      "consumer_group": "claimx-event-ingester",
+      "partition_id": "0",
+      "owner_id": "9ef8b5c5-946f-4985-a4bf-19159ab5473d",
+      "last_modified_time": 1770774991.2846937,
+      "etag": "388aedae-6ef6-4c90-8512-bde97b62659e"
+    }
+  }
+}
