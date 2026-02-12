@@ -22,6 +22,7 @@ connections:
     base_url: ${ITEL_CABINET_API_BASE_URL}
     auth_type: oauth2
     oauth2:
+      grant_type: client_credentials
       client_id: ${ITEL_CABINET_API_CLIENT_ID}
       client_secret: ${ITEL_CABINET_API_CLIENT_SECRET}
       token_url: ${ITEL_CABINET_API_TOKEN_URL}

@@ -314,6 +314,9 @@ class ItelCabinetApiWorker:
 
         # Build iTel vendor API payload
         api_payload = {
+            # Vendor-required identity fields
+            "carrier_id": self.api_config.get("carrier_id", ""),
+            "subscription_id": self.api_config.get("subscription_id", ""),
             # Integration & Claim IDs
             "integration_test_id": str(submission.get("assignment_id", "")),
             "claim_number": submission.get("project_id", ""),
@@ -340,7 +343,7 @@ class ItelCabinetApiWorker:
             },
             # Adjuster information
             "adjuster": {
-                "carrier_id": "",  # TODO: Configure iTel carrier GUID
+                "carrier_id": self.api_config.get("carrier_id", ""),
                 "adjuster_id": "",
                 "first_name": "",
                 "last_name": "",
@@ -705,6 +708,18 @@ async def build_api_worker(dev_mode: bool = False) -> tuple:
 
     if dev_mode:
         worker_config["api"]["test_mode"] = True
+
+    # Expand environment variables in API config
+    api_config = worker_config["api"]
+    for key in ("carrier_id", "subscription_id"):
+        if key in api_config and isinstance(api_config[key], str):
+            expanded = os.path.expandvars(api_config[key])
+            if "${" in expanded:
+                raise ValueError(
+                    f"Environment variable not expanded for api.{key}: {expanded}. "
+                    f"Check that all required environment variables are set."
+                )
+            api_config[key] = expanded
 
     connection_manager = ConnectionManager()
     for conn in connections_list:
