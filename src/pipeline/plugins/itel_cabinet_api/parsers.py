@@ -607,7 +607,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
         KeyError: If required fields are missing
         ValueError: If data is malformed
     """
-    logger.debug(f"Parsing cabinet form for assignment_id={task_data.get('assignmentId')}")
+    logger.debug("Parsing cabinet form for assignment_id=%s", task_data.get("assignmentId"))
 
     api_obj = from_dict(ApiResponse, task_data)
     form_row = DataBuilder.build_form_row(api_obj, event_id)
@@ -767,7 +767,7 @@ def get_readable_report(
     Returns:
         Readable report dict with topics organized by category and media URLs enriched
     """
-    logger.debug(f"Generating readable report for assignment_id={task_data.get('assignmentId')}")
+    logger.debug("Generating readable report for assignment_id=%s", task_data.get("assignmentId"))
 
     # Convert to typed dataclass using from_dict
     api_obj = from_dict(ApiResponse, task_data)

@@ -27,6 +27,7 @@ class AuthType(Enum):
     BEARER = "bearer"
     API_KEY = "api_key"
     BASIC = "basic"
+    OAUTH2 = "oauth2"
 
 
 def is_http_error(status_code: int) -> bool:
@@ -68,22 +69,40 @@ class ConnectionConfig:
     retry_backoff_base: int = 2
     retry_backoff_max: int = 60
     headers: dict[str, str] = field(default_factory=dict)
+    oauth2_client_id: str | None = None
+    oauth2_client_secret: str | None = None
+    oauth2_token_url: str | None = None
+    oauth2_scope: str | None = None
 
     def __post_init__(self):
         """Validate and normalize configuration."""
         # Ensure base_url doesn't have trailing slash
         self.base_url = self.base_url.rstrip("/")
 
+        # Convert string enum to AuthType if needed
+        if isinstance(self.auth_type, str):
+            self.auth_type = AuthType(self.auth_type)
+
         # Set default auth header if not provided
         if self.auth_header is None:
-            if self.auth_type in (AuthType.BEARER, AuthType.BASIC):
+            if self.auth_type in (AuthType.BEARER, AuthType.BASIC, AuthType.OAUTH2):
                 self.auth_header = "Authorization"
             elif self.auth_type == AuthType.API_KEY:
                 self.auth_header = "X-API-Key"
 
-        # Convert string enum to AuthType if needed
-        if isinstance(self.auth_type, str):
-            self.auth_type = AuthType(self.auth_type)
+        # Validate OAuth2 fields
+        if self.auth_type == AuthType.OAUTH2:
+            missing = []
+            if not self.oauth2_client_id:
+                missing.append("oauth2_client_id")
+            if not self.oauth2_client_secret:
+                missing.append("oauth2_client_secret")
+            if not self.oauth2_token_url:
+                missing.append("oauth2_token_url")
+            if missing:
+                raise ValueError(
+                    f"OAuth2 connection '{self.name}' missing required fields: {', '.join(missing)}"
+                )
 
 
 class ConnectionManager:
@@ -126,6 +145,7 @@ class ConnectionManager:
         self._connector_limit = connector_limit
         self._connector_limit_per_host = connector_limit_per_host
         self._started = False
+        self._oauth2_manager = None
 
     def add_connection(self, config: ConnectionConfig) -> None:
         """Register a named connection configuration.
@@ -206,7 +226,7 @@ class ConnectionManager:
             return response
 
     async def start(self) -> None:
-        """Initialize HTTP client session.
+        """Initialize HTTP client session and OAuth2 providers.
 
         Must be called before making requests.
         """
@@ -226,13 +246,36 @@ class ConnectionManager:
             timeout=aiohttp.ClientTimeout(total=None),  # Per-request timeout
         )
 
+        # Initialize OAuth2 providers for connections that need them
+        oauth2_connections = [
+            c for c in self._connections.values() if c.auth_type == AuthType.OAUTH2
+        ]
+        if oauth2_connections:
+            from core.oauth2 import GenericOAuth2Provider, OAuth2Config, OAuth2TokenManager
+
+            self._oauth2_manager = OAuth2TokenManager()
+            for conn in oauth2_connections:
+                oauth2_config = OAuth2Config(
+                    provider_name=conn.name,
+                    client_id=conn.oauth2_client_id,
+                    client_secret=conn.oauth2_client_secret,
+                    token_url=conn.oauth2_token_url,
+                    scope=conn.oauth2_scope,
+                )
+                provider = GenericOAuth2Provider(oauth2_config)
+                self._oauth2_manager.add_provider(provider)
+                logger.info("OAuth2 provider registered for connection '%s'", conn.name)
+
         self._started = True
-        logger.info(f"ConnectionManager started with {len(self._connections)} connections")
+        logger.info("ConnectionManager started with %d connections", len(self._connections))
 
     async def close(self) -> None:
         """Close HTTP client session and cleanup resources."""
         if not self._started:
             return
+
+        if self._oauth2_manager:
+            await self._oauth2_manager.close()
 
         if self._session:
             await self._session.close()
@@ -289,7 +332,10 @@ class ConnectionManager:
             request_headers.update(headers)
 
         # Add authentication
-        if config.auth_type == AuthType.BEARER and config.auth_token:
+        if config.auth_type == AuthType.OAUTH2 and self._oauth2_manager:
+            token = await self._oauth2_manager.get_token(config.name)
+            request_headers[config.auth_header] = f"Bearer {token}"
+        elif config.auth_type == AuthType.BEARER and config.auth_token:
             request_headers[config.auth_header] = f"Bearer {config.auth_token}"
         elif config.auth_type == AuthType.API_KEY and config.auth_token:
             request_headers[config.auth_header] = config.auth_token
@@ -361,6 +407,77 @@ class ConnectionManager:
         body = await response.json()
 
         return status, body
+
+    async def request_url(
+        self,
+        connection_name: str,
+        method: str,
+        url: str,
+        json: dict[str, Any] | None = None,
+        data: Any | None = None,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout_override: int | None = None,
+        retry_override: int | None = None,
+        allow_redirects: bool = True,
+    ) -> aiohttp.ClientResponse:
+        """Make HTTP request to a full URL using a named connection's auth.
+
+        Like request(), but takes a full URL instead of a path appended to base_url.
+        Useful for following redirect URLs or calling endpoints outside the base URL.
+
+        Args:
+            connection_name: Name of connection to use (for auth and defaults)
+            method: HTTP method (GET, POST, HEAD, etc.)
+            url: Full URL to request
+            json: JSON body to send
+            data: Raw body to send
+            params: Query parameters
+            headers: Additional headers
+            timeout_override: Override connection timeout
+            retry_override: Override connection max_retries
+            allow_redirects: Whether to follow redirects (default: True)
+
+        Returns:
+            aiohttp response object
+        """
+        if not self._started:
+            raise RuntimeError("ConnectionManager not started. Call start() first.")
+
+        config = self.get_connection(connection_name)
+
+        # Merge headers
+        request_headers = {**config.headers}
+        if headers:
+            request_headers.update(headers)
+
+        # Add authentication
+        if config.auth_type == AuthType.OAUTH2 and self._oauth2_manager:
+            token = await self._oauth2_manager.get_token(config.name)
+            request_headers[config.auth_header] = f"Bearer {token}"
+        elif config.auth_type == AuthType.BEARER and config.auth_token:
+            request_headers[config.auth_header] = f"Bearer {config.auth_token}"
+        elif config.auth_type == AuthType.API_KEY and config.auth_token:
+            request_headers[config.auth_header] = config.auth_token
+        elif config.auth_type == AuthType.BASIC and config.auth_token:
+            request_headers[config.auth_header] = f"Basic {config.auth_token}"
+
+        timeout = timeout_override if timeout_override is not None else config.timeout_seconds
+
+        # Direct request (no retry wrapper — caller handles errors)
+        logger.debug("Request %s %s (via connection '%s')", method, url, connection_name)
+        async with self._session.request(
+            method=method,
+            url=url,
+            json=json,
+            data=data,
+            params=params,
+            headers=request_headers,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            allow_redirects=allow_redirects,
+        ) as response:
+            await response.read()
+            return response
 
     def list_connections(self) -> list[str]:
         """Get list of registered connection names."""

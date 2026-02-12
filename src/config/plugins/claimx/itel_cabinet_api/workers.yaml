@@ -26,6 +26,11 @@ workers:
   #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker
   # ===========================================================================
   itel_cabinet_tracking:
+    # Processing settings
+    processing:
+      health_port: 8096
+      health_enabled: true
+
     # Transport settings (Event Hub or Kafka)
     transport:
       input_topic: pcesdopodappv1-itel-cabinet-pending
@@ -53,6 +58,11 @@ workers:
   #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
   # ===========================================================================
   itel_cabinet_api:
+    # Processing settings
+    processing:
+      health_port: 8097
+      health_enabled: true
+
     # Transport settings (Event Hub or Kafka)
     transport:
       input_topic: pcesdopodappv1-itel-cabinet-completed

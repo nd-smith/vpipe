@@ -20,18 +20,27 @@ Environment Variables:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from config.config import MessageConfig
 from core.logging import log_worker_startup, setup_logging
+from core.logging.context import set_log_context
+from core.logging.utilities import format_cycle_output
 from pipeline.common.health import HealthCheckServer
+from pipeline.common.metrics import (
+    message_processing_duration_seconds,
+    record_message_consumed,
+    record_processing_error,
+)
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.config import load_connections, load_yaml_config
@@ -49,6 +58,9 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
 WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "claimx" / "itel_cabinet_api" / "workers.yaml"
 CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
+
+CONSUMER_GROUP = "itel-cabinet-tracking"
+TOPIC_KEY = "itel_cabinet_pending"
 
 
 class ItelCabinetTrackingWorker:
@@ -69,6 +81,8 @@ class ItelCabinetTrackingWorker:
         transport_config: dict,
         connection_manager: ConnectionManager,
         pipeline: ItelCabinetPipeline,
+        health_port: int = 8096,
+        health_enabled: bool = True,
     ):
         self.transport_config = transport_config
         self.connections = connection_manager
@@ -78,16 +92,42 @@ class ItelCabinetTrackingWorker:
         self.running = False
 
         # Health server for Kubernetes liveness/readiness probes
-        self.health_server = HealthCheckServer(port=8096, worker_name="itel-cabinet-tracking")
+        self.health_server = HealthCheckServer(
+            port=health_port,
+            worker_name="itel-cabinet-tracking",
+            enabled=health_enabled,
+        )
 
         # Shutdown handling
         self._shutdown_event = asyncio.Event()
 
+        # Cycle output counters
+        self._records_processed = 0
+        self._records_succeeded = 0
+        self._records_failed = 0
+        self._last_cycle_log = time.monotonic()
+        self._cycle_count = 0
+        self._cycle_task: asyncio.Task | None = None
+
     async def _handle_message(self, record: PipelineMessage) -> None:
         """Process a single message from the transport layer."""
+        start_time = time.perf_counter()
+        topic = self.transport_config["input_topic"]
+
         try:
             message_data = json.loads(record.value.decode("utf-8"))
+            event_id = message_data.get("eventId", message_data.get("event_id", ""))
+            set_log_context(trace_id=event_id)
+
             result = await self.pipeline.process(message_data)
+
+            self._records_processed += 1
+            self._records_succeeded += 1
+            record_message_consumed(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+                message_bytes=len(record.value),
+            )
 
             logger.info(
                 "Message processed successfully",
@@ -99,30 +139,49 @@ class ItelCabinetTrackingWorker:
             )
 
         except ValueError as e:
+            self._records_processed += 1
+            self._records_failed += 1
+            record_processing_error(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+                error_category="validation",
+            )
             logger.error(
-                f"Validation error: {e}",
+                "Validation error: %s",
+                e,
                 extra={"offset": getattr(record, "offset", "unknown")},
             )
 
         except Exception as e:
+            self._records_processed += 1
+            self._records_failed += 1
+            record_processing_error(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+                error_category="processing",
+            )
             logger.exception(
-                f"Failed to process message: {e}",
+                "Failed to process message: %s",
+                e,
                 extra={"offset": getattr(record, "offset", "unknown")},
             )
             raise
+
+        finally:
+            duration = time.perf_counter() - start_time
+            message_processing_duration_seconds.labels(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+            ).observe(duration)
 
     async def start(self):
         """Start the worker using transport layer."""
         logger.info("Starting iTel Cabinet Tracking Worker")
 
-        import os
+        from pipeline.common.telemetry import initialize_worker_telemetry
 
-        from pipeline.common.telemetry import initialize_telemetry
-
-        initialize_telemetry(
-            service_name="itel-cabinet-tracking-worker",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry("plugins", "itel-cabinet-tracking")
+        set_log_context(stage="tracking", worker_id="itel-cabinet-tracking")
 
         config = MessageConfig(bootstrap_servers=self.transport_config["bootstrap_servers"])
 
@@ -133,10 +192,11 @@ class ItelCabinetTrackingWorker:
             topics=[self.transport_config["input_topic"]],
             message_handler=self._handle_message,
             enable_message_commit=True,
-            topic_key="itel_cabinet_pending",
+            topic_key=TOPIC_KEY,
         )
 
         await self.health_server.start()
+        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
         await self.consumer.start()
 
         logger.info(
@@ -168,11 +228,59 @@ class ItelCabinetTrackingWorker:
             logger.exception("Worker run loop error: %s", e)
             raise
 
+    async def _periodic_cycle_output(self) -> None:
+        """Log periodic stats every 30 seconds."""
+        logger.info(
+            format_cycle_output(cycle_count=0, succeeded=0, failed=0, skipped=0),
+            extra={
+                "worker_id": "itel-cabinet-tracking",
+                "stage": "tracking",
+                "cycle": 0,
+            },
+        )
+        self._last_cycle_log = time.monotonic()
+
+        try:
+            while True:
+                await asyncio.sleep(1)
+
+                cycle_elapsed = time.monotonic() - self._last_cycle_log
+                if cycle_elapsed >= 30:
+                    self._cycle_count += 1
+                    self._last_cycle_log = time.monotonic()
+
+                    logger.info(
+                        format_cycle_output(
+                            cycle_count=self._cycle_count,
+                            succeeded=self._records_succeeded,
+                            failed=self._records_failed,
+                            skipped=0,
+                        ),
+                        extra={
+                            "worker_id": "itel-cabinet-tracking",
+                            "stage": "tracking",
+                            "cycle": self._cycle_count,
+                            "cycle_id": f"cycle-{self._cycle_count}",
+                            "records_processed": self._records_processed,
+                            "records_succeeded": self._records_succeeded,
+                            "records_failed": self._records_failed,
+                            "cycle_interval_seconds": 30,
+                        },
+                    )
+        except asyncio.CancelledError:
+            logger.debug("Periodic cycle output task cancelled")
+            raise
+
     async def stop(self):
         """Stop the worker gracefully."""
         logger.info("Stopping worker")
         self.running = False
         self._shutdown_event.set()
+
+        if self._cycle_task and not self._cycle_task.done():
+            self._cycle_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cycle_task
 
         if self.consumer:
             await self.consumer.stop()
@@ -245,10 +353,13 @@ async def build_tracking_worker() -> tuple:
         config=worker_config.get("pipeline", {}),
     )
 
+    processing_config = worker_config.get("processing", {})
     worker = ItelCabinetTrackingWorker(
         transport_config=transport_config,
         connection_manager=connection_manager,
         pipeline=pipeline,
+        health_port=processing_config.get("health_port", 8096),
+        health_enabled=processing_config.get("health_enabled", True),
     )
 
     return worker, connection_manager, producer
@@ -284,22 +395,25 @@ async def main():
         consumer_group=worker.transport_config["consumer_group"],
     )
 
+    shutdown_event = asyncio.Event()
     loop = asyncio.get_event_loop()
     try:
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
+            loop.add_signal_handler(sig, shutdown_event.set)
     except NotImplementedError:
         def signal_handler(signum, frame):
             logger.info("Received signal %s, initiating shutdown", signum)
-            asyncio.create_task(worker.stop())
+            shutdown_event.set()
 
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
     try:
         await connection_manager.start()
-        await worker.start()
-        await worker.run()
+
+        from pipeline.runners.common import execute_worker_with_shutdown
+
+        await execute_worker_with_shutdown(worker, "itel-cabinet-tracking", shutdown_event)
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
     except Exception as e:
