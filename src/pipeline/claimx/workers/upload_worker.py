@@ -15,19 +15,24 @@ from pathlib import Path
 from typing import Any
 
 from config.config import MessageConfig
+from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.claimx.workers.worker_defaults import WorkerDefaults
+from pipeline.common.decorators import set_log_context_from_message
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
+    message_processing_duration_seconds,
     record_message_consumed,
     record_processing_error,
     update_assigned_partitions,
     update_connection_status,
+    update_disk_usage,
 )
 from pipeline.common.storage import OneLakeClient
+from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
@@ -114,8 +119,12 @@ class ClaimXUploadWorker:
         self.topics = [config.get_topic(domain, "downloads_cached")]
         self.results_topic = config.get_topic(domain, "downloads_results")
 
+        self.cache_dir = Path(config.cache_dir) / domain
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
         # Consumer will be created in start()
         self._consumer = None
+        self._consumer_group: str | None = None
         self._running = False
 
         # Concurrency control
@@ -128,9 +137,11 @@ class ClaimXUploadWorker:
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_failed = 0
-        self._records_skipped = 0
+        self._bytes_uploaded = 0
+        self._stale_files_removed = 0
 
         self._stats_logger: PeriodicStatsLogger | None = None
+        self._cleanup_task: asyncio.Task | None = None
 
         # Create producer for result messages
         self.producer = create_producer(
@@ -180,8 +191,6 @@ class ClaimXUploadWorker:
 
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
-
-        from pipeline.common.telemetry import initialize_worker_telemetry
 
         initialize_worker_telemetry(self.domain, "upload-worker")
 
@@ -283,6 +292,7 @@ class ClaimXUploadWorker:
             await self.health_server.stop()
             raise
 
+        self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         self._running = True
 
         self._stats_logger = PeriodicStatsLogger(
@@ -295,6 +305,8 @@ class ClaimXUploadWorker:
 
         # Update health check readiness (upload worker doesn't use API)
         self.health_server.set_ready(kafka_connected=True, api_reachable=True)
+
+        self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
 
         logger.info("ClaimX upload worker started successfully")
 
@@ -345,25 +357,18 @@ class ClaimXUploadWorker:
         if self._stats_logger:
             await self._stats_logger.stop()
 
+        # Cancel stale file cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+            self._cleanup_task = None
+
         # Signal shutdown
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        # Wait for in-flight uploads (with timeout)
-        if self._in_flight_tasks:
-            logger.info(
-                "Waiting for in-flight uploads to complete",
-                extra={"in_flight_count": len(self._in_flight_tasks)},
-            )
-            wait_start = time.time()
-            while self._in_flight_tasks and (time.time() - wait_start) < 30:
-                await asyncio.sleep(0.5)
-
-            if self._in_flight_tasks:
-                logger.warning(
-                    "Forcing shutdown with uploads still in progress",
-                    extra={"in_flight_count": len(self._in_flight_tasks)},
-                )
+        await self._wait_for_in_flight(timeout=30.0)
 
         # Stop consumer
         if self._consumer is not None:
@@ -395,9 +400,8 @@ class ClaimXUploadWorker:
                 self.onelake_client = None
 
         # Update metrics
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         update_connection_status("consumer", connected=False)
-        update_assigned_partitions(consumer_group, 0)
+        update_assigned_partitions(self._consumer_group, 0)
 
         logger.info("ClaimX upload worker stopped")
 
@@ -415,8 +419,6 @@ class ClaimXUploadWorker:
             raise RuntimeError("Consumer not initialized - call start() first")
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
-
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
 
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
@@ -437,7 +439,7 @@ class ClaimXUploadWorker:
                     extra={"error": str(upload_result)},
                     exc_info=True,
                 )
-                record_processing_error(self.topics[0], consumer_group, "unexpected_error")
+                record_processing_error(self.topics[0], self._consumer_group, "unexpected_error")
                 exception_count += 1
             elif isinstance(upload_result, UploadResult):
                 if upload_result.success:
@@ -481,21 +483,27 @@ class ClaimXUploadWorker:
         async with self._semaphore:
             return await self._process_single_upload(message)
 
+    @set_log_context_from_message
     async def _process_single_upload(self, message: PipelineMessage) -> UploadResult:
-        start_time = time.time()
+        start_time = time.perf_counter()
         media_id = "unknown"
+        cached_message: ClaimXCachedDownloadMessage | None = None
 
         try:
             # Parse message
             cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
             media_id = cached_message.media_id
 
+            # Set logging context for correlation
+            set_log_context(trace_id=cached_message.source_event_id)
+
             # Track in-flight
             async with self._in_flight_lock:
                 self._in_flight_tasks.add(media_id)
 
-            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-            record_message_consumed(message.topic, consumer_group, len(message.value), success=True)
+            record_message_consumed(
+                message.topic, self._consumer_group, len(message.value), success=True
+            )
 
             # Track records processed
             self._records_processed += 1
@@ -515,9 +523,9 @@ class ClaimXUploadWorker:
             )
 
             # Calculate processing time
-            processing_time_ms = int((time.time() - start_time) * 1000)
+            processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            logger.debug(
+            logger.info(
                 "Uploaded file to OneLake",
                 extra={
                     "correlation_id": cached_message.source_event_id,
@@ -532,6 +540,7 @@ class ClaimXUploadWorker:
             )
 
             self._records_succeeded += 1
+            self._bytes_uploaded += cached_message.bytes_downloaded
 
             # Produce success result
             result_message = ClaimXUploadResultMessage(
@@ -556,6 +565,12 @@ class ClaimXUploadWorker:
             # Clean up cached file
             await self._cleanup_cache_file(cache_path)
 
+            # Record processing duration metric
+            duration = time.perf_counter() - start_time
+            message_processing_duration_seconds.labels(
+                topic=self.topics[0], consumer_group=self._consumer_group
+            ).observe(duration)
+
             return UploadResult(
                 message=message,
                 cached_message=cached_message,
@@ -564,13 +579,12 @@ class ClaimXUploadWorker:
             )
 
         except Exception as e:
-            processing_time_ms = int((time.time() - start_time) * 1000)
+            processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
             # Build error log extra fields
-            # Extract event_id and project_id if cached_message was parsed
             event_id = None
             project_id = None
-            if "cached_message" in locals() and cached_message is not None:
+            if cached_message is not None:
                 event_id = cached_message.source_event_id
                 project_id = cached_message.project_id
 
@@ -585,15 +599,14 @@ class ClaimXUploadWorker:
                 project_id=project_id,
                 processing_time_ms=processing_time_ms,
             )
-            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-            record_processing_error(message.topic, consumer_group, "upload_error")
+            record_processing_error(message.topic, self._consumer_group, "upload_error")
             self._records_failed += 1
 
             # For upload failures, we produce a failure result
             # The file stays in cache for manual review/retry
             try:
                 # Re-parse message in case it wasn't parsed yet
-                if "cached_message" not in locals() or cached_message is None:
+                if cached_message is None:
                     cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
 
                 result_message = ClaimXUploadResultMessage(
@@ -612,7 +625,6 @@ class ClaimXUploadWorker:
 
                 # Use source_event_id as key for consistent partitioning across all ClaimX topics
                 await self.producer.send(
-                    topic=self.results_topic,
                     key=cached_message.source_event_id,
                     value=result_message,
                 )
@@ -624,7 +636,7 @@ class ClaimXUploadWorker:
 
             return UploadResult(
                 message=message,
-                cached_message=cached_message if "cached_message" in locals() else None,
+                cached_message=cached_message,
                 processing_time_ms=processing_time_ms,
                 success=False,
                 error=e,
@@ -636,21 +648,103 @@ class ClaimXUploadWorker:
                 self._in_flight_tasks.discard(media_id)
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Get cycle statistics for periodic logging."""
+        update_disk_usage(str(self.cache_dir))
+
         msg = format_cycle_output(
             cycle_count=cycle_count,
             succeeded=self._records_succeeded,
             failed=self._records_failed,
-            skipped=self._records_skipped,
-            deduplicated=0,
         )
         extra = {
             "records_processed": self._records_processed,
             "records_succeeded": self._records_succeeded,
             "records_failed": self._records_failed,
-            "records_skipped": self._records_skipped,
+            "bytes_uploaded": self._bytes_uploaded,
             "in_flight": len(self._in_flight_tasks),
+            "stale_files_removed": self._stale_files_removed,
         }
         return msg, extra
+
+    async def _wait_for_in_flight(self, timeout: float = 30.0) -> None:
+        start_time = time.perf_counter()
+        while True:
+            async with self._in_flight_lock:
+                count = len(self._in_flight_tasks)
+
+            if count == 0:
+                logger.info("All in-flight uploads completed")
+                return
+
+            elapsed = time.perf_counter() - start_time
+            if elapsed >= timeout:
+                logger.warning(
+                    "Timeout waiting for in-flight uploads",
+                    extra={
+                        "remaining_tasks": count,
+                        "timeout_seconds": timeout,
+                    },
+                )
+                return
+
+            logger.debug(
+                "Waiting for in-flight uploads",
+                extra={"remaining_tasks": count},
+            )
+            await asyncio.sleep(0.5)
+
+    STALE_FILE_MAX_AGE_HOURS = 24
+
+    async def _periodic_stale_cleanup(self) -> None:
+        """Periodically clean up stale files in cache directory."""
+        while self._running:
+            try:
+                await asyncio.sleep(3600)
+                await self._cleanup_stale_files()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.warning(
+                    "Error in periodic stale file cleanup",
+                    extra={"error": str(e)},
+                )
+
+    async def _cleanup_stale_files(self) -> None:
+        """Remove files older than STALE_FILE_MAX_AGE_HOURS, skipping in-flight tasks."""
+        scan_dir = self.cache_dir
+        max_age_seconds = self.STALE_FILE_MAX_AGE_HOURS * 3600
+
+        async with self._in_flight_lock:
+            in_flight = set(self._in_flight_tasks)
+
+        def _scan_and_remove() -> int:
+            count = 0
+            now = time.time()
+            if not scan_dir.exists():
+                return 0
+            for path in scan_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path.parent.name in in_flight:
+                    continue
+                try:
+                    age = now - path.stat().st_mtime
+                    if age > max_age_seconds:
+                        path.unlink()
+                        count += 1
+                        logger.warning(
+                            "Removed stale file",
+                            extra={
+                                "file_path": str(path),
+                                "age_hours": round(age / 3600, 1),
+                            },
+                        )
+                except OSError:
+                    pass
+            return count
+
+        removed = await asyncio.to_thread(_scan_and_remove)
+        self._stale_files_removed += removed
 
     async def _cleanup_cache_file(self, cache_path: Path) -> None:
         try:

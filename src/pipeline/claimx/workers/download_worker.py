@@ -5,6 +5,7 @@ Decoupled architecture allows independent scaling of download vs upload.
 """
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import tempfile
@@ -12,12 +13,9 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import aiohttp
-
-if TYPE_CHECKING:
-    from aiokafka import AIOKafkaConsumer
 
 from config.config import MessageConfig
 from core.download.downloader import AttachmentDownloader
@@ -32,6 +30,7 @@ from pipeline.claimx.retry import DownloadRetryHandler
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
 from pipeline.claimx.workers.worker_defaults import WorkerDefaults
+from pipeline.common.decorators import set_log_context_from_message
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_message_consumed,
@@ -40,6 +39,7 @@ from pipeline.common.metrics import (
     update_connection_status,
     update_disk_usage,
 )
+from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
@@ -124,7 +124,8 @@ class ClaimXDownloadWorker:
         # Unified retry scheduler handles routing retry messages back to pending
         self.topics = [config.get_topic(domain, "downloads_pending")]
 
-        self._consumer: AIOKafkaConsumer | None = None
+        self._consumer = None
+        self._consumer_group: str | None = None
         self._running = False
 
         self._semaphore: asyncio.Semaphore | None = None
@@ -135,9 +136,11 @@ class ClaimXDownloadWorker:
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_failed = 0
-        self._records_skipped = 0
+        self._bytes_downloaded = 0
+        self._stale_files_removed = 0
 
         self._stats_logger: PeriodicStatsLogger | None = None
+        self._cleanup_task: asyncio.Task | None = None
 
         self._http_session: aiohttp.ClientSession | None = None
 
@@ -192,8 +195,6 @@ class ClaimXDownloadWorker:
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
 
-        from pipeline.common.telemetry import initialize_worker_telemetry
-
         initialize_worker_telemetry(self.domain, "download-worker")
 
         self._semaphore = asyncio.Semaphore(self.concurrency)
@@ -240,6 +241,7 @@ class ClaimXDownloadWorker:
             topic_key="downloads_pending",
         )
 
+        self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         self._running = True
 
         self._stats_logger = PeriodicStatsLogger(
@@ -256,6 +258,8 @@ class ClaimXDownloadWorker:
             api_reachable=api_reachable,
             circuit_open=self.api_client.is_circuit_open,
         )
+
+        self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
 
         logger.info(
             "ClaimX download worker started successfully",
@@ -303,6 +307,13 @@ class ClaimXDownloadWorker:
         if self._stats_logger:
             await self._stats_logger.stop()
 
+        # Cancel stale file cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+            self._cleanup_task = None
+
         if self._shutdown_event:
             self._shutdown_event.set()
 
@@ -337,9 +348,8 @@ class ClaimXDownloadWorker:
 
         await self.health_server.stop()
 
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         update_connection_status("consumer", connected=False)
-        update_assigned_partitions(consumer_group, 0)
+        update_assigned_partitions(self._consumer_group, 0)
 
         logger.info("ClaimX download worker stopped successfully")
 
@@ -436,6 +446,7 @@ class ClaimXDownloadWorker:
 
         return True  # Commit batch
 
+    @set_log_context_from_message
     async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
         start_time = time.perf_counter()
 
@@ -473,7 +484,7 @@ class ClaimXDownloadWorker:
         set_log_context(trace_id=task_message.source_event_id)
 
         try:
-            logger.debug(
+            logger.info(
                 "Processing ClaimX download task",
                 extra={
                     "event_id": task_message.source_event_id,
@@ -492,13 +503,12 @@ class ClaimXDownloadWorker:
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
                 record_message_consumed(
-                    message.topic, consumer_group, len(message.value), success=True
+                    message.topic, self._consumer_group, len(message.value), success=True
                 )
+                self._bytes_downloaded += outcome.bytes_downloaded or 0
                 return TaskResult(
                     message=message,
                     task_message=task_message,
@@ -509,7 +519,7 @@ class ClaimXDownloadWorker:
             else:
                 await self._handle_failure(task_message, outcome, processing_time_ms)
                 record_message_consumed(
-                    message.topic, consumer_group, len(message.value), success=False
+                    message.topic, self._consumer_group, len(message.value), success=False
                 )
 
                 await self._cleanup_empty_temp_dir(download_task.destination.parent)
@@ -550,6 +560,7 @@ class ClaimXDownloadWorker:
         )
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Get cycle statistics for periodic logging."""
         update_disk_usage(str(self.temp_dir))
         update_disk_usage(str(self.cache_dir))
 
@@ -557,14 +568,14 @@ class ClaimXDownloadWorker:
             cycle_count=cycle_count,
             succeeded=self._records_succeeded,
             failed=self._records_failed,
-            skipped=self._records_skipped,
-            deduplicated=0,
         )
         extra = {
             "records_processed": self._records_processed,
             "records_succeeded": self._records_succeeded,
             "records_failed": self._records_failed,
-            "records_skipped": self._records_skipped,
+            "bytes_downloaded": self._bytes_downloaded,
+            "in_flight": len(self._in_flight_tasks),
+            "stale_files_removed": self._stale_files_removed,
         }
         return msg, extra
 
@@ -578,7 +589,7 @@ class ClaimXDownloadWorker:
         if outcome.file_path is None:
             raise ValueError("File path missing in successful outcome")
 
-        logger.debug(
+        logger.info(
             "ClaimX download completed successfully",
             extra={
                 "event_id": task_message.source_event_id,
@@ -669,10 +680,9 @@ class ClaimXDownloadWorker:
         )
 
         pending_topic = self.config.get_topic(self.domain, "downloads_pending")
-        consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
         record_processing_error(
             pending_topic,
-            consumer_group,
+            self._consumer_group,
             error_category.value,
         )
 
@@ -719,6 +729,59 @@ class ClaimXDownloadWorker:
 
         if outcome.file_path:
             await self._cleanup_temp_file(outcome.file_path)
+
+    STALE_FILE_MAX_AGE_HOURS = 24
+
+    async def _periodic_stale_cleanup(self) -> None:
+        """Periodically clean up stale files in temp directory."""
+        while self._running:
+            try:
+                await asyncio.sleep(3600)
+                await self._cleanup_stale_files()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.warning(
+                    "Error in periodic stale file cleanup",
+                    extra={"error": str(e)},
+                )
+
+    async def _cleanup_stale_files(self) -> None:
+        """Remove files older than STALE_FILE_MAX_AGE_HOURS, skipping in-flight tasks."""
+        scan_dir = self.temp_dir
+        max_age_seconds = self.STALE_FILE_MAX_AGE_HOURS * 3600
+
+        async with self._in_flight_lock:
+            in_flight = set(self._in_flight_tasks)
+
+        def _scan_and_remove() -> int:
+            count = 0
+            now = time.time()
+            if not scan_dir.exists():
+                return 0
+            for path in scan_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path.parent.name in in_flight:
+                    continue
+                try:
+                    age = now - path.stat().st_mtime
+                    if age > max_age_seconds:
+                        path.unlink()
+                        count += 1
+                        logger.warning(
+                            "Removed stale file",
+                            extra={
+                                "file_path": str(path),
+                                "age_hours": round(age / 3600, 1),
+                            },
+                        )
+                except OSError:
+                    pass
+            return count
+
+        removed = await asyncio.to_thread(_scan_and_remove)
+        self._stale_files_removed += removed
 
     async def _cleanup_temp_file(self, file_path: Path) -> None:
         try:

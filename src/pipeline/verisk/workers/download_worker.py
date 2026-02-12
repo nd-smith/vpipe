@@ -19,6 +19,7 @@ Concurrent Processing (WP-313):
 """
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import tempfile
@@ -183,7 +184,9 @@ class DownloadWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._bytes_downloaded = 0
+        self._stale_files_removed = 0
         self._stats_logger: PeriodicStatsLogger | None = None
+        self._cleanup_task: asyncio.Task | None = None
 
         logger.info(
             "Initialized download worker with concurrent processing",
@@ -289,6 +292,8 @@ class DownloadWorker:
         # Update metrics
         update_connection_status("consumer", connected=True)
 
+        self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
+
         logger.info(
             "Download worker started successfully",
             extra={
@@ -337,6 +342,13 @@ class DownloadWorker:
 
         if self._stats_logger:
             await self._stats_logger.stop()
+
+        # Cancel stale file cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+            self._cleanup_task = None
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -764,6 +776,59 @@ class DownloadWorker:
         if outcome.file_path:
             await self._cleanup_temp_file(outcome.file_path)
 
+    STALE_FILE_MAX_AGE_HOURS = 24
+
+    async def _periodic_stale_cleanup(self) -> None:
+        """Periodically clean up stale files in temp directory."""
+        while self._running:
+            try:
+                await asyncio.sleep(3600)
+                await self._cleanup_stale_files()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.warning(
+                    "Error in periodic stale file cleanup",
+                    extra={"error": str(e)},
+                )
+
+    async def _cleanup_stale_files(self) -> None:
+        """Remove files older than STALE_FILE_MAX_AGE_HOURS, skipping in-flight tasks."""
+        scan_dir = self.temp_dir
+        max_age_seconds = self.STALE_FILE_MAX_AGE_HOURS * 3600
+
+        async with self._in_flight_lock:
+            in_flight = set(self._in_flight_tasks)
+
+        def _scan_and_remove() -> int:
+            count = 0
+            now = time.time()
+            if not scan_dir.exists():
+                return 0
+            for path in scan_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path.parent.name in in_flight:
+                    continue
+                try:
+                    age = now - path.stat().st_mtime
+                    if age > max_age_seconds:
+                        path.unlink()
+                        count += 1
+                        logger.warning(
+                            "Removed stale file",
+                            extra={
+                                "file_path": str(path),
+                                "age_hours": round(age / 3600, 1),
+                            },
+                        )
+                except OSError:
+                    pass
+            return count
+
+        removed = await asyncio.to_thread(_scan_and_remove)
+        self._stale_files_removed += removed
+
     async def _cleanup_temp_file(self, file_path: Path) -> None:
         try:
 
@@ -832,6 +897,7 @@ class DownloadWorker:
             "records_failed": self._records_failed,
             "bytes_downloaded": self._bytes_downloaded,
             "in_flight": len(self._in_flight_tasks),
+            "stale_files_removed": self._stale_files_removed,
         }
         return msg, extra
 

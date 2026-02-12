@@ -48,6 +48,7 @@ def mock_config():
     config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     config.onelake_domain_paths = {"claimx": "/onelake/claimx"}
     config.onelake_base_path = "/onelake/base"
+    config.cache_dir = "/tmp/cache"
     return config
 
 
@@ -153,7 +154,7 @@ class TestClaimXUploadWorkerInitialization:
             assert worker._records_processed == 0
             assert worker._records_succeeded == 0
             assert worker._records_failed == 0
-            assert worker._records_skipped == 0
+            assert worker._bytes_uploaded == 0
 
     def test_initialization_requires_onelake_config(self):
         """Worker requires OneLake configuration when no storage client injected."""

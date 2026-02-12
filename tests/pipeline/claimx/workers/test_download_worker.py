@@ -139,7 +139,7 @@ class TestClaimXDownloadWorkerInitialization:
             assert worker._records_processed == 0
             assert worker._records_succeeded == 0
             assert worker._records_failed == 0
-            assert worker._records_skipped == 0
+            assert worker._bytes_downloaded == 0
 
 
 class TestClaimXDownloadWorkerLifecycle:

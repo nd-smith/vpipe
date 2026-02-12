@@ -49,6 +49,7 @@ def mock_config():
     config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     config.onelake_domain_paths = {"verisk": "/onelake/verisk"}
     config.onelake_base_path = "/onelake/base"
+    config.cache_dir = "/tmp/cache"
     return config
 
 
