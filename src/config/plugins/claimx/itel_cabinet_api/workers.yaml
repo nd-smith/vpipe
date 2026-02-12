@@ -74,6 +74,10 @@ workers:
       endpoint: /api/v1/cabinet/repairs
       method: POST
 
+      # Vendor-required identity fields (injected into API payload)
+      carrier_id: ${ITEL_CABINET_API_CARRIER_ID}
+      subscription_id: ${ITEL_CABINET_API_SUBSCRIPTION_ID}
+
       # Test mode - write to files instead of calling API
       test_mode: true
       test_output_dir: config/plugins/claimx/itel_cabinet_api/test
@@ -86,8 +90,13 @@ workers:
 # export CLAIMX_API_TOKEN="your-claimx-basic-token"
 #
 # iTel API connection (required for API worker)
-# export ITEL_CABINET_API_BASE_URL="https://api.itelcabinet.com"
-# export ITEL_CABINET_API_TOKEN="your-itel-token"
+# export ITEL_CABINET_API_BASE_URL="https://api.qa.itelinc.net/cabinet-repair-orv"
+# export ITEL_CABINET_API_CLIENT_ID="your-client-id"
+# export ITEL_CABINET_API_CLIENT_SECRET="your-client-secret"
+# export ITEL_CABINET_API_TOKEN_URL="https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token"
+# export ITEL_CABINET_API_SCOPE="your-scope"
+# export ITEL_CABINET_API_CARRIER_ID="your-carrier-guid"
+# export ITEL_CABINET_API_SUBSCRIPTION_ID="your-subscription-id"
 #
 # Kafka connection
 # export KAFKA_BOOTSTRAP_SERVERS="localhost:9094"
