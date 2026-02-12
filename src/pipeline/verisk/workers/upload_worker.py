@@ -298,7 +298,7 @@ class UploadWorker:
         self._stats_logger.start()
 
         # Update health check readiness
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         # Update connection status
         update_connection_status("consumer", connected=True)

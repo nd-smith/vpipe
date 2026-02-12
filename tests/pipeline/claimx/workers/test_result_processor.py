@@ -16,11 +16,12 @@ No infrastructure required - all dependencies mocked.
 
 import asyncio
 import contextlib
-import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+
+from pydantic import ValidationError
 
 from config.config import MessageConfig
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
@@ -277,7 +278,7 @@ class TestClaimXResultProcessorMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ValidationError):
             await processor._handle_result_message(invalid_message)
 
 

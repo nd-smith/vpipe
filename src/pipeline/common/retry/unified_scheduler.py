@@ -226,7 +226,7 @@ class UnifiedRetryScheduler:
         self._stats_logger.start()
 
         # Mark health server as ready after successful initialization
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         logger.info(
             "UnifiedRetryScheduler ready",

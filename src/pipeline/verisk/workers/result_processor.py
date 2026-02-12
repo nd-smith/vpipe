@@ -14,7 +14,7 @@ Features:
 - Batch ID for log correlation
 - Delta write metrics
 - Optional max_batches limit for testing
-- Retry via Kafka topics on Delta write failure
+- Retry via topics on Delta write failure
 """
 
 import asyncio
@@ -22,10 +22,12 @@ import contextlib
 import logging
 import time
 import uuid
+from typing import Any
 
 from config.config import MessageConfig
 from core.logging.context import set_log_context
-from core.logging.utilities import format_cycle_output, log_worker_error
+from core.logging.periodic_logger import PeriodicStatsLogger
+from core.logging.utilities import log_worker_error
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
@@ -103,8 +105,8 @@ class ResultProcessor:
         Initialize result processor.
 
         Args:
-            config: Kafka configuration
-            producer: Kafka producer for retry topic routing (required)
+            config: Message broker configuration
+            producer: Message producer for retry topic routing (required)
             inventory_table_path: Full abfss:// path to xact_attachments Delta table
             failed_table_path: Optional path to xact_attachments_failed Delta table.
                                If provided, permanent failures will be written here.
@@ -155,13 +157,12 @@ class ResultProcessor:
         self._failed_batches_written = 0
         self._total_records_written = 0
 
-        # Cycle output tracking
+        # Stats tracking
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         # Store topics for logging
         self._results_topic = config.get_topic(self.domain, "downloads_results")
@@ -234,11 +235,18 @@ class ResultProcessor:
             topic_key="downloads_results",
         )
 
-        # Start background flush task for timeout-based flushing
+        # Start periodic background tasks
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="result_processing",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
         self._flush_task = asyncio.create_task(self._periodic_flush())
 
         # Update health check readiness
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         try:
             # Start consumer (blocks until stopped)
@@ -271,7 +279,10 @@ class ResultProcessor:
         self._running = False
 
         try:
-            # Cancel periodic flush task
+            # Stop background tasks
+            if self._stats_logger:
+                await self._stats_logger.stop()
+
             if self._flush_task and not self._flush_task.done():
                 self._flush_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -392,42 +403,22 @@ class ResultProcessor:
                     "trace_id": result.trace_id,
                     "status": result.status,
                     "reason": (
-                        "transient" if result.status == "failed_transient" else "no_failed_writer"
+                        "transient" if result.status == "failed" else "no_failed_writer"
                     ),
                     "attachment_url": result.attachment_url[:100],  # truncate for logging
                 },
             )
 
     async def _periodic_flush(self) -> None:
-        """
-        Background task for timeout-based batch flushing and cycle logging.
-
-        Runs continuously while processor is active.
-        Flushes batches when timeout threshold exceeded.
-        Logs cycle output at regular intervals for operational visibility.
-        """
-        logger.info(
-            f"{format_cycle_output(0, 0, 0, 0)} [cycle output every {self.CYCLE_LOG_INTERVAL_SECONDS}s]",
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "result_processing",
-                "cycle": 0,
-            },
-        )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
+        """Background task for timeout-based batch flushing."""
         try:
             while self._running:
-                # Sleep for check interval (1 second)
                 await asyncio.sleep(1)
 
-                # Check if timeout threshold exceeded
                 async with self._batch_lock:
                     elapsed = time.monotonic() - self._last_flush
 
                     if elapsed >= self.batch_timeout_seconds:
-                        # Flush success batch if not empty
                         if self._batch:
                             logger.debug(
                                 "Success batch timeout threshold reached, flushing",
@@ -438,7 +429,6 @@ class ResultProcessor:
                             )
                             await self._flush_batch()
 
-                        # Flush failed batch if not empty
                         if self._failed_batch:
                             logger.debug(
                                 "Failed batch timeout threshold reached, flushing",
@@ -449,51 +439,8 @@ class ResultProcessor:
                             )
                             await self._flush_failed_batch()
 
-                # Log cycle output at regular intervals
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    # Get current batch sizes for the log
-                    async with self._batch_lock:
-                        pending_success = len(self._batch)
-                        pending_failed = len(self._failed_batch)
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                            skipped=self._records_skipped,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "result_processing",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "records_skipped": self._records_skipped,
-                            "batches_written": self._batches_written,
-                            "failed_batches_written": self._failed_batches_written,
-                            "total_records_written": self._total_records_written,
-                            "pending_success_batch": pending_success,
-                            "pending_failed_batch": pending_failed,
-                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
-                        },
-                    )
-
         except asyncio.CancelledError:
             logger.debug("Periodic flush task cancelled")
-            raise
-        except Exception as e:
-            logger.error(
-                "Error in periodic flush task",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
             raise
 
     async def _flush_batch_common(
@@ -629,6 +576,20 @@ class ResultProcessor:
             "xact_attachments_failed",
             "_failed_batches_written",
         )
+
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Return current stats for PeriodicStatsLogger."""
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
+            "records_deduplicated": 0,
+            "batches_written": self._batches_written,
+            "failed_batches_written": self._failed_batches_written,
+            "total_records_written": self._total_records_written,
+        }
+        return "", extra
 
     @property
     def is_running(self) -> bool:

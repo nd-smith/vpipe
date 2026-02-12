@@ -170,7 +170,7 @@ class ClaimXEventIngesterWorker:
             connection_string=get_source_connection_string(),
         )
 
-        self.health_server.set_ready(kafka_connected=True, api_reachable=True)
+        self.health_server.set_ready(transport_connected=True, api_reachable=True)
 
         try:
             await self.consumer.start()

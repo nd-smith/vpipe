@@ -30,7 +30,7 @@ class TestHealthCheckServerInit:
         assert server.worker_name == "claimx-worker"
         assert server._enabled is True
         assert server._ready is False
-        assert server._kafka_connected is False
+        assert server._transport_connected is False
         assert server._api_reachable is True
         assert server._circuit_open is False
         assert server._actual_port is None
@@ -122,30 +122,30 @@ class TestHealthCheckServerProperties:
 class TestSetReady:
     """Tests for the set_ready method."""
 
-    def test_kafka_connected_makes_ready(self):
+    def test_transport_connected_makes_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
 
         assert server._ready is True
-        assert server._kafka_connected is True
+        assert server._transport_connected is True
 
-    def test_kafka_disconnected_makes_not_ready(self):
+    def test_transport_disconnected_makes_not_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=False)
+        server.set_ready(transport_connected=False)
 
         assert server._ready is False
-        assert server._kafka_connected is False
+        assert server._transport_connected is False
 
     def test_api_unreachable_makes_not_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, api_reachable=False)
+        server.set_ready(transport_connected=True, api_reachable=False)
 
         assert server._ready is False
         assert server._api_reachable is False
 
     def test_circuit_open_makes_not_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, circuit_open=True)
+        server.set_ready(transport_connected=True, circuit_open=True)
 
         assert server._ready is False
         assert server._circuit_open is True
@@ -153,7 +153,7 @@ class TestSetReady:
     def test_api_reachable_none_preserves_default(self):
         """When api_reachable is None, the default True is preserved."""
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, api_reachable=None)
+        server.set_ready(transport_connected=True, api_reachable=None)
 
         assert server._api_reachable is True
         assert server._ready is True
@@ -161,22 +161,22 @@ class TestSetReady:
     def test_api_reachable_none_preserves_previous_value(self):
         """When api_reachable is None, previous value is preserved."""
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, api_reachable=False)
+        server.set_ready(transport_connected=True, api_reachable=False)
         assert server._api_reachable is False
 
-        server.set_ready(kafka_connected=True, api_reachable=None)
+        server.set_ready(transport_connected=True, api_reachable=None)
         assert server._api_reachable is False
         assert server._ready is False
 
     def test_all_healthy_makes_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, api_reachable=True, circuit_open=False)
+        server.set_ready(transport_connected=True, api_reachable=True, circuit_open=False)
 
         assert server._ready is True
 
     def test_all_unhealthy_makes_not_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=False, api_reachable=False, circuit_open=True)
+        server.set_ready(transport_connected=False, api_reachable=False, circuit_open=True)
 
         assert server._ready is False
 
@@ -184,15 +184,15 @@ class TestSetReady:
         server = HealthCheckServer()
         # First call: False -> True
         with patch("pipeline.claimx.monitoring.logger") as mock_logger:
-            server.set_ready(kafka_connected=True)
+            server.set_ready(transport_connected=True)
             mock_logger.info.assert_called()
 
     def test_no_log_when_readiness_unchanged(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         # Second call: True -> True (no change)
         with patch("pipeline.claimx.monitoring.logger") as mock_logger:
-            server.set_ready(kafka_connected=True)
+            server.set_ready(transport_connected=True)
             # info might be called for other reasons, but the readiness-change
             # log should not fire. Check that the specific message was not logged.
             for call in mock_logger.info.call_args_list:
@@ -274,7 +274,7 @@ class TestHandleReadiness:
 
     async def test_readiness_returns_200_when_ready(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
@@ -283,7 +283,7 @@ class TestHandleReadiness:
 
     async def test_readiness_ready_body_has_correct_status(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
@@ -302,40 +302,40 @@ class TestHandleReadiness:
 
     async def test_readiness_ready_body_contains_checks(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, api_reachable=True, circuit_open=False)
+        server.set_ready(transport_connected=True, api_reachable=True, circuit_open=False)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
         body = json.loads(response.body)
 
-        assert body["checks"]["kafka_connected"] is True
+        assert body["checks"]["transport_connected"] is True
         assert body["checks"]["api_reachable"] is True
         assert body["checks"]["circuit_closed"] is True
 
     async def test_readiness_not_ready_body_contains_reasons(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=False)
+        server.set_ready(transport_connected=False)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
         body = json.loads(response.body)
 
         assert "reasons" in body
-        assert "kafka_disconnected" in body["reasons"]
+        assert "transport_disconnected" in body["reasons"]
 
-    async def test_readiness_not_ready_kafka_disconnected_reason(self):
+    async def test_readiness_not_ready_transport_disconnected_reason(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=False)
+        server.set_ready(transport_connected=False)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
         body = json.loads(response.body)
 
-        assert "kafka_disconnected" in body["reasons"]
+        assert "transport_disconnected" in body["reasons"]
 
     async def test_readiness_not_ready_api_unreachable_reason(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, api_reachable=False)
+        server.set_ready(transport_connected=True, api_reachable=False)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
@@ -345,7 +345,7 @@ class TestHandleReadiness:
 
     async def test_readiness_not_ready_circuit_open_reason(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=True, circuit_open=True)
+        server.set_ready(transport_connected=True, circuit_open=True)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
@@ -355,19 +355,19 @@ class TestHandleReadiness:
 
     async def test_readiness_not_ready_multiple_reasons(self):
         server = HealthCheckServer()
-        server.set_ready(kafka_connected=False, api_reachable=False, circuit_open=True)
+        server.set_ready(transport_connected=False, api_reachable=False, circuit_open=True)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)
         body = json.loads(response.body)
 
-        assert "kafka_disconnected" in body["reasons"]
+        assert "transport_disconnected" in body["reasons"]
         assert "api_unreachable" in body["reasons"]
         assert "circuit_open" in body["reasons"]
 
     async def test_readiness_body_contains_worker_name(self):
         server = HealthCheckServer(worker_name="my-worker")
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         request = make_mocked_request("GET", "/health/ready")
 
         response = await server.handle_readiness(request)

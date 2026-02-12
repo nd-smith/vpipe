@@ -37,7 +37,7 @@ class HealthCheckServer:
         self.worker_name = worker_name
         self._enabled = enabled and port is not None
         self._ready = False
-        self._kafka_connected = False
+        self._transport_connected = False
         self._api_reachable = True  # Default true for workers without API dependency
         self._circuit_open = False
         self._started_at = datetime.now(UTC)
@@ -61,7 +61,7 @@ class HealthCheckServer:
 
     def set_ready(
         self,
-        kafka_connected: bool,
+        transport_connected: bool,
         api_reachable: bool | None = None,
         circuit_open: bool = False,
     ) -> None:
@@ -72,11 +72,11 @@ class HealthCheckServer:
         based on its current state.
 
         Args:
-            kafka_connected: Whether Kafka connection is healthy
+            transport_connected: Whether transport connection is healthy
             api_reachable: Whether external API is reachable (None = not applicable)
             circuit_open: Whether circuit breaker is open
         """
-        self._kafka_connected = kafka_connected
+        self._transport_connected = transport_connected
 
         if api_reachable is not None:
             self._api_reachable = api_reachable
@@ -85,14 +85,14 @@ class HealthCheckServer:
 
         # Ready if all dependencies are healthy and circuit is closed
         old_ready = self._ready
-        self._ready = self._kafka_connected and self._api_reachable and not self._circuit_open
+        self._ready = self._transport_connected and self._api_reachable and not self._circuit_open
 
         if old_ready != self._ready:
             logger.info(
                 f"Readiness status changed: {old_ready} -> {self._ready}",
                 extra={
                     "worker_name": self.worker_name,
-                    "kafka_connected": kafka_connected,
+                    "transport_connected": transport_connected,
                     "api_reachable": self._api_reachable,
                     "circuit_open": circuit_open,
                 },
@@ -136,7 +136,7 @@ class HealthCheckServer:
                     "status": "ready",
                     "worker": self.worker_name,
                     "checks": {
-                        "kafka_connected": self._kafka_connected,
+                        "transport_connected": self._transport_connected,
                         "api_reachable": self._api_reachable,
                         "circuit_closed": not self._circuit_open,
                     },
@@ -147,8 +147,8 @@ class HealthCheckServer:
         else:
             # Determine reason for not being ready
             reasons = []
-            if not self._kafka_connected:
-                reasons.append("kafka_disconnected")
+            if not self._transport_connected:
+                reasons.append("transport_disconnected")
             if not self._api_reachable:
                 reasons.append("api_unreachable")
             if self._circuit_open:
@@ -160,7 +160,7 @@ class HealthCheckServer:
                     "worker": self.worker_name,
                     "reasons": reasons,
                     "checks": {
-                        "kafka_connected": self._kafka_connected,
+                        "transport_connected": self._transport_connected,
                         "api_reachable": self._api_reachable,
                         "circuit_closed": not self._circuit_open,
                     },

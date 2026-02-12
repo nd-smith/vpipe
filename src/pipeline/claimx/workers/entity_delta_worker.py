@@ -180,7 +180,7 @@ class ClaimXEntityDeltaWorker:
         self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
 
         # Update health check readiness
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         # Start the consumer
         try:

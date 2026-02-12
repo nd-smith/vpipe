@@ -299,7 +299,7 @@ class DownloadWorker:
         )
         self._stats_logger.start()
 
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         # Update metrics
         update_connection_status("consumer", connected=True)

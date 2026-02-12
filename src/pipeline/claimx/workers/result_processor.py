@@ -6,21 +6,23 @@ Final stage of the download pipeline.
 
 import asyncio
 import contextlib
-import json
 import logging
 import time
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import polars as pl
 from pydantic import ValidationError
 
 from config.config import MessageConfig
 from core.logging.context import set_log_context
-from core.logging.utilities import format_cycle_output, log_worker_error
+from core.logging.periodic_logger import PeriodicStatsLogger
+from core.logging.utilities import log_worker_error
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
+    record_delta_write,
     record_message_consumed,
     record_processing_error,
 )
@@ -108,20 +110,14 @@ class ClaimXResultProcessor:
         self._last_flush = time.monotonic()
         self._flush_task: asyncio.Task | None = None
 
-        # Cycle output tracking
+        # Stats tracking
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
         self._batches_written = 0
         self._total_records_written = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
-
-        # Cycle-specific metrics (reset each cycle)
-        self._last_cycle_processed = 0
-        self._last_cycle_failed = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
 
         # Initialize Delta writer for inventory if path is provided
         self.inventory_writer: BaseDeltaWriter | None = None
@@ -190,14 +186,21 @@ class ClaimXResultProcessor:
             message_handler=self._handle_result_message,
             enable_message_commit=False,
             instance_id=self.instance_id,
+            topic_key="downloads_results",
         )
 
         # Start periodic background tasks
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=30,
+            get_stats=self._get_cycle_stats,
+            stage="result_processing",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
         self._flush_task = asyncio.create_task(self._periodic_flush())
 
         # Update health check readiness
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         try:
             # Start consumer (this blocks until stopped)
@@ -220,12 +223,14 @@ class ClaimXResultProcessor:
         logger.info("Stopping ClaimXResultProcessor")
         self._running = False
 
-        # Cancel background tasks
-        for task in [self._cycle_task, self._flush_task]:
-            if task and not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+        # Stop background tasks
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
 
         # Flush any pending batch
         async with self._batch_lock:
@@ -252,22 +257,13 @@ class ClaimXResultProcessor:
         )
 
     async def request_shutdown(self) -> None:
-        """
-        Request graceful shutdown.
-
-        This method is compatible with the shutdown pattern used in other workers.
-        For MessageConsumer-based workers, stop() handles the graceful shutdown
-        logic (flushing batches), but this method allows for a consistent interface.
-        """
+        """Request graceful shutdown."""
         logger.info("Graceful shutdown requested for ClaimXResultProcessor")
-        # In this implementation, stop() does the heavy lifting of flushing.
-        # We can trigger stop() from here if we're not blocking in consume loop,
-        # but typical usage is that the caller will call stop() after this.
-        pass
+        self._running = False
 
     async def _handle_result_message(self, record: PipelineMessage) -> None:
         """
-        Process a single upload result message from Kafka.
+        Process a single upload result message.
 
         Routes valid results to the batch buffer.
         Triggers flush if batch size threshold is reached.
@@ -275,11 +271,10 @@ class ClaimXResultProcessor:
         Args:
             record: PipelineMessage containing ClaimXUploadResultMessage JSON
         """
-        # Decode and parse ClaimXUploadResultMessage
+        # Parse ClaimXUploadResultMessage
         try:
-            message_data = json.loads(record.value.decode("utf-8"))
-            result = ClaimXUploadResultMessage.model_validate(message_data)
-        except (json.JSONDecodeError, ValidationError) as e:
+            result = ClaimXUploadResultMessage.model_validate_json(record.value)
+        except ValidationError as e:
             log_worker_error(
                 logger,
                 "Failed to parse ClaimXUploadResultMessage",
@@ -406,6 +401,12 @@ class ClaimXResultProcessor:
                 preserve_columns=["created_at"],
             )
 
+            record_delta_write(
+                table="claimx_attachments",
+                event_count=batch_size,
+                success=True,
+            )
+
             # Commit offsets only after successful write
             if self.consumer:
                 await self.consumer.commit()
@@ -432,71 +433,18 @@ class ClaimXResultProcessor:
                 batch_size=batch_size,
             )
 
-    async def _periodic_cycle_output(self) -> None:
-        """
-        Background task for periodic cycle logging.
-        """
-        # Initial cycle output
-        logger.info(
-            format_cycle_output(
-                cycle_count=0,
-                succeeded=0,
-                failed=0,
-                skipped=0,
-                deduplicated=0,
-            ),
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "result_processing",
-                "cycle": 0,
-                "cycle_id": "cycle-0",
-            },
-        )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while self._running:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:  # 30 matches standard interval
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    async with self._batch_lock:
-                        pending = len(self._batch)
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                            skipped=self._records_skipped,
-                            deduplicated=0,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "result_processing",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "records_skipped": self._records_skipped,
-                            "pending": pending,
-                            "total_written": self._total_records_written,
-                            "cycle_interval_seconds": 30,
-                        },
-                    )
-
-                    # Update last cycle counters
-                    self._last_cycle_processed = self._records_processed
-                    self._last_cycle_failed = self._records_failed
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
+        """Return current stats for PeriodicStatsLogger."""
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
+            "records_deduplicated": 0,
+            "batches_written": self._batches_written,
+            "total_records_written": self._total_records_written,
+        }
+        return "", extra
 
 
 __all__ = ["ClaimXResultProcessor"]

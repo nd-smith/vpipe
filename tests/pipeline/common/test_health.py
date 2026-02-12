@@ -185,7 +185,7 @@ class TestHealthCheckServerLivenessEndpoint:
 
         try:
             # Set not ready
-            server.set_ready(kafka_connected=False)
+            server.set_ready(transport_connected=False)
 
             async with (
                 aiohttp.ClientSession() as session,
@@ -217,7 +217,7 @@ class TestHealthCheckServerReadinessEndpoint:
                 data = await resp.json()
                 assert data["status"] == "not_ready"
                 assert data["worker"] == "test-worker"
-                assert "kafka_disconnected" in data["reasons"]
+                assert "transport_disconnected" in data["reasons"]
 
         finally:
             await server.stop()
@@ -230,7 +230,7 @@ class TestHealthCheckServerReadinessEndpoint:
 
         try:
             # Set ready
-            server.set_ready(kafka_connected=True)
+            server.set_ready(transport_connected=True)
 
             async with (
                 aiohttp.ClientSession() as session,
@@ -241,7 +241,7 @@ class TestHealthCheckServerReadinessEndpoint:
                 data = await resp.json()
                 assert data["status"] == "ready"
                 assert data["worker"] == "test-worker"
-                assert data["checks"]["kafka_connected"] is True
+                assert data["checks"]["transport_connected"] is True
                 assert data["checks"]["api_reachable"] is True
                 assert data["checks"]["circuit_closed"] is True
 
@@ -249,13 +249,13 @@ class TestHealthCheckServerReadinessEndpoint:
             await server.stop()
 
     @pytest.mark.asyncio
-    async def test_readiness_not_ready_due_to_kafka(self):
-        """Readiness is not ready when Kafka is disconnected."""
+    async def test_readiness_not_ready_due_to_transport(self):
+        """Readiness is not ready when transport is disconnected."""
         server = HealthCheckServer(port=0, worker_name="test-worker")
         await server.start()
 
         try:
-            server.set_ready(kafka_connected=False)
+            server.set_ready(transport_connected=False)
 
             async with (
                 aiohttp.ClientSession() as session,
@@ -264,8 +264,8 @@ class TestHealthCheckServerReadinessEndpoint:
                 assert resp.status == 503
 
                 data = await resp.json()
-                assert "kafka_disconnected" in data["reasons"]
-                assert data["checks"]["kafka_connected"] is False
+                assert "transport_disconnected" in data["reasons"]
+                assert data["checks"]["transport_connected"] is False
 
         finally:
             await server.stop()
@@ -277,7 +277,7 @@ class TestHealthCheckServerReadinessEndpoint:
         await server.start()
 
         try:
-            server.set_ready(kafka_connected=True, api_reachable=False)
+            server.set_ready(transport_connected=True, api_reachable=False)
 
             async with (
                 aiohttp.ClientSession() as session,
@@ -299,7 +299,7 @@ class TestHealthCheckServerReadinessEndpoint:
         await server.start()
 
         try:
-            server.set_ready(kafka_connected=True, circuit_open=True)
+            server.set_ready(transport_connected=True, circuit_open=True)
 
             async with (
                 aiohttp.ClientSession() as session,
@@ -350,11 +350,11 @@ class TestHealthCheckServerStatusManagement:
         assert server.is_ready is False
 
         # Set ready
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         assert server.is_ready is True
 
         # Set not ready
-        server.set_ready(kafka_connected=False)
+        server.set_ready(transport_connected=False)
         assert server.is_ready is False
 
     def test_set_ready_with_api_reachable(self):
@@ -362,11 +362,11 @@ class TestHealthCheckServerStatusManagement:
         server = HealthCheckServer(port=8080, worker_name="test-worker")
 
         # Set ready with API unreachable
-        server.set_ready(kafka_connected=True, api_reachable=False)
+        server.set_ready(transport_connected=True, api_reachable=False)
         assert server.is_ready is False
 
         # Set ready with API reachable
-        server.set_ready(kafka_connected=True, api_reachable=True)
+        server.set_ready(transport_connected=True, api_reachable=True)
         assert server.is_ready is True
 
     def test_set_ready_with_circuit_breaker(self):
@@ -374,11 +374,11 @@ class TestHealthCheckServerStatusManagement:
         server = HealthCheckServer(port=8080, worker_name="test-worker")
 
         # Set ready with circuit open
-        server.set_ready(kafka_connected=True, circuit_open=True)
+        server.set_ready(transport_connected=True, circuit_open=True)
         assert server.is_ready is False
 
         # Set ready with circuit closed
-        server.set_ready(kafka_connected=True, circuit_open=False)
+        server.set_ready(transport_connected=True, circuit_open=False)
         assert server.is_ready is True
 
     def test_set_ready_api_none_preserves_previous_value(self):
@@ -386,11 +386,11 @@ class TestHealthCheckServerStatusManagement:
         server = HealthCheckServer(port=8080, worker_name="test-worker")
 
         # Set API unreachable
-        server.set_ready(kafka_connected=True, api_reachable=False)
+        server.set_ready(transport_connected=True, api_reachable=False)
         assert server.is_ready is False
 
         # Update without changing API status
-        server.set_ready(kafka_connected=True, api_reachable=None)
+        server.set_ready(transport_connected=True, api_reachable=None)
         # Should still be False from previous call
         assert server.is_ready is False
 
@@ -398,7 +398,7 @@ class TestHealthCheckServerStatusManagement:
         """set_error sets error message and marks not ready."""
         server = HealthCheckServer(port=8080, worker_name="test-worker")
 
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         assert server.is_ready is True
 
         server.set_error("Test error")
@@ -433,7 +433,7 @@ class TestHealthCheckServerProperties:
 
         assert server.is_ready is False
 
-        server.set_ready(kafka_connected=True)
+        server.set_ready(transport_connected=True)
         assert server.is_ready is True
 
     def test_is_enabled_property(self):

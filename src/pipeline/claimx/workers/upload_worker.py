@@ -304,7 +304,7 @@ class ClaimXUploadWorker:
         self._stats_logger.start()
 
         # Update health check readiness (upload worker doesn't use API)
-        self.health_server.set_ready(kafka_connected=True, api_reachable=True)
+        self.health_server.set_ready(transport_connected=True, api_reachable=True)
 
         self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
 

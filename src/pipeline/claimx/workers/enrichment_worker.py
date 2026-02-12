@@ -259,7 +259,7 @@ class ClaimXEnrichmentWorker:
 
         api_reachable = not self.api_client.is_circuit_open
         self.health_server.set_ready(
-            kafka_connected=False,
+            transport_connected=False,
             api_reachable=api_reachable,
         )
 
@@ -306,7 +306,7 @@ class ClaimXEnrichmentWorker:
             )
 
             self.health_server.set_ready(
-                kafka_connected=True,
+                transport_connected=True,
                 api_reachable=api_reachable,
                 circuit_open=self.api_client.is_circuit_open,
             )

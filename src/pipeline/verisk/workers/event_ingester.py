@@ -192,7 +192,7 @@ class EventIngesterWorker:
         )
 
         # Update health check readiness
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         try:
             # Start consumer (this blocks until stopped)

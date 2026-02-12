@@ -211,7 +211,7 @@ class ClaimXDeltaEventsWorker:
         )
 
         # Update health check readiness
-        self.health_server.set_ready(kafka_connected=True)
+        self.health_server.set_ready(transport_connected=True)
 
         try:
             await self.consumer.start()

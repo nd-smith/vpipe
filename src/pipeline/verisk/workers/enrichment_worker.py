@@ -261,7 +261,7 @@ class XACTEnrichmentWorker:
                 instance_id=self.instance_id,
             )
 
-            self.health_server.set_ready(kafka_connected=True)
+            self.health_server.set_ready(transport_connected=True)
 
             await self.consumer.start()
 
