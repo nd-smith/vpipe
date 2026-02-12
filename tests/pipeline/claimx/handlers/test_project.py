@@ -40,6 +40,7 @@ class TestProjectHandlerProjectCreated:
         assert len(result.rows.contacts) == 2
 
     async def test_handle_event_project_created_empty_response(self, mock_client):
+        """Even with empty API response, project row is created using event's project_id."""
         mock_client.get_project = AsyncMock(return_value={})
         handler = ProjectHandler(mock_client)
         event = make_event(event_type="PROJECT_CREATED")
@@ -48,8 +49,9 @@ class TestProjectHandlerProjectCreated:
 
         assert result.success is True
         assert result.api_calls == 1
-        # project_id is None from empty response, so no project row appended
-        assert len(result.rows.projects) == 0
+        # Fallback project_id from event ensures a row is always produced
+        assert len(result.rows.projects) == 1
+        assert result.rows.projects[0]["project_id"] == "123"
 
 
 # ============================================================================
@@ -211,7 +213,8 @@ class TestProjectHandlerFetchProjectData:
         assert len(rows.projects) == 1
         mock_client.get_project.assert_called_once_with(123)
 
-    async def test_fetch_project_data_skips_project_row_when_no_id(self, mock_client):
+    async def test_fetch_project_data_uses_fallback_project_id(self, mock_client):
+        """When API response lacks projectId, the input project_id is used as fallback."""
         mock_client.get_project = AsyncMock(
             return_value={"data": {"project": {}, "teamMembers": []}}
         )
@@ -219,4 +222,5 @@ class TestProjectHandlerFetchProjectData:
 
         rows = await handler.fetch_project_data(123, source_event_id="evt_001")
 
-        assert len(rows.projects) == 0
+        assert len(rows.projects) == 1
+        assert rows.projects[0]["project_id"] == "123"
