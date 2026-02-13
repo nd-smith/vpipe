@@ -354,7 +354,7 @@ class TestEventIngesterDeduplication:
         """_mark_processed adds event to deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        await worker._mark_processed("evt-789")
+        worker._mark_processed("evt-789")
 
         assert "evt-789" in worker._dedup_cache
 
@@ -478,7 +478,7 @@ class TestEventIngesterDedupSourceTracking:
     async def test_memory_hit_increments_counter(self, mock_config):
         """Memory cache hit increments _dedup_memory_hits."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        await worker._mark_processed("evt-1")
+        worker._mark_processed("evt-1")
 
         is_dup = await worker._is_duplicate("evt-1")
         assert is_dup is True

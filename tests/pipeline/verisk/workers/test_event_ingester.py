@@ -291,7 +291,7 @@ class TestEventIngesterWorkerDeduplication:
         worker = EventIngesterWorker(config=mock_config)
 
         # Mark as processed
-        await worker._mark_processed("trace-123", "evt-456")
+        worker._mark_processed("trace-123", "evt-456")
 
         # Check for duplicate
         is_dup, cached_id = await worker._is_duplicate("trace-123")
@@ -306,7 +306,7 @@ class TestEventIngesterWorkerDeduplication:
         worker._dedup_cache_ttl_seconds = 1  # 1 second TTL
 
         # Mark as processed
-        await worker._mark_processed("trace-123", "evt-456")
+        worker._mark_processed("trace-123", "evt-456")
 
         # Wait for expiry
         time.sleep(1.1)
@@ -344,7 +344,7 @@ class TestEventIngesterWorkerDeduplication:
         """mark_processed adds entry to dedup cache."""
         worker = EventIngesterWorker(config=mock_config)
 
-        await worker._mark_processed("trace-123", "evt-456")
+        worker._mark_processed("trace-123", "evt-456")
 
         assert "trace-123" in worker._dedup_cache
         event_id, _ = worker._dedup_cache["trace-123"]
@@ -358,10 +358,10 @@ class TestEventIngesterWorkerDeduplication:
 
         # Fill cache to capacity
         for i in range(10):
-            await worker._mark_processed(f"trace-{i}", f"evt-{i}")
+            worker._mark_processed(f"trace-{i}", f"evt-{i}")
 
         # Add one more - should trigger eviction
-        await worker._mark_processed("trace-new", "evt-new")
+        worker._mark_processed("trace-new", "evt-new")
 
         # Verify cache size is maintained
         assert len(worker._dedup_cache) <= 10
@@ -377,14 +377,14 @@ class TestEventIngesterWorkerDeduplication:
         worker._dedup_cache_ttl_seconds = 1  # 1 second TTL
 
         # Add entries
-        await worker._mark_processed("trace-1", "evt-1")
-        await worker._mark_processed("trace-2", "evt-2")
+        worker._mark_processed("trace-1", "evt-1")
+        worker._mark_processed("trace-2", "evt-2")
 
         # Wait for expiry
         time.sleep(1.1)
 
         # Add fresh entry
-        await worker._mark_processed("trace-3", "evt-3")
+        worker._mark_processed("trace-3", "evt-3")
 
         # Cleanup
         worker._cleanup_dedup_cache()
@@ -527,7 +527,7 @@ class TestEventIngesterWorkerDedupSourceTracking:
     async def test_memory_hit_increments_counter(self, mock_config):
         """Memory cache hit increments _dedup_memory_hits."""
         worker = EventIngesterWorker(config=mock_config)
-        await worker._mark_processed("trace-1", "evt-1")
+        worker._mark_processed("trace-1", "evt-1")
 
         is_dup, _ = await worker._is_duplicate("trace-1")
         assert is_dup is True

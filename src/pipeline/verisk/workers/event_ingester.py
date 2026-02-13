@@ -113,6 +113,7 @@ class EventIngesterWorker:
         self._dedup_store: DedupStoreProtocol | None = None
         self._dedup_worker_name = "verisk-event-ingester"
         self._dedup_cleanup_task: asyncio.Task | None = None
+        self._blob_write_tasks: set[asyncio.Task] = set()
 
         # Health check server - use worker-specific port from config
         processing_config = config.get_worker_config(domain, "event_ingester", "processing")
@@ -259,6 +260,11 @@ class EventIngesterWorker:
         enrichment_tasks: list[tuple[str, XACTEnrichmentTask]] = []
         processed_trace_ids: list[tuple[str, str]] = []  # (trace_id, event_id)
 
+        # Pass 1: Parse messages, check memory cache, collect cache misses
+        parsed_events: list[tuple[EventMessage, str]] = []  # (event, event_id)
+        seen_in_batch: set[str] = set()
+        now = time.time()
+
         for record in records:
             self._records_processed += 1
 
@@ -282,21 +288,56 @@ class EventIngesterWorker:
             event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
             event.event_id = event_id
 
-            # Check for duplicates (hybrid: memory + blob storage)
-            is_duplicate, cached_event_id = await self._is_duplicate(event.trace_id)
-            if is_duplicate:
+            # Intra-batch dedup
+            if event.trace_id in seen_in_batch:
                 self._records_deduplicated += 1
-                logger.debug(
-                    "Skipping duplicate event",
-                    extra={
-                        "trace_id": event.trace_id,
-                        "event_id": event_id,
-                        "cached_event_id": cached_event_id,
-                    },
-                )
+                continue
+            seen_in_batch.add(event.trace_id)
+
+            # Fast path: memory cache check (no I/O)
+            if event.trace_id in self._dedup_cache:
+                cached_event_id, cached_time = self._dedup_cache[event.trace_id]
+                if now - cached_time < self._dedup_cache_ttl_seconds:
+                    self._dedup_cache.move_to_end(event.trace_id)
+                    self._dedup_memory_hits += 1
+                    self._records_deduplicated += 1
+                    continue
+                del self._dedup_cache[event.trace_id]
+
+            parsed_events.append((event, event_id))
+
+        # Pass 2: Concurrent blob storage checks for all cache misses
+        blob_duplicates: set[str] = set()
+        if self._dedup_store and parsed_events:
+            async def _check_blob(trace_id: str) -> tuple[str, bool]:
+                try:
+                    is_dup, metadata = await self._dedup_store.check_duplicate(
+                        self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
+                    )
+                    if is_dup and metadata:
+                        cached_event_id = metadata.get("event_id")
+                        timestamp = metadata.get("timestamp", time.time())
+                        self._dedup_cache[trace_id] = (cached_event_id, timestamp)
+                        self._dedup_blob_hits += 1
+                        return trace_id, True
+                except Exception as e:
+                    logger.warning(
+                        "Error checking blob storage for duplicate (falling back to memory-only)",
+                        extra={"trace_id": trace_id, "error": str(e)},
+                    )
+                return trace_id, False
+
+            results = await asyncio.gather(
+                *(_check_blob(ev.trace_id) for ev, _ in parsed_events)
+            )
+            blob_duplicates = {tid for tid, is_dup in results if is_dup}
+
+        # Pass 3: Build enrichment tasks from non-duplicate events
+        for event, event_id in parsed_events:
+            if event.trace_id in blob_duplicates:
+                self._records_deduplicated += 1
                 continue
 
-            # Extract assignment_id (required for enrichment)
             assignment_id = event.assignment_id
             if not assignment_id:
                 self._records_skipped += 1
@@ -310,7 +351,6 @@ class EventIngesterWorker:
                 )
                 continue
 
-            # Parse original timestamp from event
             original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
 
             enrichment_task = XACTEnrichmentTask(
@@ -328,10 +368,7 @@ class EventIngesterWorker:
 
             enrichment_tasks.append((event.trace_id, enrichment_task))
             processed_trace_ids.append((event.trace_id, event_id))
-
-            # Mark in dedup cache immediately so later messages in the same
-            # batch with the same trace_id are caught as duplicates
-            await self._mark_processed(event.trace_id, event_id)
+            self._mark_processed(event.trace_id, event_id)
 
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
@@ -443,8 +480,8 @@ class EventIngesterWorker:
 
         return False, None
 
-    async def _mark_processed(self, trace_id: str, event_id: str) -> None:
-        """Add trace_id -> event_id mapping to both memory and blob storage."""
+    def _mark_processed(self, trace_id: str, event_id: str) -> None:
+        """Add trace_id -> event_id mapping to memory cache, fire-and-forget to blob."""
         now = time.time()
 
         # If memory cache is full, evict oldest entries (LRU via OrderedDict)
@@ -465,20 +502,25 @@ class EventIngesterWorker:
         self._dedup_cache[trace_id] = (event_id, now)
         self._dedup_cache.move_to_end(trace_id)
 
-        # Persist to blob storage (fire-and-forget - don't block on this)
+        # Persist to blob storage — truly fire-and-forget (don't block on HTTP)
         if self._dedup_store:
-            try:
-                await self._dedup_store.mark_processed(
-                    self._dedup_worker_name,
-                    trace_id,
-                    {"event_id": event_id, "timestamp": now},
-                )
-            except Exception as e:
-                logger.warning(
-                    "Error persisting to blob storage (memory cache still updated)",
-                    extra={"trace_id": trace_id, "error": str(e)},
-                    exc_info=False,
-                )
+            task = asyncio.create_task(self._persist_dedup_to_blob(trace_id, event_id, now))
+            self._blob_write_tasks.add(task)
+            task.add_done_callback(self._blob_write_tasks.discard)
+
+    async def _persist_dedup_to_blob(self, trace_id: str, event_id: str, timestamp: float) -> None:
+        """Fire-and-forget blob persistence for dedup markers."""
+        try:
+            await self._dedup_store.mark_processed(
+                self._dedup_worker_name,
+                trace_id,
+                {"event_id": event_id, "timestamp": timestamp},
+            )
+        except Exception as e:
+            logger.warning(
+                "Error persisting to blob storage (memory cache still updated)",
+                extra={"trace_id": trace_id, "error": str(e)},
+            )
 
     def _cleanup_dedup_cache(self) -> None:
         now = time.time()
