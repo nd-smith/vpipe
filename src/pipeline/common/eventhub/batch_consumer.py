@@ -77,6 +77,7 @@ class EventHubBatchConsumer:
         consumer_group: str,
         batch_handler: Callable[[list[PipelineMessage]], Awaitable[bool]],
         batch_size: int = 20,
+        max_batch_size: int | None = None,
         batch_timeout_ms: int = 1000,
         enable_message_commit: bool = True,
         instance_id: str | None = None,
@@ -92,6 +93,8 @@ class EventHubBatchConsumer:
             consumer_group: Consumer group name
             batch_handler: Async function that processes message batches
             batch_size: Target batch size (default: 20)
+            max_batch_size: Upper bound for batch size (allows dynamic batch_size
+                            up to this cap). Defaults to batch_size.
             batch_timeout_ms: Max wait time to accumulate batch (default: 1000ms)
             enable_message_commit: Whether to checkpoint after successful processing
             instance_id: Optional instance identifier for parallel consumers
@@ -105,6 +108,7 @@ class EventHubBatchConsumer:
         self.consumer_group = consumer_group
         self.batch_handler = batch_handler
         self.batch_size = batch_size
+        self.max_batch_size = max_batch_size or batch_size
         self.batch_timeout_ms = batch_timeout_ms
         self.checkpoint_store = checkpoint_store
         self._consumer: EventHubConsumerClient | None = None

@@ -16,6 +16,7 @@ No infrastructure required - all dependencies mocked.
 
 import contextlib
 import json
+import time
 from collections import OrderedDict
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
@@ -468,6 +469,94 @@ class TestEventIngesterBackgroundTasks:
 
         # Task set should be processed
         # (asyncio.wait will complete immediately for our mocked task)
+
+
+class TestEventIngesterDedupSourceTracking:
+    """Test dedup source analysis counters."""
+
+    @pytest.mark.asyncio
+    async def test_memory_hit_increments_counter(self, mock_config):
+        """Memory cache hit increments _dedup_memory_hits."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+        await worker._mark_processed("evt-1")
+
+        is_dup = await worker._is_duplicate("evt-1")
+        assert is_dup is True
+        assert worker._dedup_memory_hits == 1
+        assert worker._dedup_blob_hits == 0
+
+    @pytest.mark.asyncio
+    async def test_blob_hit_increments_counter(self, mock_config):
+        """Blob storage hit increments _dedup_blob_hits."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+
+        mock_store = AsyncMock()
+        mock_store.check_duplicate = AsyncMock(
+            return_value=(True, {"timestamp": time.time()})
+        )
+        worker._dedup_store = mock_store
+
+        is_dup = await worker._is_duplicate("evt-1")
+        assert is_dup is True
+        assert worker._dedup_blob_hits == 1
+        assert worker._dedup_memory_hits == 0
+
+    @pytest.mark.asyncio
+    async def test_no_hit_increments_nothing(self, mock_config):
+        """Cache miss does not increment either counter."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+
+        is_dup = await worker._is_duplicate("evt-new")
+        assert is_dup is False
+        assert worker._dedup_memory_hits == 0
+        assert worker._dedup_blob_hits == 0
+
+
+class TestEventIngesterBatchSizeAdjustment:
+    """Test backfill prefetch mode batch size adjustment."""
+
+    def test_adjust_to_backfill_size_when_events_are_old(self, mock_config):
+        """Batch size increases to BACKFILL_BATCH_SIZE for stale events."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.consumer = Mock()
+        worker.consumer.batch_size = worker.REALTIME_BATCH_SIZE
+
+        worker._adjust_batch_size(event_age_seconds=7200)
+
+        assert worker.consumer.batch_size == worker.BACKFILL_BATCH_SIZE
+
+    def test_adjust_to_realtime_size_when_events_are_fresh(self, mock_config):
+        """Batch size decreases to REALTIME_BATCH_SIZE for recent events."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.consumer = Mock()
+        worker.consumer.batch_size = worker.BACKFILL_BATCH_SIZE
+
+        worker._adjust_batch_size(event_age_seconds=60)
+
+        assert worker.consumer.batch_size == worker.REALTIME_BATCH_SIZE
+
+    def test_no_change_when_already_at_correct_size(self, mock_config):
+        """No assignment when already at the correct batch size."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.consumer = Mock()
+        worker.consumer.batch_size = worker.REALTIME_BATCH_SIZE
+
+        worker._adjust_batch_size(event_age_seconds=60)
+
+        assert worker.consumer.batch_size == worker.REALTIME_BATCH_SIZE
+
+    def test_no_crash_when_consumer_is_none(self, mock_config):
+        """Handles None consumer gracefully."""
+        worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.consumer = None
+
+        worker._adjust_batch_size(event_age_seconds=7200)
+
+    def test_constants_have_expected_values(self, mock_config):
+        """Verify backfill constants."""
+        assert ClaimXEventIngesterWorker.BACKFILL_BATCH_SIZE == 2000
+        assert ClaimXEventIngesterWorker.REALTIME_BATCH_SIZE == 100
+        assert ClaimXEventIngesterWorker.BACKFILL_THRESHOLD_SECONDS == 3600
 
 
 class TestEventIngesterConfig:

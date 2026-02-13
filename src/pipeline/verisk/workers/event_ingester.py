@@ -57,6 +57,11 @@ class EventIngesterWorker:
     # Cycle output configuration
     CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
 
+    # Backfill prefetch mode — dynamically increase batch size for stale data
+    BACKFILL_BATCH_SIZE = 2000
+    REALTIME_BATCH_SIZE = 100
+    BACKFILL_THRESHOLD_SECONDS = 3600  # 1 hour
+
     # Namespace for generating deterministic media_ids (UUID5)
     # Using a fixed namespace ensures the same trace_id + url always yields the same media_id
     MEDIA_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "http://nsmkdvPipe/media_id")
@@ -93,6 +98,8 @@ class EventIngesterWorker:
         self._records_succeeded = 0
         self._records_skipped = 0
         self._records_deduplicated = 0
+        self._dedup_memory_hits = 0
+        self._dedup_blob_hits = 0
         self._stats_logger: PeriodicStatsLogger | None = None
         self._running = False
 
@@ -191,7 +198,8 @@ class EventIngesterWorker:
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             batch_handler=self._handle_event_batch,
-            batch_size=100,
+            batch_size=self.REALTIME_BATCH_SIZE,
+            max_batch_size=self.BACKFILL_BATCH_SIZE,
             batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
@@ -349,6 +357,12 @@ class EventIngesterWorker:
                 )
                 return False
 
+        # Adjust batch size based on event age (backfill vs realtime)
+        if enrichment_tasks:
+            _, last_task = enrichment_tasks[-1]
+            event_age = (datetime.now(UTC) - last_task.original_timestamp).total_seconds()
+            self._adjust_batch_size(event_age)
+
         # Record batch processing duration
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
@@ -372,6 +386,10 @@ class EventIngesterWorker:
             "records_succeeded": self._records_succeeded,
             "records_skipped": self._records_skipped,
             "records_deduplicated": self._records_deduplicated,
+            "dedup_memory_hits": self._dedup_memory_hits,
+            "dedup_blob_hits": self._dedup_blob_hits,
+            "batch_mode": "backfill" if self.consumer and self.consumer.batch_size == self.BACKFILL_BATCH_SIZE else "realtime",
+            "current_batch_size": self.consumer.batch_size if self.consumer else self.REALTIME_BATCH_SIZE,
         }
         return msg, extra
 
@@ -388,6 +406,7 @@ class EventIngesterWorker:
             event_id, cached_time = self._dedup_cache[trace_id]
             if now - cached_time < self._dedup_cache_ttl_seconds:
                 self._dedup_cache.move_to_end(trace_id)
+                self._dedup_memory_hits += 1
                 return True, event_id
             # Expired - remove from memory cache
             del self._dedup_cache[trace_id]
@@ -405,6 +424,7 @@ class EventIngesterWorker:
                     cached_event_id = metadata.get("event_id")
                     timestamp = metadata.get("timestamp", now)
                     self._dedup_cache[trace_id] = (cached_event_id, timestamp)
+                    self._dedup_blob_hits += 1
                     logger.debug(
                         "Found duplicate in blob storage (restored to memory cache)",
                         extra={"trace_id": trace_id, "event_id": cached_event_id},
@@ -484,6 +504,26 @@ class EventIngesterWorker:
                 self._cleanup_dedup_cache()
         except asyncio.CancelledError:
             pass
+
+    def _adjust_batch_size(self, event_age_seconds: float) -> None:
+        """Switch between backfill and realtime batch sizes."""
+        if event_age_seconds > self.BACKFILL_THRESHOLD_SECONDS:
+            new_size = self.BACKFILL_BATCH_SIZE
+        else:
+            new_size = self.REALTIME_BATCH_SIZE
+
+        if self.consumer and self.consumer.batch_size != new_size:
+            old_size = self.consumer.batch_size
+            self.consumer.batch_size = new_size
+            logger.info(
+                "Batch size adjusted",
+                extra={
+                    "old_batch_size": old_size,
+                    "new_batch_size": new_size,
+                    "event_age_seconds": round(event_age_seconds),
+                    "mode": "backfill" if new_size == self.BACKFILL_BATCH_SIZE else "realtime",
+                },
+            )
 
 
 __all__ = ["EventIngesterWorker"]

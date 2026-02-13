@@ -52,6 +52,7 @@ class MessageBatchConsumer:
         topics: list[str],
         batch_handler: Callable[[list[PipelineMessage]], Awaitable[bool]],
         batch_size: int = 20,
+        max_batch_size: int | None = None,
         batch_timeout_ms: int = 1000,
         enable_message_commit: bool = True,
         instance_id: str | None = None,
@@ -65,6 +66,8 @@ class MessageBatchConsumer:
             topics: List of topics to consume
             batch_handler: Async function that processes message batches
             batch_size: Target batch size (maps to max_poll_records, default: 20)
+            max_batch_size: Upper bound for max_poll_records (allows dynamic batch_size
+                            up to this cap). Defaults to batch_size.
             batch_timeout_ms: Timeout for getmany (default: 1000ms)
             enable_message_commit: Whether to commit after successful processing
             instance_id: Optional instance identifier for parallel consumers
@@ -79,6 +82,7 @@ class MessageBatchConsumer:
         self.topics = topics
         self.batch_handler = batch_handler
         self.batch_size = batch_size
+        self.max_batch_size = max_batch_size or batch_size
         self.batch_timeout_ms = batch_timeout_ms
         self._consumer: AIOKafkaConsumer | None = None
         self._running = False
@@ -138,7 +142,7 @@ class MessageBatchConsumer:
             {
                 "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
                 "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
-                "max_poll_records": self.batch_size,  # Use batch_size for max_poll_records
+                "max_poll_records": self.max_batch_size,  # Allow dynamic batch_size up to this cap
                 "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
                 "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
             }

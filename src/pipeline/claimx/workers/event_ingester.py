@@ -44,6 +44,11 @@ class ClaimXEventIngesterWorker:
 
     WORKER_NAME = "event_ingester"
 
+    # Backfill prefetch mode — dynamically increase batch size for stale data
+    BACKFILL_BATCH_SIZE = 2000
+    REALTIME_BATCH_SIZE = 100
+    BACKFILL_THRESHOLD_SECONDS = 3600  # 1 hour
+
     def __init__(
         self,
         config: MessageConfig,
@@ -72,6 +77,8 @@ class ClaimXEventIngesterWorker:
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_deduplicated = 0
+        self._dedup_memory_hits = 0
+        self._dedup_blob_hits = 0
         self._last_cycle_log = time.monotonic()
         self._cycle_count = 0
         self._cycle_task: asyncio.Task | None = None
@@ -170,7 +177,8 @@ class ClaimXEventIngesterWorker:
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             batch_handler=self._handle_event_batch,
-            batch_size=100,
+            batch_size=self.REALTIME_BATCH_SIZE,
+            max_batch_size=self.BACKFILL_BATCH_SIZE,
             batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
@@ -343,6 +351,8 @@ class ClaimXEventIngesterWorker:
         enrichment_tasks: list[tuple[str, ClaimXEnrichmentTask]] = []
         processed_event_ids: list[str] = []
 
+        latest_timestamp = None
+
         for record in records:
             # Parse event — skip unparseable messages (would never succeed on retry)
             try:
@@ -361,6 +371,7 @@ class ClaimXEventIngesterWorker:
                 continue
 
             event_id = event.event_id
+            latest_timestamp = event.ingested_at
 
             # Check for duplicates (hybrid: memory + blob storage)
             if await self._is_duplicate(event_id):
@@ -416,6 +427,14 @@ class ClaimXEventIngesterWorker:
                 )
                 return False
 
+        # Adjust batch size based on event age (backfill vs realtime)
+        if latest_timestamp:
+            # Ensure timezone-aware for age calculation
+            if latest_timestamp.tzinfo is None:
+                latest_timestamp = latest_timestamp.replace(tzinfo=UTC)
+            event_age = (datetime.now(UTC) - latest_timestamp).total_seconds()
+            self._adjust_batch_size(event_age)
+
         # Record batch processing duration
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
@@ -438,6 +457,7 @@ class ClaimXEventIngesterWorker:
             cached_time = self._dedup_cache[event_id]
             if now - cached_time < self._dedup_cache_ttl_seconds:
                 self._dedup_cache.move_to_end(event_id)
+                self._dedup_memory_hits += 1
                 return True
             # Expired - remove from memory cache
             del self._dedup_cache[event_id]
@@ -454,6 +474,7 @@ class ClaimXEventIngesterWorker:
                     # Found in blob - update memory cache for faster subsequent lookups
                     timestamp = metadata.get("timestamp", now)
                     self._dedup_cache[event_id] = timestamp
+                    self._dedup_blob_hits += 1
                     logger.debug(
                         "Found duplicate in blob storage (restored to memory cache)",
                         extra={"event_id": event_id},
@@ -535,6 +556,26 @@ class ClaimXEventIngesterWorker:
         except asyncio.CancelledError:
             pass
 
+    def _adjust_batch_size(self, event_age_seconds: float) -> None:
+        """Switch between backfill and realtime batch sizes."""
+        if event_age_seconds > self.BACKFILL_THRESHOLD_SECONDS:
+            new_size = self.BACKFILL_BATCH_SIZE
+        else:
+            new_size = self.REALTIME_BATCH_SIZE
+
+        if self.consumer and self.consumer.batch_size != new_size:
+            old_size = self.consumer.batch_size
+            self.consumer.batch_size = new_size
+            logger.info(
+                "Batch size adjusted",
+                extra={
+                    "old_batch_size": old_size,
+                    "new_batch_size": new_size,
+                    "event_age_seconds": round(event_age_seconds),
+                    "mode": "backfill" if new_size == self.BACKFILL_BATCH_SIZE else "realtime",
+                },
+            )
+
     async def _periodic_cycle_output(self) -> None:
         logger.info(
             format_cycle_output(
@@ -579,6 +620,10 @@ class ClaimXEventIngesterWorker:
                             "records_processed": self._records_processed,
                             "records_succeeded": self._records_succeeded,
                             "records_deduplicated": self._records_deduplicated,
+                            "dedup_memory_hits": self._dedup_memory_hits,
+                            "dedup_blob_hits": self._dedup_blob_hits,
+                            "batch_mode": "backfill" if self.consumer and self.consumer.batch_size == self.BACKFILL_BATCH_SIZE else "realtime",
+                            "current_batch_size": self.consumer.batch_size if self.consumer else self.REALTIME_BATCH_SIZE,
                             "cycle_interval_seconds": 30,
                         },
                     )

@@ -534,6 +534,7 @@ async def create_batch_consumer(
     topics: list[str],
     batch_handler: Callable[[list[ConsumerRecord]], Awaitable[bool]],
     batch_size: int = 20,
+    max_batch_size: int | None = None,
     batch_timeout_ms: int = 1000,
     enable_message_commit: bool = True,
     instance_id: str | None = None,
@@ -550,6 +551,8 @@ async def create_batch_consumer(
         topics: List of topics to consume (EventHub requires single topic)
         batch_handler: Async function that processes message batches
         batch_size: Target batch size (default: 20)
+        max_batch_size: Upper bound for batch size (allows dynamic batch_size up to
+                        this cap). Defaults to batch_size.
         batch_timeout_ms: Max wait time to accumulate batch (default: 1000ms)
         enable_message_commit: Whether to commit after successful batch processing
         instance_id: Optional instance identifier for parallel consumers
@@ -643,6 +646,7 @@ async def create_batch_consumer(
             consumer_group=consumer_group,
             batch_handler=batch_handler,
             batch_size=batch_size,
+            max_batch_size=max_batch_size,
             batch_timeout_ms=batch_timeout_ms,
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
@@ -665,6 +669,7 @@ async def create_batch_consumer(
             topics=topics,
             batch_handler=batch_handler,
             batch_size=batch_size,
+            max_batch_size=max_batch_size,
             batch_timeout_ms=batch_timeout_ms,
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
