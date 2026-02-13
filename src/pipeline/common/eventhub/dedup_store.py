@@ -148,6 +148,7 @@ def _load_dedup_config() -> dict:
         eventhub_config = data.get("eventhub", {})
         dedup_config = eventhub_config.get("dedup_store", {})
 
+        config["enabled"] = dedup_config.get("enabled", True)
         config["type"] = dedup_config.get("type", "blob")
         config["blob_storage_connection_string"] = dedup_config.get(
             "blob_storage_connection_string", ""
@@ -157,6 +158,7 @@ def _load_dedup_config() -> dict:
         config["ttl_seconds"] = dedup_config.get("ttl_seconds", 86400)
     else:
         # Fallback to environment variables
+        config["enabled"] = os.getenv("EVENTHUB_DEDUP_ENABLED", "true")
         config["type"] = os.getenv("EVENTHUB_DEDUP_STORE_TYPE", "blob")
         config["blob_storage_connection_string"] = os.getenv(
             "EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING", ""
@@ -405,9 +407,24 @@ def reset_dedup_store() -> None:
     _last_failed_attempt = 0.0
 
 
+def is_dedup_enabled() -> bool:
+    """Check if dedup is enabled via config flag.
+
+    Reads eventhub.dedup_store.enabled from config (env: EVENTHUB_DEDUP_ENABLED).
+    Defaults to True when not set.
+    """
+    config = _load_dedup_config()
+    enabled = config.get("enabled", True)
+    # Env var substitution yields strings — normalize to bool
+    if isinstance(enabled, str):
+        return enabled.lower() not in ("false", "0", "no")
+    return bool(enabled)
+
+
 __all__ = [
     "DedupStoreProtocol",
     "get_dedup_store",
     "close_dedup_store",
     "reset_dedup_store",
+    "is_dedup_enabled",
 ]

@@ -34,6 +34,7 @@ from pipeline.common.eventhub.dedup_store import (
     DedupStoreProtocol,
     close_dedup_store,
     get_dedup_store,
+    is_dedup_enabled,
 )
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
@@ -105,6 +106,9 @@ class EventIngesterWorker:
         self._stats_logger: PeriodicStatsLogger | None = None
         self._running = False
 
+        # Dedup bypass flag (checked at start from config)
+        self._dedup_enabled = True
+
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
         # OrderedDict for O(1) LRU eviction: trace_id -> (event_id, timestamp)
         self._dedup_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
@@ -162,12 +166,16 @@ class EventIngesterWorker:
 
         initialize_worker_telemetry(self.domain, "event-ingester")
 
-        # Initialize persistent dedup store (blob storage)
-        self._dedup_store = await get_dedup_store()
-        if self._dedup_store:
-            logger.info("Persistent dedup store enabled")
+        # Initialize dedup subsystem
+        self._dedup_enabled = is_dedup_enabled()
+        if not self._dedup_enabled:
+            logger.info("Dedup disabled via config")
         else:
-            logger.info("Persistent dedup store not configured - using memory-only deduplication")
+            self._dedup_store = await get_dedup_store()
+            if self._dedup_store:
+                logger.info("Persistent dedup store enabled")
+            else:
+                logger.info("Persistent dedup store not configured - using memory-only deduplication")
 
         # Start producer first (uses transport factory for Event Hub support)
         self.producer = create_producer(
@@ -193,7 +201,8 @@ class EventIngesterWorker:
         self._stats_logger.start()
 
         # Start periodic dedup cache cleanup (every 60s)
-        self._dedup_cleanup_task = asyncio.create_task(self._periodic_dedup_cleanup())
+        if self._dedup_enabled:
+            self._dedup_cleanup_task = asyncio.create_task(self._periodic_dedup_cleanup())
 
         # Create and start batch consumer (uses transport factory)
         self.consumer = await create_batch_consumer(
@@ -299,23 +308,24 @@ class EventIngesterWorker:
             event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
             event.event_id = event_id
 
-            # Intra-batch dedup
-            if event.trace_id in seen_in_batch:
-                dedup_intra_batch.append(event.trace_id)
-                self._records_deduplicated += 1
-                continue
-            seen_in_batch.add(event.trace_id)
-
-            # Fast path: memory cache check (no I/O)
-            if event.trace_id in self._dedup_cache:
-                cached_event_id, cached_time = self._dedup_cache[event.trace_id]
-                if now - cached_time < self._dedup_cache_ttl_seconds:
-                    self._dedup_cache.move_to_end(event.trace_id)
-                    dedup_memory.append(event.trace_id)
-                    self._dedup_memory_hits += 1
+            if self._dedup_enabled:
+                # Intra-batch dedup
+                if event.trace_id in seen_in_batch:
+                    dedup_intra_batch.append(event.trace_id)
                     self._records_deduplicated += 1
                     continue
-                del self._dedup_cache[event.trace_id]
+                seen_in_batch.add(event.trace_id)
+
+                # Fast path: memory cache check (no I/O)
+                if event.trace_id in self._dedup_cache:
+                    cached_event_id, cached_time = self._dedup_cache[event.trace_id]
+                    if now - cached_time < self._dedup_cache_ttl_seconds:
+                        self._dedup_cache.move_to_end(event.trace_id)
+                        dedup_memory.append(event.trace_id)
+                        self._dedup_memory_hits += 1
+                        self._records_deduplicated += 1
+                        continue
+                    del self._dedup_cache[event.trace_id]
 
             parsed_events.append((event, event_id))
 
@@ -383,7 +393,8 @@ class EventIngesterWorker:
 
             enrichment_tasks.append((event.trace_id, enrichment_task))
             processed_trace_ids.append((event.trace_id, event_id))
-            self._mark_processed(event.trace_id, event_id)
+            if self._dedup_enabled:
+                self._mark_processed(event.trace_id, event_id)
 
         # Log dedup diagnostics with sample trace_ids for KQL cross-referencing
         total_deduped = len(dedup_intra_batch) + len(dedup_memory) + len(dedup_blob)

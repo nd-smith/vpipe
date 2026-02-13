@@ -23,6 +23,7 @@ from pipeline.common.eventhub.dedup_store import (
     DedupStoreProtocol,
     close_dedup_store,
     get_dedup_store,
+    is_dedup_enabled,
 )
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
@@ -83,6 +84,9 @@ class ClaimXEventIngesterWorker:
         self._cycle_offset_start_ts = None
         self._cycle_offset_end_ts = None
         self._running = False
+
+        # Dedup bypass flag (checked at start from config)
+        self._dedup_enabled = True
 
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
         # OrderedDict for O(1) LRU eviction: event_id -> timestamp
@@ -153,12 +157,16 @@ class ClaimXEventIngesterWorker:
         )
         self._stats_logger.start()
 
-        # Initialize persistent dedup store (blob storage)
-        self._dedup_store = await get_dedup_store()
-        if self._dedup_store:
-            logger.info("Persistent dedup store enabled")
+        # Initialize dedup subsystem
+        self._dedup_enabled = is_dedup_enabled()
+        if not self._dedup_enabled:
+            logger.info("Dedup disabled via config")
         else:
-            logger.info("Persistent dedup store not configured - using memory-only deduplication")
+            self._dedup_store = await get_dedup_store()
+            if self._dedup_store:
+                logger.info("Persistent dedup store enabled")
+            else:
+                logger.info("Persistent dedup store not configured - using memory-only deduplication")
 
         self.producer = create_producer(
             config=self.producer_config,
@@ -172,7 +180,8 @@ class ClaimXEventIngesterWorker:
             self.enrichment_topic = self.producer.eventhub_name
 
         # Start periodic dedup cache cleanup (every 60s)
-        self._dedup_cleanup_task = asyncio.create_task(self._periodic_dedup_cleanup())
+        if self._dedup_enabled:
+            self._dedup_cleanup_task = asyncio.create_task(self._periodic_dedup_cleanup())
 
         self.consumer = await create_batch_consumer(
             config=self.consumer_config,
@@ -386,21 +395,22 @@ class ClaimXEventIngesterWorker:
             event_id = event.event_id
             latest_timestamp = event.ingested_at
 
-            # Intra-batch dedup
-            if event_id in seen_in_batch:
-                self._records_deduplicated += 1
-                continue
-            seen_in_batch.add(event_id)
-
-            # Fast path: memory cache check (no I/O)
-            if event_id in self._dedup_cache:
-                cached_time = self._dedup_cache[event_id]
-                if now - cached_time < self._dedup_cache_ttl_seconds:
-                    self._dedup_cache.move_to_end(event_id)
-                    self._dedup_memory_hits += 1
+            if self._dedup_enabled:
+                # Intra-batch dedup
+                if event_id in seen_in_batch:
                     self._records_deduplicated += 1
                     continue
-                del self._dedup_cache[event_id]
+                seen_in_batch.add(event_id)
+
+                # Fast path: memory cache check (no I/O)
+                if event_id in self._dedup_cache:
+                    cached_time = self._dedup_cache[event_id]
+                    if now - cached_time < self._dedup_cache_ttl_seconds:
+                        self._dedup_cache.move_to_end(event_id)
+                        self._dedup_memory_hits += 1
+                        self._records_deduplicated += 1
+                        continue
+                    del self._dedup_cache[event_id]
 
             parsed_events.append(event)
 
@@ -452,7 +462,8 @@ class ClaimXEventIngesterWorker:
 
             enrichment_tasks.append((event.event_id, enrichment_task))
             processed_event_ids.append(event.event_id)
-            self._mark_processed(event.event_id)
+            if self._dedup_enabled:
+                self._mark_processed(event.event_id)
 
         # Batch-produce all enrichment tasks
         if enrichment_tasks:

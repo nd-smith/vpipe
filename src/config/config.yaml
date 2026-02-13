@@ -167,6 +167,7 @@ eventhub:
   # Deduplication cache store (persistent across worker restarts)
   # Complements in-memory caching by providing blob storage persistence
   dedup_store:
+    enabled: ${EVENTHUB_DEDUP_ENABLED:-true}
     # Store type: "blob" or "json"
     type: ${EVENTHUB_DEDUP_STORE_TYPE:-blob}
     # Blob storage settings (reuses same storage account as checkpoint store)
