@@ -262,6 +262,9 @@ class EventIngesterWorker:
         start_time = time.perf_counter()
         enrichment_tasks: list[tuple[str, XACTEnrichmentTask]] = []
         processed_trace_ids: list[tuple[str, str]] = []  # (trace_id, event_id)
+        dedup_intra_batch: list[str] = []
+        dedup_memory: list[str] = []
+        dedup_blob: list[str] = []
 
         # Pass 1: Parse messages, check memory cache, collect cache misses
         parsed_events: list[tuple[EventMessage, str]] = []  # (event, event_id)
@@ -298,6 +301,7 @@ class EventIngesterWorker:
 
             # Intra-batch dedup
             if event.trace_id in seen_in_batch:
+                dedup_intra_batch.append(event.trace_id)
                 self._records_deduplicated += 1
                 continue
             seen_in_batch.add(event.trace_id)
@@ -307,6 +311,7 @@ class EventIngesterWorker:
                 cached_event_id, cached_time = self._dedup_cache[event.trace_id]
                 if now - cached_time < self._dedup_cache_ttl_seconds:
                     self._dedup_cache.move_to_end(event.trace_id)
+                    dedup_memory.append(event.trace_id)
                     self._dedup_memory_hits += 1
                     self._records_deduplicated += 1
                     continue
@@ -344,6 +349,7 @@ class EventIngesterWorker:
         # Pass 3: Build enrichment tasks from non-duplicate events
         for event, event_id in parsed_events:
             if event.trace_id in blob_duplicates:
+                dedup_blob.append(event.trace_id)
                 self._records_deduplicated += 1
                 continue
 
@@ -378,6 +384,22 @@ class EventIngesterWorker:
             enrichment_tasks.append((event.trace_id, enrichment_task))
             processed_trace_ids.append((event.trace_id, event_id))
             self._mark_processed(event.trace_id, event_id)
+
+        # Log dedup diagnostics with sample trace_ids for KQL cross-referencing
+        total_deduped = len(dedup_intra_batch) + len(dedup_memory) + len(dedup_blob)
+        if total_deduped:
+            sample_ids = (dedup_memory + dedup_blob + dedup_intra_batch)[:10]
+            logger.info(
+                "Batch dedup: %d duplicates (%d memory, %d blob, %d intra-batch)",
+                total_deduped, len(dedup_memory), len(dedup_blob), len(dedup_intra_batch),
+                extra={
+                    "duplicate_count": total_deduped,
+                    "dedup_memory_count": len(dedup_memory),
+                    "dedup_blob_count": len(dedup_blob),
+                    "dedup_intra_batch_count": len(dedup_intra_batch),
+                    "sample_trace_ids": sample_ids,
+                },
+            )
 
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
