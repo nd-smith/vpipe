@@ -90,7 +90,7 @@ class BlobDedupStore:
                 )
                 return True, metadata
             else:
-                # Expired - clean up asynchronously
+                # Expired — cleanup_expired() handles bulk deletion
                 logger.debug(
                     "Found expired entry in blob storage",
                     extra={
@@ -99,8 +99,6 @@ class BlobDedupStore:
                         "age_seconds": age_seconds,
                     },
                 )
-                # Delete expired blob (don't await - fire and forget)
-                asyncio.create_task(blob_client.delete_blob())
                 return False, None
 
         except Exception as e:
