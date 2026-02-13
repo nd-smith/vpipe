@@ -139,6 +139,8 @@ class ClaimXUploadWorker:
         self._records_failed = 0
         self._bytes_uploaded = 0
         self._stale_files_removed = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
         self._stats_logger: PeriodicStatsLogger | None = None
         self._cleanup_task: asyncio.Task | None = None
@@ -508,6 +510,12 @@ class ClaimXUploadWorker:
             # Track records processed
             self._records_processed += 1
 
+            ts = message.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
+
             # Verify cached file exists
             cache_path = Path(cached_message.local_cache_path)
             if not cache_path.exists():
@@ -663,7 +671,11 @@ class ClaimXUploadWorker:
             "bytes_uploaded": self._bytes_uploaded,
             "in_flight": len(self._in_flight_tasks),
             "stale_files_removed": self._stale_files_removed,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return msg, extra
 
     async def _wait_for_in_flight(self, timeout: float = 30.0) -> None:

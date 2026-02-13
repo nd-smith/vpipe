@@ -133,6 +133,8 @@ class ClaimXEnrichmentWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
         self._stats_logger: PeriodicStatsLogger | None = None
 
@@ -370,6 +372,12 @@ class ClaimXEnrichmentWorker:
 
         self._records_processed += 1
 
+        ts = record.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
         logger.debug(
             "Processing enrichment task",
             extra={
@@ -579,7 +587,11 @@ class ClaimXEnrichmentWorker:
             "records_skipped": self._records_skipped,
             "records_deduplicated": 0,
             "project_cache_size": self.project_cache.size(),
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
         # Message will be replaced by PeriodicStatsLogger
         return "", extra

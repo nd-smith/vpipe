@@ -20,7 +20,6 @@ Environment Variables:
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -34,7 +33,7 @@ from dotenv import load_dotenv
 from config.config import MessageConfig
 from core.logging import log_worker_startup, setup_logging
 from core.logging.context import set_log_context
-from core.logging.utilities import format_cycle_output
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -105,9 +104,9 @@ class ItelCabinetTrackingWorker:
         self._records_processed = 0
         self._records_succeeded = 0
         self._records_failed = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
+        self._stats_logger: PeriodicStatsLogger | None = None
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
     async def _handle_message(self, record: PipelineMessage) -> None:
         """Process a single message from the transport layer."""
@@ -123,6 +122,11 @@ class ItelCabinetTrackingWorker:
 
             self._records_processed += 1
             self._records_succeeded += 1
+            ts = record.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
             record_message_consumed(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -141,6 +145,11 @@ class ItelCabinetTrackingWorker:
         except ValueError as e:
             self._records_processed += 1
             self._records_failed += 1
+            ts = record.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
             record_processing_error(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -155,6 +164,11 @@ class ItelCabinetTrackingWorker:
         except Exception as e:
             self._records_processed += 1
             self._records_failed += 1
+            ts = record.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
             record_processing_error(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -196,7 +210,13 @@ class ItelCabinetTrackingWorker:
         )
 
         await self.health_server.start()
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=30,
+            get_stats=self._get_cycle_stats,
+            stage="tracking",
+            worker_id="itel-cabinet-tracking",
+        )
+        self._stats_logger.start()
         await self.consumer.start()
 
         logger.info(
@@ -228,48 +248,19 @@ class ItelCabinetTrackingWorker:
             logger.exception("Worker run loop error: %s", e)
             raise
 
-    async def _periodic_cycle_output(self) -> None:
-        """Log periodic stats every 30 seconds."""
-        logger.info(
-            format_cycle_output(cycle_count=0, succeeded=0, failed=0, skipped=0),
-            extra={
-                "worker_id": "itel-cabinet-tracking",
-                "stage": "tracking",
-                "cycle": 0,
-            },
-        )
-        self._last_cycle_log = time.monotonic()
-
-        try:
-            while True:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=self._records_failed,
-                            skipped=0,
-                        ),
-                        extra={
-                            "worker_id": "itel-cabinet-tracking",
-                            "stage": "tracking",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "cycle_interval_seconds": 30,
-                        },
-                    )
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict]:
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": 0,
+            "records_deduplicated": 0,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
+        }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
+        return "", extra
 
     async def stop(self):
         """Stop the worker gracefully."""
@@ -277,10 +268,8 @@ class ItelCabinetTrackingWorker:
         self.running = False
         self._shutdown_event.set()
 
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         if self.consumer:
             await self.consumer.stop()

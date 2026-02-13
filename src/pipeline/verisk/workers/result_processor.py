@@ -162,6 +162,8 @@ class ResultProcessor:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._stats_logger: PeriodicStatsLogger | None = None
 
         # Store topics for logging
@@ -346,6 +348,11 @@ class ResultProcessor:
         """
         # Track messages received
         self._records_processed += 1
+        ts = message.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
 
         # Parse message
         try:
@@ -588,7 +595,11 @@ class ResultProcessor:
             "batches_written": self._batches_written,
             "failed_batches_written": self._failed_batches_written,
             "total_records_written": self._total_records_written,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return "", extra
 
     @property

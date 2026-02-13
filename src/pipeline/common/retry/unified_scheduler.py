@@ -148,6 +148,8 @@ class UnifiedRetryScheduler:
         self._messages_malformed = 0
         self._messages_exhausted = 0
         self._messages_restored = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
         # Health check server
         self.health_server = HealthCheckServer(
@@ -318,6 +320,12 @@ class UnifiedRetryScheduler:
         in-memory queue for later processing.
         """
         headers = self._parse_headers(message)
+
+        ts = message.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
 
         # Validate required headers
         required_headers = ["scheduled_retry_time", "target_topic", "retry_count"]
@@ -688,13 +696,18 @@ class UnifiedRetryScheduler:
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
         """Stats callback for PeriodicStatsLogger."""
-        return "", {
+        extra = {
             "messages_routed": self._messages_routed,
             "messages_delayed": self._messages_delayed,
             "messages_malformed": self._messages_malformed,
             "messages_exhausted": self._messages_exhausted,
             "queue_size": len(self._delay_queue),
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
+        return "", extra
 
     @property
     def is_running(self) -> bool:

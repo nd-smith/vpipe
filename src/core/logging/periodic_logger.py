@@ -122,6 +122,8 @@ class PeriodicStatsLogger:
                     deduplicated=current_stats["deduplicated"],
                     since_last=deltas,
                     interval_seconds=self.interval_seconds,
+                    offset_start_ts=extra.get("cycle_offset_start_ts"),
+                    offset_end_ts=extra.get("cycle_offset_end_ts"),
                 )
 
                 # Update previous stats for next cycle

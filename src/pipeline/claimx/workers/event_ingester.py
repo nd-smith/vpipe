@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from config.config import MessageConfig
-from core.logging.utilities import format_cycle_output
+from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.common.eventhub.dedup_store import (
@@ -79,13 +79,9 @@ class ClaimXEventIngesterWorker:
         self._records_deduplicated = 0
         self._dedup_memory_hits = 0
         self._dedup_blob_hits = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
-
-        # Cycle-specific metrics (reset each cycle)
-        self._last_cycle_processed = 0
-        self._last_cycle_deduped = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._running = False
 
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
@@ -99,6 +95,7 @@ class ClaimXEventIngesterWorker:
         self._dedup_worker_name = "claimx-event-ingester"
         self._dedup_cleanup_task: asyncio.Task | None = None
         self._blob_write_tasks: set[asyncio.Task] = set()
+        self._blob_semaphore = asyncio.Semaphore(50)
         processing_config = config.get_worker_config(domain, "event_ingester", "processing")
         health_port = processing_config.get("health_port", 0)
         health_enabled = processing_config.get("health_enabled", True)
@@ -131,10 +128,9 @@ class ClaimXEventIngesterWorker:
         self._running = True
 
         # Clean up resources from a previous failed start attempt (retry safety)
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
+            self._stats_logger = None
         if self.consumer:
             await self.consumer.stop()
             self.consumer = None
@@ -149,7 +145,13 @@ class ClaimXEventIngesterWorker:
 
         initialize_worker_telemetry(self.domain, "event-ingester")
 
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=30,
+            get_stats=self._get_cycle_stats,
+            stage="ingestion",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
 
         # Initialize persistent dedup store (blob storage)
         self._dedup_store = await get_dedup_store()
@@ -200,10 +202,8 @@ class ClaimXEventIngesterWorker:
         if not self._running:
             return
         logger.info("Stopping ClaimXEventIngesterWorker")
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cycle_task
+        if self._stats_logger:
+            await self._stats_logger.stop()
 
         # Cancel dedup cleanup task
         if self._dedup_cleanup_task and not self._dedup_cleanup_task.done():
@@ -361,6 +361,12 @@ class ClaimXEventIngesterWorker:
         now = time.time()
 
         for record in records:
+            ts = record.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
+
             # Parse event — skip unparseable messages (would never succeed on retry)
             try:
                 message_data = json.loads(record.value.decode("utf-8"))
@@ -402,21 +408,22 @@ class ClaimXEventIngesterWorker:
         blob_duplicates: set[str] = set()
         if self._dedup_store and parsed_events:
             async def _check_blob(event_id: str) -> tuple[str, bool]:
-                try:
-                    is_dup, metadata = await self._dedup_store.check_duplicate(
-                        self._dedup_worker_name, event_id, self._dedup_cache_ttl_seconds,
-                    )
-                    if is_dup and metadata:
-                        timestamp = metadata.get("timestamp", time.time())
-                        self._dedup_cache[event_id] = timestamp
-                        self._dedup_blob_hits += 1
-                        return event_id, True
-                except Exception as e:
-                    logger.warning(
-                        "Error checking blob storage for duplicate (falling back to memory-only)",
-                        extra={"event_id": event_id, "error": str(e)},
-                    )
-                return event_id, False
+                async with self._blob_semaphore:
+                    try:
+                        is_dup, metadata = await self._dedup_store.check_duplicate(
+                            self._dedup_worker_name, event_id, self._dedup_cache_ttl_seconds,
+                        )
+                        if is_dup and metadata:
+                            timestamp = metadata.get("timestamp", time.time())
+                            self._dedup_cache[event_id] = timestamp
+                            self._dedup_blob_hits += 1
+                            return event_id, True
+                    except Exception as e:
+                        logger.warning(
+                            "Error checking blob storage for duplicate (falling back to memory-only)",
+                            extra={"event_id": event_id, "error": str(e)},
+                        )
+                    return event_id, False
 
             results = await asyncio.gather(
                 *(_check_blob(ev.event_id) for ev in parsed_events)
@@ -474,6 +481,10 @@ class ClaimXEventIngesterWorker:
                 latest_timestamp = latest_timestamp.replace(tzinfo=UTC)
             event_age = (datetime.now(UTC) - latest_timestamp).total_seconds()
             self._adjust_batch_size(event_age)
+
+        # Periodic cleanup of completed fire-and-forget blob write tasks
+        if len(self._blob_write_tasks) > 200:
+            self._blob_write_tasks = {t for t in self._blob_write_tasks if not t.done()}
 
         # Record batch processing duration
         duration = time.perf_counter() - start_time
@@ -559,17 +570,18 @@ class ClaimXEventIngesterWorker:
 
     async def _persist_dedup_to_blob(self, event_id: str, timestamp: float) -> None:
         """Fire-and-forget blob persistence for dedup markers."""
-        try:
-            await self._dedup_store.mark_processed(
-                self._dedup_worker_name,
-                event_id,
-                {"timestamp": timestamp},
-            )
-        except Exception as e:
-            logger.warning(
-                "Error persisting to blob storage (memory cache still updated)",
-                extra={"event_id": event_id, "error": str(e)},
-            )
+        async with self._blob_semaphore:
+            try:
+                await self._dedup_store.mark_processed(
+                    self._dedup_worker_name,
+                    event_id,
+                    {"timestamp": timestamp},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Error persisting to blob storage (memory cache still updated)",
+                    extra={"event_id": event_id, "error": str(e)},
+                )
 
     def _cleanup_dedup_cache(self) -> None:
         """Remove expired entries from memory cache (periodic maintenance)."""
@@ -621,65 +633,23 @@ class ClaimXEventIngesterWorker:
                 },
             )
 
-    async def _periodic_cycle_output(self) -> None:
-        logger.info(
-            format_cycle_output(
-                cycle_count=0,
-                succeeded=0,
-                failed=0,
-                skipped=0,
-                deduplicated=0,
-            ),
-            extra={
-                "worker_id": self.worker_id,
-                "stage": "ingestion",
-                "cycle": 0,
-                "cycle_id": "cycle-0",
-            },
-        )
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while True:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= 30:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    logger.info(
-                        format_cycle_output(
-                            cycle_count=self._cycle_count,
-                            succeeded=self._records_succeeded,
-                            failed=0,
-                            skipped=0,
-                            deduplicated=self._records_deduplicated,
-                        ),
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "ingestion",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_deduplicated": self._records_deduplicated,
-                            "dedup_memory_hits": self._dedup_memory_hits,
-                            "dedup_blob_hits": self._dedup_blob_hits,
-                            "batch_mode": "backfill" if self.consumer and self.consumer.batch_size == self.BACKFILL_BATCH_SIZE else "realtime",
-                            "current_batch_size": self.consumer.batch_size if self.consumer else self.REALTIME_BATCH_SIZE,
-                            "cycle_interval_seconds": 30,
-                        },
-                    )
-
-                    # Update last cycle counters
-                    self._last_cycle_processed = self._records_processed
-                    self._last_cycle_deduped = self._records_deduplicated
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict]:
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": 0,
+            "records_skipped": 0,
+            "records_deduplicated": self._records_deduplicated,
+            "dedup_memory_hits": self._dedup_memory_hits,
+            "dedup_blob_hits": self._dedup_blob_hits,
+            "batch_mode": "backfill" if self.consumer and self.consumer.batch_size == self.BACKFILL_BATCH_SIZE else "realtime",
+            "current_batch_size": self.consumer.batch_size if self.consumer else self.REALTIME_BATCH_SIZE,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
+        }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
+        return "", extra
 
 
 __all__ = ["ClaimXEventIngesterWorker"]

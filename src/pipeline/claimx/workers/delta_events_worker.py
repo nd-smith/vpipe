@@ -7,14 +7,14 @@ Separate from event ingester for independent scaling.
 import asyncio
 import json
 import logging
-import time
 import uuid
 from typing import Any
 
 from pydantic import ValidationError
 
 from config.config import MessageConfig
-from core.logging.utilities import format_cycle_output, log_worker_error
+from core.logging.periodic_logger import PeriodicStatsLogger
+from core.logging.utilities import log_worker_error
 from core.types import ErrorCategory
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.writers import ClaimXEventsDeltaWriter
@@ -111,14 +111,10 @@ class ClaimXDeltaEventsWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-        self._cycle_task: asyncio.Task | None = None
+        self._stats_logger: PeriodicStatsLogger | None = None
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._running = False
-
-        # Cycle-specific metrics (reset each cycle)
-        self._last_cycle_processed = 0
-        self._last_cycle_failed = 0
 
         # Initialize Delta writer
         if not events_table_path:
@@ -191,7 +187,13 @@ class ClaimXDeltaEventsWorker:
         await self.retry_handler.start()
 
         # Start cycle output background task
-        self._cycle_task = asyncio.create_task(self._periodic_cycle_output())
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="delta_write",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
 
         # Start batch timer
         self._reset_batch_timer()
@@ -227,9 +229,9 @@ class ClaimXDeltaEventsWorker:
         logger.info("Stopping ClaimXDeltaEventsWorker")
         self._running = False
 
-        # Cancel tasks
-        if self._cycle_task:
-            self._cycle_task.cancel()
+        # Stop stats logger
+        if self._stats_logger:
+            await self._stats_logger.stop()
         if self._batch_timer:
             self._batch_timer.cancel()
 
@@ -261,6 +263,12 @@ class ClaimXDeltaEventsWorker:
         when the source does not provide one.
         """
         self._records_processed += 1
+
+        ts = record.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
 
         try:
             message_data = json.loads(record.value.decode("utf-8"))
@@ -439,59 +447,20 @@ class ClaimXDeltaEventsWorker:
             self._batch_timer.cancel()
         self._batch_timer = asyncio.create_task(self._periodic_flush())
 
-    async def _periodic_cycle_output(self) -> None:
-        """Log progress periodically."""
-        # Initial cycle output
-        logger.info(format_cycle_output(0, 0, 0, 0, 0, 0, 0))
-        self._last_cycle_log = time.monotonic()
-        self._cycle_count = 0
-
-        try:
-            while self._running:
-                await asyncio.sleep(1)
-
-                cycle_elapsed = time.monotonic() - self._last_cycle_log
-                if cycle_elapsed >= self.CYCLE_LOG_INTERVAL_SECONDS:
-                    self._cycle_count += 1
-                    self._last_cycle_log = time.monotonic()
-
-                    # Calculate cycle-specific deltas
-                    processed_cycle = self._records_processed - self._last_cycle_processed
-                    errors_cycle = self._records_failed - self._last_cycle_failed
-
-                    # Use standardized cycle output format
-                    cycle_msg = format_cycle_output(
-                        cycle_count=self._cycle_count,
-                        processed_cycle=processed_cycle,
-                        processed_total=self._records_processed,
-                        errors_cycle=errors_cycle,
-                        errors_total=self._records_failed,
-                        deduped_cycle=0,
-                        deduped_total=0,
-                    )
-                    logger.info(
-                        cycle_msg,
-                        extra={
-                            "worker_id": self.worker_id,
-                            "stage": "delta_write",
-                            "cycle": self._cycle_count,
-                            "cycle_id": f"cycle-{self._cycle_count}",
-                            "records_processed": self._records_processed,
-                            "records_succeeded": self._records_succeeded,
-                            "records_failed": self._records_failed,
-                            "records_skipped": self._records_skipped,
-                            "batches_written": self._batches_written,
-                            "cycle_interval_seconds": self.CYCLE_LOG_INTERVAL_SECONDS,
-                        },
-                    )
-
-                    # Update last cycle counters
-                    self._last_cycle_processed = self._records_processed
-                    self._last_cycle_failed = self._records_failed
-
-        except asyncio.CancelledError:
-            logger.debug("Periodic cycle output task cancelled")
-            raise
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict]:
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
+            "records_deduplicated": 0,
+            "batches_written": self._batches_written,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
+        }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
+        return "", extra
 
 
 __all__ = ["ClaimXDeltaEventsWorker"]

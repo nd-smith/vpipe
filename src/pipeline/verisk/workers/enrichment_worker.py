@@ -131,6 +131,8 @@ class XACTEnrichmentWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._stats_logger: PeriodicStatsLogger | None = None
 
         # Cycle-specific metrics (reset each cycle)
@@ -315,6 +317,11 @@ class XACTEnrichmentWorker:
             raise
 
         self._records_processed += 1
+        ts = message.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
 
         logger.debug(
             "Processing enrichment task",
@@ -559,7 +566,11 @@ class XACTEnrichmentWorker:
             "records_succeeded": self._records_succeeded,
             "records_failed": self._records_failed,
             "records_skipped": self._records_skipped,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return msg, extra
 
     async def _handle_enrichment_failure(

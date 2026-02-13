@@ -133,6 +133,8 @@ class DeltaEventsWorker:
         # Cycle output tracking
         self._records_processed = 0
         self._records_succeeded = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._stats_logger: PeriodicStatsLogger | None = None
         self._running = False
 
@@ -303,6 +305,11 @@ class DeltaEventsWorker:
         """
         # Track events received for cycle output
         self._records_processed += 1
+        ts = record.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
 
         # Check if we've reached max batches limit
         if self.max_batches is not None and self._batches_written >= self.max_batches:
@@ -533,7 +540,11 @@ class DeltaEventsWorker:
             "batches_written": self._batches_written,
             "records_succeeded": self._records_succeeded,
             "pending_batch_size": len(self._batch),
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return msg, extra
 
     async def _periodic_flush(self) -> None:

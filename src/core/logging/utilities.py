@@ -1,6 +1,7 @@
 """Logging utility functions."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 # Reserved LogRecord attribute names that cannot be used in extra dict
@@ -120,6 +121,8 @@ def format_cycle_output(
     deduplicated: int = 0,
     since_last: dict[str, int] | None = None,
     interval_seconds: int = 30,
+    offset_start_ts: int | None = None,
+    offset_end_ts: int | None = None,
 ) -> str:
     """
     Format standardized cycle output for workers with delta tracking.
@@ -144,6 +147,13 @@ def format_cycle_output(
     """
     total_processed = succeeded + failed + skipped
 
+    # Build offset suffix if both timestamps are provided
+    offset_suffix = ""
+    if offset_start_ts is not None and offset_end_ts is not None:
+        start = datetime.fromtimestamp(offset_start_ts / 1000, tz=timezone.utc)
+        end = datetime.fromtimestamp(offset_end_ts / 1000, tz=timezone.utc)
+        offset_suffix = f" | offsets: {start:%Y-%m-%d %H:%M:%SZ} .. {end:%Y-%m-%d %H:%M:%SZ}"
+
     # If deltas are provided, format with delta and rate
     if since_last is not None:
         delta_total = (
@@ -167,7 +177,7 @@ def format_cycle_output(
         parts.append(f"total: {', '.join(total_parts)}")
         parts.append(f"{rate:.1f} msg/s")
 
-        return f"Cycle {cycle_count}: {' | '.join(parts)}"
+        return f"Cycle {cycle_count}: {' | '.join(parts)}{offset_suffix}"
 
     # Legacy format without deltas
     parts = [f"processed={total_processed}"]
@@ -180,7 +190,7 @@ def format_cycle_output(
     if deduplicated > 0:
         parts.append(f"deduped={deduplicated}")
 
-    return f"Cycle {cycle_count}: {', '.join(parts)}"
+    return f"Cycle {cycle_count}: {', '.join(parts)}{offset_suffix}"
 
 
 def get_log_output_mode(

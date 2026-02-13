@@ -298,6 +298,54 @@ class TestFormatCycleOutput:
         assert "Cycle 0:" in result
         assert "processed=0" in result
 
+    def test_offset_timestamps_appended_when_both_provided(self):
+        # 2024-01-15 10:25:00 UTC in millis
+        start_ts = 1705310700000
+        # 2024-01-15 10:30:00 UTC in millis
+        end_ts = 1705311000000
+
+        result = format_cycle_output(
+            1, succeeded=100, failed=0,
+            offset_start_ts=start_ts, offset_end_ts=end_ts,
+        )
+
+        assert "offsets: 2024-01-15 09:25:00Z .. 2024-01-15 09:30:00Z" in result
+
+    def test_offset_timestamps_omitted_when_both_none(self):
+        result = format_cycle_output(1, succeeded=100, failed=0)
+
+        assert "offsets" not in result
+
+    def test_offset_timestamps_omitted_when_only_start_provided(self):
+        result = format_cycle_output(
+            1, succeeded=100, failed=0,
+            offset_start_ts=1705310700000, offset_end_ts=None,
+        )
+
+        assert "offsets" not in result
+
+    def test_offset_timestamps_omitted_when_only_end_provided(self):
+        result = format_cycle_output(
+            1, succeeded=100, failed=0,
+            offset_start_ts=None, offset_end_ts=1705311000000,
+        )
+
+        assert "offsets" not in result
+
+    def test_offset_timestamps_with_delta_format(self):
+        start_ts = 1705310700000
+        end_ts = 1705311000000
+        deltas = {"succeeded": 50, "failed": 0, "skipped": 0}
+
+        result = format_cycle_output(
+            5, succeeded=500, failed=0,
+            since_last=deltas, interval_seconds=30,
+            offset_start_ts=start_ts, offset_end_ts=end_ts,
+        )
+
+        assert "+50 this cycle" in result
+        assert "offsets: 2024-01-15 09:25:00Z .. 2024-01-15 09:30:00Z" in result
+
 
 class TestGetLogOutputMode:
     def test_returns_stdout_when_log_to_stdout(self):

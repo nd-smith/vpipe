@@ -115,6 +115,8 @@ class ClaimXResultProcessor:
         self._records_succeeded = 0
         self._records_failed = 0
         self._records_skipped = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._batches_written = 0
         self._total_records_written = 0
         self._stats_logger: PeriodicStatsLogger | None = None
@@ -289,6 +291,13 @@ class ClaimXResultProcessor:
 
         # Update statistics and logs
         self._records_processed += 1
+
+        ts = record.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
         set_log_context(trace_id=result.source_event_id)
 
         if result.status == "completed":
@@ -443,7 +452,11 @@ class ClaimXResultProcessor:
             "records_deduplicated": 0,
             "batches_written": self._batches_written,
             "total_records_written": self._total_records_written,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return "", extra
 
 

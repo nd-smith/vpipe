@@ -138,6 +138,8 @@ class ClaimXDownloadWorker:
         self._records_failed = 0
         self._bytes_downloaded = 0
         self._stale_files_removed = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
         self._stats_logger: PeriodicStatsLogger | None = None
         self._cleanup_task: asyncio.Task | None = None
@@ -478,6 +480,12 @@ class ClaimXDownloadWorker:
 
         self._records_processed += 1
 
+        ts = message.timestamp
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
         async with self._in_flight_lock:
             self._in_flight_tasks.add(task_message.media_id)
 
@@ -576,7 +584,11 @@ class ClaimXDownloadWorker:
             "bytes_downloaded": self._bytes_downloaded,
             "in_flight": len(self._in_flight_tasks),
             "stale_files_removed": self._stale_files_removed,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return msg, extra
 
     async def _handle_success(

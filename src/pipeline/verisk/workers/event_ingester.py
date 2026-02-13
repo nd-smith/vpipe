@@ -100,6 +100,8 @@ class EventIngesterWorker:
         self._records_deduplicated = 0
         self._dedup_memory_hits = 0
         self._dedup_blob_hits = 0
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         self._stats_logger: PeriodicStatsLogger | None = None
         self._running = False
 
@@ -114,6 +116,7 @@ class EventIngesterWorker:
         self._dedup_worker_name = "verisk-event-ingester"
         self._dedup_cleanup_task: asyncio.Task | None = None
         self._blob_write_tasks: set[asyncio.Task] = set()
+        self._blob_semaphore = asyncio.Semaphore(50)
 
         # Health check server - use worker-specific port from config
         processing_config = config.get_worker_config(domain, "event_ingester", "processing")
@@ -267,6 +270,11 @@ class EventIngesterWorker:
 
         for record in records:
             self._records_processed += 1
+            ts = record.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
 
             # Parse event — skip unparseable messages (would never succeed on retry)
             try:
@@ -310,22 +318,23 @@ class EventIngesterWorker:
         blob_duplicates: set[str] = set()
         if self._dedup_store and parsed_events:
             async def _check_blob(trace_id: str) -> tuple[str, bool]:
-                try:
-                    is_dup, metadata = await self._dedup_store.check_duplicate(
-                        self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
-                    )
-                    if is_dup and metadata:
-                        cached_event_id = metadata.get("event_id")
-                        timestamp = metadata.get("timestamp", time.time())
-                        self._dedup_cache[trace_id] = (cached_event_id, timestamp)
-                        self._dedup_blob_hits += 1
-                        return trace_id, True
-                except Exception as e:
-                    logger.warning(
-                        "Error checking blob storage for duplicate (falling back to memory-only)",
-                        extra={"trace_id": trace_id, "error": str(e)},
-                    )
-                return trace_id, False
+                async with self._blob_semaphore:
+                    try:
+                        is_dup, metadata = await self._dedup_store.check_duplicate(
+                            self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
+                        )
+                        if is_dup and metadata:
+                            cached_event_id = metadata.get("event_id")
+                            timestamp = metadata.get("timestamp", time.time())
+                            self._dedup_cache[trace_id] = (cached_event_id, timestamp)
+                            self._dedup_blob_hits += 1
+                            return trace_id, True
+                    except Exception as e:
+                        logger.warning(
+                            "Error checking blob storage for duplicate (falling back to memory-only)",
+                            extra={"trace_id": trace_id, "error": str(e)},
+                        )
+                    return trace_id, False
 
             results = await asyncio.gather(
                 *(_check_blob(ev.trace_id) for ev, _ in parsed_events)
@@ -404,6 +413,10 @@ class EventIngesterWorker:
             event_age = (datetime.now(UTC) - ts).total_seconds()
             self._adjust_batch_size(event_age)
 
+        # Periodic cleanup of completed fire-and-forget blob write tasks
+        if len(self._blob_write_tasks) > 200:
+            self._blob_write_tasks = {t for t in self._blob_write_tasks if not t.done()}
+
         # Record batch processing duration
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
@@ -431,7 +444,11 @@ class EventIngesterWorker:
             "dedup_blob_hits": self._dedup_blob_hits,
             "batch_mode": "backfill" if self.consumer and self.consumer.batch_size == self.BACKFILL_BATCH_SIZE else "realtime",
             "current_batch_size": self.consumer.batch_size if self.consumer else self.REALTIME_BATCH_SIZE,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
         return msg, extra
 
     async def _is_duplicate(self, trace_id: str) -> tuple[bool, str | None]:
@@ -510,17 +527,18 @@ class EventIngesterWorker:
 
     async def _persist_dedup_to_blob(self, trace_id: str, event_id: str, timestamp: float) -> None:
         """Fire-and-forget blob persistence for dedup markers."""
-        try:
-            await self._dedup_store.mark_processed(
-                self._dedup_worker_name,
-                trace_id,
-                {"event_id": event_id, "timestamp": timestamp},
-            )
-        except Exception as e:
-            logger.warning(
-                "Error persisting to blob storage (memory cache still updated)",
-                extra={"trace_id": trace_id, "error": str(e)},
-            )
+        async with self._blob_semaphore:
+            try:
+                await self._dedup_store.mark_processed(
+                    self._dedup_worker_name,
+                    trace_id,
+                    {"event_id": event_id, "timestamp": timestamp},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Error persisting to blob storage (memory cache still updated)",
+                    extra={"trace_id": trace_id, "error": str(e)},
+                )
 
     def _cleanup_dedup_cache(self) -> None:
         now = time.time()
