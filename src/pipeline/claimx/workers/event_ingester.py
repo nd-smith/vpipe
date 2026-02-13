@@ -392,12 +392,20 @@ class ClaimXEventIngesterWorker:
             enrichment_tasks.append((event.event_id, enrichment_task))
             processed_event_ids.append(event_id)
 
+            # Mark in dedup cache immediately so later messages in the same
+            # batch with the same event_id are caught as duplicates
+            await self._mark_processed(event_id)
+
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
             try:
                 await self.producer.send_batch(messages=enrichment_tasks)
                 self._records_succeeded += len(enrichment_tasks)
             except Exception as e:
+                # Roll back dedup marks — messages will be redelivered
+                for event_id in processed_event_ids:
+                    self._dedup_cache.pop(event_id, None)
+
                 logger.error(
                     "Failed to send ClaimX enrichment batch — will retry",
                     extra={
@@ -407,10 +415,6 @@ class ClaimXEventIngesterWorker:
                     exc_info=True,
                 )
                 return False
-
-        # Mark all as processed in dedup cache
-        for event_id in processed_event_ids:
-            await self._mark_processed(event_id)
 
         # Record batch processing duration
         duration = time.perf_counter() - start_time

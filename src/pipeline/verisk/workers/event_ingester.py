@@ -320,12 +320,20 @@ class EventIngesterWorker:
             enrichment_tasks.append((event.trace_id, enrichment_task))
             processed_trace_ids.append((event.trace_id, event_id))
 
+            # Mark in dedup cache immediately so later messages in the same
+            # batch with the same trace_id are caught as duplicates
+            await self._mark_processed(event.trace_id, event_id)
+
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
             try:
                 await self.producer.send_batch(messages=enrichment_tasks)
                 self._records_succeeded += len(enrichment_tasks)
             except Exception as e:
+                # Roll back dedup marks — messages will be redelivered
+                for trace_id, _ in processed_trace_ids:
+                    self._dedup_cache.pop(trace_id, None)
+
                 record_processing_error(
                     topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
                     consumer_group=f"{self.domain}-event-ingester",
@@ -340,10 +348,6 @@ class EventIngesterWorker:
                     exc_info=True,
                 )
                 return False
-
-        # Mark all as processed in dedup cache
-        for trace_id, event_id in processed_trace_ids:
-            await self._mark_processed(trace_id, event_id)
 
         # Record batch processing duration
         duration = time.perf_counter() - start_time
