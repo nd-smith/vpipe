@@ -45,6 +45,46 @@ def get_ssl_kwargs():
     return {}
 
 
+def strip_entity_path(conn_str):
+    """Remove EntityPath from a connection string if present.
+
+    Normalizes entity-level connection strings to namespace-level so the
+    SDK's eventhub_name parameter can be used instead.
+    """
+    parts = [
+        part for part in conn_str.split(";")
+        if part.strip() and not part.startswith("EntityPath=")
+    ]
+    return ";".join(parts)
+
+
+def print_connection_info(conn_str, eventhub_name):
+    """Print masked connection details for troubleshooting."""
+    import re
+
+    masked = re.sub(
+        r"(SharedAccessKey=)[^;]+", r"\1***MASKED***", conn_str, flags=re.IGNORECASE,
+    )
+    print(f"Connection string (masked): {masked}")
+
+    for part in conn_str.split(";"):
+        if part.startswith("EntityPath="):
+            print(f"WARNING: Connection string contains EntityPath={part.split('=', 1)[1]}")
+            print(f"  EntityPath was stripped; using eventhub_name='{eventhub_name}' instead.")
+            break
+
+    endpoint_match = re.search(r"Endpoint=sb://([^/;]+)", conn_str, re.IGNORECASE)
+    if endpoint_match:
+        print(f"Namespace: {endpoint_match.group(1)}")
+
+    policy_match = re.search(r"SharedAccessKeyName=([^;]+)", conn_str, re.IGNORECASE)
+    if policy_match:
+        print(f"SAS policy: {policy_match.group(1)}")
+
+    print(f"Event Hub: {eventhub_name}")
+    print()
+
+
 async def find_offsets_at_time(conn_str, eventhub_name, target_time, ssl_kwargs):
     """For each partition, find the offset and sequence number at target_time.
 
@@ -237,9 +277,28 @@ def main():
     fqdn = resolve_fqdn(eh_conn_str)
     ssl_kwargs = get_ssl_kwargs()
 
+    # Print diagnostics before stripping so EntityPath warnings are visible.
+    print_connection_info(eh_conn_str, args.eventhub)
+
+    # Strip EntityPath so the SDK uses eventhub_name instead.
+    # Entity-scoped connection strings cause CBS auth failures when the
+    # eventhub_name doesn't match the EntityPath.
+    eh_conn_str = strip_entity_path(eh_conn_str)
+
     # Step 1: Find offsets at the target time
     print(f"Looking up offsets at target time...\n")
-    offsets = asyncio.run(find_offsets_at_time(eh_conn_str, args.eventhub, target_time, ssl_kwargs))
+    try:
+        offsets = asyncio.run(find_offsets_at_time(eh_conn_str, args.eventhub, target_time, ssl_kwargs))
+    except Exception as e:
+        if "CBS Token authentication failed" in str(e):
+            print(f"\nError: {e}", file=sys.stderr)
+            print("\nTroubleshooting CBS authentication failure:", file=sys.stderr)
+            print("  1. Verify the SAS key hasn't expired or been rotated", file=sys.stderr)
+            print("  2. Verify the SAS policy has 'Listen' permission on this Event Hub", file=sys.stderr)
+            print(f"  3. Verify Event Hub '{args.eventhub}' exists in this namespace", file=sys.stderr)
+            print("  4. If behind a proxy, ensure DISABLE_SSL_VERIFY=true is set", file=sys.stderr)
+            sys.exit(1)
+        raise
 
     if not offsets:
         print("\nNo partitions with data found. Nothing to update.")
