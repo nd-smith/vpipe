@@ -361,7 +361,10 @@ class EventIngesterWorker:
         # Adjust batch size based on event age (backfill vs realtime)
         if enrichment_tasks:
             _, last_task = enrichment_tasks[-1]
-            event_age = (datetime.now(UTC) - last_task.original_timestamp).total_seconds()
+            ts = last_task.original_timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            event_age = (datetime.now(UTC) - ts).total_seconds()
             self._adjust_batch_size(event_age)
 
         # Record batch processing duration
