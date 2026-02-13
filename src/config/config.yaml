@@ -146,6 +146,10 @@ eventhub:
   # Default consumer group (used when not specified per-topic)
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
+  # Starting position when no checkpoint exists (first run, new consumer group, checkpoint loss).
+  # Values: "@latest" (default), "-1" (earliest), or ISO datetime (e.g., "2025-06-01T00:00:00Z")
+  default_starting_position: ${EVENTHUB_DEFAULT_STARTING_POSITION:-@latest}
+
   # Checkpoint store configuration for durable offset persistence.
   # Checkpoints enable graceful restarts and partition rebalancing across consumers.
   # Supported types:
@@ -185,12 +189,14 @@ eventhub:
     verisk:
       events:
         eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-verisk_events}
+        starting_position: "@latest"
         consumer_groups:
           event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-verisk-event-ingester}
           delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-verisk-delta-events-writer}
     claimx:
       events:
         eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
+        starting_position: "@latest"
         consumer_groups:
           event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-claimx-event-ingester}
           delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-claimx-delta-events-writer}
@@ -202,26 +208,32 @@ eventhub:
   verisk:
     enrichment_pending:
       eventhub_name: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_NAME:-verisk-enrichment-pending}
+      starting_position: "@latest"
       consumer_groups:
         enrichment_worker: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-verisk-enrichment-pipeline}
     downloads_pending:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_NAME:-verisk-downloads-pending}
+      starting_position: "@latest"
       consumer_groups:
         download_worker: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-verisk-downloads-pipeline}
     downloads_cached:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_NAME:-verisk-downloads-cached}
+      starting_position: "@latest"
       consumer_groups:
         upload_worker: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-verisk-downloads-cached-pipeline}
     downloads_results:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_NAME:-verisk-downloads-results}
+      starting_position: "@latest"
       consumer_groups:
         result_processor: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-verisk-downloads-results-pipeline}
     retry:
       eventhub_name: ${EVENTHUB_VERISK_RETRY_NAME:-verisk-retry}
+      starting_position: "@latest"
       consumer_groups:
         unified_retry_scheduler: ${EVENTHUB_VERISK_RETRY_CG_RETRY_SCHEDULER:-verisk-retry-pipeline}
     dlq:
       eventhub_name: ${EVENTHUB_VERISK_DLQ_NAME:-verisk-dlq}
+      starting_position: "@latest"
       consumer_groups:
         dlq_handler: ${EVENTHUB_VERISK_DLQ_CG_DLQ_HANDLER:-verisk-dlq-pipeline}
 
@@ -232,30 +244,37 @@ eventhub:
   claimx:
     enrichment_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_NAME:-claimx-enrichment-pending}
+      starting_position: "@latest"
       consumer_groups:
         enrichment_worker: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-claimx-enrichment-pipeline}
     enriched:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHED_NAME:-claimx-enriched}
+      starting_position: "@latest"
       consumer_groups:
         entity_delta_writer: ${EVENTHUB_CLAIMX_ENRICHED_CG_ENTITY_DELTA_WRITER:-claimx-enriched-pipeline}
     downloads_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_NAME:-claimx-downloads-pending}
+      starting_position: "@latest"
       consumer_groups:
         download_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-claimx-downloads-pipeline}
     downloads_cached:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_NAME:-claimx-downloads-cached}
+      starting_position: "@latest"
       consumer_groups:
         upload_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-claimx-downloads-cached-pipeline}
     downloads_results:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_NAME:-claimx-downloads-results}
+      starting_position: "@latest"
       consumer_groups:
         result_processor: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-claimx-downloads-results-pipeline}
     retry:
       eventhub_name: ${EVENTHUB_CLAIMX_RETRY_NAME:-claimx-retry}
+      starting_position: "@latest"
       consumer_groups:
         unified_retry_scheduler: ${EVENTHUB_CLAIMX_RETRY_CG_RETRY_SCHEDULER:-claimx-retry-pipeline}
     dlq:
       eventhub_name: ${EVENTHUB_CLAIMX_DLQ_NAME:-claimx-dlq}
+      starting_position: "@latest"
       consumer_groups:
         dlq_handler: ${EVENTHUB_CLAIMX_DLQ_CG_DLQ_HANDLER:-claimx-dlq-pipeline}
 
@@ -266,10 +285,12 @@ eventhub:
   plugins:
     itel_cabinet_pending:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_PENDING_NAME:-pcesdopodappv1-itel-cabinet-pending}
+      starting_position: "@latest"
       consumer_groups:
         itel_cabinet_tracking_worker: ${EVENTHUB_ITEL_CABINET_PENDING_CG_TRACKING_WORKER:-itel-cabinet-pending-pipeline}
     itel_cabinet_completed:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_COMPLETED_NAME:-pcesdopodappv1-itel-cabinet-completed}
+      starting_position: "@latest"
       consumer_groups:
         itel_cabinet_api_worker: ${EVENTHUB_ITEL_CABINET_COMPLETED_CG_API_WORKER:-itel-cabinet-completed-pipeline}
     itel_cabinet_success:
@@ -282,6 +303,7 @@ eventhub:
       eventhub_name: ${EVENTHUB_ITEL_API_ERRORS_NAME:-pcesdopodappv1-itel-api-errors}
     ghrn_mitigation_pending:
       eventhub_name: ${EVENTHUB_GHRN_MITIGATION_PENDING_NAME:-pcesdopodappv1-ghrn-mitigation-pending}
+      starting_position: "@latest"
       consumer_groups:
         mitigation_tracking_worker: ${EVENTHUB_GHRN_MITIGATION_PENDING_CG_TRACKING_WORKER:-ghrn-mitigation-pending-pipeline}
     ghrn_mitigation_completed:

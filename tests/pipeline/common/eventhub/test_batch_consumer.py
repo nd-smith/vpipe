@@ -75,6 +75,38 @@ class TestBatchConsumerInit:
         assert consumer.batch_timeout_ms == 1000
         assert consumer._enable_message_commit is True
 
+    def test_default_starting_position_is_latest(self):
+        from pipeline.common.eventhub.batch_consumer import EventHubBatchConsumer
+
+        consumer = EventHubBatchConsumer(
+            connection_string="conn",
+            domain="verisk",
+            worker_name="w",
+            eventhub_name="entity",
+            consumer_group="$Default",
+            batch_handler=AsyncMock(),
+        )
+
+        assert consumer.starting_position == "@latest"
+        assert consumer.starting_position_inclusive is False
+
+    def test_explicit_starting_position(self):
+        from pipeline.common.eventhub.batch_consumer import EventHubBatchConsumer
+
+        consumer = EventHubBatchConsumer(
+            connection_string="conn",
+            domain="verisk",
+            worker_name="w",
+            eventhub_name="entity",
+            consumer_group="$Default",
+            batch_handler=AsyncMock(),
+            starting_position="-1",
+            starting_position_inclusive=False,
+        )
+
+        assert consumer.starting_position == "-1"
+        assert consumer.starting_position_inclusive is False
+
 
 # =============================================================================
 # EventHubBatchConsumer - Start / Stop

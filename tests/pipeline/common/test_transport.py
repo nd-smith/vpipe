@@ -1,13 +1,17 @@
 """Tests for transport layer abstraction."""
 
+import datetime
+
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from pipeline.common.transport import (
     TransportType,
+    _parse_starting_position,
     _resolve_eventhub_consumer_group,
     _resolve_eventhub_name,
+    _resolve_starting_position,
     _strip_entity_path,
     get_source_connection_string,
     get_transport_type,
@@ -661,3 +665,235 @@ class TestConsumerConnectionStringOverride:
                 connection_string="source-conn",
             )
         assert mock_cls.call_args[1]["connection_string"] == "source-conn"
+
+
+class TestParseStartingPosition:
+    def test_latest(self):
+        pos, inclusive = _parse_starting_position("@latest")
+        assert pos == "@latest"
+        assert inclusive is False
+
+    def test_earliest(self):
+        pos, inclusive = _parse_starting_position("-1")
+        assert pos == "-1"
+        assert inclusive is False
+
+    def test_datetime_with_tz(self):
+        pos, inclusive = _parse_starting_position("2025-06-01T00:00:00+00:00")
+        assert isinstance(pos, datetime.datetime)
+        assert pos.tzinfo is not None
+        assert inclusive is True
+
+    def test_naive_datetime_gets_utc(self):
+        pos, inclusive = _parse_starting_position("2025-06-01T00:00:00")
+        assert isinstance(pos, datetime.datetime)
+        assert pos.tzinfo == datetime.UTC
+        assert inclusive is True
+
+    def test_invalid_raises_value_error(self):
+        with pytest.raises(ValueError, match="Invalid starting_position"):
+            _parse_starting_position("bogus")
+
+
+class TestResolveStartingPosition:
+    def test_source_config_priority(self):
+        mock_config = {
+            "source": {
+                "verisk": {
+                    "events": {
+                        "starting_position": "-1",
+                    }
+                }
+            },
+            "default_starting_position": "@latest",
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            pos, inclusive = _resolve_starting_position("verisk", "events")
+        assert pos == "-1"
+        assert inclusive is False
+
+    def test_domain_fallback(self):
+        mock_config = {
+            "source": {},
+            "verisk": {
+                "events": {
+                    "starting_position": "-1",
+                }
+            },
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            pos, inclusive = _resolve_starting_position("verisk", "events")
+        assert pos == "-1"
+
+    def test_global_default(self):
+        mock_config = {
+            "default_starting_position": "-1",
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            pos, inclusive = _resolve_starting_position("verisk", "events")
+        assert pos == "-1"
+
+    def test_hardcoded_latest_fallback(self):
+        with patch("pipeline.common.transport._load_eventhub_config", return_value={}):
+            pos, inclusive = _resolve_starting_position("verisk", "events")
+        assert pos == "@latest"
+        assert inclusive is False
+
+    def test_datetime_parsing(self):
+        mock_config = {
+            "default_starting_position": "2025-06-01T00:00:00Z",
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            pos, inclusive = _resolve_starting_position("verisk", None)
+        assert isinstance(pos, datetime.datetime)
+        assert inclusive is True
+
+    def test_no_topic_key_skips_topic_lookups(self):
+        mock_config = {
+            "source": {
+                "verisk": {
+                    "events": {"starting_position": "-1"},
+                }
+            },
+            "default_starting_position": "@latest",
+        }
+        with patch("pipeline.common.transport._load_eventhub_config", return_value=mock_config):
+            pos, inclusive = _resolve_starting_position("verisk", None)
+        # Should skip topic lookups and use global default
+        assert pos == "@latest"
+
+
+class TestCreateConsumerStartingPosition:
+    async def test_passes_resolved_starting_position(self):
+        from pipeline.common.transport import create_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string", return_value="conn"
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "pipeline.common.transport._resolve_starting_position",
+                return_value=("@latest", False),
+            ) as mock_resolve,
+            patch("pipeline.common.eventhub.consumer.EventHubConsumer") as mock_cls,
+        ):
+            await create_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+            )
+        mock_resolve.assert_called_once()
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["starting_position"] == "@latest"
+        assert call_kwargs["starting_position_inclusive"] is False
+
+    async def test_passes_explicit_starting_position(self):
+        from pipeline.common.transport import create_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string", return_value="conn"
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.consumer.EventHubConsumer") as mock_cls,
+        ):
+            await create_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+                starting_position="-1",
+            )
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["starting_position"] == "-1"
+        assert call_kwargs["starting_position_inclusive"] is False
+
+
+class TestCreateBatchConsumerStartingPosition:
+    async def test_passes_resolved_starting_position(self):
+        from pipeline.common.transport import create_batch_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string", return_value="conn"
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "pipeline.common.transport._resolve_starting_position",
+                return_value=("@latest", False),
+            ) as mock_resolve,
+            patch("pipeline.common.eventhub.batch_consumer.EventHubBatchConsumer") as mock_cls,
+        ):
+            await create_batch_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+            )
+        mock_resolve.assert_called_once()
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["starting_position"] == "@latest"
+        assert call_kwargs["starting_position_inclusive"] is False
+
+    async def test_passes_explicit_starting_position(self):
+        from pipeline.common.transport import create_batch_consumer
+
+        config = Mock()
+        handler = AsyncMock()
+
+        with (
+            patch(
+                "pipeline.common.transport._get_namespace_connection_string", return_value="conn"
+            ),
+            patch("pipeline.common.transport._resolve_eventhub_consumer_group", return_value="cg"),
+            patch(
+                "pipeline.common.transport.get_checkpoint_store",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("pipeline.common.eventhub.batch_consumer.EventHubBatchConsumer") as mock_cls,
+        ):
+            await create_batch_consumer(
+                config,
+                "verisk",
+                "test",
+                ["t1"],
+                handler,
+                transport_type=TransportType.EVENTHUB,
+                starting_position="-1",
+            )
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["starting_position"] == "-1"
+        assert call_kwargs["starting_position_inclusive"] is False

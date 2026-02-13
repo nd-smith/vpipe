@@ -14,7 +14,7 @@ Checkpoint persistence:
 - If checkpoint_store is provided: offsets are persisted to Azure Blob Storage,
   enabling durable progress tracking across restarts and partition rebalancing
 - If checkpoint_store is None: offsets are stored in-memory only and lost on restart,
-  consumer will restart from beginning (starting_position="-1")
+  consumer will restart from starting_position (default "@latest")
 """
 
 import asyncio
@@ -133,6 +133,8 @@ class EventHubConsumer:
         instance_id: str | None = None,
         checkpoint_store: Any = None,
         prefetch: int = 300,
+        starting_position: str | Any = "@latest",
+        starting_position_inclusive: bool = False,
     ):
         """Initialize Event Hub consumer.
 
@@ -147,6 +149,10 @@ class EventHubConsumer:
             instance_id: Optional instance identifier for parallel consumers
             checkpoint_store: Optional checkpoint store for durable offset persistence.
                 If None, offsets are stored in-memory only and lost on restart.
+            starting_position: Position to start from when no checkpoint exists.
+                "@latest" (default), "-1" (earliest), or datetime.
+            starting_position_inclusive: Whether the starting position is inclusive.
+                True for datetime positions.
         """
         self.connection_string = connection_string
         self.domain = domain
@@ -157,6 +163,8 @@ class EventHubConsumer:
         self.message_handler = message_handler
         self.checkpoint_store = checkpoint_store
         self.prefetch = prefetch
+        self.starting_position = starting_position
+        self.starting_position_inclusive = starting_position_inclusive
         self._consumer: EventHubConsumerClient | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
@@ -454,7 +462,8 @@ class EventHubConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    starting_position="-1",
+                    starting_position=self.starting_position,
+                    starting_position_inclusive=self.starting_position_inclusive,
                     max_wait_time=5,
                     prefetch=self.prefetch,
                 )

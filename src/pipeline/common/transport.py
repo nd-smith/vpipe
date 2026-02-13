@@ -19,6 +19,7 @@ Event Hub resolution:
   baking EntityPath into the connection string
 """
 
+import datetime
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -40,6 +41,8 @@ EVENTHUB_NAME_KEY = "eventhub_name"
 CONSUMER_GROUPS_KEY = "consumer_groups"
 DEFAULT_CONSUMER_GROUP_KEY = "default_consumer_group"
 SOURCE_CONFIG_KEY = "source"
+STARTING_POSITION_KEY = "starting_position"
+DEFAULT_STARTING_POSITION_KEY = "default_starting_position"
 
 
 class TransportType(StrEnum):
@@ -316,6 +319,80 @@ def _resolve_eventhub_consumer_group(
     )
 
 
+def _parse_starting_position(value: str) -> tuple[str | datetime.datetime, bool]:
+    """Parse a starting position config value into SDK-compatible (position, inclusive) tuple.
+
+    Args:
+        value: One of "@latest", "-1", or an ISO datetime string
+
+    Returns:
+        (position, inclusive) — inclusive is True for datetime positions
+
+    Raises:
+        ValueError: If value is not a recognized starting position
+    """
+    if value == "@latest":
+        return ("@latest", False)
+    if value == "-1":
+        return ("-1", False)
+
+    # Try ISO datetime
+    try:
+        dt = datetime.datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.UTC)
+        return (dt, True)
+    except (ValueError, TypeError):
+        pass
+
+    raise ValueError(
+        f"Invalid starting_position '{value}'. "
+        f"Must be '@latest', '-1', or an ISO datetime string (e.g., '2025-06-01T00:00:00Z')."
+    )
+
+
+def _resolve_starting_position(
+    domain: str,
+    topic_key: str | None,
+) -> tuple[str | datetime.datetime, bool]:
+    """Resolve starting position from config, following the same priority chain as consumer group.
+
+    Lookup order:
+    1. eventhub.source.{domain}.{topic_key}.starting_position
+    2. eventhub.{domain}.{topic_key}.starting_position
+    3. eventhub.default_starting_position
+    4. Hardcoded "@latest"
+
+    Returns:
+        (position, inclusive) tuple for the Azure SDK
+    """
+    config = _load_eventhub_config()
+
+    if topic_key:
+        # Check eventhub.source.{domain}.{topic_key}.starting_position
+        source_config = config.get(SOURCE_CONFIG_KEY, {})
+        source_domain = source_config.get(domain, {})
+        source_topic = source_domain.get(topic_key, {})
+        value = source_topic.get(STARTING_POSITION_KEY)
+        if value:
+            return _parse_starting_position(str(value))
+
+        # Check eventhub.{domain}.{topic_key}.starting_position
+        domain_config = config.get(domain, {})
+        topic_config = domain_config.get(topic_key, {})
+        value = topic_config.get(STARTING_POSITION_KEY)
+        if value:
+            return _parse_starting_position(str(value))
+
+    # Global default
+    value = config.get(DEFAULT_STARTING_POSITION_KEY)
+    if value:
+        return _parse_starting_position(str(value))
+
+    # Hardcoded fallback
+    return ("@latest", False)
+
+
 # =============================================================================
 # Factory functions
 # =============================================================================
@@ -423,6 +500,7 @@ async def create_consumer(
     topic_key: str | None = None,
     connection_string: str | None = None,
     prefetch: int = 300,
+    starting_position: str | None = None,
 ):
     """Create a consumer instance based on transport configuration.
 
@@ -441,6 +519,8 @@ async def create_consumer(
                            When provided, uses this instead of the default namespace
                            connection string. Use for source topics that live in a
                            different namespace.
+        starting_position: Optional starting position override ("@latest", "-1", or ISO
+                           datetime). When None, resolved from config.
 
     Returns:
         MessageConsumer or EventHubConsumer instance
@@ -492,9 +572,16 @@ async def create_consumer(
             )
             # Continue with None checkpoint_store (in-memory mode)
 
+        # Resolve starting position
+        if starting_position is not None:
+            pos, pos_inclusive = _parse_starting_position(starting_position)
+        else:
+            pos, pos_inclusive = _resolve_starting_position(domain, topic_key)
+
         logger.info(
             f"Creating Event Hub consumer: domain={domain}, worker={worker_name}, "
-            f"eventhub={eventhub_name}, group={consumer_group}"
+            f"eventhub={eventhub_name}, group={consumer_group}, "
+            f"starting_position={pos}"
         )
 
         return EventHubConsumer(
@@ -508,6 +595,8 @@ async def create_consumer(
             instance_id=instance_id,
             checkpoint_store=checkpoint_store,
             prefetch=prefetch,
+            starting_position=pos,
+            starting_position_inclusive=pos_inclusive,
         )
 
     else:  # TransportType.KAFKA
@@ -544,6 +633,7 @@ async def create_batch_consumer(
     topic_key: str | None = None,
     connection_string: str | None = None,
     prefetch: int = 300,
+    starting_position: str | None = None,
 ):
     """Create a batch consumer for concurrent message processing.
 
@@ -635,10 +725,17 @@ async def create_batch_consumer(
             )
             # Continue with None checkpoint_store (in-memory mode)
 
+        # Resolve starting position
+        if starting_position is not None:
+            pos, pos_inclusive = _parse_starting_position(starting_position)
+        else:
+            pos, pos_inclusive = _resolve_starting_position(domain, topic_key)
+
         logger.info(
             f"Creating Event Hub batch consumer: domain={domain}, worker={worker_name}, "
             f"eventhub={eventhub_name}, group={consumer_group}, "
-            f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}"
+            f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}, "
+            f"starting_position={pos}"
         )
 
         return EventHubBatchConsumer(
@@ -655,6 +752,8 @@ async def create_batch_consumer(
             instance_id=instance_id,
             checkpoint_store=checkpoint_store,
             prefetch=prefetch,
+            starting_position=pos,
+            starting_position_inclusive=pos_inclusive,
         )
 
     else:  # TransportType.KAFKA

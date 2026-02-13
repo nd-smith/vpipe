@@ -83,6 +83,8 @@ class EventHubBatchConsumer:
         instance_id: str | None = None,
         checkpoint_store: Any = None,
         prefetch: int = 300,
+        starting_position: str | Any = "@latest",
+        starting_position_inclusive: bool = False,
     ):
         """Initialize Event Hub batch consumer.
 
@@ -100,6 +102,10 @@ class EventHubBatchConsumer:
             enable_message_commit: Whether to checkpoint after successful processing
             instance_id: Optional instance identifier for parallel consumers
             checkpoint_store: Optional checkpoint store for durable offset persistence
+            starting_position: Position to start from when no checkpoint exists.
+                "@latest" (default), "-1" (earliest), or datetime.
+            starting_position_inclusive: Whether the starting position is inclusive.
+                True for datetime positions.
         """
         self.connection_string = connection_string
         self.domain = domain
@@ -113,6 +119,8 @@ class EventHubBatchConsumer:
         self.batch_timeout_ms = batch_timeout_ms
         self.checkpoint_store = checkpoint_store
         self.prefetch = prefetch
+        self.starting_position = starting_position
+        self.starting_position_inclusive = starting_position_inclusive
         self._consumer: EventHubConsumerClient | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
@@ -363,7 +371,8 @@ class EventHubBatchConsumer:
                     on_partition_initialize=on_partition_initialize,
                     on_partition_close=on_partition_close,
                     on_error=on_error,
-                    starting_position="-1",  # Start from beginning
+                    starting_position=self.starting_position,
+                    starting_position_inclusive=self.starting_position_inclusive,
                     prefetch=self.prefetch,
                 )
         except Exception:

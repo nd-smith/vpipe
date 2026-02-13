@@ -197,6 +197,16 @@ class TestEventHubConsumer:
         consumer = self._make_consumer(checkpoint_store=store)
         assert consumer.checkpoint_store is store
 
+    def test_default_starting_position_is_latest(self):
+        consumer = self._make_consumer()
+        assert consumer.starting_position == "@latest"
+        assert consumer.starting_position_inclusive is False
+
+    def test_explicit_starting_position(self):
+        consumer = self._make_consumer(starting_position="-1", starting_position_inclusive=False)
+        assert consumer.starting_position == "-1"
+        assert consumer.starting_position_inclusive is False
+
     def test_is_running_property_false_when_not_started(self):
         consumer = self._make_consumer()
         assert consumer.is_running is False
