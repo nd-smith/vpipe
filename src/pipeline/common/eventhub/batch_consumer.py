@@ -82,6 +82,7 @@ class EventHubBatchConsumer:
         enable_message_commit: bool = True,
         instance_id: str | None = None,
         checkpoint_store: Any = None,
+        prefetch: int = 300,
     ):
         """Initialize Event Hub batch consumer.
 
@@ -111,6 +112,7 @@ class EventHubBatchConsumer:
         self.max_batch_size = max_batch_size or batch_size
         self.batch_timeout_ms = batch_timeout_ms
         self.checkpoint_store = checkpoint_store
+        self.prefetch = prefetch
         self._consumer: EventHubConsumerClient | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
@@ -134,6 +136,7 @@ class EventHubBatchConsumer:
                 "batch_size": batch_size,
                 "batch_timeout_ms": batch_timeout_ms,
                 "enable_message_commit": enable_message_commit,
+                "prefetch": prefetch,
                 "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
             },
         )
@@ -361,6 +364,7 @@ class EventHubBatchConsumer:
                     on_partition_close=on_partition_close,
                     on_error=on_error,
                     starting_position="-1",  # Start from beginning
+                    prefetch=self.prefetch,
                 )
         except Exception:
             logger.error("Error in Event Hub batch receive loop", exc_info=True)
@@ -451,22 +455,24 @@ class EventHubBatchConsumer:
             duration = time.perf_counter() - start_time
 
             if should_commit and self._enable_message_commit:
-                # Checkpoint all messages in batch
+                # Checkpoint only the last event — within a partition, offsets are
+                # ordered, so checkpointing the highest offset implicitly covers
+                # all earlier ones. This reduces N HTTPS calls to 1 per flush.
                 checkpoint_errors = 0
-                for buffered in batch:
-                    try:
-                        await buffered.partition_context.update_checkpoint(buffered.event)
-                    except Exception:
-                        # Log but continue - message will be redelivered (at-least-once)
-                        logger.error(
-                            "Failed to checkpoint message - will be redelivered",
-                            extra={
-                                "partition_id": partition_id,
-                                "offset": buffered.message.offset,
-                            },
-                            exc_info=True,
-                        )
-                        checkpoint_errors += 1
+                last = batch[-1]
+                try:
+                    await last.partition_context.update_checkpoint(last.event)
+                except Exception:
+                    logger.error(
+                        "Failed to checkpoint batch - messages will be redelivered",
+                        extra={
+                            "partition_id": partition_id,
+                            "offset": last.message.offset,
+                            "batch_size": len(batch),
+                        },
+                        exc_info=True,
+                    )
+                    checkpoint_errors += 1
 
                 self._batch_checkpoint_count += 1
                 if self._batch_checkpoint_count % 100 == 0:

@@ -132,6 +132,7 @@ class EventHubConsumer:
         enable_message_commit: bool = True,
         instance_id: str | None = None,
         checkpoint_store: Any = None,
+        prefetch: int = 300,
     ):
         """Initialize Event Hub consumer.
 
@@ -155,6 +156,7 @@ class EventHubConsumer:
         self.consumer_group = consumer_group
         self.message_handler = message_handler
         self.checkpoint_store = checkpoint_store
+        self.prefetch = prefetch
         self._consumer: EventHubConsumerClient | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
@@ -180,6 +182,7 @@ class EventHubConsumer:
                 "entity": eventhub_name,
                 "consumer_group": consumer_group,
                 "enable_message_commit": enable_message_commit,
+                "prefetch": prefetch,
                 "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
             },
         )
@@ -453,6 +456,7 @@ class EventHubConsumer:
                     on_error=on_error,
                     starting_position="-1",
                     max_wait_time=5,
+                    prefetch=self.prefetch,
                 )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)

@@ -203,6 +203,7 @@ class EventIngesterWorker:
             batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
+            prefetch=3000,
         )
 
         # Update health check readiness

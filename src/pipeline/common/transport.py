@@ -422,6 +422,7 @@ async def create_consumer(
     transport_type: TransportType | None = None,
     topic_key: str | None = None,
     connection_string: str | None = None,
+    prefetch: int = 300,
 ):
     """Create a consumer instance based on transport configuration.
 
@@ -506,6 +507,7 @@ async def create_consumer(
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
             checkpoint_store=checkpoint_store,
+            prefetch=prefetch,
         )
 
     else:  # TransportType.KAFKA
@@ -541,6 +543,7 @@ async def create_batch_consumer(
     transport_type: TransportType | None = None,
     topic_key: str | None = None,
     connection_string: str | None = None,
+    prefetch: int = 300,
 ):
     """Create a batch consumer for concurrent message processing.
 
@@ -651,6 +654,7 @@ async def create_batch_consumer(
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
             checkpoint_store=checkpoint_store,
+            prefetch=prefetch,
         )
 
     else:  # TransportType.KAFKA

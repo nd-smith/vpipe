@@ -182,6 +182,7 @@ class ClaimXEventIngesterWorker:
             batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
+            prefetch=3000,
         )
 
         self.health_server.set_ready(transport_connected=True, api_reachable=True)
