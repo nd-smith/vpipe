@@ -4,11 +4,10 @@ Unit tests for Verisk Event Ingester Worker.
 Test Coverage:
     - Worker initialization and configuration
     - Lifecycle management (start/stop/graceful shutdown)
-    - Message parsing and validation
-    - Event deduplication (cache management, TTL, eviction)
-    - Enrichment task creation and dispatch
+    - Batch message processing (parsing, dedup, enrichment)
+    - Event deduplication (OrderedDict cache, TTL, LRU eviction)
     - Assignment ID validation
-    - Error handling (parse errors, send failures)
+    - Error handling (parse errors, send_batch failures)
 
 No infrastructure required - all dependencies mocked.
 """
@@ -16,6 +15,7 @@ No infrastructure required - all dependencies mocked.
 import contextlib
 import json
 import time
+from collections import OrderedDict
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -117,11 +117,11 @@ class TestEventIngesterWorkerInitialization:
         assert worker.producer_config is producer_config
 
     def test_dedup_cache_initialized(self, mock_config):
-        """Worker initializes deduplication cache."""
+        """Worker initializes deduplication cache as OrderedDict."""
         worker = EventIngesterWorker(config=mock_config)
 
-        assert worker._dedup_cache == {}
-        assert worker._dedup_cache_timestamps == {}
+        assert isinstance(worker._dedup_cache, OrderedDict)
+        assert len(worker._dedup_cache) == 0
         assert worker._dedup_cache_ttl_seconds == 86400  # 24 hours
         assert worker._dedup_cache_max_size == 100_000
 
@@ -145,7 +145,8 @@ class TestEventIngesterWorkerLifecycle:
 
         with (
             patch("pipeline.verisk.workers.event_ingester.create_producer") as mock_create_producer,
-            patch("pipeline.verisk.workers.event_ingester.create_consumer") as mock_create_consumer,
+            patch("pipeline.verisk.workers.event_ingester.create_batch_consumer") as mock_create_consumer,
+            patch("pipeline.verisk.workers.event_ingester.get_source_connection_string", return_value="fake-conn"),
             patch("pipeline.common.telemetry.initialize_worker_telemetry"),
         ):
             # Setup mocks
@@ -208,32 +209,29 @@ class TestEventIngesterWorkerLifecycle:
         await worker.stop()
 
 
-class TestEventIngesterWorkerMessageProcessing:
-    """Test message parsing and processing."""
+class TestEventIngesterWorkerBatchProcessing:
+    """Test batch message processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(self, mock_config, sample_message):
-        """Worker parses valid event message."""
+    async def test_valid_batch_processed_successfully(self, mock_config, sample_message):
+        """Worker processes valid batch and returns True."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        # Mock producer.send
-        mock_metadata = Mock()
-        mock_metadata.partition = 0
-        mock_metadata.offset = 100
-        worker.producer.send = AsyncMock(return_value=mock_metadata)
+        result = await worker._handle_event_batch([sample_message])
 
-        await worker._handle_event_message(sample_message)
-
-        # Verify message was processed
+        assert result is True
         assert worker._records_processed == 1
         assert worker._records_succeeded == 1
-        assert worker.producer.send.called
+        assert worker.producer.send_batch.called
 
     @pytest.mark.asyncio
-    async def test_invalid_json_raises_error(self, mock_config):
-        """Worker raises error on invalid JSON."""
+    async def test_invalid_json_skipped_in_batch(self, mock_config):
+        """Unparseable messages are skipped, not raised."""
         worker = EventIngesterWorker(config=mock_config)
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock()
 
         invalid_message = PipelineMessage(
             topic="verisk.events",
@@ -245,13 +243,18 @@ class TestEventIngesterWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(json.JSONDecodeError):
-            await worker._handle_event_message(invalid_message)
+        result = await worker._handle_event_batch([invalid_message])
+
+        # Should return True (commit) — invalid message skipped, not retried
+        assert result is True
+        assert not worker.producer.send_batch.called
 
     @pytest.mark.asyncio
-    async def test_invalid_schema_raises_validation_error(self, mock_config):
-        """Worker raises ValidationError on invalid event schema."""
+    async def test_invalid_schema_skipped_in_batch(self, mock_config):
+        """Invalid schema messages are skipped, not raised."""
         worker = EventIngesterWorker(config=mock_config)
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock()
 
         invalid_message = PipelineMessage(
             topic="verisk.events",
@@ -263,8 +266,10 @@ class TestEventIngesterWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
-            await worker._handle_event_message(invalid_message)
+        result = await worker._handle_event_batch([invalid_message])
+
+        assert result is True
+        assert not worker.producer.send_batch.called
 
 
 class TestEventIngesterWorkerDeduplication:
@@ -315,27 +320,24 @@ class TestEventIngesterWorkerDeduplication:
         assert "trace-123" not in worker._dedup_cache
 
     @pytest.mark.asyncio
-    async def test_duplicate_event_skipped(self, mock_config, sample_message):
-        """Worker skips duplicate events."""
+    async def test_duplicate_event_skipped_in_batch(self, mock_config, sample_message):
+        """Worker skips duplicate events in batch."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
-
-        # Mock producer.send
-        mock_metadata = Mock()
-        mock_metadata.partition = 0
-        mock_metadata.offset = 100
-        worker.producer.send = AsyncMock(return_value=mock_metadata)
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
         # Process first time
-        await worker._handle_event_message(sample_message)
+        result = await worker._handle_event_batch([sample_message])
+        assert result is True
         assert worker._records_deduplicated == 0
 
         # Process again - should be deduplicated
-        await worker._handle_event_message(sample_message)
+        result = await worker._handle_event_batch([sample_message])
+        assert result is True
 
         # Verify deduplicated
         assert worker._records_deduplicated == 1
-        assert worker.producer.send.call_count == 1  # Only called once
+        assert worker.producer.send_batch.call_count == 1  # Only called once
 
     @pytest.mark.asyncio
     async def test_mark_processed_adds_to_cache(self, mock_config):
@@ -345,8 +347,8 @@ class TestEventIngesterWorkerDeduplication:
         await worker._mark_processed("trace-123", "evt-456")
 
         assert "trace-123" in worker._dedup_cache
-        assert worker._dedup_cache["trace-123"] == "evt-456"
-        assert "trace-123" in worker._dedup_cache_timestamps
+        event_id, _ = worker._dedup_cache["trace-123"]
+        assert event_id == "evt-456"
 
     @pytest.mark.asyncio
     async def test_mark_processed_evicts_old_entries_when_full(self, mock_config):
@@ -394,28 +396,25 @@ class TestEventIngesterWorkerDeduplication:
 
 
 class TestEventIngesterWorkerEnrichmentTask:
-    """Test enrichment task creation and dispatch."""
+    """Test enrichment task creation via batch handler."""
 
     @pytest.mark.asyncio
     async def test_enrichment_task_created_for_event(self, mock_config, sample_message):
-        """Worker creates enrichment task for valid event."""
+        """Worker creates enrichment task for valid event in batch."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        # Mock producer.send
-        mock_metadata = Mock()
-        mock_metadata.partition = 0
-        mock_metadata.offset = 100
-        worker.producer.send = AsyncMock(return_value=mock_metadata)
+        result = await worker._handle_event_batch([sample_message])
 
-        await worker._handle_event_message(sample_message)
+        assert result is True
+        assert worker.producer.send_batch.called
+        call_args = worker.producer.send_batch.call_args
 
-        # Verify enrichment task was produced
-        assert worker.producer.send.called
-        call_args = worker.producer.send.call_args
-
-        # Verify task structure
-        task = call_args.kwargs["value"]
+        # Verify task structure — send_batch gets list of (key, model) tuples
+        messages = call_args.kwargs["messages"]
+        assert len(messages) == 1
+        key, task = messages[0]
         assert isinstance(task, XACTEnrichmentTask)
         assert task.trace_id == "trace-123"
         assert task.status_subtype == "documentsReceived"
@@ -425,9 +424,10 @@ class TestEventIngesterWorkerEnrichmentTask:
 
     @pytest.mark.asyncio
     async def test_event_without_assignment_id_skipped(self, mock_config):
-        """Worker skips events without assignmentId."""
+        """Worker skips events without assignmentId in batch."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock()
 
         # Create event without assignment_id
         message = PipelineMessage(
@@ -448,29 +448,24 @@ class TestEventIngesterWorkerEnrichmentTask:
             headers=None,
         )
 
-        await worker._handle_event_message(message)
+        result = await worker._handle_event_batch([message])
 
         # Verify event was skipped
+        assert result is True
         assert worker._records_skipped == 1
-        assert not worker.producer.send.called
+        assert not worker.producer.send_batch.called
 
     @pytest.mark.asyncio
-    async def test_enrichment_task_send_failure_raises(self, mock_config, sample_message):
-        """Worker re-raises send failures to prevent offset commit."""
+    async def test_send_batch_failure_returns_false(self, mock_config, sample_message):
+        """Worker returns False on send_batch failure to prevent commit."""
         worker = EventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(side_effect=Exception("Send failed"))
 
-        # Mock send failure
-        send_error = Exception("Send failed")
-        worker.producer.send = AsyncMock(side_effect=send_error)
-
-        # Patch record_processing_error to avoid parameter issues
         with patch("pipeline.verisk.workers.event_ingester.record_processing_error"):
-            # Verify error is raised
-            with pytest.raises(Exception) as exc_info:
-                await worker._handle_event_message(sample_message)
+            result = await worker._handle_event_batch([sample_message])
 
-            assert exc_info.value is send_error
+        assert result is False
 
 
 class TestEventIngesterWorkerStats:

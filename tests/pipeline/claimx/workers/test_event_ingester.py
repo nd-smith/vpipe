@@ -4,8 +4,8 @@ Unit tests for ClaimX Event Ingester Worker.
 Test Coverage:
     - Worker initialization and configuration
     - Lifecycle management (start/stop/graceful shutdown)
-    - Event message parsing and validation
-    - Event deduplication logic
+    - Batch message processing (parsing, dedup, enrichment)
+    - Event deduplication (OrderedDict cache, TTL, LRU eviction)
     - Enrichment task creation
     - Producer interaction
     - Background task tracking
@@ -16,6 +16,7 @@ No infrastructure required - all dependencies mocked.
 
 import contextlib
 import json
+from collections import OrderedDict
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -111,11 +112,11 @@ class TestEventIngesterInitialization:
 
         assert worker.enrichment_topic == "custom.enrichment"
 
-    def test_deduplication_set_initialized_empty(self, mock_config):
-        """Worker initializes with empty deduplication cache."""
+    def test_deduplication_cache_initialized_as_ordered_dict(self, mock_config):
+        """Worker initializes with empty OrderedDict dedup cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        assert isinstance(worker._dedup_cache, dict)
+        assert isinstance(worker._dedup_cache, OrderedDict)
         assert len(worker._dedup_cache) == 0
         assert worker._dedup_store is None
 
@@ -139,7 +140,8 @@ class TestEventIngesterLifecycle:
 
         with (
             patch("pipeline.claimx.workers.event_ingester.create_producer") as mock_create_producer,
-            patch("pipeline.claimx.workers.event_ingester.create_consumer") as mock_create_consumer,
+            patch("pipeline.claimx.workers.event_ingester.create_batch_consumer") as mock_create_consumer,
+            patch("pipeline.claimx.workers.event_ingester.get_source_connection_string", return_value="fake-conn"),
             patch("pipeline.common.telemetry.initialize_worker_telemetry"),
         ):
             # Setup mocks
@@ -174,6 +176,8 @@ class TestEventIngesterLifecycle:
         worker.health_server = AsyncMock()
         worker.health_server.stop = AsyncMock()
 
+        worker._running = True
+
         # Stop worker
         await worker.stop()
 
@@ -200,6 +204,7 @@ class TestEventIngesterLifecycle:
         import asyncio
 
         worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker._running = True
 
         # Create an actual asyncio task that we can cancel
         async def dummy_task():
@@ -216,32 +221,29 @@ class TestEventIngesterLifecycle:
         assert worker._cycle_task.cancelled()
 
 
-class TestEventIngesterMessageProcessing:
-    """Test event message parsing and processing."""
+class TestEventIngesterBatchProcessing:
+    """Test batch message processing."""
 
     @pytest.mark.asyncio
-    async def test_valid_message_parsed_successfully(self, mock_config, sample_message):
-        """Worker parses valid event message."""
+    async def test_valid_batch_processed_successfully(self, mock_config, sample_message):
+        """Worker processes valid batch and returns True."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker._create_enrichment_task = AsyncMock()
-        worker._is_duplicate = AsyncMock(return_value=False)
-        worker._mark_processed = AsyncMock()
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        await worker._handle_event_message(sample_message)
+        result = await worker._handle_event_batch([sample_message])
 
-        # Verify event was parsed and processed
-        assert worker._create_enrichment_task.called
-        event = worker._create_enrichment_task.call_args[0][0]
-        assert isinstance(event, ClaimXEventMessage)
-        assert event.event_id == "evt-123"
-        assert event.event_type == "PROJECT_CREATED"
-        assert event.project_id == "proj-456"
+        assert result is True
         assert worker._records_processed == 1
+        assert worker._records_succeeded == 1
+        assert worker.producer.send_batch.called
 
     @pytest.mark.asyncio
-    async def test_invalid_json_raises_error(self, mock_config):
-        """Worker raises error on invalid JSON."""
+    async def test_invalid_json_skipped_in_batch(self, mock_config):
+        """Unparseable messages are skipped, not raised."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock()
 
         invalid_message = PipelineMessage(
             topic="test.topic",
@@ -253,13 +255,17 @@ class TestEventIngesterMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(json.JSONDecodeError):
-            await worker._handle_event_message(invalid_message)
+        result = await worker._handle_event_batch([invalid_message])
+
+        assert result is True
+        assert not worker.producer.send_batch.called
 
     @pytest.mark.asyncio
-    async def test_invalid_schema_raises_validation_error(self, mock_config):
-        """Worker raises ValidationError on invalid event schema."""
+    async def test_invalid_schema_skipped_in_batch(self, mock_config):
+        """Invalid schema messages are skipped, not raised."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock()
 
         invalid_message = PipelineMessage(
             topic="test.topic",
@@ -271,56 +277,58 @@ class TestEventIngesterMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
-            await worker._handle_event_message(invalid_message)
+        result = await worker._handle_event_batch([invalid_message])
+
+        assert result is True
+        assert not worker.producer.send_batch.called
 
 
 class TestEventIngesterDeduplication:
     """Test event deduplication logic."""
 
     @pytest.mark.asyncio
-    async def test_duplicate_event_skipped(self, mock_config, sample_message):
-        """Worker skips duplicate events."""
+    async def test_duplicate_event_skipped_in_batch(self, mock_config, sample_message):
+        """Worker skips duplicate events in batch."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker._create_enrichment_task = AsyncMock()
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        # Mark event as already processed (in cache with recent timestamp)
-        import time
+        # Process first time
+        result = await worker._handle_event_batch([sample_message])
+        assert result is True
+        assert worker._records_deduplicated == 0
 
-        worker._dedup_cache["evt-123"] = time.time()
+        # Process again — should be deduplicated
+        result = await worker._handle_event_batch([sample_message])
+        assert result is True
 
-        await worker._handle_event_message(sample_message)
-
-        # Verify event was skipped
-        assert not worker._create_enrichment_task.called
         assert worker._records_deduplicated == 1
-        assert worker._records_processed == 0
+        assert worker.producer.send_batch.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_new_event_processed(self, mock_config, sample_message):
-        """Worker processes new (non-duplicate) events."""
+    async def test_new_event_processed_in_batch(self, mock_config, sample_message):
+        """Worker processes new (non-duplicate) events in batch."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker._create_enrichment_task = AsyncMock()
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        # Event not in cache
         assert "evt-123" not in worker._dedup_cache
 
-        await worker._handle_event_message(sample_message)
+        result = await worker._handle_event_batch([sample_message])
 
-        # Verify event was processed
-        assert worker._create_enrichment_task.called
+        assert result is True
         assert worker._records_processed == 1
         assert worker._records_deduplicated == 0
 
     @pytest.mark.asyncio
-    async def test_processed_event_marked_in_dedup_set(self, mock_config, sample_message):
+    async def test_processed_event_marked_in_dedup_cache(self, mock_config, sample_message):
         """Worker marks processed events in deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker._create_enrichment_task = AsyncMock()
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        await worker._handle_event_message(sample_message)
+        await worker._handle_event_batch([sample_message])
 
-        # Verify event was marked in cache
         assert "evt-123" in worker._dedup_cache
 
     @pytest.mark.asyncio
@@ -351,36 +359,27 @@ class TestEventIngesterDeduplication:
 
 
 class TestEventIngesterEnrichmentTaskCreation:
-    """Test enrichment task creation and production."""
+    """Test enrichment task creation via batch handler."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_task_created_from_event(self, mock_config):
-        """Worker creates enrichment task from event."""
+    async def test_enrichment_task_created_from_event(self, mock_config, sample_message):
+        """Worker creates enrichment task from event in batch."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
-        worker.producer.send = AsyncMock(return_value=Mock(partition=0, offset=123))
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        event = ClaimXEventMessage(
-            event_id="evt-123",
-            event_type="PROJECT_CREATED",
-            project_id="proj-456",
-            media_id="media-789",
-            task_assignment_id=None,
-            video_collaboration_id=None,
-            master_file_name=None,
-            ingested_at=datetime.now(UTC),
-        )
+        result = await worker._handle_event_batch([sample_message])
 
-        await worker._create_enrichment_task(event)
-
-        # Verify task was produced
-        assert worker.producer.send.called
-        task = worker.producer.send.call_args[1]["value"]
+        assert result is True
+        assert worker.producer.send_batch.called
+        call_args = worker.producer.send_batch.call_args
+        messages = call_args.kwargs["messages"]
+        assert len(messages) == 1
+        key, task = messages[0]
         assert isinstance(task, ClaimXEnrichmentTask)
         assert task.event_id == "evt-123"
         assert task.event_type == "PROJECT_CREATED"
         assert task.project_id == "proj-456"
-        assert task.media_id == "media-789"
         assert task.retry_count == 0
 
     @pytest.mark.asyncio
@@ -388,100 +387,58 @@ class TestEventIngesterEnrichmentTaskCreation:
         """Worker copies all relevant fields to enrichment task."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
-        worker.producer.send = AsyncMock(return_value=Mock(partition=0, offset=123))
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        event = ClaimXEventMessage(
-            event_id="evt-123",
-            event_type="VIDEO_UPDATED",
-            project_id="proj-456",
-            media_id=None,
-            task_assignment_id="task-111",
-            video_collaboration_id="video-222",
-            master_file_name="video.mp4",
-            ingested_at=datetime.now(UTC),
+        raw_event = {
+            "event_id": "evt-123",
+            "event_type": "VIDEO_UPDATED",
+            "project_id": "proj-456",
+            "media_id": None,
+            "task_assignment_id": "task-111",
+            "video_collaboration_id": "video-222",
+            "master_file_name": "video.mp4",
+            "event_timestamp": datetime.now(UTC).isoformat(),
+        }
+        message = PipelineMessage(
+            topic="claimx.events.raw",
+            partition=0,
+            offset=1,
+            key=b"evt-123",
+            value=json.dumps(raw_event).encode(),
+            timestamp=None,
+            headers=None,
         )
 
-        await worker._create_enrichment_task(event)
+        result = await worker._handle_event_batch([message])
 
-        task = worker.producer.send.call_args[1]["value"]
+        assert result is True
+        messages = worker.producer.send_batch.call_args.kwargs["messages"]
+        _, task = messages[0]
         assert task.task_assignment_id == "task-111"
         assert task.video_collaboration_id == "video-222"
         assert task.master_file_name == "video.mp4"
 
     @pytest.mark.asyncio
-    async def test_enrichment_task_uses_event_id_as_key(self, mock_config):
-        """Worker uses event_id as Kafka message key."""
+    async def test_successful_batch_increments_counter(self, mock_config, sample_message):
+        """Worker increments success counter on successful batch production."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
-        worker.producer.send = AsyncMock(return_value=Mock(partition=0, offset=123))
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        event = ClaimXEventMessage(
-            event_id="evt-123",
-            event_type="PROJECT_CREATED",
-            project_id="proj-456",
-            ingested_at=datetime.now(UTC),
-        )
-
-        await worker._create_enrichment_task(event)
-
-        # Verify key is event_id
-        key = worker.producer.send.call_args[1]["key"]
-        assert key == "evt-123"
-
-    @pytest.mark.asyncio
-    async def test_enrichment_task_includes_headers(self, mock_config):
-        """Worker includes event_id in message headers."""
-        worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker.producer = AsyncMock()
-        worker.producer.send = AsyncMock(return_value=Mock(partition=0, offset=123))
-
-        event = ClaimXEventMessage(
-            event_id="evt-123",
-            event_type="PROJECT_CREATED",
-            project_id="proj-456",
-            ingested_at=datetime.now(UTC),
-        )
-
-        await worker._create_enrichment_task(event)
-
-        # Verify headers
-        headers = worker.producer.send.call_args[1]["headers"]
-        assert headers == {"event_id": "evt-123"}
-
-    @pytest.mark.asyncio
-    async def test_successful_production_increments_counter(self, mock_config):
-        """Worker increments success counter on successful production."""
-        worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker.producer = AsyncMock()
-        worker.producer.send = AsyncMock(return_value=Mock(partition=0, offset=123))
-
-        event = ClaimXEventMessage(
-            event_id="evt-123",
-            event_type="PROJECT_CREATED",
-            project_id="proj-456",
-            ingested_at=datetime.now(UTC),
-        )
-
-        await worker._create_enrichment_task(event)
+        await worker._handle_event_batch([sample_message])
 
         assert worker._records_succeeded == 1
 
     @pytest.mark.asyncio
-    async def test_production_failure_raises_exception(self, mock_config):
-        """Worker raises exception on production failure."""
+    async def test_send_batch_failure_returns_false(self, mock_config, sample_message):
+        """Worker returns False on send_batch failure to prevent commit."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
-        worker.producer.send = AsyncMock(side_effect=Exception("Kafka error"))
+        worker.producer.send_batch = AsyncMock(side_effect=Exception("Kafka error"))
 
-        event = ClaimXEventMessage(
-            event_id="evt-123",
-            event_type="PROJECT_CREATED",
-            project_id="proj-456",
-            ingested_at=datetime.now(UTC),
-        )
+        result = await worker._handle_event_batch([sample_message])
 
-        with pytest.raises(Exception, match="Kafka error"):
-            await worker._create_enrichment_task(event)
+        assert result is False
 
 
 class TestEventIngesterBackgroundTasks:

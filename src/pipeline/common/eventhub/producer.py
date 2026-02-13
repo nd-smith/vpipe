@@ -15,7 +15,8 @@ import logging
 import time
 from typing import Any
 
-from azure.eventhub import EventData, EventHubProducerClient, TransportType
+from azure.eventhub import EventData, TransportType
+from azure.eventhub.aio import EventHubProducerClient
 from pydantic import BaseModel
 
 from core.security.ssl_utils import get_ca_bundle_kwargs
@@ -139,7 +140,7 @@ class EventHubProducer:
             )
 
             # Test connection by getting properties
-            props = self._producer.get_eventhub_properties()
+            props = await self._producer.get_eventhub_properties()
             logger.info(
                 f"Connected to Event Hub: {props.get('name', 'unknown')}, "
                 f"partitions: {len(props.get('partition_ids', []))}"
@@ -180,7 +181,7 @@ class EventHubProducer:
         logger.info("Stopping Event Hub producer")
 
         try:
-            self._producer.close()
+            await self._producer.close()
             logger.info("Event Hub producer stopped successfully")
         except Exception as e:
             logger.error(
@@ -266,10 +267,9 @@ class EventHubProducer:
 
         try:
             # Create and send batch
-            # Note: EventHubProducerClient uses sync methods, not async
-            batch = self._producer.create_batch()
+            batch = await self._producer.create_batch()
             batch.add(event_data)
-            self._producer.send_batch(batch)
+            await self._producer.send_batch(batch)
 
             record_message_produced(self.eventhub_name, len(value_bytes), success=True)
 
@@ -342,7 +342,7 @@ class EventHubProducer:
         total_bytes = 0
 
         try:
-            batch = self._producer.create_batch()
+            batch = await self._producer.create_batch()
             batches_sent = 0
 
             for key, value in messages:
@@ -360,13 +360,13 @@ class EventHubProducer:
                     batch.add(event_data)
                 except ValueError:
                     # Batch is full — send it and start a new one
-                    self._producer.send_batch(batch)
+                    await self._producer.send_batch(batch)
                     batches_sent += 1
-                    batch = self._producer.create_batch()
+                    batch = await self._producer.create_batch()
                     batch.add(event_data)
 
             # Send remaining messages
-            self._producer.send_batch(batch)
+            await self._producer.send_batch(batch)
             batches_sent += 1
 
             duration = time.perf_counter() - start_time
@@ -424,7 +424,7 @@ class EventHubProducer:
     async def flush(self) -> None:
         """Flush pending messages.
 
-        Note: Event Hub SDK sends synchronously, so this is a no-op.
+        Note: Event Hub SDK sends immediately per batch, so this is a no-op.
         Included for interface compatibility with MessageProducer.
         """
         if not self._started or self._producer is None:

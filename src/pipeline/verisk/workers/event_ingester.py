@@ -16,19 +16,20 @@ Output topic: enrichment.pending
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
 
 from config.config import MessageConfig
-from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
-from core.logging.utilities import format_cycle_output, log_worker_error
+from core.logging.utilities import format_cycle_output
 from pipeline.common.eventhub.dedup_store import (
     DedupStoreProtocol,
     close_dedup_store,
@@ -39,7 +40,7 @@ from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_processing_error,
 )
-from pipeline.common.transport import create_consumer, create_producer, get_source_connection_string
+from pipeline.common.transport import create_batch_consumer, create_producer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
@@ -96,15 +97,15 @@ class EventIngesterWorker:
         self._running = False
 
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
-        # In-memory cache: trace_id -> event_id
-        self._dedup_cache: dict[str, str] = {}
+        # OrderedDict for O(1) LRU eviction: trace_id -> (event_id, timestamp)
+        self._dedup_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
         self._dedup_cache_ttl_seconds = 86400  # 24 hours
         self._dedup_cache_max_size = 100_000  # ~2MB memory for 100k entries
-        self._dedup_cache_timestamps: dict[str, float] = {}  # trace_id -> timestamp
 
         # Persistent blob storage (survives worker restarts)
         self._dedup_store: DedupStoreProtocol | None = None
         self._dedup_worker_name = "verisk-event-ingester"
+        self._dedup_cleanup_task: asyncio.Task | None = None
 
         # Health check server - use worker-specific port from config
         processing_config = config.get_worker_config(domain, "event_ingester", "processing")
@@ -180,13 +181,18 @@ class EventIngesterWorker:
         )
         self._stats_logger.start()
 
-        # Create and start consumer with message handler (uses transport factory)
-        self.consumer = await create_consumer(
+        # Start periodic dedup cache cleanup (every 60s)
+        self._dedup_cleanup_task = asyncio.create_task(self._periodic_dedup_cleanup())
+
+        # Create and start batch consumer (uses transport factory)
+        self.consumer = await create_batch_consumer(
             config=self.consumer_config,
             domain=self.domain,
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
-            message_handler=self._handle_event_message,
+            batch_handler=self._handle_event_batch,
+            batch_size=100,
+            batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
         )
@@ -212,6 +218,12 @@ class EventIngesterWorker:
         if self._stats_logger:
             await self._stats_logger.stop()
 
+        # Cancel dedup cleanup task
+        if self._dedup_cleanup_task and not self._dedup_cleanup_task.done():
+            self._dedup_cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._dedup_cleanup_task
+
         # Stop consumer first (stops receiving new messages)
         if self.consumer:
             await self.consumer.stop()
@@ -228,162 +240,119 @@ class EventIngesterWorker:
 
         logger.info("EventIngesterWorker stopped successfully")
 
-    async def _handle_event_message(self, record: PipelineMessage) -> None:
-        # Start timing for metrics
+    async def _handle_event_batch(self, records: list[PipelineMessage]) -> bool:
+        """Process a batch of event messages.
+
+        Parses, deduplicates, and batch-produces enrichment tasks.
+        Returns True to commit the batch, False to skip (messages redelivered).
+        """
         start_time = time.perf_counter()
+        enrichment_tasks: list[tuple[str, XACTEnrichmentTask]] = []
+        processed_trace_ids: list[tuple[str, str]] = []  # (trace_id, event_id)
 
-        # Track events received for cycle output
-        self._records_processed += 1
+        for record in records:
+            self._records_processed += 1
 
-        # Decode and parse EventMessage
-        try:
-            message_data = json.loads(record.value.decode("utf-8"))
-            event = EventMessage.from_raw_event(message_data)
-        except (json.JSONDecodeError, ValidationError) as e:
-            logger.error(
-                "Failed to parse EventMessage",
-                extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                    "error": str(e),
-                },
-                exc_info=True,
+            # Parse event — skip unparseable messages (would never succeed on retry)
+            try:
+                message_data = json.loads(record.value.decode("utf-8"))
+                event = EventMessage.from_raw_event(message_data)
+            except (json.JSONDecodeError, ValidationError) as e:
+                logger.error(
+                    "Failed to parse EventMessage, skipping",
+                    extra={
+                        "topic": record.topic,
+                        "partition": record.partition,
+                        "offset": record.offset,
+                        "error": str(e),
+                    },
+                )
+                continue
+
+            # Generate deterministic event_id from trace_id (UUID5)
+            event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
+            event.event_id = event_id
+
+            # Check for duplicates (hybrid: memory + blob storage)
+            is_duplicate, cached_event_id = await self._is_duplicate(event.trace_id)
+            if is_duplicate:
+                self._records_deduplicated += 1
+                logger.debug(
+                    "Skipping duplicate event",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "event_id": event_id,
+                        "cached_event_id": cached_event_id,
+                    },
+                )
+                continue
+
+            # Extract assignment_id (required for enrichment)
+            assignment_id = event.assignment_id
+            if not assignment_id:
+                self._records_skipped += 1
+                logger.warning(
+                    "Event missing assignmentId in data, skipping enrichment",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "event_id": event.event_id,
+                        "type": event.type,
+                    },
+                )
+                continue
+
+            # Parse original timestamp from event
+            original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
+
+            enrichment_task = XACTEnrichmentTask(
+                event_id=event_id,
+                trace_id=event.trace_id,
+                event_type=self.domain,
+                status_subtype=event.status_subtype,
+                assignment_id=assignment_id,
+                estimate_version=event.estimate_version,
+                attachments=event.attachments or [],
+                retry_count=0,
+                created_at=datetime.now(UTC),
+                original_timestamp=original_timestamp,
             )
-            raise
 
-        # Generate deterministic event_id from trace_id (UUID5)
-        # This provides stable IDs across retries/replays for consistent tracking
-        event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
-        event.event_id = event_id
+            enrichment_tasks.append((event.trace_id, enrichment_task))
+            processed_trace_ids.append((event.trace_id, event_id))
 
-        # Set logging context for this request
-        set_log_context(trace_id=event.trace_id)
+        # Batch-produce all enrichment tasks
+        if enrichment_tasks:
+            try:
+                await self.producer.send_batch(messages=enrichment_tasks)
+                self._records_succeeded += len(enrichment_tasks)
+            except Exception as e:
+                record_processing_error(
+                    topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
+                    consumer_group=f"{self.domain}-event-ingester",
+                    error_type="SEND_BATCH_FAILED",
+                )
+                logger.error(
+                    "Failed to send enrichment batch — will retry",
+                    extra={
+                        "batch_size": len(enrichment_tasks),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                return False
 
-        # Check for duplicates (hybrid: memory + blob storage)
-        is_duplicate, cached_event_id = await self._is_duplicate(event.trace_id)
-        if is_duplicate:
-            self._records_deduplicated += 1
-            logger.debug(
-                "Skipping duplicate event (already processed recently)",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event_id,
-                    "cached_event_id": cached_event_id,
-                },
-            )
-            return
+        # Mark all as processed in dedup cache
+        for trace_id, event_id in processed_trace_ids:
+            await self._mark_processed(trace_id, event_id)
 
-        logger.info(
-            "Ingested event",
-            extra={
-                "trace_id": event.trace_id,
-                "event_id": event_id,
-                "type": event.type,
-                "status_subtype": event.status_subtype,
-                "attachment_count": len(event.attachments) if event.attachments else 0,
-            },
-        )
-
-        # Extract assignment_id from data (required for enrichment)
-        assignment_id = event.assignment_id
-        if not assignment_id:
-            self._records_skipped += 1
-            logger.warning(
-                "Event missing assignmentId in data, skipping enrichment",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event.event_id,
-                    "type": event.type,
-                },
-            )
-            return
-
-        # Create enrichment task for this event
-        # Note: Even events without attachments are sent to enrichment for plugin execution
-        await self._create_enrichment_task(event, event_id, assignment_id)
-
-        # Mark event as processed in both memory and blob storage
-        await self._mark_processed(event.trace_id, event_id)
-
-        # Periodic cleanup of expired cache entries
-        self._cleanup_dedup_cache()
-
-        # Record successful ingestion and duration
+        # Record batch processing duration
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
             topic=self.consumer_config.get_topic(self.domain, "events"),
             consumer_group=f"{self.domain}-event-ingester",
         ).observe(duration)
 
-    async def _create_enrichment_task(
-        self,
-        event: EventMessage,
-        event_id: str,
-        assignment_id: str,
-    ) -> None:
-        """Create and produce enrichment task for this event."""
-        # Parse original timestamp from event
-        original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
-
-        # Create enrichment task with all event data
-        enrichment_task = XACTEnrichmentTask(
-            event_id=event_id,
-            trace_id=event.trace_id,
-            event_type=self.domain,
-            status_subtype=event.status_subtype,
-            assignment_id=assignment_id,
-            estimate_version=event.estimate_version,
-            attachments=event.attachments or [],
-            retry_count=0,
-            created_at=datetime.now(UTC),
-            original_timestamp=original_timestamp,
-        )
-
-        # Produce enrichment task to pending topic
-        # CRITICAL: Must await send confirmation before allowing offset commit
-        try:
-            metadata = await self.producer.send(
-                value=enrichment_task,
-                key=event.trace_id,
-                headers={"trace_id": event.trace_id, "event_id": event_id},
-            )
-
-            # Track successful task creation for cycle output
-            self._records_succeeded += 1
-
-            logger.info(
-                "Created enrichment task",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_id": event_id,
-                    "status_subtype": event.status_subtype,
-                    "assignment_id": assignment_id,
-                    "attachment_count": (len(event.attachments) if event.attachments else 0),
-                    "partition": metadata.partition,
-                    "offset": metadata.offset,
-                },
-            )
-        except Exception as e:
-            # Record send failure metric
-            record_processing_error(
-                topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
-                consumer_group=f"{self.domain}-event-ingester",
-                error_type="SEND_FAILED",
-            )
-
-            log_worker_error(
-                logger,
-                "Failed to produce enrichment task - will retry on next poll",
-                event_id=event_id,
-                error_category="TRANSIENT",
-                exc=e,
-                trace_id=event.trace_id,
-                error_type=type(e).__name__,
-            )
-            # Re-raise to prevent offset commit - message will be retried
-            # This ensures at-least-once semantics: if send fails, we retry
-            raise
+        return True
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
         """Get cycle statistics for periodic logging."""
@@ -412,12 +381,12 @@ class EventIngesterWorker:
 
         # Fast path: Check in-memory cache
         if trace_id in self._dedup_cache:
-            cached_time = self._dedup_cache_timestamps.get(trace_id, 0)
+            event_id, cached_time = self._dedup_cache[trace_id]
             if now - cached_time < self._dedup_cache_ttl_seconds:
-                return True, self._dedup_cache[trace_id]
+                self._dedup_cache.move_to_end(trace_id)
+                return True, event_id
             # Expired - remove from memory cache
             del self._dedup_cache[trace_id]
-            self._dedup_cache_timestamps.pop(trace_id, None)
 
         # Slow path: Check blob storage (persistent across restarts)
         if self._dedup_store:
@@ -429,15 +398,14 @@ class EventIngesterWorker:
                 )
                 if is_dup and metadata:
                     # Found in blob - update memory cache for faster subsequent lookups
-                    event_id = metadata.get("event_id")
+                    cached_event_id = metadata.get("event_id")
                     timestamp = metadata.get("timestamp", now)
-                    self._dedup_cache[trace_id] = event_id
-                    self._dedup_cache_timestamps[trace_id] = timestamp
+                    self._dedup_cache[trace_id] = (cached_event_id, timestamp)
                     logger.debug(
                         "Found duplicate in blob storage (restored to memory cache)",
-                        extra={"trace_id": trace_id, "event_id": event_id},
+                        extra={"trace_id": trace_id, "event_id": cached_event_id},
                     )
-                    return True, event_id
+                    return True, cached_event_id
             except Exception as e:
                 logger.warning(
                     "Error checking blob storage for duplicate (falling back to memory-only)",
@@ -451,14 +419,11 @@ class EventIngesterWorker:
         """Add trace_id -> event_id mapping to both memory and blob storage."""
         now = time.time()
 
-        # If memory cache is full, evict oldest entries (LRU)
+        # If memory cache is full, evict oldest entries (LRU via OrderedDict)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
-            # Sort by timestamp and remove oldest 10%
-            sorted_items = sorted(self._dedup_cache_timestamps.items(), key=lambda x: x[1])
             evict_count = self._dedup_cache_max_size // 10
-            for trace_id_to_evict, _ in sorted_items[:evict_count]:
-                self._dedup_cache.pop(trace_id_to_evict, None)
-                self._dedup_cache_timestamps.pop(trace_id_to_evict, None)
+            for _ in range(evict_count):
+                self._dedup_cache.popitem(last=False)
 
             logger.debug(
                 "Evicted old entries from memory dedup cache",
@@ -468,9 +433,9 @@ class EventIngesterWorker:
                 },
             )
 
-        # Add to memory cache
-        self._dedup_cache[trace_id] = event_id
-        self._dedup_cache_timestamps[trace_id] = now
+        # Add to memory cache (at end for LRU ordering)
+        self._dedup_cache[trace_id] = (event_id, now)
+        self._dedup_cache.move_to_end(trace_id)
 
         # Persist to blob storage (fire-and-forget - don't block on this)
         if self._dedup_store:
@@ -491,13 +456,12 @@ class EventIngesterWorker:
         now = time.time()
         expired_keys = [
             trace_id
-            for trace_id, cached_time in self._dedup_cache_timestamps.items()
+            for trace_id, (_, cached_time) in self._dedup_cache.items()
             if now - cached_time >= self._dedup_cache_ttl_seconds
         ]
 
         for trace_id in expired_keys:
             self._dedup_cache.pop(trace_id, None)
-            self._dedup_cache_timestamps.pop(trace_id, None)
 
         if expired_keys:
             logger.debug(
@@ -507,6 +471,15 @@ class EventIngesterWorker:
                     "cache_size": len(self._dedup_cache),
                 },
             )
+
+    async def _periodic_dedup_cleanup(self) -> None:
+        """Run dedup cache cleanup every 60 seconds."""
+        try:
+            while True:
+                await asyncio.sleep(60)
+                self._cleanup_dedup_cache()
+        except asyncio.CancelledError:
+            pass
 
 
 __all__ = ["EventIngesterWorker"]

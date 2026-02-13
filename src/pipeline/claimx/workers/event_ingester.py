@@ -9,13 +9,13 @@ import contextlib
 import json
 import logging
 import time
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
 
 from config.config import MessageConfig
-from core.logging.context import set_log_context
 from core.logging.utilities import format_cycle_output
 from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
@@ -28,7 +28,7 @@ from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
 )
-from pipeline.common.transport import create_consumer, create_producer, get_source_connection_string
+from pipeline.common.transport import create_batch_consumer, create_producer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
@@ -82,14 +82,15 @@ class ClaimXEventIngesterWorker:
         self._running = False
 
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
-        # In-memory cache: event_id -> timestamp
-        self._dedup_cache: dict[str, float] = {}
+        # OrderedDict for O(1) LRU eviction: event_id -> timestamp
+        self._dedup_cache: OrderedDict[str, float] = OrderedDict()
         self._dedup_cache_ttl_seconds = 86400  # 24 hours (matches Verisk)
         self._dedup_cache_max_size = 100_000  # ~2MB memory for 100k entries
 
         # Persistent blob storage (survives worker restarts)
         self._dedup_store: DedupStoreProtocol | None = None
         self._dedup_worker_name = "claimx-event-ingester"
+        self._dedup_cleanup_task: asyncio.Task | None = None
         processing_config = config.get_worker_config(domain, "event_ingester", "processing")
         health_port = processing_config.get("health_port", 0)
         health_enabled = processing_config.get("health_enabled", True)
@@ -160,12 +161,17 @@ class ClaimXEventIngesterWorker:
         if hasattr(self.producer, "eventhub_name"):
             self.enrichment_topic = self.producer.eventhub_name
 
-        self.consumer = await create_consumer(
+        # Start periodic dedup cache cleanup (every 60s)
+        self._dedup_cleanup_task = asyncio.create_task(self._periodic_dedup_cleanup())
+
+        self.consumer = await create_batch_consumer(
             config=self.consumer_config,
             domain=self.domain,
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
-            message_handler=self._handle_event_message,
+            batch_handler=self._handle_event_batch,
+            batch_size=100,
+            batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
         )
@@ -188,6 +194,12 @@ class ClaimXEventIngesterWorker:
             self._cycle_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._cycle_task
+
+        # Cancel dedup cleanup task
+        if self._dedup_cleanup_task and not self._dedup_cleanup_task.done():
+            self._dedup_cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._dedup_cleanup_task
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
         if self.consumer:
@@ -321,108 +333,93 @@ class ClaimXEventIngesterWorker:
                 exc_info=True,
             )
 
-    async def _handle_event_message(self, record: PipelineMessage) -> None:
+    async def _handle_event_batch(self, records: list[PipelineMessage]) -> bool:
+        """Process a batch of event messages.
+
+        Parses, deduplicates, and batch-produces enrichment tasks.
+        Returns True to commit the batch, False to skip (messages redelivered).
+        """
         start_time = time.perf_counter()
-        try:
-            message_data = json.loads(record.value.decode("utf-8"))
-            event = ClaimXEventMessage.from_raw_event(message_data)
-        except (json.JSONDecodeError, ValidationError) as e:
-            logger.error(
-                "Failed to parse ClaimXEventMessage",
-                extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                    "error": str(e),
-                },
-                exc_info=True,
+        enrichment_tasks: list[tuple[str, ClaimXEnrichmentTask]] = []
+        processed_event_ids: list[str] = []
+
+        for record in records:
+            # Parse event — skip unparseable messages (would never succeed on retry)
+            try:
+                message_data = json.loads(record.value.decode("utf-8"))
+                event = ClaimXEventMessage.from_raw_event(message_data)
+            except (json.JSONDecodeError, ValidationError) as e:
+                logger.error(
+                    "Failed to parse ClaimXEventMessage, skipping",
+                    extra={
+                        "topic": record.topic,
+                        "partition": record.partition,
+                        "offset": record.offset,
+                        "error": str(e),
+                    },
+                )
+                continue
+
+            event_id = event.event_id
+
+            # Check for duplicates (hybrid: memory + blob storage)
+            if await self._is_duplicate(event_id):
+                self._records_deduplicated += 1
+                logger.debug(
+                    "Skipping duplicate ClaimX event",
+                    extra={
+                        "event_id": event_id,
+                        "event_type": event.event_type,
+                        "project_id": event.project_id,
+                    },
+                )
+                continue
+
+            self._records_processed += 1
+
+            enrichment_task = ClaimXEnrichmentTask(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                project_id=event.project_id,
+                retry_count=0,
+                created_at=datetime.now(UTC),
+                media_id=event.media_id,
+                task_assignment_id=event.task_assignment_id,
+                video_collaboration_id=event.video_collaboration_id,
+                master_file_name=event.master_file_name,
             )
-            raise
 
-        # event_id generated deterministically in schema from stable Eventhouse fields
-        # Do NOT regenerate to ensure consistency across duplicate polls
-        event_id = event.event_id
-        set_log_context(trace_id=event.event_id)
+            enrichment_tasks.append((event.event_id, enrichment_task))
+            processed_event_ids.append(event_id)
 
-        # Check for duplicates (hybrid: memory + blob storage)
-        if await self._is_duplicate(event_id):
-            self._records_deduplicated += 1
-            logger.debug(
-                "Skipping duplicate ClaimX event",
-                extra={
-                    "event_id": event_id,
-                    "event_type": event.event_type,
-                    "project_id": event.project_id,
-                },
-            )
-            return
+        # Batch-produce all enrichment tasks
+        if enrichment_tasks:
+            try:
+                await self.producer.send_batch(messages=enrichment_tasks)
+                self._records_succeeded += len(enrichment_tasks)
+            except Exception as e:
+                logger.error(
+                    "Failed to send ClaimX enrichment batch — will retry",
+                    extra={
+                        "batch_size": len(enrichment_tasks),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                return False
 
-        self._records_processed += 1
-        logger.debug(
-            "Processing ClaimX event",
-            extra={
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "project_id": event.project_id,
-                "media_id": event.media_id,
-                "task_assignment_id": event.task_assignment_id,
-            },
-        )
-        await self._create_enrichment_task(event)
+        # Mark all as processed in dedup cache
+        for event_id in processed_event_ids:
+            await self._mark_processed(event_id)
 
-        # Mark event as processed in both memory and blob storage
-        await self._mark_processed(event_id)
-
-        # Periodic cleanup of expired cache entries
-        self._cleanup_dedup_cache()
-
+        # Record batch processing duration
         duration = time.perf_counter() - start_time
         message_processing_duration_seconds.labels(
             topic=self.consumer_config.get_topic(self.domain, "events"),
             consumer_group=f"{self.domain}-event-ingester",
         ).observe(duration)
 
-    async def _create_enrichment_task(self, event: ClaimXEventMessage) -> None:
-        enrichment_task = ClaimXEnrichmentTask(
-            event_id=event.event_id,
-            event_type=event.event_type,
-            project_id=event.project_id,
-            retry_count=0,
-            created_at=datetime.now(UTC),
-            media_id=event.media_id,
-            task_assignment_id=event.task_assignment_id,
-            video_collaboration_id=event.video_collaboration_id,
-            master_file_name=event.master_file_name,
-        )
-        try:
-            metadata = await self.producer.send(
-                value=enrichment_task,
-                key=event.event_id,
-                headers={"event_id": event.event_id},
-            )
-
-            logger.debug(
-                "Created ClaimX enrichment task",
-                extra={
-                    "event_id": event.event_id,
-                    "event_type": event.event_type,
-                    "project_id": event.project_id,
-                    "partition": metadata.partition,
-                    "offset": metadata.offset,
-                },
-            )
-            self._records_succeeded += 1
-        except Exception as e:
-            logger.error(
-                "Failed to produce ClaimX enrichment task",
-                extra={
-                    "event_id": event.event_id,
-                    "event_type": event.event_type,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            raise
+        return True
 
     async def _is_duplicate(self, event_id: str) -> bool:
         """Check if event_id was processed recently (hybrid: memory + blob storage).
@@ -434,8 +431,9 @@ class ClaimXEventIngesterWorker:
 
         # Fast path: Check in-memory cache
         if event_id in self._dedup_cache:
-            cached_time = self._dedup_cache.get(event_id, 0)
+            cached_time = self._dedup_cache[event_id]
             if now - cached_time < self._dedup_cache_ttl_seconds:
+                self._dedup_cache.move_to_end(event_id)
                 return True
             # Expired - remove from memory cache
             del self._dedup_cache[event_id]
@@ -470,13 +468,11 @@ class ClaimXEventIngesterWorker:
         """Add event_id to both memory and blob storage with TTL+LRU eviction."""
         now = time.time()
 
-        # If memory cache is full, evict oldest entries (LRU)
+        # If memory cache is full, evict oldest entries (LRU via OrderedDict)
         if len(self._dedup_cache) >= self._dedup_cache_max_size:
-            # Sort by timestamp and remove oldest 10%
-            sorted_items = sorted(self._dedup_cache.items(), key=lambda x: x[1])
             evict_count = self._dedup_cache_max_size // 10
-            for event_id_to_evict, _ in sorted_items[:evict_count]:
-                self._dedup_cache.pop(event_id_to_evict, None)
+            for _ in range(evict_count):
+                self._dedup_cache.popitem(last=False)
 
             logger.debug(
                 "Evicted old entries from memory dedup cache",
@@ -486,8 +482,9 @@ class ClaimXEventIngesterWorker:
                 },
             )
 
-        # Add to memory cache
+        # Add to memory cache (at end for LRU ordering)
         self._dedup_cache[event_id] = now
+        self._dedup_cache.move_to_end(event_id)
 
         # Persist to blob storage (fire-and-forget - don't block on this)
         if self._dedup_store:
@@ -524,6 +521,15 @@ class ClaimXEventIngesterWorker:
                     "cache_size": len(self._dedup_cache),
                 },
             )
+
+    async def _periodic_dedup_cleanup(self) -> None:
+        """Run dedup cache cleanup every 60 seconds."""
+        try:
+            while True:
+                await asyncio.sleep(60)
+                self._cleanup_dedup_cache()
+        except asyncio.CancelledError:
+            pass
 
     async def _periodic_cycle_output(self) -> None:
         logger.info(

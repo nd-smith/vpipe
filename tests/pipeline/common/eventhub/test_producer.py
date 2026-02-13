@@ -5,7 +5,7 @@ start/stop lifecycle, and error handling.
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -97,10 +97,10 @@ class TestEventHubProducerLifecycle:
     ):
         producer = self._make_producer()
         mock_instance = MagicMock()
-        mock_instance.get_eventhub_properties.return_value = {
+        mock_instance.get_eventhub_properties = AsyncMock(return_value={
             "name": "my-entity",
             "partition_ids": ["0", "1"],
-        }
+        })
         MockClient.from_connection_string.return_value = mock_instance
 
         await producer.start()
@@ -136,6 +136,7 @@ class TestEventHubProducerLifecycle:
         producer = self._make_producer()
         producer._started = True
         mock_client = MagicMock()
+        mock_client.close = AsyncMock()
         producer._producer = mock_client
 
         await producer.stop()
@@ -156,7 +157,7 @@ class TestEventHubProducerLifecycle:
         producer = self._make_producer()
         producer._started = True
         mock_client = MagicMock()
-        mock_client.close.side_effect = RuntimeError("close fail")
+        mock_client.close = AsyncMock(side_effect=RuntimeError("close fail"))
         producer._producer = mock_client
 
         # Should not raise, error is logged
@@ -184,7 +185,8 @@ class TestEventHubProducerSend:
         producer._started = True
         mock_client = MagicMock()
         mock_batch = MagicMock()
-        mock_client.create_batch.return_value = mock_batch
+        mock_client.create_batch = AsyncMock(return_value=mock_batch)
+        mock_client.send_batch = AsyncMock()
         producer._producer = mock_client
         return producer, mock_client, mock_batch
 
@@ -340,7 +342,8 @@ class TestEventHubProducerSendBatch:
         producer._started = True
         mock_client = MagicMock()
         mock_batch = MagicMock()
-        mock_client.create_batch.return_value = mock_batch
+        mock_client.create_batch = AsyncMock(return_value=mock_batch)
+        mock_client.send_batch = AsyncMock()
         producer._producer = mock_client
         return producer, mock_client, mock_batch
 
@@ -429,6 +432,7 @@ class TestEventHubProducerSendBatch:
         )
         producer._started = True
         mock_client = MagicMock()
+        mock_client.send_batch = AsyncMock()
 
         # First batch accepts 2 events, then raises on the 3rd
         batch1 = MagicMock()
@@ -443,7 +447,7 @@ class TestEventHubProducerSendBatch:
         batch1.add.side_effect = add_with_limit
         batch2 = MagicMock()
 
-        mock_client.create_batch.side_effect = [batch1, batch2]
+        mock_client.create_batch = AsyncMock(side_effect=[batch1, batch2])
         producer._producer = mock_client
 
         mock_event = MagicMock()
