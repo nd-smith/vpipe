@@ -174,7 +174,7 @@ class EventHubProducer:
             raise
 
     async def stop(self) -> None:
-        if not self._started or self._producer is None:
+        if self._producer is None:
             logger.debug("Producer not started or already stopped")
             return
 

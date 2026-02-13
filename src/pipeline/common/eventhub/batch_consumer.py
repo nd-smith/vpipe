@@ -215,7 +215,7 @@ class EventHubBatchConsumer:
 
     async def stop(self) -> None:
         """Stop consumer and flush all remaining batches."""
-        if not self._running or self._consumer is None:
+        if self._consumer is None:
             logger.debug("Batch consumer not running or already stopped")
             return
 

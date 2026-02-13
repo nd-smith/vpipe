@@ -288,7 +288,7 @@ class EventHubConsumer:
             self._running = False
 
     async def stop(self) -> None:
-        if not self._running or self._consumer is None:
+        if self._consumer is None:
             logger.debug("Consumer not running or already stopped")
             return
 
