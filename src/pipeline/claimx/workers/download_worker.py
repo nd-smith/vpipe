@@ -206,8 +206,21 @@ class ClaimXDownloadWorker:
         connector = aiohttp.TCPConnector(
             limit=self.concurrency,
             limit_per_host=self.concurrency,
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True,
         )
-        self._http_session = aiohttp.ClientSession(connector=connector)
+
+        timeout = aiohttp.ClientTimeout(
+            total=300,
+            connect=30,
+            sock_read=60,
+            sock_connect=30,
+        )
+
+        self._http_session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+        )
 
         self.downloader = AttachmentDownloader(session=self._http_session)
 
