@@ -538,7 +538,7 @@ class ClaimXDownloadWorker:
         async with self._in_flight_lock:
             self._in_flight_tasks.add(task_message.media_id)
 
-        set_log_context(trace_id=task_message.source_event_id, media_id=task_message.media_id)
+        set_log_context(event_id=task_message.source_event_id, media_id=task_message.media_id)
 
         try:
             logger.info(

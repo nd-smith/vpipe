@@ -298,7 +298,7 @@ class ClaimXResultProcessor:
         if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
             self._cycle_offset_end_ts = ts
 
-        set_log_context(trace_id=result.source_event_id)
+        set_log_context(event_id=result.source_event_id)
 
         if result.status == "completed":
             self._records_succeeded += 1

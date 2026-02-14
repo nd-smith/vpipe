@@ -221,9 +221,11 @@ class JSONFormatter(logging.Formatter):
             log_entry["cycle_id"] = log_context["cycle_id"]
         if log_context["worker_id"]:
             log_entry["worker_id"] = log_context["worker_id"]
-        # Inject trace_id from context if available (can be overridden by extra)
+        # Inject IDs from context if available (can be overridden by extra)
         if log_context["trace_id"]:
             log_entry["trace_id"] = log_context["trace_id"]
+        if log_context["event_id"]:
+            log_entry["event_id"] = log_context["event_id"]
         if log_context["media_id"]:
             log_entry["media_id"] = log_context["media_id"]
 
@@ -302,9 +304,10 @@ class ConsoleFormatter(logging.Formatter):
 
         prefix = " - ".join(parts)
 
-        # Add batch_id and/or trace_id if present
+        # Add batch_id and/or trace/event ID if present
         batch_id = getattr(record, "batch_id", None)
         trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
+        event_id = getattr(record, "event_id", None) or log_context.get("event_id")
         media_id = getattr(record, "media_id", None) or log_context.get("media_id")
 
         # Build context tags
@@ -313,6 +316,8 @@ class ConsoleFormatter(logging.Formatter):
             tags.append(f"[batch:{batch_id}]")
         if trace_id:
             tags.append(f"[{trace_id[:8]}]")
+        if event_id:
+            tags.append(f"[evt:{event_id[:8]}]")
         if media_id:
             tags.append(f"[mid:{media_id[:8]}]")
 

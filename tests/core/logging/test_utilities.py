@@ -496,13 +496,13 @@ class TestLogWorkerError:
         args, kwargs = logger.error.call_args
         assert args[0] == "Download failed"
 
-    def test_includes_event_id_and_correlation_id(self):
+    def test_includes_event_id(self):
         logger = MagicMock()
         log_worker_error(logger, "Error", event_id="evt-123")
 
         _, kwargs = logger.error.call_args
         assert kwargs["extra"]["event_id"] == "evt-123"
-        assert kwargs["extra"]["correlation_id"] == "evt-123"
+        assert "correlation_id" not in kwargs["extra"]
 
     def test_includes_error_category(self):
         logger = MagicMock()

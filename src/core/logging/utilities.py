@@ -339,7 +339,7 @@ def log_worker_error(
     Args:
         logger: Logger instance
         error_message: Human-readable error description
-        event_id: Event/trace ID for correlation (if available)
+        event_id: Event ID for the log entry (if available)
         error_category: Error category (TRANSIENT, PERMANENT, AUTH, etc.)
         exc: Exception object (will include traceback if provided)
         **context: Additional context fields (media_id, status_code, etc.)
@@ -360,7 +360,6 @@ def log_worker_error(
 
     if event_id:
         extra["event_id"] = event_id
-        extra["correlation_id"] = event_id  # Also set correlation_id for consistency
 
     if error_category:
         extra["error_category"] = error_category

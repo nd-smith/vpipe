@@ -497,7 +497,7 @@ class ClaimXUploadWorker:
             media_id = cached_message.media_id
 
             # Set logging context for correlation
-            set_log_context(trace_id=cached_message.source_event_id, media_id=cached_message.media_id)
+            set_log_context(event_id=cached_message.source_event_id, media_id=cached_message.media_id)
 
             # Track in-flight
             async with self._in_flight_lock:
@@ -536,7 +536,7 @@ class ClaimXUploadWorker:
             logger.info(
                 "Uploaded file to OneLake",
                 extra={
-                    "correlation_id": cached_message.source_event_id,
+                    "event_id": cached_message.source_event_id,
                     "media_id": media_id,
                     "project_id": cached_message.project_id,
                     "domain": self.domain,
