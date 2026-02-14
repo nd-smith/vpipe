@@ -268,7 +268,6 @@ class AttachmentDownloader:
             url=task.url,
             output_path=task.destination,
             session=session,
-            timeout=task.timeout,
         )
 
         if error:

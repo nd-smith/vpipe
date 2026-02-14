@@ -50,7 +50,7 @@ class StreamDownloadError:
 async def stream_download_url(
     url: str,
     session: aiohttp.ClientSession,
-    timeout: int = 60,
+    timeout: int | None = None,
     chunk_size: int = CHUNK_SIZE,
     allow_redirects: bool = True,
     sock_read_timeout: int = 30,
@@ -124,7 +124,7 @@ async def stream_download_url(
             if isinstance(e, TimeoutError):
                 last_error = StreamDownloadError(
                     status_code=None,
-                    error_message=f"Download timeout after {timeout}s",
+                    error_message=f"Download timeout (sock_read={sock_read_timeout}s)",
                     error_category=ErrorCategory.TRANSIENT,
                 )
             elif isinstance(e, aiohttp.ServerTimeoutError):
@@ -164,7 +164,7 @@ async def download_to_file(
     url: str,
     output_path: Path,
     session: aiohttp.ClientSession,
-    timeout: int = 120,
+    timeout: int | None = None,
     chunk_size: int = CHUNK_SIZE,
     sock_read_timeout: int = 30,
 ) -> tuple[DownloadToFileResult | None, StreamDownloadError | None]:
