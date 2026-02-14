@@ -135,6 +135,7 @@ class EventHubConsumer:
         prefetch: int = 300,
         starting_position: str | Any = "@latest",
         starting_position_inclusive: bool = False,
+        checkpoint_interval: int = 1,
     ):
         """Initialize Event Hub consumer.
 
@@ -153,6 +154,8 @@ class EventHubConsumer:
                 "@latest" (default), "-1" (earliest), or datetime.
             starting_position_inclusive: Whether the starting position is inclusive.
                 True for datetime positions.
+            checkpoint_interval: Checkpoint every N successfully processed events per
+                partition. Default 1 checkpoints every event (current behavior).
         """
         self.connection_string = connection_string
         self.domain = domain
@@ -172,6 +175,8 @@ class EventHubConsumer:
         self._current_partition_context = {}  # Track partition contexts for checkpointing
         self._last_partition_event = {}  # Track last event per partition for batch commit
         self._checkpoint_count = 0  # Total checkpoints since startup
+        self._checkpoint_interval = checkpoint_interval
+        self._partition_since_checkpoint = {}  # partition_id -> events since last checkpoint
 
         # Generate unique worker ID using coolnames for easier tracing in logs
         prefix = f"{domain}-{worker_name}"
@@ -191,6 +196,7 @@ class EventHubConsumer:
                 "consumer_group": consumer_group,
                 "enable_message_commit": enable_message_commit,
                 "prefetch": prefetch,
+                "checkpoint_interval": checkpoint_interval,
                 "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
             },
         )
@@ -385,18 +391,23 @@ class EventHubConsumer:
             try:
                 await self._process_message(message)
                 if self._enable_message_commit:
-                    await partition_context.update_checkpoint(event)
-                    self._checkpoint_count += 1
-                    if self._checkpoint_count % 1000 == 0:
-                        logger.info(
-                            "Checkpoint heartbeat",
-                            extra={
-                                "partition_id": partition_id,
-                                "offset": message.offset,
-                                "total_checkpoints": self._checkpoint_count,
-                                "consumer_group": self.consumer_group,
-                            },
-                        )
+                    count = self._partition_since_checkpoint.get(partition_id, 0) + 1
+                    if count >= self._checkpoint_interval:
+                        await partition_context.update_checkpoint(event)
+                        self._checkpoint_count += 1
+                        self._partition_since_checkpoint[partition_id] = 0
+                        if self._checkpoint_count % 1000 == 0:
+                            logger.info(
+                                "Checkpoint heartbeat",
+                                extra={
+                                    "partition_id": partition_id,
+                                    "offset": message.offset,
+                                    "total_checkpoints": self._checkpoint_count,
+                                    "consumer_group": self.consumer_group,
+                                },
+                            )
+                    else:
+                        self._partition_since_checkpoint[partition_id] = count
             except Exception:
                 logger.error(
                     "Message processing failed - will not checkpoint",
@@ -427,6 +438,23 @@ class EventHubConsumer:
         async def on_partition_close(partition_context, reason):
             """Called when partition is revoked from this consumer."""
             partition_id = partition_context.partition_id
+
+            # Flush uncheckpointed events before releasing partition
+            uncheckpointed = self._partition_since_checkpoint.get(partition_id, 0)
+            if self._enable_message_commit and uncheckpointed > 0:
+                last_event = self._last_partition_event.get(partition_id)
+                if last_event:
+                    await partition_context.update_checkpoint(last_event)
+                    self._checkpoint_count += 1
+                    logger.info(
+                        "Flushed checkpoint on partition close",
+                        extra={
+                            "partition_id": partition_id,
+                            "uncheckpointed_events": uncheckpointed,
+                        },
+                    )
+            self._partition_since_checkpoint.pop(partition_id, None)
+
             logger.info(
                 "Partition revoked",
                 extra={

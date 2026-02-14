@@ -302,7 +302,7 @@ class EventHubBatchConsumer:
             batch_size = len(self._batch_buffers[partition_id])
             if batch_size >= self.batch_size:
                 # Flush immediately when batch_size reached
-                asyncio.create_task(self._flush_partition_batch(partition_id))
+                await self._flush_partition_batch(partition_id)
 
         async def on_partition_initialize(partition_context):
             """Called when partition is assigned to this consumer."""
@@ -407,7 +407,7 @@ class EventHubBatchConsumer:
                                 "timeout_ms": self.batch_timeout_ms,
                             },
                         )
-                        asyncio.create_task(self._flush_partition_batch(partition_id))
+                        await self._flush_partition_batch(partition_id)
 
             except asyncio.CancelledError:
                 break

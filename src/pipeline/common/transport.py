@@ -501,6 +501,7 @@ async def create_consumer(
     connection_string: str | None = None,
     prefetch: int = 300,
     starting_position: str | None = None,
+    checkpoint_interval: int = 1,
 ):
     """Create a consumer instance based on transport configuration.
 
@@ -521,6 +522,8 @@ async def create_consumer(
                            different namespace.
         starting_position: Optional starting position override ("@latest", "-1", or ISO
                            datetime). When None, resolved from config.
+        checkpoint_interval: Checkpoint every N events per partition (Event Hub only).
+                             Default 1 checkpoints every event.
 
     Returns:
         MessageConsumer or EventHubConsumer instance
@@ -597,6 +600,7 @@ async def create_consumer(
             prefetch=prefetch,
             starting_position=pos,
             starting_position_inclusive=pos_inclusive,
+            checkpoint_interval=checkpoint_interval,
         )
 
     else:  # TransportType.KAFKA
