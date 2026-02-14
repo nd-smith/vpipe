@@ -148,62 +148,38 @@ class EventHubProducer:
             raise
 
     async def _connect(self) -> None:
-        """Create producer client and verify connectivity.
+        """Create producer client and log diagnostic properties.
 
-        Retries up to 3 times with exponential backoff to handle transient
-        CBS token authentication failures during initial connection.
+        The get_eventhub_properties() call is diagnostic only — a failure
+        there does not prevent the producer from sending messages.
         """
-        max_attempts = 3
-        base_delay = 2.0
+        ssl_kwargs = get_ca_bundle_kwargs()
 
-        for attempt in range(max_attempts):
-            try:
-                ssl_kwargs = get_ca_bundle_kwargs()
+        log_connection_attempt_details(
+            eventhub_name=self.eventhub_name,
+            transport_type="AmqpOverWebsocket",
+            ssl_kwargs=ssl_kwargs,
+        )
 
-                log_connection_attempt_details(
-                    eventhub_name=self.eventhub_name,
-                    transport_type="AmqpOverWebsocket",
-                    ssl_kwargs=ssl_kwargs,
-                )
+        self._producer = EventHubProducerClient.from_connection_string(
+            conn_str=self.connection_string,
+            eventhub_name=self.eventhub_name,
+            transport_type=TransportType.AmqpOverWebsocket,
+            **ssl_kwargs,
+        )
 
-                self._producer = EventHubProducerClient.from_connection_string(
-                    conn_str=self.connection_string,
-                    eventhub_name=self.eventhub_name,
-                    transport_type=TransportType.AmqpOverWebsocket,
-                    **ssl_kwargs,
-                )
-
-                props = await self._producer.get_eventhub_properties()
-                logger.info(
-                    f"Connected to Event Hub: {props.get('name', 'unknown')}, "
-                    f"partitions: {len(props.get('partition_ids', []))}"
-                )
-                return
-
-            except Exception as e:
-                if self._producer is not None:
-                    try:
-                        await self._producer.close()
-                    except Exception:
-                        pass
-                    self._producer = None
-
-                if attempt == max_attempts - 1:
-                    raise
-
-                delay = base_delay * (2**attempt)
-                logger.warning(
-                    "Connection attempt %d/%d failed, retrying in %.0fs",
-                    attempt + 1,
-                    max_attempts,
-                    delay,
-                    extra={
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                        "eventhub_name": self.eventhub_name,
-                    },
-                )
-                await asyncio.sleep(delay)
+        try:
+            props = await self._producer.get_eventhub_properties()
+            logger.info(
+                f"Connected to Event Hub: {props.get('name', 'unknown')}, "
+                f"partitions: {len(props.get('partition_ids', []))}"
+            )
+        except Exception as e:
+            logger.warning(
+                "Could not fetch Event Hub properties (non-fatal), "
+                "connectivity will be verified on first send",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
 
     async def stop(self) -> None:
         if not self._started or self._producer is None:
