@@ -480,7 +480,7 @@ def main():
     domain = "kafka"
     if args.worker != "all" and "-" in args.worker:
         domain_prefix = args.worker.split("-")[0]
-        if domain_prefix in ("xact", "claimx"):
+        if domain_prefix in ("xact", "claimx", "itel"):
             domain = domain_prefix
 
     # Load config early to get logging configuration
