@@ -158,6 +158,9 @@ class MessageConfig:
     temp_dir: str = field(
         default_factory=lambda: str(Path(tempfile.gettempdir()) / "pipeline_temp")
     )
+    retry_persistence_dir: str = field(
+        default_factory=lambda: tempfile.gettempdir()
+    )
 
     # =========================================================================
     # CLAIMX API CONFIGURATION

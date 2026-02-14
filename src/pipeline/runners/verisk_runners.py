@@ -83,6 +83,7 @@ async def run_xact_retry_scheduler(
         config=kafka_config,
         domain="verisk",
         target_topic_keys=["downloads_pending", "enrichment_pending", "downloads_results"],
+        persistence_dir=kafka_config.retry_persistence_dir,
     )
     await execute_worker_with_shutdown(
         scheduler,

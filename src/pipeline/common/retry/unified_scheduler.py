@@ -108,6 +108,7 @@ class UnifiedRetryScheduler:
         target_topic_keys: list[str],
         persistence_interval_seconds: int = 10,
         health_port: int = 8095,
+        persistence_dir: str | None = None,
     ):
         self.config = config
         self.domain = domain
@@ -139,7 +140,8 @@ class UnifiedRetryScheduler:
         self._persistence_interval = persistence_interval_seconds
         self._stats_logger: PeriodicStatsLogger | None = None
 
-        persistence_file = Path(f"/tmp/pcesdopodappv1_{domain}_retry_queue.json")
+        base_dir = persistence_dir or "/tmp"
+        persistence_file = Path(base_dir) / f"pcesdopodappv1_{domain}_retry_queue.json"
         self._delay_queue = DelayQueue(domain, persistence_file)
 
         # Metrics
