@@ -9,7 +9,7 @@ Contains Pydantic models for:
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from pipeline.claimx.schemas.tasks import (
     ClaimXDownloadTask,
@@ -70,7 +70,6 @@ class ClaimXUploadResultMessage(BaseModel):
         ...,
         description="ID of the event that triggered this download",
         min_length=1,
-        validation_alias=AliasChoices("trace_id", "source_event_id"),
     )
     status: Literal["completed", "failed", "failed_permanent"] = Field(
         ...,
@@ -168,9 +167,8 @@ class FailedEnrichmentMessage(BaseModel):
 
     trace_id: str = Field(
         ...,
-        description="Unique event identifier from source event",
+        description="Unique trace identifier from source event",
         min_length=1,
-        validation_alias=AliasChoices("trace_id", "event_id"),
     )
     event_type: str = Field(
         ...,
@@ -263,9 +261,8 @@ class FailedDownloadMessage(BaseModel):
 
     trace_id: str = Field(
         ...,
-        description="Event ID for correlation",
+        description="Trace ID for correlation",
         min_length=1,
-        validation_alias=AliasChoices("trace_id", "event_id"),
     )
     media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)

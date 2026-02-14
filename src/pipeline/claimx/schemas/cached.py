@@ -7,7 +7,7 @@ successful download, before upload to OneLake.
 
 from datetime import datetime
 
-from pydantic import AliasChoices, BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 
 class ClaimXCachedDownloadMessage(BaseModel):
@@ -74,7 +74,6 @@ class ClaimXCachedDownloadMessage(BaseModel):
         ...,
         description="ID of the event that triggered this download",
         min_length=1,
-        validation_alias=AliasChoices("trace_id", "source_event_id"),
     )
     downloaded_at: datetime = Field(
         ..., description="Timestamp when the file was downloaded to cache"

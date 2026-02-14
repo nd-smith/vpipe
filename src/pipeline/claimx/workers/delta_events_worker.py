@@ -257,7 +257,7 @@ class ClaimXDeltaEventsWorker:
         Process a single event message.
 
         Parses raw event through ClaimXEventMessage.from_raw_event() to normalize
-        field names (camelCase → snake_case) and generate deterministic event_id
+        field names (camelCase → snake_case) and generate deterministic trace_id
         when the source does not provide one.
         """
         self._records_processed += 1

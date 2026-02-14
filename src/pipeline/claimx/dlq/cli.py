@@ -216,7 +216,7 @@ class DLQManager:
     async def replay_messages(
         self,
         dlq_type: str,
-        event_ids: list[str] | None = None,
+        trace_ids: list[str] | None = None,
         replay_all: bool = False,
     ) -> int:
         """
@@ -227,8 +227,8 @@ class DLQManager:
 
         Args:
             dlq_type: Type of DLQ ("enrichment" or "download")
-            event_ids: List of specific event/media IDs to replay (None = all)
-            replay_all: Replay all messages (overrides event_ids)
+            trace_ids: List of specific trace/media IDs to replay (None = all)
+            replay_all: Replay all messages (overrides trace_ids)
 
         Returns:
             Number of messages replayed
@@ -257,11 +257,11 @@ class DLQManager:
             await producer.start()
 
             replayed_count = 0
-            event_id_set = set(event_ids) if event_ids else set()
+            trace_id_set = set(trace_ids) if trace_ids else set()
 
             logger.info("Starting replay from %s to %s", dlq_topic, pending_topic)
-            if event_ids:
-                logger.info("Filtering for IDs: %s", event_ids)
+            if trace_ids:
+                logger.info("Filtering for IDs: %s", trace_ids)
 
             # Consume all messages from DLQ
             async for record in consumer:
@@ -273,7 +273,7 @@ class DLQManager:
                     message_id = getattr(failed_message, id_field)
 
                     # Check filter
-                    if not replay_all and event_ids and message_id not in event_id_set:
+                    if not replay_all and trace_ids and message_id not in trace_id_set:
                         continue
 
                     # Extract original task
@@ -417,20 +417,20 @@ async def cmd_replay(args: argparse.Namespace) -> int:
     config = MessageConfig.from_env()
     manager = DLQManager(config)
 
-    event_ids = args.event_ids.split(",") if args.event_ids else None
+    trace_ids = args.trace_ids.split(",") if args.trace_ids else None
 
     if args.all:
         print(f"\n🔄 Replaying ALL messages from {args.dlq_type} DLQ...")
-    elif event_ids:
+    elif trace_ids:
         print(f"\n🔄 Replaying specific messages from {args.dlq_type} DLQ:")
-        print(f"   IDs: {event_ids}")
+        print(f"   IDs: {trace_ids}")
     else:
-        print("Error: Must specify either --all or --event-ids")
+        print("Error: Must specify either --all or --trace-ids")
         return 1
 
     count = await manager.replay_messages(
         dlq_type=args.dlq_type,
-        event_ids=event_ids,
+        trace_ids=trace_ids,
         replay_all=args.all,
     )
 
@@ -476,7 +476,7 @@ Examples:
     python -m pipeline.claimx.dlq.cli inspect enrichment --limit 5
 
     # Replay specific messages
-    python -m pipeline.claimx.dlq.cli replay download --event-ids media_123,media_456
+    python -m pipeline.claimx.dlq.cli replay download --trace-ids media_123,media_456
 
     # Replay all download DLQ messages
     python -m pipeline.claimx.dlq.cli replay download --all
@@ -511,9 +511,9 @@ Examples:
         "dlq_type", choices=["enrichment", "download"], help="Which DLQ to replay from"
     )
     parser_replay.add_argument(
-        "--event-ids",
+        "--trace-ids",
         type=str,
-        help="Comma-separated list of event/media IDs to replay",
+        help="Comma-separated list of trace/media IDs to replay",
     )
     parser_replay.add_argument("--all", action="store_true", help="Replay all messages in DLQ")
     parser_replay.set_defaults(func=cmd_replay)

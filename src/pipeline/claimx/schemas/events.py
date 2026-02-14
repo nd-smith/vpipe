@@ -9,7 +9,7 @@ import hashlib
 from datetime import datetime
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ClaimXEventMessage(BaseModel):
@@ -55,9 +55,8 @@ class ClaimXEventMessage(BaseModel):
 
     trace_id: str = Field(
         ...,
-        description="Unique event identifier",
+        description="Unique trace identifier",
         min_length=1,
-        validation_alias=AliasChoices("trace_id", "event_id"),
     )
     event_type: str = Field(
         ...,
@@ -103,39 +102,35 @@ class ClaimXEventMessage(BaseModel):
         Returns:
             ClaimXEventMessage instance
         """
-        trace_id = row.get("event_id") or row.get("eventId") or ""
         event_type = row.get("event_type") or row.get("eventType") or ""
         project_id = str(row.get("project_id") or row.get("projectId") or "")
         ingested_at = row.get("ingested_at") or row.get("ingestedAt") or datetime.now()
 
-        # Generate deterministic ID if missing
-        if not trace_id:
-            composite_parts = [project_id, event_type]
+        # Build deterministic trace_id from stable composite key
+        composite_parts = [project_id, event_type]
 
-            # Use ingested_at (webhook timestamp) as the stable timestamp
-            if ingested_at:
-                if isinstance(ingested_at, datetime):
-                    composite_parts.append(ingested_at.isoformat())
-                else:
-                    composite_parts.append(str(ingested_at))
+        if ingested_at:
+            if isinstance(ingested_at, datetime):
+                composite_parts.append(ingested_at.isoformat())
+            else:
+                composite_parts.append(str(ingested_at))
 
-            # Add optional identifiers for additional uniqueness
-            media_id = row.get("media_id") or row.get("mediaId")
-            task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
-            video_id = row.get("video_collaboration_id") or row.get("videoCollaborationId")
-            master_file = row.get("master_file_name") or row.get("masterFileName")
+        media_id = row.get("media_id") or row.get("mediaId")
+        task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
+        video_id = row.get("video_collaboration_id") or row.get("videoCollaborationId")
+        master_file = row.get("master_file_name") or row.get("masterFileName")
 
-            if media_id:
-                composite_parts.append(f"media:{media_id}")
-            if task_id:
-                composite_parts.append(f"task:{task_id}")
-            if video_id:
-                composite_parts.append(f"video:{video_id}")
-            if master_file:
-                composite_parts.append(f"file:{master_file}")
+        if media_id:
+            composite_parts.append(f"media:{media_id}")
+        if task_id:
+            composite_parts.append(f"task:{task_id}")
+        if video_id:
+            composite_parts.append(f"video:{video_id}")
+        if master_file:
+            composite_parts.append(f"file:{master_file}")
 
-            composite_key = "|".join(composite_parts)
-            trace_id = hashlib.sha256(composite_key.encode()).hexdigest()
+        composite_key = "|".join(composite_parts)
+        trace_id = hashlib.sha256(composite_key.encode()).hexdigest()
 
         media_id = row.get("media_id") or row.get("mediaId")
         task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")

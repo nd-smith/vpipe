@@ -40,7 +40,7 @@ class ClaimXEventIngesterWorker:
     Unlike xact pipeline (which directly downloads attachments), claimx
     requires API enrichment first to get entity data and download URLs.
     All events trigger enrichment (not just file events).
-    Deterministic SHA256 event_id generation from stable Eventhouse fields.
+    Deterministic SHA256 trace_id generation from stable Eventhouse fields.
     """
 
     WORKER_NAME = "event_ingester"
@@ -89,7 +89,7 @@ class ClaimXEventIngesterWorker:
         self._dedup_enabled = True
 
         # Hybrid dedup: in-memory cache (fast path) + blob storage (persistent)
-        # OrderedDict for O(1) LRU eviction: event_id -> timestamp
+        # OrderedDict for O(1) LRU eviction: trace_id -> timestamp
         self._dedup_cache: OrderedDict[str, float] = OrderedDict()
         self._dedup_cache_ttl_seconds = 86400  # 24 hours (matches Verisk)
         self._dedup_cache_max_size = 100_000  # ~2MB memory for 100k entries
@@ -364,7 +364,7 @@ class ClaimXEventIngesterWorker:
         parsed_events, latest_timestamp = await self._parse_and_dedup_events(records)
 
         # Build enrichment tasks from non-duplicate events
-        enrichment_tasks, processed_event_ids = self._build_enrichment_tasks(parsed_events)
+        enrichment_tasks, processed_trace_ids = self._build_enrichment_tasks(parsed_events)
 
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
@@ -373,8 +373,8 @@ class ClaimXEventIngesterWorker:
                 self._records_succeeded += len(enrichment_tasks)
             except Exception as e:
                 # Roll back dedup marks — messages will be redelivered
-                for event_id in processed_event_ids:
-                    self._dedup_cache.pop(event_id, None)
+                for trace_id in processed_trace_ids:
+                    self._dedup_cache.pop(trace_id, None)
 
                 logger.error(
                     "Failed to send ClaimX enrichment batch — will retry",
@@ -441,25 +441,25 @@ class ClaimXEventIngesterWorker:
                 )
                 continue
 
-            event_id = event.trace_id
+            trace_id = event.trace_id
             latest_timestamp = event.ingested_at
 
             if self._dedup_enabled:
                 # Intra-batch dedup
-                if event_id in seen_in_batch:
+                if trace_id in seen_in_batch:
                     self._records_deduplicated += 1
                     continue
-                seen_in_batch.add(event_id)
+                seen_in_batch.add(trace_id)
 
                 # Fast path: memory cache check (no I/O)
-                if event_id in self._dedup_cache:
-                    cached_time = self._dedup_cache[event_id]
+                if trace_id in self._dedup_cache:
+                    cached_time = self._dedup_cache[trace_id]
                     if now - cached_time < self._dedup_cache_ttl_seconds:
-                        self._dedup_cache.move_to_end(event_id)
+                        self._dedup_cache.move_to_end(trace_id)
                         self._dedup_memory_hits += 1
                         self._records_deduplicated += 1
                         continue
-                    del self._dedup_cache[event_id]
+                    del self._dedup_cache[trace_id]
 
             parsed_events.append(event)
 
@@ -473,24 +473,24 @@ class ClaimXEventIngesterWorker:
     async def _check_blob_duplicates(
         self, events: list[ClaimXEventMessage],
     ) -> set[str]:
-        """Check blob storage for duplicates, return set of duplicate event IDs."""
-        async def _check_one(event_id: str) -> tuple[str, bool]:
+        """Check blob storage for duplicates, return set of duplicate trace IDs."""
+        async def _check_one(trace_id: str) -> tuple[str, bool]:
             async with self._blob_semaphore:
                 try:
                     is_dup, metadata = await self._dedup_store.check_duplicate(
-                        self._dedup_worker_name, event_id, self._dedup_cache_ttl_seconds,
+                        self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
                     )
                     if is_dup and metadata:
                         timestamp = metadata.get("timestamp", time.time())
-                        self._dedup_cache[event_id] = timestamp
+                        self._dedup_cache[trace_id] = timestamp
                         self._dedup_blob_hits += 1
-                        return event_id, True
+                        return trace_id, True
                 except Exception as e:
                     logger.warning(
                         "Error checking blob storage for duplicate (falling back to memory-only)",
-                        extra={"trace_id": event_id, "error": str(e)},
+                        extra={"trace_id": trace_id, "error": str(e)},
                     )
-                return event_id, False
+                return trace_id, False
 
         results = await asyncio.gather(
             *(_check_one(ev.trace_id) for ev in events)
@@ -507,7 +507,7 @@ class ClaimXEventIngesterWorker:
     ) -> tuple[list[tuple[str, ClaimXEnrichmentTask]], list[str]]:
         """Create enrichment tasks from validated, non-duplicate events."""
         enrichment_tasks: list[tuple[str, ClaimXEnrichmentTask]] = []
-        processed_event_ids: list[str] = []
+        processed_trace_ids: list[str] = []
 
         for event in events:
             self._records_processed += 1
@@ -525,14 +525,14 @@ class ClaimXEventIngesterWorker:
             )
 
             enrichment_tasks.append((event.trace_id, enrichment_task))
-            processed_event_ids.append(event.trace_id)
+            processed_trace_ids.append(event.trace_id)
             if self._dedup_enabled:
                 self._mark_processed(event.trace_id)
 
-        return enrichment_tasks, processed_event_ids
+        return enrichment_tasks, processed_trace_ids
 
-    def _mark_processed(self, event_id: str) -> None:
-        """Add event_id to memory cache, fire-and-forget to blob storage."""
+    def _mark_processed(self, trace_id: str) -> None:
+        """Add trace_id to memory cache, fire-and-forget to blob storage."""
         now = time.time()
 
         # If memory cache is full, evict oldest entries (LRU via OrderedDict)
@@ -550,41 +550,41 @@ class ClaimXEventIngesterWorker:
             )
 
         # Add to memory cache (at end for LRU ordering)
-        self._dedup_cache[event_id] = now
-        self._dedup_cache.move_to_end(event_id)
+        self._dedup_cache[trace_id] = now
+        self._dedup_cache.move_to_end(trace_id)
 
         # Persist to blob storage — truly fire-and-forget (don't block on HTTP)
         if self._dedup_store:
-            task = asyncio.create_task(self._persist_dedup_to_blob(event_id, now))
+            task = asyncio.create_task(self._persist_dedup_to_blob(trace_id, now))
             self._blob_write_tasks.add(task)
             task.add_done_callback(self._blob_write_tasks.discard)
 
-    async def _persist_dedup_to_blob(self, event_id: str, timestamp: float) -> None:
+    async def _persist_dedup_to_blob(self, trace_id: str, timestamp: float) -> None:
         """Fire-and-forget blob persistence for dedup markers."""
         async with self._blob_semaphore:
             try:
                 await self._dedup_store.mark_processed(
                     self._dedup_worker_name,
-                    event_id,
+                    trace_id,
                     {"timestamp": timestamp},
                 )
             except Exception as e:
                 logger.warning(
                     "Error persisting to blob storage (memory cache still updated)",
-                    extra={"trace_id": event_id, "error": str(e)},
+                    extra={"trace_id": trace_id, "error": str(e)},
                 )
 
     def _cleanup_dedup_cache(self) -> None:
         """Remove expired entries from memory cache (periodic maintenance)."""
         now = time.time()
         expired_keys = [
-            event_id
-            for event_id, cached_time in self._dedup_cache.items()
+            trace_id
+            for trace_id, cached_time in self._dedup_cache.items()
             if now - cached_time >= self._dedup_cache_ttl_seconds
         ]
 
-        for event_id in expired_keys:
-            self._dedup_cache.pop(event_id, None)
+        for trace_id in expired_keys:
+            self._dedup_cache.pop(trace_id, None)
 
         if expired_keys:
             logger.debug(

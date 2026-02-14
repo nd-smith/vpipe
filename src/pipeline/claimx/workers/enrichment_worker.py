@@ -624,21 +624,21 @@ class ClaimXEnrichmentWorker:
     ) -> None:
         """Write entity rows to Kafka. On failure, routes all tasks to retry/DLQ."""
         batch_id = uuid.uuid4().hex[:8]
-        event_ids = [task.trace_id for task in tasks[:5]]
+        trace_ids = [task.trace_id for task in tasks[:5]]
 
         try:
-            event_id = tasks[0].trace_id if tasks else batch_id
-            entity_rows.trace_id = event_id
+            trace_id = tasks[0].trace_id if tasks else batch_id
+            entity_rows.trace_id = trace_id
             await self.producer.send(
                 value=entity_rows,
-                key=event_id,
+                key=trace_id,
             )
 
             logger.info(
                 "Produced entity rows batch",
                 extra={
                     "batch_id": batch_id,
-                    "event_ids": event_ids,
+                    "trace_ids": trace_ids,
                     "row_count": entity_rows.row_count(),
                 },
             )
@@ -648,7 +648,7 @@ class ClaimXEnrichmentWorker:
                 "Error writing entities to Delta - routing batch to retry",
                 extra={
                     "batch_id": batch_id,
-                    "event_ids": event_ids,
+                    "trace_ids": trace_ids,
                     "row_count": entity_rows.row_count(),
                     "task_count": len(tasks),
                     "error_category": ErrorCategory.TRANSIENT.value,
