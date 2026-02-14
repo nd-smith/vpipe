@@ -556,9 +556,32 @@ class ClaimXDownloadWorker:
 
             download_task = self._convert_to_download_task(task_message)
 
+            # Debug: log HTTP session state before download
+            session = self._http_session
+            logger.debug("HTTP session state before download", extra={
+                "media_id": task_message.media_id,
+                "session_closed": session.closed if session else "no_session",
+                "connector_closed": (
+                    session.connector.closed if session and session.connector else "no_connector"
+                ),
+            })
+
+            t0 = time.perf_counter()
             outcome = await self.downloader.download(download_task)
+            download_ms = int((time.perf_counter() - t0) * 1000)
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+
+            logger.info("Download phase completed", extra={
+                "media_id": task_message.media_id,
+                "download_ms": download_ms,
+                "success": outcome.success,
+                "error_message": outcome.error_message,
+                "error_category": outcome.error_category.value if outcome.error_category else None,
+                "status_code": outcome.status_code,
+                "validation_error": outcome.validation_error,
+                "bytes_downloaded": outcome.bytes_downloaded,
+            })
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
@@ -725,6 +748,16 @@ class ClaimXDownloadWorker:
             raise RuntimeError("RetryHandler not initialized - call start() first")
 
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
+
+        logger.warning("Download outcome details", extra={
+            "media_id": task_message.media_id,
+            "error_message": outcome.error_message,
+            "validation_error": outcome.validation_error,
+            "error_category": error_category.value,
+            "status_code": outcome.status_code,
+            "bytes_downloaded": outcome.bytes_downloaded,
+            "processing_time_ms": processing_time_ms,
+        })
 
         log_worker_error(
             logger,

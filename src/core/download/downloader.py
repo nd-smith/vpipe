@@ -12,6 +12,7 @@ Clean interface: DownloadTask -> DownloadOutcome
 
 import asyncio
 import logging
+import time
 
 import aiohttp
 
@@ -110,8 +111,14 @@ class AttachmentDownloader:
                 should_close_session = True
 
             # HEAD request to check Content-Length for streaming decision
-            # (Optional optimization - could also just try streaming)
+            t_head = time.perf_counter()
             content_length = await self._get_content_length(task.url, session, task.timeout)
+            head_ms = int((time.perf_counter() - t_head) * 1000)
+            logger.debug("HEAD request completed", extra={
+                "url": task.url[:120],
+                "content_length": content_length,
+                "head_ms": head_ms,
+            })
 
             # Check max size if specified
             if task.max_size and content_length and content_length > task.max_size:
@@ -123,12 +130,21 @@ class AttachmentDownloader:
             # Decide on streaming vs in-memory based on size
             use_streaming = should_stream(content_length)
 
+            t_dl = time.perf_counter()
             if use_streaming:
-                # Use streaming download for large files
                 outcome = await self._download_streaming(task, session)
             else:
-                # Use in-memory download for small files
                 outcome = await self._download_in_memory(task, session)
+            dl_ms = int((time.perf_counter() - t_dl) * 1000)
+
+            logger.debug("Download request completed", extra={
+                "url": task.url[:120],
+                "use_streaming": use_streaming,
+                "download_ms": dl_ms,
+                "success": outcome.success,
+                "error_message": outcome.error_message,
+                "status_code": outcome.status_code,
+            })
 
             # Step 5: Validate download integrity
             if outcome.success:
