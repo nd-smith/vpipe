@@ -634,6 +634,7 @@ class ClaimXEnrichmentWorker:
                 "Produced entity rows batch",
                 extra={
                     "batch_id": batch_id,
+                    "event_id": ",".join(event_ids),
                     "event_ids": event_ids,
                     "row_count": entity_rows.row_count(),
                 },
@@ -644,6 +645,7 @@ class ClaimXEnrichmentWorker:
                 "Error writing entities to Delta - routing batch to retry",
                 extra={
                     "batch_id": batch_id,
+                    "event_id": ",".join(event_ids),
                     "event_ids": event_ids,
                     "row_count": entity_rows.row_count(),
                     "task_count": len(tasks),
@@ -667,9 +669,13 @@ class ClaimXEnrichmentWorker:
         self,
         download_tasks: list[ClaimXDownloadTask],
     ) -> None:
+        event_ids = sorted(set(t.source_event_id for t in download_tasks if t.source_event_id))
         logger.info(
             "Producing download tasks",
-            extra={"task_count": len(download_tasks)},
+            extra={
+                "task_count": len(download_tasks),
+                "event_id": ",".join(event_ids),
+            },
         )
 
         for task in download_tasks:
@@ -683,6 +689,7 @@ class ClaimXEnrichmentWorker:
                 logger.debug(
                     "Produced download task",
                     extra={
+                        "event_id": task.source_event_id,
                         "media_id": task.media_id,
                         "project_id": task.project_id,
                         "partition": metadata.partition,
@@ -694,6 +701,7 @@ class ClaimXEnrichmentWorker:
                 logger.error(
                     "Failed to produce download task",
                     extra={
+                        "event_id": task.source_event_id,
                         "media_id": task.media_id,
                         "project_id": task.project_id,
                         "error": str(e),
