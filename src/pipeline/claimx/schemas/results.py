@@ -67,8 +67,9 @@ class ClaimXUploadResultMessage(BaseModel):
     )
     file_name: str = Field(default="", description="Original file name")
     trace_id: str = Field(
-        default="",
+        ...,
         description="ID of the event that triggered this download",
+        min_length=1,
         validation_alias=AliasChoices("trace_id", "source_event_id"),
     )
     status: Literal["completed", "failed", "failed_permanent"] = Field(
@@ -261,8 +262,9 @@ class FailedDownloadMessage(BaseModel):
     """
 
     trace_id: str = Field(
-        default="",
+        ...,
         description="Event ID for correlation",
+        min_length=1,
         validation_alias=AliasChoices("trace_id", "event_id"),
     )
     media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)

@@ -178,6 +178,7 @@ class TestClaimXDownloadTaskCreation:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
         )
 
         assert task.media_id == "media_111"
@@ -186,7 +187,7 @@ class TestClaimXDownloadTaskCreation:
         assert task.blob_path == "claimx/proj_456/media/photo.jpg"
         assert task.file_type == ""
         assert task.file_name == ""
-        assert task.trace_id == ""
+        assert task.trace_id == "evt_123"
         assert task.retry_count == 0
         assert task.expires_at is None
         assert task.refresh_count == 0
@@ -222,6 +223,7 @@ class TestClaimXDownloadTaskCreation:
             blob_path="claimx/proj_456/media/video.mp4",
             file_type="mp4",
             file_name="damage_video.mp4",
+            trace_id="evt_456",
         )
 
         assert task.file_type == "mp4"
@@ -238,6 +240,7 @@ class TestClaimXDownloadTaskValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
             )
 
         errors = exc_info.value.errors()
@@ -251,6 +254,7 @@ class TestClaimXDownloadTaskValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
             )
 
         errors = exc_info.value.errors()
@@ -264,6 +268,7 @@ class TestClaimXDownloadTaskValidation:
                 project_id="proj_456",
                 download_url="",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
             )
 
         errors = exc_info.value.errors()
@@ -277,6 +282,7 @@ class TestClaimXDownloadTaskValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 retry_count=-1,
             )
 
@@ -291,6 +297,7 @@ class TestClaimXDownloadTaskValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 refresh_count=-1,
             )
 
@@ -304,6 +311,7 @@ class TestClaimXDownloadTaskValidation:
             project_id="  proj_456  ",
             download_url="  https://s3.amazonaws.com/claimx/presigned/photo.jpg  ",
             blob_path="  claimx/proj_456/media/photo.jpg  ",
+            trace_id="evt_123",
         )
 
         assert task.media_id == "media_111"
@@ -324,6 +332,7 @@ class TestClaimXDownloadTaskSerialization:
             blob_path="claimx/proj_456/media/photo.jpg",
             file_type="jpg",
             file_name="photo.jpg",
+            trace_id="evt_123",
         )
 
         json_str = task.model_dump_json()
@@ -340,6 +349,7 @@ class TestClaimXDownloadTaskSerialization:
             "blob_path": "claimx/proj_456/media/photo.jpg",
             "file_type": "jpg",
             "file_name": "photo.jpg",
+            "trace_id": "evt_123",
             "retry_count": 1,
         }
 

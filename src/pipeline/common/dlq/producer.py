@@ -73,13 +73,14 @@ class DLQProducer:
 
         dlq_topic = f"{pipeline_message.topic}.dlq"
 
+        trace_id = pipeline_message.key.decode("utf-8") if pipeline_message.key else None
+
         dlq_message = {
+            "trace_id": trace_id,
             "original_topic": pipeline_message.topic,
             "original_partition": pipeline_message.partition,
             "original_offset": pipeline_message.offset,
-            "original_key": (
-                pipeline_message.key.decode("utf-8") if pipeline_message.key else None
-            ),
+            "original_key": trace_id,
             "original_value": (
                 pipeline_message.value.decode("utf-8") if pipeline_message.value else None
             ),

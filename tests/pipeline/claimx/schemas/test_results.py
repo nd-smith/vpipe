@@ -23,6 +23,7 @@ class TestClaimXUploadResultMessageCreation:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="completed",
             bytes_uploaded=2048576,
             created_at=now,
@@ -35,7 +36,7 @@ class TestClaimXUploadResultMessageCreation:
         assert result.error_message is None
         assert result.file_type == ""
         assert result.file_name == ""
-        assert result.trace_id == ""
+        assert result.trace_id == "evt_123"
 
     def test_create_failed_upload(self):
         """ClaimXUploadResultMessage for failed upload."""
@@ -45,6 +46,7 @@ class TestClaimXUploadResultMessageCreation:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="failed",
             bytes_uploaded=0,
             error_message="Connection timeout",
@@ -63,6 +65,7 @@ class TestClaimXUploadResultMessageCreation:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="failed_permanent",
             bytes_uploaded=0,
             error_message="File not found in cache",
@@ -104,6 +107,7 @@ class TestClaimXUploadResultMessageValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 status="completed",
                 created_at=now,
             )
@@ -120,6 +124,7 @@ class TestClaimXUploadResultMessageValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 status="completed",
                 created_at=now,
             )
@@ -136,6 +141,7 @@ class TestClaimXUploadResultMessageValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 status="unknown_status",
                 created_at=now,
             )
@@ -152,6 +158,7 @@ class TestClaimXUploadResultMessageValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 status="completed",
                 bytes_uploaded=-1,
                 created_at=now,
@@ -168,6 +175,7 @@ class TestClaimXUploadResultMessageValidation:
             project_id="  proj_456  ",
             download_url="  https://s3.amazonaws.com/claimx/presigned/photo.jpg  ",
             blob_path="  claimx/proj_456/media/photo.jpg  ",
+            trace_id="evt_123",
             status="completed",
             created_at=now,
         )
@@ -188,6 +196,7 @@ class TestClaimXUploadResultMessageValidation:
                 project_id="proj_456",
                 download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
                 blob_path="claimx/proj_456/media/photo.jpg",
+                trace_id="evt_123",
                 status=status,
                 created_at=now,
             )
@@ -207,6 +216,7 @@ class TestClaimXUploadResultMessageSerialization:
             blob_path="claimx/proj_456/media/photo.jpg",
             file_type="jpg",
             file_name="photo.jpg",
+            trace_id="evt_123",
             status="completed",
             bytes_uploaded=2048576,
             created_at=now,
@@ -226,6 +236,7 @@ class TestClaimXUploadResultMessageSerialization:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="completed",
             created_at=now,
         )
@@ -241,6 +252,7 @@ class TestClaimXUploadResultMessageSerialization:
             "project_id": "proj_456",
             "download_url": "https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             "blob_path": "claimx/proj_456/media/photo.jpg",
+            "trace_id": "evt_123",
             "status": "completed",
             "bytes_uploaded": 2048576,
             "created_at": now.isoformat(),
@@ -291,6 +303,7 @@ class TestClaimXUploadResultMessageEdgeCases:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/empty.txt",
             blob_path="claimx/proj_456/media/empty.txt",
+            trace_id="evt_123",
             status="completed",
             bytes_uploaded=0,
             created_at=now,
@@ -308,6 +321,7 @@ class TestClaimXUploadResultMessageEdgeCases:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="failed_permanent",
             bytes_uploaded=0,
             error_message=long_error,
@@ -325,6 +339,7 @@ class TestClaimXUploadResultMessageEdgeCases:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/large_video.mp4",
             blob_path="claimx/proj_456/media/large_video.mp4",
+            trace_id="evt_123",
             status="completed",
             bytes_uploaded=large_size,
             created_at=now,
@@ -341,6 +356,7 @@ class TestClaimXUploadResultMessageEdgeCases:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="failed",
             bytes_uploaded=0,
             error_message=unicode_error,
@@ -361,6 +377,7 @@ class TestClaimXUploadResultMessageBusinessLogic:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="completed",
             bytes_uploaded=2048576,
             created_at=now,
@@ -378,6 +395,7 @@ class TestClaimXUploadResultMessageBusinessLogic:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="failed",
             bytes_uploaded=0,
             error_message="Transient network error",
@@ -396,6 +414,7 @@ class TestClaimXUploadResultMessageBusinessLogic:
             project_id="proj_456",
             download_url="https://s3.amazonaws.com/claimx/presigned/photo.jpg",
             blob_path="claimx/proj_456/media/photo.jpg",
+            trace_id="evt_123",
             status="failed_permanent",
             bytes_uploaded=0,
             error_message="File not found in local cache - cache was cleared",

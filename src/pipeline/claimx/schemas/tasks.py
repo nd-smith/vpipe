@@ -160,7 +160,7 @@ class ClaimXDownloadTask(BaseModel):
     file_type: str = Field(default="", description="File type/extension (e.g., pdf, jpg, mp4)")
     file_name: str = Field(default="", description="Original file name")
     trace_id: str = Field(
-        default="", description="ID of the event that triggered this download"
+        ..., description="ID of the event that triggered this download", min_length=1
     )
     retry_count: int = Field(default=0, description="Number of retry attempts (starts at 0)", ge=0)
     expires_at: str | None = Field(
@@ -176,7 +176,7 @@ class ClaimXDownloadTask(BaseModel):
         description="Metadata for download tracking (error context, retry info, URL refresh, etc.)",
     )
 
-    @field_validator("media_id", "project_id", "download_url", "blob_path")
+    @field_validator("media_id", "project_id", "download_url", "blob_path", "trace_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure required string fields are not empty or whitespace-only."""

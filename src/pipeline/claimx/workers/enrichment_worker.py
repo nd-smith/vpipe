@@ -628,6 +628,7 @@ class ClaimXEnrichmentWorker:
 
         try:
             event_id = tasks[0].trace_id if tasks else batch_id
+            entity_rows.trace_id = event_id
             await self.producer.send(
                 value=entity_rows,
                 key=event_id,

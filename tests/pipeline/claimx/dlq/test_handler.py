@@ -68,6 +68,7 @@ def sample_enrichment_task():
 def valid_download_dlq_message_dict(sample_download_task):
     """Create a valid download DLQ message as a dict."""
     return {
+        "trace_id": sample_download_task.trace_id,
         "media_id": sample_download_task.media_id,
         "project_id": sample_download_task.project_id,
         "download_url": sample_download_task.download_url,

@@ -71,8 +71,9 @@ class ClaimXCachedDownloadMessage(BaseModel):
     )
     file_name: str = Field(default="", description="Original file name")
     trace_id: str = Field(
-        default="",
+        ...,
         description="ID of the event that triggered this download",
+        min_length=1,
         validation_alias=AliasChoices("trace_id", "source_event_id"),
     )
     downloaded_at: datetime = Field(

@@ -25,6 +25,7 @@ class TestClaimXCachedDownloadMessageCreation:
             destination_path="claimx/proj_456/media/photo.jpg",
             local_cache_path="/tmp/cache/media_111/photo.jpg",
             bytes_downloaded=2048576,
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -38,7 +39,7 @@ class TestClaimXCachedDownloadMessageCreation:
         assert cached.content_type is None
         assert cached.file_type == ""
         assert cached.file_name == ""
-        assert cached.trace_id == ""
+        assert cached.trace_id == "evt_123"
 
     def test_create_with_all_fields(self):
         """ClaimXCachedDownloadMessage can be created with all fields."""
@@ -72,6 +73,7 @@ class TestClaimXCachedDownloadMessageCreation:
             destination_path="claimx/proj_456/media/empty.txt",
             local_cache_path="/tmp/cache/media_empty/empty.txt",
             bytes_downloaded=0,
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -98,6 +100,7 @@ class TestClaimXCachedDownloadMessageCreation:
                 bytes_downloaded=1024,
                 content_type=content_type,
                 file_type=file_type,
+                trace_id="evt_123",
                 downloaded_at=now,
             )
 
@@ -118,6 +121,7 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=2048576,
+                trace_id="evt_123",
                 downloaded_at=now,
             )
 
@@ -135,6 +139,7 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=2048576,
+                trace_id="evt_123",
                 downloaded_at=now,
             )
 
@@ -152,6 +157,7 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=-1,
+                trace_id="evt_123",
                 downloaded_at=now,
             )
 
@@ -169,6 +175,7 @@ class TestClaimXCachedDownloadMessageValidation:
                 destination_path="claimx/proj_456/media/photo.jpg",
                 local_cache_path="/tmp/cache/photo.jpg",
                 bytes_downloaded=2048576,
+                trace_id="evt_123",
                 downloaded_at=now,
             )
 
@@ -185,6 +192,7 @@ class TestClaimXCachedDownloadMessageValidation:
             destination_path="  claimx/proj_456/media/photo.jpg  ",
             local_cache_path="  /tmp/cache/photo.jpg  ",
             bytes_downloaded=2048576,
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -211,6 +219,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             content_type="image/jpeg",
             file_type="jpg",
             file_name="photo.jpg",
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -230,6 +239,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             destination_path="claimx/proj_456/media/photo.jpg",
             local_cache_path="/tmp/cache/photo.jpg",
             bytes_downloaded=2048576,
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -248,6 +258,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             "bytes_downloaded": 2048576,
             "content_type": "image/jpeg",
             "file_type": "jpg",
+            "trace_id": "evt_123",
             "downloaded_at": now.isoformat(),
         }
 
@@ -303,6 +314,7 @@ class TestClaimXCachedDownloadMessageEdgeCases:
             local_cache_path="/tmp/cache/large_video.mp4",
             bytes_downloaded=large_size,
             file_type="mp4",
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -319,6 +331,7 @@ class TestClaimXCachedDownloadMessageEdgeCases:
             local_cache_path="/tmp/cache/файл.jpg",
             bytes_downloaded=1024,
             file_name="файл.jpg",
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -335,6 +348,7 @@ class TestClaimXCachedDownloadMessageEdgeCases:
             destination_path=long_path,
             local_cache_path="/tmp/cache/file.jpg",
             bytes_downloaded=1024,
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
