@@ -114,11 +114,10 @@ class AttachmentDownloader:
             t_head = time.perf_counter()
             content_length = await self._get_content_length(task.url, session, task.timeout)
             head_ms = int((time.perf_counter() - t_head) * 1000)
-            logger.debug("HEAD request completed", extra={
-                "url": task.url[:120],
-                "content_length": content_length,
-                "head_ms": head_ms,
-            })
+            logger.debug(
+                f"HEAD request completed in {head_ms}ms: content_length={content_length}",
+                extra={"download_url": task.url[:120]},
+            )
 
             # Check max size if specified
             if task.max_size and content_length and content_length > task.max_size:
@@ -137,14 +136,12 @@ class AttachmentDownloader:
                 outcome = await self._download_in_memory(task, session)
             dl_ms = int((time.perf_counter() - t_dl) * 1000)
 
-            logger.debug("Download request completed", extra={
-                "url": task.url[:120],
-                "use_streaming": use_streaming,
-                "download_ms": dl_ms,
-                "success": outcome.success,
-                "error_message": outcome.error_message,
-                "status_code": outcome.status_code,
-            })
+            logger.debug(
+                f"Download request completed in {dl_ms}ms: "
+                f"streaming={use_streaming}, success={outcome.success}, "
+                f"status_code={outcome.status_code}, error={outcome.error_message}",
+                extra={"download_url": task.url[:120]},
+            )
 
             # Step 5: Validate download integrity
             if outcome.success:

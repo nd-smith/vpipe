@@ -558,13 +558,15 @@ class ClaimXDownloadWorker:
 
             # Debug: log HTTP session state before download
             session = self._http_session
-            logger.debug("HTTP session state before download", extra={
-                "media_id": task_message.media_id,
-                "session_closed": session.closed if session else "no_session",
-                "connector_closed": (
-                    session.connector.closed if session and session.connector else "no_connector"
-                ),
-            })
+            sess_closed = session.closed if session else "no_session"
+            conn_closed = (
+                session.connector.closed if session and session.connector else "no_connector"
+            )
+            logger.info(
+                f"HTTP session state: session_closed={sess_closed}, "
+                f"connector_closed={conn_closed}",
+                extra={"media_id": task_message.media_id},
+            )
 
             t0 = time.perf_counter()
             outcome = await self.downloader.download(download_task)
@@ -572,16 +574,21 @@ class ClaimXDownloadWorker:
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            logger.info("Download phase completed", extra={
-                "media_id": task_message.media_id,
-                "download_ms": download_ms,
-                "success": outcome.success,
-                "error_message": outcome.error_message,
-                "error_category": outcome.error_category.value if outcome.error_category else None,
-                "status_code": outcome.status_code,
-                "validation_error": outcome.validation_error,
-                "bytes_downloaded": outcome.bytes_downloaded,
-            })
+            logger.info(
+                f"Download phase completed in {download_ms}ms: "
+                f"success={outcome.success}, status_code={outcome.status_code}, "
+                f"error_message={outcome.error_message}, "
+                f"validation_error={outcome.validation_error}, "
+                f"bytes={outcome.bytes_downloaded}",
+                extra={
+                    "media_id": task_message.media_id,
+                    "error_message": outcome.error_message,
+                    "error_category": outcome.error_category.value if outcome.error_category else None,
+                    "status_code": outcome.status_code,
+                    "bytes_downloaded": outcome.bytes_downloaded,
+                    "processing_time_ms": download_ms,
+                },
+            )
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
@@ -749,15 +756,22 @@ class ClaimXDownloadWorker:
 
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
 
-        logger.warning("Download outcome details", extra={
-            "media_id": task_message.media_id,
-            "error_message": outcome.error_message,
-            "validation_error": outcome.validation_error,
-            "error_category": error_category.value,
-            "status_code": outcome.status_code,
-            "bytes_downloaded": outcome.bytes_downloaded,
-            "processing_time_ms": processing_time_ms,
-        })
+        logger.warning(
+            f"Download outcome details: error_message={outcome.error_message}, "
+            f"validation_error={outcome.validation_error}, "
+            f"error_category={error_category.value}, "
+            f"status_code={outcome.status_code}, "
+            f"bytes={outcome.bytes_downloaded}, "
+            f"processing_time_ms={processing_time_ms}",
+            extra={
+                "media_id": task_message.media_id,
+                "error_message": outcome.error_message,
+                "error_category": error_category.value,
+                "status_code": outcome.status_code,
+                "bytes_downloaded": outcome.bytes_downloaded,
+                "processing_time_ms": processing_time_ms,
+            },
+        )
 
         log_worker_error(
             logger,
