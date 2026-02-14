@@ -264,63 +264,63 @@ class DownloadWorker:
             timeout=timeout,
         )
 
-        self.downloader = AttachmentDownloader(session=self._http_session)
-
-        await self.producer.start()
-
-        # Sync topic with producer's actual entity name (Event Hub entity may
-        # differ from the Kafka topic name resolved by get_topic()).
-        if hasattr(self.producer, "eventhub_name"):
-            self.cached_topic = self.producer.eventhub_name
-
-        await self.results_producer.start()
-
-        if hasattr(self.results_producer, "eventhub_name"):
-            self.results_topic = self.results_producer.eventhub_name
-
-        self.retry_handler = RetryHandler(self.config)
-        await self.retry_handler.start()
-
-        # Create batch consumer from transport layer
-        self._consumer = await create_batch_consumer(
-            config=self.config,
-            domain=self.domain,
-            worker_name=self.WORKER_NAME,
-            topics=self.topics,
-            batch_handler=self._process_batch,
-            batch_size=self.batch_size,
-            batch_timeout_ms=1000,
-            instance_id=self.instance_id,
-            topic_key="downloads_pending",
-        )
-        self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
-
-        self._running = True
-        self._initialized = True
-
-        self._stats_logger = PeriodicStatsLogger(
-            interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
-            get_stats=self._get_cycle_stats,
-            stage="download",
-            worker_id=self.worker_id,
-        )
-        self._stats_logger.start()
-
-        self.health_server.set_ready(transport_connected=True)
-
-        # Update metrics
-        update_connection_status("consumer", connected=True)
-
-        self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
-
-        logger.info(
-            "Download worker started successfully",
-            extra={
-                "topics": self.topics,
-            },
-        )
-
         try:
+            self.downloader = AttachmentDownloader(session=self._http_session)
+
+            await self.producer.start()
+
+            # Sync topic with producer's actual entity name (Event Hub entity may
+            # differ from the Kafka topic name resolved by get_topic()).
+            if hasattr(self.producer, "eventhub_name"):
+                self.cached_topic = self.producer.eventhub_name
+
+            await self.results_producer.start()
+
+            if hasattr(self.results_producer, "eventhub_name"):
+                self.results_topic = self.results_producer.eventhub_name
+
+            self.retry_handler = RetryHandler(self.config)
+            await self.retry_handler.start()
+
+            # Create batch consumer from transport layer
+            self._consumer = await create_batch_consumer(
+                config=self.config,
+                domain=self.domain,
+                worker_name=self.WORKER_NAME,
+                topics=self.topics,
+                batch_handler=self._process_batch,
+                batch_size=self.batch_size,
+                batch_timeout_ms=1000,
+                instance_id=self.instance_id,
+                topic_key="downloads_pending",
+            )
+            self._consumer_group = self.config.get_consumer_group(self.domain, self.WORKER_NAME)
+
+            self._running = True
+            self._initialized = True
+
+            self._stats_logger = PeriodicStatsLogger(
+                interval_seconds=self.CYCLE_LOG_INTERVAL_SECONDS,
+                get_stats=self._get_cycle_stats,
+                stage="download",
+                worker_id=self.worker_id,
+            )
+            self._stats_logger.start()
+
+            self.health_server.set_ready(transport_connected=True)
+
+            # Update metrics
+            update_connection_status("consumer", connected=True)
+
+            self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
+
+            logger.info(
+                "Download worker started successfully",
+                extra={
+                    "topics": self.topics,
+                },
+            )
+
             await self._consumer.start()
         except asyncio.CancelledError:
             logger.info("Worker cancelled, shutting down")
@@ -348,9 +348,11 @@ class DownloadWorker:
         self._running = False
 
     async def stop(self) -> None:
-        """
-        Stop the download worker and clean up resources.
-        Safe to call multiple times.
+        """Stop the download worker and clean up resources.
+
+        Safe to call multiple times. Each cleanup step catches both Exception
+        and CancelledError to ensure all resources are released even during
+        aggressive shutdown.
         """
         if self._consumer is None and self._http_session is None:
             logger.debug("Worker already stopped")
@@ -372,11 +374,15 @@ class DownloadWorker:
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        await self._wait_for_in_flight(timeout=30.0)
+        try:
+            await self._wait_for_in_flight(timeout=30.0)
+        except (Exception, asyncio.CancelledError):
+            logger.warning("Interrupted while waiting for in-flight downloads")
+
         if self._consumer:
             try:
                 await self._consumer.stop()
-            except Exception as e:
+            except (Exception, asyncio.CancelledError) as e:
                 logger.error(
                     "Error stopping consumer",
                     extra={"error": str(e)},
@@ -386,15 +392,46 @@ class DownloadWorker:
                 self._consumer = None
 
         if self._http_session:
-            await self._http_session.close()
-            self._http_session = None
+            try:
+                await self._http_session.close()
+            except (Exception, asyncio.CancelledError) as e:
+                logger.error(
+                    "Error closing HTTP session",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self._http_session = None
 
-        await self.producer.stop()
-        await self.results_producer.stop()
+        try:
+            await self.producer.stop()
+        except (Exception, asyncio.CancelledError) as e:
+            logger.error(
+                "Error stopping producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
+
+        try:
+            await self.results_producer.stop()
+        except (Exception, asyncio.CancelledError) as e:
+            logger.error(
+                "Error stopping results producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
 
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except (Exception, asyncio.CancelledError) as e:
+                logger.error(
+                    "Error stopping retry handler",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self.retry_handler = None
 
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)
