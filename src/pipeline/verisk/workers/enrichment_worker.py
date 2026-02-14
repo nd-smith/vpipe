@@ -50,7 +50,7 @@ from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
 )
-from pipeline.verisk.workers.worker_defaults import WorkerDefaults
+from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class XACTEnrichmentWorker:
     WORKER_NAME = "enrichment_worker"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
+    CYCLE_LOG_INTERVAL_SECONDS = CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,

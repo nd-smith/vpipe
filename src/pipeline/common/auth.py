@@ -26,8 +26,6 @@ TOKEN_EXPIRY_MINS = 60  # Azure token lifetime
 
 @dataclass
 class CachedToken:
-    """Token with acquisition timestamp."""
-
     value: str
     acquired_at: datetime
 
@@ -38,8 +36,6 @@ class CachedToken:
 
 
 class TokenCache:
-    """Token cache for multiple resources."""
-
     def __init__(self):
         self._tokens: dict[str, CachedToken] = {}
 
@@ -65,8 +61,6 @@ class TokenCache:
 
 
 class AzureAuthError(Exception):
-    """Raised when Azure authentication fails."""
-
     pass
 
 

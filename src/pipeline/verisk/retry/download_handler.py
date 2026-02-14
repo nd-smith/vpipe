@@ -59,13 +59,6 @@ class RetryHandler:
         config: MessageConfig,
         domain: str = "verisk",
     ):
-        """
-        Initialize retry handler.
-
-        Args:
-            config: Kafka configuration with retry settings
-            domain: Domain identifier (default: "verisk")
-        """
         self.config = config
         self.domain = domain
 
@@ -133,8 +126,7 @@ class RetryHandler:
 
     @property
     def dlq_topic(self) -> str:
-        """Return the dead-letter queue topic name."""
-        return self._dlq_topic
+            return self._dlq_topic
 
     async def handle_failure(
         self,
@@ -151,15 +143,6 @@ class RetryHandler:
         - PERMANENT errors: send directly to DLQ (no retry)
         - CIRCUIT_OPEN: retry (circuit may close)
         - UNKNOWN: retry conservatively
-
-        Args:
-            task: Download task that failed
-            error: Exception that caused failure
-            error_category: Classification of the error
-
-        Raises:
-            RuntimeError: If producer is not started
-            Exception: If send to retry topic or DLQ fails
         """
         retry_count = task.retry_count
 
@@ -191,49 +174,24 @@ class RetryHandler:
         error: Exception,
         error_category: ErrorCategory,
     ) -> None:
-        """
-        Send task to appropriate retry topic with updated metadata.
-
-        Increments retry count and adds error context to metadata.
-        Calculates retry_at timestamp based on configured delay.
-
-        Args:
-            task: Download task to retry
-            error: Exception that caused failure
-            error_category: Classification of the error
-
-        Raises:
-            RuntimeError: If producer is not started
-            Exception: If send to retry topic fails
-        """
+        """Send task to retry topic with incremented count and error context."""
         retry_count = task.retry_count
 
         # NEW: Single unified retry topic per domain
         retry_topic = self.config.get_retry_topic(self.domain)
         delay_seconds = self._retry_delays[retry_count]
 
-        # Create updated task with incremented retry count
         updated_task = task.model_copy(deep=True)
         updated_task.retry_count += 1
 
-        # Add error context to metadata
         updated_task.metadata["last_error"] = truncate_error_message(error)
         updated_task.metadata["error_category"] = error_category.value
 
-        # Calculate retry timestamp
         retry_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
         updated_task.metadata["retry_at"] = retry_at.isoformat()
 
         # NEW: Get target topic for routing
         target_topic = self.config.get_topic(self.domain, "downloads_pending")
-
-        # Record retry attempt metric
-        #         record_retry_attempt(
-        #             domain=self.domain,
-        #             worker_type="download_worker",
-        #             error_category=error_category.value,
-        #             delay_seconds=delay_seconds,
-        #         )
 
         logger.info(
             "Sending task to retry topic",
@@ -277,22 +235,7 @@ class RetryHandler:
         error: Exception,
         error_category: ErrorCategory,
     ) -> None:
-        """
-        Send task to dead-letter queue (DLQ).
-
-        Creates FailedDownloadMessage with complete context for manual
-        review and potential replay. Preserves original task for replay.
-
-        Args:
-            task: Download task that failed permanently
-            error: Final exception that caused failure
-            error_category: Classification of the error
-
-        Raises:
-            RuntimeError: If producer is not started
-            Exception: If send to DLQ fails
-        """
-        # Create DLQ message
+        """Send task to DLQ with complete context for manual review and replay."""
         dlq_message = FailedDownloadMessage(
             trace_id=task.trace_id,
             attachment_url=task.attachment_url,

@@ -60,27 +60,27 @@ async def resolve_claimx_project_id(
                     task_data={...}
                 )
     """
-    try:
-        response = await connection_manager.request(
-            connection_name=connection_name,
-            method="GET",
-            path="/export/project/projectId",
-            params={"projectNumber": claim_number},  # API uses projectNumber param
+    response = await connection_manager.request(
+        connection_name=connection_name,
+        method="GET",
+        path="/export/project/projectId",
+        params={"projectNumber": claim_number},
+    )
+
+    if response.status == 404:
+        return None
+    if response.status >= 400:
+        body = await response.text()
+        raise RuntimeError(
+            f"ClaimX project lookup failed: HTTP {response.status} for claim_number={claim_number}: {body[:200]}"
         )
 
-        if response.status >= 400:
-            return None
+    response_data = await response.json()
 
-        response_data = await response.json()
-
-        # API may return just the ID as a number, or in a dict
-        if isinstance(response_data, int):
-            return response_data
-        elif isinstance(response_data, dict):
-            return response_data.get("projectId") or response_data.get("id")
-
-    except Exception:
-        return None
+    if isinstance(response_data, int):
+        return response_data
+    if isinstance(response_data, dict):
+        return response_data.get("projectId") or response_data.get("id")
 
     return None
 

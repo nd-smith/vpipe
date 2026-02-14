@@ -45,7 +45,7 @@ from pipeline.common.transport import create_batch_consumer, create_producer, ge
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
-from pipeline.verisk.workers.worker_defaults import WorkerDefaults
+from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class EventIngesterWorker:
     WORKER_NAME = "event_ingester"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
+    CYCLE_LOG_INTERVAL_SECONDS = CYCLE_LOG_INTERVAL_SECONDS
 
     # Backfill prefetch mode — dynamically increase batch size for stale data
     BACKFILL_BATCH_SIZE = 2000
@@ -269,147 +269,15 @@ class EventIngesterWorker:
         Returns True to commit the batch, False to skip (messages redelivered).
         """
         start_time = time.perf_counter()
-        enrichment_tasks: list[tuple[str, XACTEnrichmentTask]] = []
-        processed_trace_ids: list[tuple[str, str]] = []  # (trace_id, event_id)
-        dedup_intra_batch: list[str] = []
-        dedup_memory: list[str] = []
-        dedup_blob: list[str] = []
 
-        # Pass 1: Parse messages, check memory cache, collect cache misses
-        parsed_events: list[tuple[EventMessage, str]] = []  # (event, event_id)
-        seen_in_batch: set[str] = set()
-        now = time.time()
+        # Parse, dedup (memory + blob), and collect non-duplicate events
+        parsed_events, dedup_counts = await self._parse_and_dedup_events(records)
 
-        for record in records:
-            self._records_processed += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
-
-            # Parse event — skip unparseable messages (would never succeed on retry)
-            try:
-                message_data = json.loads(record.value.decode("utf-8"))
-                event = EventMessage.from_raw_event(message_data)
-            except (json.JSONDecodeError, ValidationError) as e:
-                logger.error(
-                    "Failed to parse EventMessage, skipping",
-                    extra={
-                        "topic": record.topic,
-                        "partition": record.partition,
-                        "offset": record.offset,
-                        "error": str(e),
-                    },
-                )
-                continue
-
-            # Generate deterministic event_id from trace_id (UUID5)
-            event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
-            event.event_id = event_id
-
-            if self._dedup_enabled:
-                # Intra-batch dedup
-                if event.trace_id in seen_in_batch:
-                    dedup_intra_batch.append(event.trace_id)
-                    self._records_deduplicated += 1
-                    continue
-                seen_in_batch.add(event.trace_id)
-
-                # Fast path: memory cache check (no I/O)
-                if event.trace_id in self._dedup_cache:
-                    cached_event_id, cached_time = self._dedup_cache[event.trace_id]
-                    if now - cached_time < self._dedup_cache_ttl_seconds:
-                        self._dedup_cache.move_to_end(event.trace_id)
-                        dedup_memory.append(event.trace_id)
-                        self._dedup_memory_hits += 1
-                        self._records_deduplicated += 1
-                        continue
-                    del self._dedup_cache[event.trace_id]
-
-            parsed_events.append((event, event_id))
-
-        # Pass 2: Concurrent blob storage checks for all cache misses
-        blob_duplicates: set[str] = set()
-        if self._dedup_store and parsed_events:
-            async def _check_blob(trace_id: str) -> tuple[str, bool]:
-                async with self._blob_semaphore:
-                    try:
-                        is_dup, metadata = await self._dedup_store.check_duplicate(
-                            self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
-                        )
-                        if is_dup and metadata:
-                            cached_event_id = metadata.get("event_id")
-                            timestamp = metadata.get("timestamp", time.time())
-                            self._dedup_cache[trace_id] = (cached_event_id, timestamp)
-                            self._dedup_blob_hits += 1
-                            return trace_id, True
-                    except Exception as e:
-                        logger.warning(
-                            "Error checking blob storage for duplicate (falling back to memory-only)",
-                            extra={"trace_id": trace_id, "error": str(e)},
-                        )
-                    return trace_id, False
-
-            results = await asyncio.gather(
-                *(_check_blob(ev.trace_id) for ev, _ in parsed_events)
-            )
-            blob_duplicates = {tid for tid, is_dup in results if is_dup}
-
-        # Pass 3: Build enrichment tasks from non-duplicate events
-        for event, event_id in parsed_events:
-            if event.trace_id in blob_duplicates:
-                dedup_blob.append(event.trace_id)
-                self._records_deduplicated += 1
-                continue
-
-            assignment_id = event.assignment_id
-            if not assignment_id:
-                self._records_skipped += 1
-                logger.warning(
-                    "Event missing assignmentId in data, skipping enrichment",
-                    extra={
-                        "trace_id": event.trace_id,
-                        "type": event.type,
-                    },
-                )
-                continue
-
-            original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
-
-            enrichment_task = XACTEnrichmentTask(
-                event_id=event_id,
-                trace_id=event.trace_id,
-                event_type=self.domain,
-                status_subtype=event.status_subtype,
-                assignment_id=assignment_id,
-                estimate_version=event.estimate_version,
-                attachments=event.attachments or [],
-                retry_count=0,
-                created_at=datetime.now(UTC),
-                original_timestamp=original_timestamp,
-            )
-
-            enrichment_tasks.append((event.trace_id, enrichment_task))
-            processed_trace_ids.append((event.trace_id, event_id))
-            if self._dedup_enabled:
-                self._mark_processed(event.trace_id, event_id)
+        # Build enrichment tasks from non-duplicate events
+        enrichment_tasks, processed_trace_ids = self._build_enrichment_tasks(parsed_events)
 
         # Log dedup diagnostics with sample trace_ids for KQL cross-referencing
-        total_deduped = len(dedup_intra_batch) + len(dedup_memory) + len(dedup_blob)
-        if total_deduped:
-            sample_ids = (dedup_memory + dedup_blob + dedup_intra_batch)[:10]
-            logger.info(
-                "Batch dedup: %d duplicates (%d memory, %d blob, %d intra-batch)",
-                total_deduped, len(dedup_memory), len(dedup_blob), len(dedup_intra_batch),
-                extra={
-                    "duplicate_count": total_deduped,
-                    "dedup_memory_count": len(dedup_memory),
-                    "dedup_blob_count": len(dedup_blob),
-                    "dedup_intra_batch_count": len(dedup_intra_batch),
-                    "sample_trace_ids": sample_ids,
-                },
-            )
+        self._log_dedup_diagnostics(dedup_counts)
 
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
@@ -458,6 +326,178 @@ class EventIngesterWorker:
 
         return True
 
+    async def _parse_and_dedup_events(
+        self, records: list[PipelineMessage],
+    ) -> tuple[list[tuple[EventMessage, str]], dict[str, list[str]]]:
+        """Parse records, deduplicate via memory cache and blob storage.
+
+        Returns non-duplicate (event, event_id) pairs and dedup diagnostic counts.
+        """
+        parsed_events: list[tuple[EventMessage, str]] = []
+        seen_in_batch: set[str] = set()
+        dedup_counts: dict[str, list[str]] = {
+            "intra_batch": [], "memory": [], "blob": [],
+        }
+        now = time.time()
+
+        for record in records:
+            self._records_processed += 1
+            ts = record.timestamp
+            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+                self._cycle_offset_start_ts = ts
+            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+                self._cycle_offset_end_ts = ts
+
+            # Parse event — skip unparseable messages (would never succeed on retry)
+            try:
+                message_data = json.loads(record.value.decode("utf-8"))
+                event = EventMessage.from_raw_event(message_data)
+            except (json.JSONDecodeError, ValidationError) as e:
+                logger.error(
+                    "Failed to parse EventMessage, skipping",
+                    extra={
+                        "topic": record.topic,
+                        "partition": record.partition,
+                        "offset": record.offset,
+                        "error": str(e),
+                    },
+                )
+                continue
+
+            # Generate deterministic event_id from trace_id (UUID5)
+            event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
+            event.event_id = event_id
+
+            if self._dedup_enabled:
+                # Intra-batch dedup
+                if event.trace_id in seen_in_batch:
+                    dedup_counts["intra_batch"].append(event.trace_id)
+                    self._records_deduplicated += 1
+                    continue
+                seen_in_batch.add(event.trace_id)
+
+                # Fast path: memory cache check (no I/O)
+                if event.trace_id in self._dedup_cache:
+                    cached_event_id, cached_time = self._dedup_cache[event.trace_id]
+                    if now - cached_time < self._dedup_cache_ttl_seconds:
+                        self._dedup_cache.move_to_end(event.trace_id)
+                        dedup_counts["memory"].append(event.trace_id)
+                        self._dedup_memory_hits += 1
+                        self._records_deduplicated += 1
+                        continue
+                    del self._dedup_cache[event.trace_id]
+
+            parsed_events.append((event, event_id))
+
+        # Concurrent blob storage checks for all cache misses
+        if self._dedup_store and parsed_events:
+            blob_duplicates = await self._check_blob_duplicates(parsed_events)
+            dedup_counts["blob"] = list(blob_duplicates)
+            parsed_events = [
+                (ev, eid) for ev, eid in parsed_events
+                if ev.trace_id not in blob_duplicates
+            ]
+
+        return parsed_events, dedup_counts
+
+    async def _check_blob_duplicates(
+        self, events: list[tuple[EventMessage, str]],
+    ) -> set[str]:
+        """Check blob storage for duplicates, return set of duplicate trace IDs."""
+        async def _check_one(trace_id: str) -> tuple[str, bool]:
+            async with self._blob_semaphore:
+                try:
+                    is_dup, metadata = await self._dedup_store.check_duplicate(
+                        self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
+                    )
+                    if is_dup and metadata:
+                        cached_event_id = metadata.get("event_id")
+                        timestamp = metadata.get("timestamp", time.time())
+                        self._dedup_cache[trace_id] = (cached_event_id, timestamp)
+                        self._dedup_blob_hits += 1
+                        return trace_id, True
+                except Exception as e:
+                    logger.warning(
+                        "Error checking blob storage for duplicate (falling back to memory-only)",
+                        extra={"trace_id": trace_id, "error": str(e)},
+                    )
+                return trace_id, False
+
+        results = await asyncio.gather(
+            *(_check_one(ev.trace_id) for ev, _ in events)
+        )
+        duplicates = {tid for tid, is_dup in results if is_dup}
+
+        for _ in duplicates:
+            self._records_deduplicated += 1
+
+        return duplicates
+
+    def _build_enrichment_tasks(
+        self, parsed_events: list[tuple[EventMessage, str]],
+    ) -> tuple[list[tuple[str, XACTEnrichmentTask]], list[tuple[str, str]]]:
+        """Create enrichment tasks from validated, non-duplicate events."""
+        enrichment_tasks: list[tuple[str, XACTEnrichmentTask]] = []
+        processed_trace_ids: list[tuple[str, str]] = []
+
+        for event, event_id in parsed_events:
+            assignment_id = event.assignment_id
+            if not assignment_id:
+                self._records_skipped += 1
+                logger.warning(
+                    "Event missing assignmentId in data, skipping enrichment",
+                    extra={
+                        "trace_id": event.trace_id,
+                        "type": event.type,
+                    },
+                )
+                continue
+
+            original_timestamp = datetime.fromisoformat(event.utc_datetime.replace("Z", "+00:00"))
+
+            enrichment_task = XACTEnrichmentTask(
+                event_id=event_id,
+                trace_id=event.trace_id,
+                event_type=self.domain,
+                status_subtype=event.status_subtype,
+                assignment_id=assignment_id,
+                estimate_version=event.estimate_version,
+                attachments=event.attachments or [],
+                retry_count=0,
+                created_at=datetime.now(UTC),
+                original_timestamp=original_timestamp,
+            )
+
+            enrichment_tasks.append((event.trace_id, enrichment_task))
+            processed_trace_ids.append((event.trace_id, event_id))
+            if self._dedup_enabled:
+                self._mark_processed(event.trace_id, event_id)
+
+        return enrichment_tasks, processed_trace_ids
+
+    def _log_dedup_diagnostics(self, dedup_counts: dict[str, list[str]]) -> None:
+        """Log dedup diagnostics with sample trace_ids for KQL cross-referencing."""
+        intra_batch = dedup_counts["intra_batch"]
+        memory = dedup_counts["memory"]
+        blob = dedup_counts["blob"]
+        total_deduped = len(intra_batch) + len(memory) + len(blob)
+
+        if not total_deduped:
+            return
+
+        sample_ids = (memory + blob + intra_batch)[:10]
+        logger.info(
+            "Batch dedup: %d duplicates (%d memory, %d blob, %d intra-batch)",
+            total_deduped, len(memory), len(blob), len(intra_batch),
+            extra={
+                "duplicate_count": total_deduped,
+                "dedup_memory_count": len(memory),
+                "dedup_blob_count": len(blob),
+                "dedup_intra_batch_count": len(intra_batch),
+                "sample_trace_ids": sample_ids,
+            },
+        )
+
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
         """Get cycle statistics for periodic logging."""
         msg = format_cycle_output(
@@ -482,52 +522,6 @@ class EventIngesterWorker:
         self._cycle_offset_start_ts = None
         self._cycle_offset_end_ts = None
         return msg, extra
-
-    async def _is_duplicate(self, trace_id: str) -> tuple[bool, str | None]:
-        """Check if trace_id was processed recently (hybrid: memory + blob storage).
-
-        Fast path: Check in-memory cache first
-        Slow path: On miss, check blob storage and update memory cache
-        """
-        now = time.time()
-
-        # Fast path: Check in-memory cache
-        if trace_id in self._dedup_cache:
-            event_id, cached_time = self._dedup_cache[trace_id]
-            if now - cached_time < self._dedup_cache_ttl_seconds:
-                self._dedup_cache.move_to_end(trace_id)
-                self._dedup_memory_hits += 1
-                return True, event_id
-            # Expired - remove from memory cache
-            del self._dedup_cache[trace_id]
-
-        # Slow path: Check blob storage (persistent across restarts)
-        if self._dedup_store:
-            try:
-                is_dup, metadata = await self._dedup_store.check_duplicate(
-                    self._dedup_worker_name,
-                    trace_id,
-                    self._dedup_cache_ttl_seconds,
-                )
-                if is_dup and metadata:
-                    # Found in blob - update memory cache for faster subsequent lookups
-                    cached_event_id = metadata.get("event_id")
-                    timestamp = metadata.get("timestamp", now)
-                    self._dedup_cache[trace_id] = (cached_event_id, timestamp)
-                    self._dedup_blob_hits += 1
-                    logger.debug(
-                        "Found duplicate in blob storage (restored to memory cache)",
-                        extra={"trace_id": trace_id},
-                    )
-                    return True, cached_event_id
-            except Exception as e:
-                logger.warning(
-                    "Error checking blob storage for duplicate (falling back to memory-only)",
-                    extra={"trace_id": trace_id, "error": str(e)},
-                    exc_info=False,
-                )
-
-        return False, None
 
     def _mark_processed(self, trace_id: str, event_id: str) -> None:
         """Add trace_id -> event_id mapping to memory cache, fire-and-forget to blob."""

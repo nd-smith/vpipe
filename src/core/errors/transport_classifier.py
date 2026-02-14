@@ -388,12 +388,9 @@ class TransportErrorClassifier:
         Returns:
             Classified PipelineError subclass
         """
-        operation_type = operation_type.lower()
-
-        if operation_type == "consumer":
-            return TransportErrorClassifier.classify_consumer_error(error, context)
-        elif operation_type == "producer":
-            return TransportErrorClassifier.classify_producer_error(error, context)
-        else:
-            # Fall back to generic classification
-            return wrap_exception(error, context=context)
+        classifiers = {
+            "consumer": TransportErrorClassifier.classify_consumer_error,
+            "producer": TransportErrorClassifier.classify_producer_error,
+        }
+        classifier = classifiers.get(operation_type.lower(), wrap_exception)
+        return classifier(error, context=context)

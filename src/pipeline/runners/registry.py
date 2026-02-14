@@ -82,15 +82,6 @@ async def run_worker_from_registry(
 ):
     """Run a worker by looking it up in the registry.
 
-    Args:
-        worker_name: Name of the worker to run
-        pipeline_config: Pipeline configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        enable_delta_writes: Whether to enable Delta writes
-        eventhub_config: Event Hub configuration (optional)
-        local_kafka_config: Local Kafka configuration (optional)
-        instance_id: Instance identifier for multi-instance deployments (optional)
-
     Raises:
         ValueError: If worker not found in registry or requirements not met
     """
@@ -105,6 +96,7 @@ async def run_worker_from_registry(
         "pipeline_config": pipeline_config,
         "shutdown_event": shutdown_event,
         "enable_delta_writes": enable_delta_writes,
+        "claimx_projects_table_path": pipeline_config.claimx_projects_table_path,
         "eventhub_config": eventhub_config,
         "local_kafka_config": local_kafka_config,
         "kafka_config": local_kafka_config,

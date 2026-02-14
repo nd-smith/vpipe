@@ -411,7 +411,6 @@ class HandlerRegistry:
 
 
 def get_handler_registry() -> HandlerRegistry:
-    """Get the handler registry instance."""
     return HandlerRegistry()
 
 

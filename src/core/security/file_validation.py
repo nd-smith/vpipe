@@ -75,14 +75,9 @@ EXTENSION_TO_MIME: dict[str, set[str]] = {
 
 
 def extract_extension(filename_or_url: str) -> str | None:
-    """
-    Extract file extension from filename or URL.
+    """Extract file extension, checking URL path then 'filename' query param as fallback.
 
-    Checks path first, then fallback to 'filename' query parameter for
-    file service APIs where filename is in query string.
-
-    Returns:
-        Lowercase extension without dot, or None if not found
+    Returns lowercase extension without dot, or None if not found.
     """
     if not filename_or_url:
         return None
@@ -123,12 +118,7 @@ def extract_extension(filename_or_url: str) -> str | None:
 
 
 def normalize_content_type(content_type: str) -> str:
-    """
-    Normalize Content-Type header to lowercase MIME type without parameters.
-
-    Returns:
-        Normalized MIME type (e.g., "image/jpeg")
-    """
+    """Normalize Content-Type to lowercase MIME type without parameters."""
     if not content_type:
         return ""
 
@@ -198,23 +188,7 @@ def validate_file_type(
 
 
 def is_allowed_extension(extension: str) -> bool:
-    """
-    Check if file extension is allowed.
-
-    Args:
-        extension: File extension (with or without leading dot)
-
-    Returns:
-        True if extension is in ALLOWED_EXTENSIONS
-
-    Examples:
-        >>> is_allowed_extension("pdf")
-        True
-        >>> is_allowed_extension(".PDF")
-        True
-        >>> is_allowed_extension("exe")
-        False
-    """
+    """Check if extension (with or without leading dot) is in ALLOWED_EXTENSIONS."""
     if not extension:
         return False
 
@@ -224,23 +198,7 @@ def is_allowed_extension(extension: str) -> bool:
 
 
 def is_allowed_content_type(content_type: str) -> bool:
-    """
-    Check if Content-Type is allowed.
-
-    Args:
-        content_type: Content-Type header value
-
-    Returns:
-        True if MIME type is in ALLOWED_CONTENT_TYPES
-
-    Examples:
-        >>> is_allowed_content_type("application/pdf")
-        True
-        >>> is_allowed_content_type("IMAGE/JPEG; charset=utf-8")
-        True
-        >>> is_allowed_content_type("application/x-executable")
-        False
-    """
+    """Check if normalized Content-Type is in ALLOWED_CONTENT_TYPES."""
     if not content_type:
         return False
 

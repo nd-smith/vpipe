@@ -309,7 +309,6 @@ class DLQHandler:
 
     @property
     def is_running(self):
-        """Check if DLQ handler is running and ready to process messages."""
         return (
             self._consumer is not None
             and self._consumer.is_running

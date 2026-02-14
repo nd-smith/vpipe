@@ -23,16 +23,13 @@ class ProjectCache:
     """
 
     def __init__(self):
-        """Initialize cache."""
         self._projects: set[str] = set()
         logger.debug("ProjectCache initialized")
 
     def has(self, project_id: str) -> bool:
-        """Check if project ID is in cache."""
         return project_id in self._projects
 
     def add(self, project_id: str) -> None:
-        """Add project ID to cache."""
         self._projects.add(project_id)
 
     def load_from_ids(self, project_ids: list[str]) -> int:
@@ -60,9 +57,7 @@ class ProjectCache:
         return loaded_count
 
     def size(self) -> int:
-        """Get current cache size."""
         return len(self._projects)
 
     def clear(self) -> None:
-        """Clear all cached project IDs."""
         self._projects.clear()

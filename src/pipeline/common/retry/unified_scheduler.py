@@ -28,6 +28,8 @@ from pipeline.common.types import PipelineMessage
 logger = logging.getLogger(__name__)
 
 STATS_LOG_INTERVAL_SECONDS = 30
+RETRY_REQUEUE_DELAY_SECONDS = 5
+PERSISTENCE_FILE_PREFIX = "pcesdopodappv1_"
 
 
 def parse_retry_count(value: str) -> int | None:
@@ -141,7 +143,7 @@ class UnifiedRetryScheduler:
         self._stats_logger: PeriodicStatsLogger | None = None
 
         base_dir = persistence_dir or "/tmp"
-        persistence_file = Path(base_dir) / f"pcesdopodappv1_{domain}_retry_queue.json"
+        persistence_file = Path(base_dir) / f"{PERSISTENCE_FILE_PREFIX}{domain}_retry_queue.json"
         self._delay_queue = DelayQueue(domain, persistence_file)
 
         # Metrics
@@ -656,7 +658,7 @@ class UnifiedRetryScheduler:
                             f"Failed to route delayed message to '{delayed_msg.target_topic}', will retry in 5s: {type(e).__name__}: {str(e)}",
                             exc_info=True,
                         )
-                        self._delay_queue.requeue_with_delay(delayed_msg, delay_seconds=5)
+                        self._delay_queue.requeue_with_delay(delayed_msg, delay_seconds=RETRY_REQUEUE_DELAY_SECONDS)
 
                 # Sleep until next message is ready (or max 1 second)
                 next_time = self._delay_queue.next_scheduled_time

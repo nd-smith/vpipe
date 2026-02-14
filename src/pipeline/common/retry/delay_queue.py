@@ -15,8 +15,6 @@ EXPIRED_MESSAGE_GRACE_SECONDS = 300
 
 @dataclass
 class DelayedMessage:
-    """In-memory representation of a delayed retry message."""
-
     scheduled_time: datetime
     target_topic: str
     retry_count: int

@@ -16,20 +16,9 @@ def create_consumer(
     instance_id: str | None = None,
     max_poll_records: int | None = None,
 ) -> AIOKafkaConsumer:
-    """
-    Create and return an AIOKafkaConsumer with standard configuration.
-
-    Args:
-        config: Kafka configuration
-        domain: Pipeline domain (e.g., "verisk", "claimx")
-        worker_name: Worker name for config lookup
-        topics: Topic(s) to consume from
-        instance_id: Optional instance ID for client_id
-        max_poll_records: Optional max records per poll
-    """
+    """Create and return an AIOKafkaConsumer with standard configuration."""
     consumer_config_dict = config.get_worker_config(domain, worker_name, "consumer")
 
-    # Build base consumer config
     consumer_config: dict[str, Any] = {
         "bootstrap_servers": config.bootstrap_servers,
         "group_id": config.get_consumer_group(domain, worker_name),
@@ -48,15 +37,12 @@ def create_consumer(
     if max_poll_records is not None:
         consumer_config["max_poll_records"] = max_poll_records
 
-    # Add optional consumer settings
     for key in ["heartbeat_interval_ms", "fetch_min_bytes", "fetch_max_wait_ms"]:
         if key in consumer_config_dict:
             consumer_config[key] = consumer_config_dict[key]
 
-    # Add security configuration
     consumer_config.update(build_kafka_security_config(config))
 
-    # Handle both single topic (str) and multiple topics (list)
     if isinstance(topics, str):
         return AIOKafkaConsumer(topics, **consumer_config)
     return AIOKafkaConsumer(*topics, **consumer_config)

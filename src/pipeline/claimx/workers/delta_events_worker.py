@@ -84,7 +84,6 @@ class ClaimXDeltaEventsWorker:
         self.consumer = None
         self.producer = producer
 
-        # Create worker_id with instance suffix (ordinal) if provided
         if instance_id:
             self.worker_id = f"{self.WORKER_NAME}-{instance_id}"
         else:
@@ -116,7 +115,6 @@ class ClaimXDeltaEventsWorker:
         self._cycle_offset_end_ts = None
         self._running = False
 
-        # Initialize Delta writer
         if not events_table_path:
             raise ValueError("events_table_path is required for ClaimXDeltaEventsWorker")
 

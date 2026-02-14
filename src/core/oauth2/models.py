@@ -53,7 +53,6 @@ class OAuth2Config:
     additional_params: dict[str, str] | None = None
 
     def get_scope_string(self) -> str:
-        """Get scope as space-separated string."""
         if not self.scope:
             return ""
         if isinstance(self.scope, list):

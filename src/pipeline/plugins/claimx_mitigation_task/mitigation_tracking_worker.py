@@ -22,7 +22,6 @@ Environment Variables:
 import asyncio
 import logging
 import os
-import signal
 import sys
 from pathlib import Path
 
@@ -31,6 +30,7 @@ from dotenv import load_dotenv
 
 from config.config import MessageConfig
 from core.logging import log_worker_startup, setup_logging
+from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.connections import (
@@ -340,20 +340,7 @@ async def main():
         pipeline=pipeline,
     )
 
-    # Setup signal handlers (Windows-compatible)
-    loop = asyncio.get_event_loop()
-    try:
-        # Unix signal handling
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
-    except NotImplementedError:
-        # Windows doesn't support add_signal_handler
-        def signal_handler(signum, frame):
-            logger.info("Received signal %s, initiating shutdown", signum)
-            asyncio.create_task(worker.stop())
-
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
+    setup_shutdown_signal_handlers(lambda: asyncio.create_task(worker.stop()))
 
     try:
         await connection_manager.start()

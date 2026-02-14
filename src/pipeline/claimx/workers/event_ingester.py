@@ -359,14 +359,63 @@ class ClaimXEventIngesterWorker:
         Returns True to commit the batch, False to skip (messages redelivered).
         """
         start_time = time.perf_counter()
-        enrichment_tasks: list[tuple[str, ClaimXEnrichmentTask]] = []
-        processed_event_ids: list[str] = []
 
-        latest_timestamp = None
+        # Parse, dedup (memory + blob), and collect non-duplicate events
+        parsed_events, latest_timestamp = await self._parse_and_dedup_events(records)
 
-        # Pass 1: Parse messages, check memory cache, collect cache misses
+        # Build enrichment tasks from non-duplicate events
+        enrichment_tasks, processed_event_ids = self._build_enrichment_tasks(parsed_events)
+
+        # Batch-produce all enrichment tasks
+        if enrichment_tasks:
+            try:
+                await self.producer.send_batch(messages=enrichment_tasks)
+                self._records_succeeded += len(enrichment_tasks)
+            except Exception as e:
+                # Roll back dedup marks — messages will be redelivered
+                for event_id in processed_event_ids:
+                    self._dedup_cache.pop(event_id, None)
+
+                logger.error(
+                    "Failed to send ClaimX enrichment batch — will retry",
+                    extra={
+                        "batch_size": len(enrichment_tasks),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                return False
+
+        # Adjust batch size based on event age (backfill vs realtime)
+        if latest_timestamp:
+            if latest_timestamp.tzinfo is None:
+                latest_timestamp = latest_timestamp.replace(tzinfo=UTC)
+            event_age = (datetime.now(UTC) - latest_timestamp).total_seconds()
+            self._adjust_batch_size(event_age)
+
+        # Periodic cleanup of completed fire-and-forget blob write tasks
+        if len(self._blob_write_tasks) > 200:
+            self._blob_write_tasks = {t for t in self._blob_write_tasks if not t.done()}
+
+        # Record batch processing duration
+        duration = time.perf_counter() - start_time
+        message_processing_duration_seconds.labels(
+            topic=self.consumer_config.get_topic(self.domain, "events"),
+            consumer_group=f"{self.domain}-event-ingester",
+        ).observe(duration)
+
+        return True
+
+    async def _parse_and_dedup_events(
+        self, records: list[PipelineMessage],
+    ) -> tuple[list[ClaimXEventMessage], datetime | None]:
+        """Parse records, deduplicate via memory cache and blob storage.
+
+        Returns non-duplicate parsed events and the latest ingested_at timestamp.
+        """
         parsed_events: list[ClaimXEventMessage] = []
         seen_in_batch: set[str] = set()
+        latest_timestamp = None
         now = time.time()
 
         for record in records:
@@ -414,38 +463,53 @@ class ClaimXEventIngesterWorker:
 
             parsed_events.append(event)
 
-        # Pass 2: Concurrent blob storage checks for all cache misses
-        blob_duplicates: set[str] = set()
+        # Concurrent blob storage checks for all cache misses
         if self._dedup_store and parsed_events:
-            async def _check_blob(event_id: str) -> tuple[str, bool]:
-                async with self._blob_semaphore:
-                    try:
-                        is_dup, metadata = await self._dedup_store.check_duplicate(
-                            self._dedup_worker_name, event_id, self._dedup_cache_ttl_seconds,
-                        )
-                        if is_dup and metadata:
-                            timestamp = metadata.get("timestamp", time.time())
-                            self._dedup_cache[event_id] = timestamp
-                            self._dedup_blob_hits += 1
-                            return event_id, True
-                    except Exception as e:
-                        logger.warning(
-                            "Error checking blob storage for duplicate (falling back to memory-only)",
-                            extra={"trace_id": event_id, "error": str(e)},
-                        )
-                    return event_id, False
+            blob_duplicates = await self._check_blob_duplicates(parsed_events)
+            parsed_events = [ev for ev in parsed_events if ev.trace_id not in blob_duplicates]
 
-            results = await asyncio.gather(
-                *(_check_blob(ev.trace_id) for ev in parsed_events)
-            )
-            blob_duplicates = {eid for eid, is_dup in results if is_dup}
+        return parsed_events, latest_timestamp
 
-        # Pass 3: Build enrichment tasks from non-duplicate events
-        for event in parsed_events:
-            if event.trace_id in blob_duplicates:
-                self._records_deduplicated += 1
-                continue
+    async def _check_blob_duplicates(
+        self, events: list[ClaimXEventMessage],
+    ) -> set[str]:
+        """Check blob storage for duplicates, return set of duplicate event IDs."""
+        async def _check_one(event_id: str) -> tuple[str, bool]:
+            async with self._blob_semaphore:
+                try:
+                    is_dup, metadata = await self._dedup_store.check_duplicate(
+                        self._dedup_worker_name, event_id, self._dedup_cache_ttl_seconds,
+                    )
+                    if is_dup and metadata:
+                        timestamp = metadata.get("timestamp", time.time())
+                        self._dedup_cache[event_id] = timestamp
+                        self._dedup_blob_hits += 1
+                        return event_id, True
+                except Exception as e:
+                    logger.warning(
+                        "Error checking blob storage for duplicate (falling back to memory-only)",
+                        extra={"trace_id": event_id, "error": str(e)},
+                    )
+                return event_id, False
 
+        results = await asyncio.gather(
+            *(_check_one(ev.trace_id) for ev in events)
+        )
+        duplicates = {eid for eid, is_dup in results if is_dup}
+
+        for eid in duplicates:
+            self._records_deduplicated += 1
+
+        return duplicates
+
+    def _build_enrichment_tasks(
+        self, events: list[ClaimXEventMessage],
+    ) -> tuple[list[tuple[str, ClaimXEnrichmentTask]], list[str]]:
+        """Create enrichment tasks from validated, non-duplicate events."""
+        enrichment_tasks: list[tuple[str, ClaimXEnrichmentTask]] = []
+        processed_event_ids: list[str] = []
+
+        for event in events:
             self._records_processed += 1
 
             enrichment_task = ClaimXEnrichmentTask(
@@ -465,91 +529,7 @@ class ClaimXEventIngesterWorker:
             if self._dedup_enabled:
                 self._mark_processed(event.trace_id)
 
-        # Batch-produce all enrichment tasks
-        if enrichment_tasks:
-            try:
-                await self.producer.send_batch(messages=enrichment_tasks)
-                self._records_succeeded += len(enrichment_tasks)
-            except Exception as e:
-                # Roll back dedup marks — messages will be redelivered
-                for event_id in processed_event_ids:
-                    self._dedup_cache.pop(event_id, None)
-
-                logger.error(
-                    "Failed to send ClaimX enrichment batch — will retry",
-                    extra={
-                        "batch_size": len(enrichment_tasks),
-                        "error": str(e),
-                    },
-                    exc_info=True,
-                )
-                return False
-
-        # Adjust batch size based on event age (backfill vs realtime)
-        if latest_timestamp:
-            # Ensure timezone-aware for age calculation
-            if latest_timestamp.tzinfo is None:
-                latest_timestamp = latest_timestamp.replace(tzinfo=UTC)
-            event_age = (datetime.now(UTC) - latest_timestamp).total_seconds()
-            self._adjust_batch_size(event_age)
-
-        # Periodic cleanup of completed fire-and-forget blob write tasks
-        if len(self._blob_write_tasks) > 200:
-            self._blob_write_tasks = {t for t in self._blob_write_tasks if not t.done()}
-
-        # Record batch processing duration
-        duration = time.perf_counter() - start_time
-        message_processing_duration_seconds.labels(
-            topic=self.consumer_config.get_topic(self.domain, "events"),
-            consumer_group=f"{self.domain}-event-ingester",
-        ).observe(duration)
-
-        return True
-
-    async def _is_duplicate(self, event_id: str) -> bool:
-        """Check if event_id was processed recently (hybrid: memory + blob storage).
-
-        Fast path: Check in-memory cache first
-        Slow path: On miss, check blob storage and update memory cache
-        """
-        now = time.time()
-
-        # Fast path: Check in-memory cache
-        if event_id in self._dedup_cache:
-            cached_time = self._dedup_cache[event_id]
-            if now - cached_time < self._dedup_cache_ttl_seconds:
-                self._dedup_cache.move_to_end(event_id)
-                self._dedup_memory_hits += 1
-                return True
-            # Expired - remove from memory cache
-            del self._dedup_cache[event_id]
-
-        # Slow path: Check blob storage (persistent across restarts)
-        if self._dedup_store:
-            try:
-                is_dup, metadata = await self._dedup_store.check_duplicate(
-                    self._dedup_worker_name,
-                    event_id,
-                    self._dedup_cache_ttl_seconds,
-                )
-                if is_dup and metadata:
-                    # Found in blob - update memory cache for faster subsequent lookups
-                    timestamp = metadata.get("timestamp", now)
-                    self._dedup_cache[event_id] = timestamp
-                    self._dedup_blob_hits += 1
-                    logger.debug(
-                        "Found duplicate in blob storage (restored to memory cache)",
-                        extra={"trace_id": event_id},
-                    )
-                    return True
-            except Exception as e:
-                logger.warning(
-                    "Error checking blob storage for duplicate (falling back to memory-only)",
-                    extra={"trace_id": event_id, "error": str(e)},
-                    exc_info=False,
-                )
-
-        return False
+        return enrichment_tasks, processed_event_ids
 
     def _mark_processed(self, event_id: str) -> None:
         """Add event_id to memory cache, fire-and-forget to blob storage."""

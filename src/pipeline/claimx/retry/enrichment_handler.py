@@ -184,7 +184,6 @@ class EnrichmentRetryHandler:
         retry_topic = self.config.get_retry_topic(self.domain)
         delay_seconds = self._retry_delays[retry_count]
 
-        # Create updated task with incremented retry count
         updated_task = task.model_copy(deep=True)
         updated_task.retry_count += 1
 
@@ -257,7 +256,6 @@ class EnrichmentRetryHandler:
             RuntimeError: If producer is not started
             Exception: If send to DLQ fails
         """
-        # Create DLQ message
         dlq_message = FailedEnrichmentMessage(
             trace_id=task.trace_id,
             event_type=task.event_type,

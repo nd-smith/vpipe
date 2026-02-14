@@ -131,22 +131,16 @@ def is_available() -> bool:
 
 
 class _NoOpSpan:
-    """No-op span that accepts and ignores all set_tag calls."""
-
     def set_tag(self, key: str, value: Any) -> None:
         pass
 
 
 class _NoOpScope:
-    """No-op scope returned by the no-op tracer's context manager."""
-
     def __init__(self) -> None:
         self.span = _NoOpSpan()
 
 
 class _NoOpTracer:
-    """No-op tracer that provides an OpenTracing-compatible interface."""
-
     @contextlib.contextmanager
     def start_active_span(self, operation_name: str):
         yield _NoOpScope()

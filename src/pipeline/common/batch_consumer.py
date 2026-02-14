@@ -238,6 +238,53 @@ class MessageBatchConsumer:
             extra={"group_id": self.group_id},
         )
 
+    def _collect_messages(self, data: dict) -> list[PipelineMessage]:
+        """Flatten partition data from getmany() into a single message list."""
+        messages: list[PipelineMessage] = []
+        for partition_messages in data.values():
+            messages.extend([from_consumer_record(record) for record in partition_messages])
+        return messages
+
+    async def _flush_batch(self, messages: list[PipelineMessage]) -> None:
+        """Run the batch handler and commit offsets on success."""
+        start_time = time.perf_counter()
+
+        try:
+            should_commit = await self.batch_handler(messages)
+
+            duration = time.perf_counter() - start_time
+
+            if should_commit and self._enable_message_commit:
+                await self._consumer.commit()
+                logger.debug(
+                    "Batch committed",
+                    extra={
+                        "batch_size": len(messages),
+                        "duration_ms": round(duration * 1000, 2),
+                    },
+                )
+            else:
+                logger.info(
+                    "Batch commit skipped (handler returned False) - messages will be redelivered",
+                    extra={
+                        "batch_size": len(messages),
+                        "duration_ms": round(duration * 1000, 2),
+                    },
+                )
+
+        except Exception as e:
+            duration = time.perf_counter() - start_time
+
+            logger.error(
+                "Batch processing failed - messages will be redelivered",
+                extra={
+                    "batch_size": len(messages),
+                    "duration_ms": round(duration * 1000, 2),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+
     async def _consume_loop(self) -> None:
         """Main consumption loop - fetches and processes batches."""
         logger.info(
@@ -255,7 +302,6 @@ class MessageBatchConsumer:
 
         while self._running and self._consumer:
             try:
-                # Check max_batches limit
                 if self.max_batches is not None and self._batch_count >= self.max_batches:
                     logger.info(
                         "Reached max_batches limit, stopping consumer",
@@ -266,7 +312,6 @@ class MessageBatchConsumer:
                     )
                     return
 
-                # Wait for partition assignment
                 assignment = self._consumer.assignment()
                 if not assignment:
                     if not _logged_waiting_for_assignment:
@@ -291,7 +336,6 @@ class MessageBatchConsumer:
                     _logged_assignment_received = True
                     update_assigned_partitions(self.group_id, len(assignment))
 
-                # Fetch batch of messages
                 data = await self._consumer.getmany(
                     timeout_ms=self.batch_timeout_ms,
                     max_records=self.batch_size,
@@ -300,61 +344,17 @@ class MessageBatchConsumer:
                 if not data:
                     continue
 
-                # Flatten to single list of PipelineMessages
-                messages: list[PipelineMessage] = []
-                for partition_messages in data.values():
-                    messages.extend([from_consumer_record(record) for record in partition_messages])
-
+                messages = self._collect_messages(data)
                 if not messages:
                     continue
 
                 self._batch_count += 1
-
                 logger.debug(
                     "Processing batch",
                     extra={"batch_size": len(messages)},
                 )
 
-                start_time = time.perf_counter()
-
-                try:
-                    # Call batch handler
-                    should_commit = await self.batch_handler(messages)
-
-                    duration = time.perf_counter() - start_time
-
-                    if should_commit and self._enable_message_commit:
-                        await self._consumer.commit()
-                        logger.debug(
-                            "Batch committed",
-                            extra={
-                                "batch_size": len(messages),
-                                "duration_ms": round(duration * 1000, 2),
-                            },
-                        )
-                    else:
-                        logger.info(
-                            "Batch commit skipped (handler returned False) - messages will be redelivered",
-                            extra={
-                                "batch_size": len(messages),
-                                "duration_ms": round(duration * 1000, 2),
-                            },
-                        )
-
-                except Exception as e:
-                    duration = time.perf_counter() - start_time
-
-                    # Handler raised exception - don't commit
-                    logger.error(
-                        "Batch processing failed - messages will be redelivered",
-                        extra={
-                            "batch_size": len(messages),
-                            "duration_ms": round(duration * 1000, 2),
-                            "error": str(e),
-                        },
-                        exc_info=True,
-                    )
-                    # Don't re-raise - continue processing next batch
+                await self._flush_batch(messages)
 
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")

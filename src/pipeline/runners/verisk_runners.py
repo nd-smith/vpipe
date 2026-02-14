@@ -98,13 +98,7 @@ async def run_xact_enrichment_worker(
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
 ):
-    """Run XACT enrichment worker with plugin-based enrichment.
-
-    Args:
-        kafka_config: Kafka configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        instance_id: Optional instance ID for parallel workers
-    """
+    """Run XACT enrichment worker with plugin-based enrichment."""
     from pipeline.verisk.workers.enrichment_worker import XACTEnrichmentWorker
 
     worker = XACTEnrichmentWorker(
@@ -126,13 +120,7 @@ async def run_download_worker(
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
 ):
-    """Download files from external sources.
-
-    Args:
-        kafka_config: Kafka configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        instance_id: Optional instance ID for parallel workers
-    """
+    """Download files from external sources."""
     from pipeline.verisk.workers.download_worker import DownloadWorker
 
     worker = DownloadWorker(
@@ -154,13 +142,7 @@ async def run_upload_worker(
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
 ):
-    """Upload cached files to storage.
-
-    Args:
-        kafka_config: Kafka configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        instance_id: Optional instance ID for parallel workers
-    """
+    """Upload cached files to storage."""
     from pipeline.verisk.workers.upload_worker import UploadWorker
 
     worker = UploadWorker(config=kafka_config, domain="verisk", instance_id=instance_id)

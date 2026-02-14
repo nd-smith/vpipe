@@ -360,11 +360,6 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return result
 
 
-def _get_storage_config(pipeline_data: dict) -> dict:
-    """Get storage config from pipeline.storage section only."""
-    return pipeline_data.get("storage", {})
-
-
 def load_config(
     config_path: Path | None = None,
     overrides: dict[str, Any] | None = None,
@@ -402,7 +397,7 @@ def load_config(
     verisk_config = pipeline_config.get("verisk", {})
     claimx_config = pipeline_config.get("claimx", {})
 
-    storage = _get_storage_config(pipeline_config)
+    storage = pipeline_config.get("storage", {})
 
     claimx_root = yaml_data.get("claimx", {})
     claimx_api = claimx_root.get("api", {})

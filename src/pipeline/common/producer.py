@@ -73,7 +73,6 @@ class MessageProducer:
             acks_value = int(acks_value)
 
         # Idempotent producer prevents duplicate messages during retries.
-        # Kafka assigns Producer ID and tracks sequence numbers for deduplication.
         enable_idempotence = self.producer_config.get("enable_idempotence", True)
         if enable_idempotence and acks_value != "all":
             logger.warning(

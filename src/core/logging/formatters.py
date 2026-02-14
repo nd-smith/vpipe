@@ -149,22 +149,9 @@ class JSONFormatter(logging.Formatter):
     )
 
     def _sanitize_url(self, url: str) -> str:
-        """
-        Basic URL sanitization to remove sensitive query parameters.
-
-        This is a simple implementation. Full sanitization is in core.security
-        when available (WP-113).
-
-        Args:
-            url: URL to sanitize
-
-        Returns:
-            Sanitized URL with sensitive params replaced with [REDACTED]
-        """
         return self.SENSITIVE_PARAMS_PATTERN.sub(r"\1\2=[REDACTED]", url)
 
     def _sanitize_value(self, key: str, value: Any) -> Any:
-        """Sanitize value if it's a URL field."""
         if key in self.URL_FIELDS and isinstance(value, str):
             return self._sanitize_url(value)
         return value
@@ -305,7 +292,6 @@ class ConsoleFormatter(logging.Formatter):
         trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
         media_id = getattr(record, "media_id", None) or log_context.get("media_id")
 
-        # Build context tags
         tags = []
         if batch_id:
             tags.append(f"[batch:{batch_id}]")

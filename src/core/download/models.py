@@ -54,7 +54,6 @@ class DownloadOutcome:
         content_type: str | None,
         status_code: int,
     ) -> "DownloadOutcome":
-        """Create successful download outcome."""
         return cls(
             success=True,
             file_path=file_path,
@@ -69,7 +68,6 @@ class DownloadOutcome:
         validation_error: str,
         error_category: ErrorCategory = ErrorCategory.PERMANENT,
     ) -> "DownloadOutcome":
-        """Create validation failure outcome (URL or file type validation)."""
         return cls(
             success=False,
             error_message=f"Validation failed: {validation_error}",
@@ -84,7 +82,6 @@ class DownloadOutcome:
         error_category: ErrorCategory,
         status_code: int | None = None,
     ) -> "DownloadOutcome":
-        """Create download failure outcome (HTTP errors, timeouts, connection failures)."""
         return cls(
             success=False,
             error_message=error_message,

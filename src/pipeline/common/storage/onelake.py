@@ -302,6 +302,108 @@ class OneLakeClient:
         }
         self._pool_stats_lock = threading.Lock()
 
+    def _create_credential(self) -> tuple[Any, str]:
+        """Detect and create the appropriate Azure credential.
+
+        Tries auth methods in priority order: token file, CLI, service principal.
+
+        Returns:
+            (credential, auth_mode) tuple where auth_mode is "file", "cli", or "spn".
+        """
+        auth = get_auth()
+
+        # 1. Token file auth (auto-refreshing)
+        if auth.token_file:
+            try:
+                credential = FileBackedTokenCredential(resource=auth.STORAGE_RESOURCE)
+                self._file_credential = credential
+                self._credential = credential
+                logger.info(
+                    "Using FileBackedTokenCredential for auto-refresh",
+                    extra={"token_file": auth.token_file},
+                )
+                return credential, "file"
+            except Exception as e:
+                logger.warning(
+                    "Token file auth failed, trying other methods",
+                    extra={"error": str(e)[:200]},
+                )
+
+        self._file_credential = None
+        self._credential = None
+
+        # 2. CLI auth
+        if auth.use_cli:
+            token = auth.get_storage_token()
+            if not token:
+                raise RuntimeError("Failed to get CLI storage token")
+            credential = TokenCredential(token)
+            self._credential = credential
+            return credential, "cli"
+
+        # 3. Service principal auth
+        if auth.has_spn_credentials:
+            from azure.identity import ClientSecretCredential
+
+            if auth.tenant_id is None:
+                raise RuntimeError("Azure tenant_id is required for SPN authentication")
+            if auth.client_id is None:
+                raise RuntimeError("Azure client_id is required for SPN authentication")
+            if auth.client_secret is None:
+                raise RuntimeError("Azure client_secret is required for SPN authentication")
+
+            credential = ClientSecretCredential(
+                tenant_id=auth.tenant_id,
+                client_id=auth.client_id,
+                client_secret=auth.client_secret,
+                **get_ca_bundle_kwargs(),
+            )
+            self._credential = credential
+            return credential, "spn"
+
+        raise RuntimeError(
+            "No Azure credentials configured. "
+            "Set AZURE_TOKEN_FILE for token file auth, "
+            "Set AZURE_AUTH_INTERACTIVE=true for CLI auth, or "
+            "set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID for SPN auth."
+        )
+
+    def _verify_connectivity(self, auth_mode: str) -> None:
+        """Startup connectivity smoke test — verify OneLake is reachable.
+
+        Warning only (not a gate) since retry logic on actual operations
+        will handle transient failures.
+        """
+        try:
+            import concurrent.futures
+
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(self._file_system_client.get_file_system_properties)
+            try:
+                future.result(timeout=15)
+            finally:
+                # shutdown(wait=False) so a hung network call doesn't block
+                # the entire application from starting
+                pool.shutdown(wait=False, cancel_futures=True)
+            logger.info(
+                "OneLake connectivity verified",
+                extra={
+                    "account_host": self.account_host,
+                    "container": self.container,
+                    "auth_mode": auth_mode,
+                },
+            )
+        except Exception as e:
+            logger.warning(
+                "OneLake connectivity check failed (will retry on first operation)",
+                extra={
+                    "error": str(e)[:200],
+                    "error_type": type(e).__name__,
+                    "account_host": self.account_host,
+                    "container": self.container,
+                },
+            )
+
     def _create_clients(self, max_pool_size: int = 25) -> None:
         """Create or recreate clients with dynamic connection pool sizing (P2.4)."""
         cpu_cores = os.cpu_count() or 4
@@ -321,67 +423,7 @@ class OneLakeClient:
             },
         )
 
-        auth = get_auth()
-
-        if auth.token_file:
-            try:
-                credential = FileBackedTokenCredential(resource=auth.STORAGE_RESOURCE)
-                self._file_credential = credential
-                self._credential = credential
-                auth_mode = "file"
-                logger.info(
-                    "Using FileBackedTokenCredential for auto-refresh",
-                    extra={"token_file": auth.token_file},
-                )
-            except Exception as e:
-                logger.warning(
-                    "Token file auth failed, trying other methods",
-                    extra={"error": str(e)[:200]},
-                )
-                credential = None
-                auth_mode = None
-                self._file_credential = None
-                self._credential = None
-        else:
-            credential = None
-            auth_mode = None
-            self._file_credential = None
-            self._credential = None
-
-        if credential is None and auth.use_cli:
-            token = auth.get_storage_token()
-            if not token:
-                raise RuntimeError("Failed to get CLI storage token")
-            credential = TokenCredential(token)
-            self._credential = credential
-            auth_mode = "cli"
-
-        if credential is None and auth.has_spn_credentials:
-            from azure.identity import ClientSecretCredential
-
-            if auth.tenant_id is None:
-                raise RuntimeError("Azure tenant_id is required for SPN authentication")
-            if auth.client_id is None:
-                raise RuntimeError("Azure client_id is required for SPN authentication")
-            if auth.client_secret is None:
-                raise RuntimeError("Azure client_secret is required for SPN authentication")
-
-            credential = ClientSecretCredential(
-                tenant_id=auth.tenant_id,
-                client_id=auth.client_id,
-                client_secret=auth.client_secret,
-                **get_ca_bundle_kwargs(),
-            )
-            self._credential = credential
-            auth_mode = "spn"
-
-        if credential is None:
-            raise RuntimeError(
-                "No Azure credentials configured. "
-                "Set AZURE_TOKEN_FILE for token file auth, "
-                "Set AZURE_AUTH_INTERACTIVE=true for CLI auth, or "
-                "set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID for SPN auth."
-            )
+        credential, auth_mode = self._create_credential()
 
         account_url = f"https://{self.account_host}"
 
@@ -422,38 +464,7 @@ class OneLakeClient:
             },
         )
 
-        # Startup connectivity smoke test — verify OneLake is reachable before
-        # first real operation. Warning only (not a gate) since retry logic on
-        # actual operations will handle transient failures.
-        try:
-            import concurrent.futures
-
-            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            future = pool.submit(self._file_system_client.get_file_system_properties)
-            try:
-                future.result(timeout=15)
-            finally:
-                # shutdown(wait=False) so a hung network call doesn't block
-                # the entire application from starting
-                pool.shutdown(wait=False, cancel_futures=True)
-            logger.info(
-                "OneLake connectivity verified",
-                extra={
-                    "account_host": self.account_host,
-                    "container": self.container,
-                    "auth_mode": auth_mode,
-                },
-            )
-        except Exception as e:
-            logger.warning(
-                "OneLake connectivity check failed (will retry on first operation)",
-                extra={
-                    "error": str(e)[:200],
-                    "error_type": type(e).__name__,
-                    "account_host": self.account_host,
-                    "container": self.container,
-                },
-            )
+        self._verify_connectivity(auth_mode)
 
     def __enter__(self):
         self._create_clients(max_pool_size=self._max_pool_size)

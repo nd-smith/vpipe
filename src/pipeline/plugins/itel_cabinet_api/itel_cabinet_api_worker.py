@@ -26,7 +26,6 @@ import asyncio
 import json
 import logging
 import os
-import signal
 import sys
 import time
 from datetime import UTC, datetime
@@ -40,6 +39,7 @@ from core.logging import setup_logging
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.common.health import HealthCheckServer
+from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_message_consumed,
@@ -780,17 +780,7 @@ async def main():
     logger.info("Consumer group: %s", worker.transport_config["consumer_group"])
 
     shutdown_event = asyncio.Event()
-    loop = asyncio.get_event_loop()
-    try:
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, shutdown_event.set)
-    except NotImplementedError:
-        def signal_handler(signum, frame):
-            logger.info("Received signal %s, initiating shutdown", signum)
-            shutdown_event.set()
-
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
+    setup_shutdown_signal_handlers(shutdown_event.set)
 
     try:
         await connection_manager.start()

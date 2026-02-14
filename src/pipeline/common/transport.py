@@ -488,6 +488,66 @@ def create_producer(
         )
 
 
+async def _setup_eventhub_consumer_args(
+    domain: str,
+    worker_name: str,
+    topics: list[str],
+    topic_key: str | None,
+    config: MessageConfig,
+    connection_string: str | None,
+    starting_position: str | None,
+    consumer_label: str,
+) -> dict:
+    """Resolve common Event Hub consumer configuration.
+
+    Returns a dict with: connection_string, eventhub_name, consumer_group,
+    checkpoint_store, starting_position, starting_position_inclusive.
+    """
+    namespace_connection_string = connection_string or _get_namespace_connection_string()
+
+    if topic_key:
+        eventhub_name = _resolve_eventhub_name(domain, topic_key, worker_name)
+    else:
+        eventhub_name = topics[0]
+
+    consumer_group = _resolve_eventhub_consumer_group(domain, topic_key, worker_name, config)
+
+    checkpoint_store = None
+    try:
+        checkpoint_store = await get_checkpoint_store()
+        if checkpoint_store is None:
+            logger.info(
+                f"Event Hub {consumer_label} will use in-memory checkpointing: "
+                f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
+                f"Configure checkpoint store in config.yaml for durable offset persistence."
+            )
+        else:
+            logger.info(
+                f"Event Hub {consumer_label} initialized with blob checkpoint store: "
+                f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}"
+            )
+    except Exception as e:
+        logger.error(
+            f"Failed to initialize checkpoint store for Event Hub {consumer_label}: "
+            f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
+            f"Falling back to in-memory checkpointing. Error: {e}"
+        )
+
+    if starting_position is not None:
+        pos, pos_inclusive = _parse_starting_position(starting_position)
+    else:
+        pos, pos_inclusive = _resolve_starting_position(domain, topic_key)
+
+    return {
+        "connection_string": namespace_connection_string,
+        "eventhub_name": eventhub_name,
+        "consumer_group": consumer_group,
+        "checkpoint_store": checkpoint_store,
+        "starting_position": pos,
+        "starting_position_inclusive": pos_inclusive,
+    }
+
+
 async def create_consumer(
     config: MessageConfig,
     domain: str,
@@ -539,67 +599,30 @@ async def create_consumer(
     if transport == TransportType.EVENTHUB:
         from pipeline.common.eventhub.consumer import EventHubConsumer
 
-        # Get namespace connection string
-        namespace_connection_string = connection_string or _get_namespace_connection_string()
-
-        # Resolve Event Hub name: use topic_key config lookup, or fall back to topics[0]
-        if topic_key:
-            eventhub_name = _resolve_eventhub_name(domain, topic_key, worker_name)
-        else:
-            # Backward compat: use the Kafka topic name as Event Hub name
-            eventhub_name = topics[0]
-
-        # Resolve consumer group from config
-        consumer_group = _resolve_eventhub_consumer_group(domain, topic_key, worker_name, config)
-
-        # Get checkpoint store for durable offset persistence
-        checkpoint_store = None
-        try:
-            checkpoint_store = await get_checkpoint_store()
-            if checkpoint_store is None:
-                logger.info(
-                    f"Event Hub consumer will use in-memory checkpointing: "
-                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
-                    f"Configure checkpoint store in config.yaml for durable offset persistence."
-                )
-            else:
-                logger.info(
-                    f"Event Hub consumer initialized with blob checkpoint store: "
-                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}"
-                )
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize checkpoint store for Event Hub consumer: "
-                f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
-                f"Falling back to in-memory checkpointing. Error: {e}"
-            )
-            # Continue with None checkpoint_store (in-memory mode)
-
-        # Resolve starting position
-        if starting_position is not None:
-            pos, pos_inclusive = _parse_starting_position(starting_position)
-        else:
-            pos, pos_inclusive = _resolve_starting_position(domain, topic_key)
+        eh = await _setup_eventhub_consumer_args(
+            domain, worker_name, topics, topic_key, config,
+            connection_string, starting_position, consumer_label="consumer",
+        )
 
         logger.info(
             f"Creating Event Hub consumer: domain={domain}, worker={worker_name}, "
-            f"eventhub={eventhub_name}, group={consumer_group}, "
-            f"starting_position={pos}"
+            f"eventhub={eh['eventhub_name']}, group={eh['consumer_group']}, "
+            f"starting_position={eh['starting_position']}"
         )
 
         return EventHubConsumer(
-            connection_string=namespace_connection_string,
+            connection_string=eh["connection_string"],
             domain=domain,
             worker_name=worker_name,
-            eventhub_name=eventhub_name,
-            consumer_group=consumer_group,
+            eventhub_name=eh["eventhub_name"],
+            consumer_group=eh["consumer_group"],
             message_handler=message_handler,
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
-            checkpoint_store=checkpoint_store,
+            checkpoint_store=eh["checkpoint_store"],
             prefetch=prefetch,
-            starting_position=pos,
-            starting_position_inclusive=pos_inclusive,
+            starting_position=eh["starting_position"],
+            starting_position_inclusive=eh["starting_position_inclusive"],
             checkpoint_interval=checkpoint_interval,
         )
 
@@ -694,70 +717,34 @@ async def create_batch_consumer(
     if transport == TransportType.EVENTHUB:
         from pipeline.common.eventhub.batch_consumer import EventHubBatchConsumer
 
-        # Get namespace connection string
-        namespace_connection_string = connection_string or _get_namespace_connection_string()
-
-        # Resolve Event Hub name
-        if topic_key:
-            eventhub_name = _resolve_eventhub_name(domain, topic_key, worker_name)
-        else:
-            eventhub_name = topics[0]
-
-        # Resolve consumer group from config
-        consumer_group = _resolve_eventhub_consumer_group(domain, topic_key, worker_name, config)
-
-        # Get checkpoint store for durable offset persistence
-        checkpoint_store = None
-        try:
-            checkpoint_store = await get_checkpoint_store()
-            if checkpoint_store is None:
-                logger.info(
-                    f"Event Hub batch consumer will use in-memory checkpointing: "
-                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
-                    f"Configure checkpoint store in config.yaml for durable offset persistence."
-                )
-            else:
-                logger.info(
-                    f"Event Hub batch consumer initialized with blob checkpoint store: "
-                    f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}"
-                )
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize checkpoint store for Event Hub batch consumer: "
-                f"domain={domain}, worker={worker_name}, eventhub={eventhub_name}. "
-                f"Falling back to in-memory checkpointing. Error: {e}"
-            )
-            # Continue with None checkpoint_store (in-memory mode)
-
-        # Resolve starting position
-        if starting_position is not None:
-            pos, pos_inclusive = _parse_starting_position(starting_position)
-        else:
-            pos, pos_inclusive = _resolve_starting_position(domain, topic_key)
+        eh = await _setup_eventhub_consumer_args(
+            domain, worker_name, topics, topic_key, config,
+            connection_string, starting_position, consumer_label="batch consumer",
+        )
 
         logger.info(
             f"Creating Event Hub batch consumer: domain={domain}, worker={worker_name}, "
-            f"eventhub={eventhub_name}, group={consumer_group}, "
+            f"eventhub={eh['eventhub_name']}, group={eh['consumer_group']}, "
             f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}, "
-            f"starting_position={pos}"
+            f"starting_position={eh['starting_position']}"
         )
 
         return EventHubBatchConsumer(
-            connection_string=namespace_connection_string,
+            connection_string=eh["connection_string"],
             domain=domain,
             worker_name=worker_name,
-            eventhub_name=eventhub_name,
-            consumer_group=consumer_group,
+            eventhub_name=eh["eventhub_name"],
+            consumer_group=eh["consumer_group"],
             batch_handler=batch_handler,
             batch_size=batch_size,
             max_batch_size=max_batch_size,
             batch_timeout_ms=batch_timeout_ms,
             enable_message_commit=enable_message_commit,
             instance_id=instance_id,
-            checkpoint_store=checkpoint_store,
+            checkpoint_store=eh["checkpoint_store"],
             prefetch=prefetch,
-            starting_position=pos,
-            starting_position_inclusive=pos_inclusive,
+            starting_position=eh["starting_position"],
+            starting_position_inclusive=eh["starting_position_inclusive"],
         )
 
     else:  # TransportType.KAFKA

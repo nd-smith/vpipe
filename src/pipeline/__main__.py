@@ -254,6 +254,64 @@ Examples:
     return parser.parse_args()
 
 
+def _create_event_ingester_task(verisk_runners, eventhub_config, kafka_config, shutdown_event, domain):
+    return asyncio.create_task(
+        verisk_runners.run_event_ingester(
+            eventhub_config,
+            kafka_config,
+            shutdown_event,
+            domain=domain,
+        ),
+        name="xact-event-ingester",
+    )
+
+
+def _create_delta_writer_tasks(verisk_runners, kafka_config, events_table_path, shutdown_event):
+    tasks = []
+    tasks.append(
+        asyncio.create_task(
+            verisk_runners.run_delta_events_worker(
+                kafka_config, events_table_path, shutdown_event
+            ),
+            name="xact-delta-writer",
+        )
+    )
+    logger.info("Delta events writer enabled")
+
+    tasks.append(
+        asyncio.create_task(
+            verisk_runners.run_xact_retry_scheduler(kafka_config, shutdown_event),
+            name="xact-retry-scheduler",
+        )
+    )
+    logger.info("XACT unified retry scheduler enabled")
+
+    return tasks
+
+
+def _create_core_xact_tasks(verisk_runners, kafka_config, shutdown_event, pipeline_config, enable_delta_writes):
+    return [
+        asyncio.create_task(
+            verisk_runners.run_download_worker(kafka_config, shutdown_event),
+            name="xact-download",
+        ),
+        asyncio.create_task(
+            verisk_runners.run_upload_worker(kafka_config, shutdown_event),
+            name="xact-upload",
+        ),
+        asyncio.create_task(
+            verisk_runners.run_result_processor(
+                kafka_config,
+                shutdown_event,
+                enable_delta_writes,
+                inventory_table_path=pipeline_config.inventory_table_path,
+                failed_table_path=pipeline_config.failed_table_path,
+            ),
+            name="xact-result-processor",
+        ),
+    ]
+
+
 async def run_all_workers(
     pipeline_config,
     enable_delta_writes: bool = True,
@@ -271,62 +329,24 @@ async def run_all_workers(
 
     tasks = []
 
-    events_table_path = pipeline_config.events_table_path
-
     eventhub_config = pipeline_config.eventhub.to_message_config()
     tasks.append(
-        asyncio.create_task(
-            verisk_runners.run_event_ingester(
-                eventhub_config,
-                kafka_config,
-                shutdown_event,
-                domain=pipeline_config.domain,
-            ),
-            name="xact-event-ingester",
+        _create_event_ingester_task(
+            verisk_runners, eventhub_config, kafka_config, shutdown_event, pipeline_config.domain
         )
     )
     logger.info("Using Event Hub as event source")
 
+    events_table_path = pipeline_config.events_table_path
     if enable_delta_writes and events_table_path:
-        tasks.append(
-            asyncio.create_task(
-                verisk_runners.run_delta_events_worker(
-                    kafka_config, events_table_path, shutdown_event
-                ),
-                name="xact-delta-writer",
-            )
+        tasks.extend(
+            _create_delta_writer_tasks(verisk_runners, kafka_config, events_table_path, shutdown_event)
         )
-        logger.info("Delta events writer enabled")
-
-        tasks.append(
-            asyncio.create_task(
-                verisk_runners.run_xact_retry_scheduler(kafka_config, shutdown_event),
-                name="xact-retry-scheduler",
-            )
-        )
-        logger.info("XACT unified retry scheduler enabled")
 
     tasks.extend(
-        [
-            asyncio.create_task(
-                verisk_runners.run_download_worker(kafka_config, shutdown_event),
-                name="xact-download",
-            ),
-            asyncio.create_task(
-                verisk_runners.run_upload_worker(kafka_config, shutdown_event),
-                name="xact-upload",
-            ),
-            asyncio.create_task(
-                verisk_runners.run_result_processor(
-                    kafka_config,
-                    shutdown_event,
-                    enable_delta_writes,
-                    inventory_table_path=pipeline_config.inventory_table_path,
-                    failed_table_path=pipeline_config.failed_table_path,
-                ),
-                name="xact-result-processor",
-            ),
-        ]
+        _create_core_xact_tasks(
+            verisk_runners, kafka_config, shutdown_event, pipeline_config, enable_delta_writes
+        )
     )
 
     try:
@@ -439,7 +459,7 @@ def verify_storage_permissions(storage_path: Path) -> bool:
             test_file.unlink(missing_ok=True)
 
 
-def main():
+def _setup_environment():
     load_dotenv(PROJECT_ROOT / ".env")
 
     disable_ssl = os.getenv("DISABLE_SSL_VERIFY", "false").lower() in (
@@ -456,9 +476,22 @@ def main():
     else:
         print("[SSL] SSL verification ENABLED (set DISABLE_SSL_VERIFY=true to disable)")
 
-    global logger
     args = parse_args()
 
+    domain = "kafka"
+    if args.worker != "all" and "-" in args.worker:
+        domain_prefix = args.worker.split("-")[0]
+        if domain_prefix in ("xact", "claimx", "itel"):
+            domain = domain_prefix
+
+    from core.utils import generate_worker_id
+
+    worker_id = os.getenv("WORKER_ID") or generate_worker_id(args.worker)
+
+    return args, domain, worker_id
+
+
+def _setup_logging(args, domain, worker_id):
     log_level = getattr(logging, args.log_level)
 
     json_logs = os.getenv("JSON_LOGS", "true").lower() in ("true", "1", "yes")
@@ -472,17 +505,6 @@ def main():
         "yes",
     )
 
-    # Generate unique worker ID using coolnames for easier tracing
-    from core.utils import generate_worker_id
-
-    worker_id = os.getenv("WORKER_ID") or generate_worker_id(args.worker)
-
-    domain = "kafka"
-    if args.worker != "all" and "-" in args.worker:
-        domain_prefix = args.worker.split("-")[0]
-        if domain_prefix in ("xact", "claimx", "itel"):
-            domain = domain_prefix
-
     # Load config early to get logging configuration
     from config import load_config
 
@@ -490,8 +512,7 @@ def main():
         config = load_config()
     except Exception as e:
         # If config loading fails, setup basic logging without EventHub
-        logger = logging.getLogger(__name__)
-        logger.warning(
+        logging.getLogger(__name__).warning(
             "Failed to load config for logging setup, continuing without EventHub logging",
             extra={"error": str(e)},
         )
@@ -534,27 +555,24 @@ def main():
             enable_eventhub_logging=eventhub_enabled,
         )
 
-    logger = logging.getLogger(__name__)
+    return config, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config
 
-    # Determine log output mode and print startup info
+
+def _display_startup_info(worker_id, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config):
     log_output_mode = get_log_output_mode(
         log_to_stdout=log_to_stdout,
         enable_file_logging=file_enabled,
         enable_eventhub_logging=eventhub_enabled,
     )
 
-    # Print to stdout for immediate visibility
     print(f"[STARTUP] Log output mode: {log_output_mode}", flush=True)
     print(f"[STARTUP] Worker ID: {worker_id}", flush=True)
 
-    # Display EventHub log configuration and handler status
     if eventhub_enabled:
         if eventhub_config:
-            # Parse EventHub namespace from connection string
             conn_str = eventhub_config.get("connection_string", "")
             eventhub_name = eventhub_config.get("eventhub_name", "unknown")
 
-            # Extract endpoint from connection string (format: Endpoint=sb://namespace.servicebus.windows.net/;...)
             eventhub_namespace = "unknown"
             if "Endpoint=sb://" in conn_str:
                 try:
@@ -565,7 +583,6 @@ def main():
 
             print(f"[STARTUP] EventHub logs configured: {eventhub_namespace}/{eventhub_name}")
 
-            # Check if handler was actually created by inspecting root logger handlers
             root_logger = logging.getLogger()
             has_eventhub_handler = any("EventHub" in type(h).__name__ for h in root_logger.handlers)
             if has_eventhub_handler:
@@ -579,7 +596,8 @@ def main():
     else:
         print("[STARTUP] EventHub logging: DISABLED")
 
-    # Create event loop early so we can start health server immediately
+
+def _initialize_infrastructure(args, domain):
     print("[STARTUP] Creating event loop...", flush=True)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -648,63 +666,91 @@ def main():
     else:
         logger.info("Metrics server started", extra={"port": actual_port})
 
-    # Load configuration based on mode
+    return loop, early_health_server
+
+
+def _load_pipeline_config(args, loop, early_health_server):
     print("[STARTUP] Loading configuration...", flush=True)
     if args.dev:
         pipeline_config, eventhub_config, local_kafka_config = load_dev_config()
-    else:
-        try:
-            pipeline_config, eventhub_config, local_kafka_config = load_production_config()
-        except ValueError as e:
-            error_msg = str(e)
-            logger.exception("Configuration error", extra={"error": error_msg})
-            logger.error("Use --dev flag for local development")
+        return pipeline_config, eventhub_config, local_kafka_config
 
-            # Set error on early health server and wait for shutdown
-            early_health_server.set_error(f"Configuration error: {error_msg}")
-            logger.info("Health server set to error state, waiting for shutdown...")
-            shutdown_event = get_shutdown_event()
-            loop.run_until_complete(shutdown_event.wait())
-            loop.run_until_complete(early_health_server.stop())
-            loop.close()
-            logger.info("Error mode shutdown complete")
-            return
+    try:
+        pipeline_config, eventhub_config, local_kafka_config = load_production_config()
+        return pipeline_config, eventhub_config, local_kafka_config
+    except (ValueError, FileNotFoundError, KeyError) as e:
+        error_msg = str(e)
+        logger.exception("Configuration error", extra={"error": error_msg})
+        logger.error("Use --dev flag for local development")
+
+        # Set error on early health server and wait for shutdown
+        early_health_server.set_error(f"Configuration error: {error_msg}")
+        logger.info("Health server set to error state, waiting for shutdown...")
+        shutdown_event = get_shutdown_event()
+        loop.run_until_complete(shutdown_event.wait())
+        loop.run_until_complete(early_health_server.stop())
+        loop.close()
+        logger.info("Error mode shutdown complete")
+        return None
+
+
+def _start_workers(args, loop, pipeline_config, enable_delta_writes, eventhub_config, local_kafka_config):
+    shutdown_event = get_shutdown_event()
+
+    print("[STARTUP] Starting worker(s)...", flush=True)
+    if args.worker == "all":
+        loop.run_until_complete(run_all_workers(pipeline_config, enable_delta_writes))
+    elif args.count > 1:
+        loop.run_until_complete(
+            run_worker_pool(
+                run_worker_from_registry,
+                args.count,
+                args.worker,
+                args.worker,
+                pipeline_config,
+                shutdown_event,
+                enable_delta_writes,
+                eventhub_config,
+                local_kafka_config,
+            )
+        )
+    else:
+        loop.run_until_complete(
+            run_worker_from_registry(
+                args.worker,
+                pipeline_config,
+                shutdown_event,
+                enable_delta_writes,
+                eventhub_config,
+                local_kafka_config,
+            )
+        )
+
+
+def main():
+    global logger
+
+    args, domain, worker_id = _setup_environment()
+
+    config, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config_logging = _setup_logging(
+        args, domain, worker_id
+    )
+    logger = logging.getLogger(__name__)
+
+    _display_startup_info(worker_id, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config_logging)
+
+    loop, early_health_server = _initialize_infrastructure(args, domain)
+
+    config_result = _load_pipeline_config(args, loop, early_health_server)
+    if config_result is None:
+        return
+    pipeline_config, eventhub_config, local_kafka_config = config_result
 
     enable_delta_writes = not args.no_delta
-
     shutdown_event = get_shutdown_event()
 
     try:
-        print("[STARTUP] Starting worker(s)...", flush=True)
-        if args.worker == "all":
-            loop.run_until_complete(run_all_workers(pipeline_config, enable_delta_writes))
-        else:
-            # Use registry to run specific worker
-            if args.count > 1:
-                loop.run_until_complete(
-                    run_worker_pool(
-                        run_worker_from_registry,
-                        args.count,
-                        args.worker,
-                        args.worker,
-                        pipeline_config,
-                        shutdown_event,
-                        enable_delta_writes,
-                        eventhub_config,
-                        local_kafka_config,
-                    )
-                )
-            else:
-                loop.run_until_complete(
-                    run_worker_from_registry(
-                        args.worker,
-                        pipeline_config,
-                        shutdown_event,
-                        enable_delta_writes,
-                        eventhub_config,
-                        local_kafka_config,
-                    )
-                )
+        _start_workers(args, loop, pipeline_config, enable_delta_writes, eventhub_config, local_kafka_config)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received, shutting down...")
     except asyncio.CancelledError:

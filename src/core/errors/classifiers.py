@@ -299,14 +299,10 @@ class StorageErrorClassifier:
 
         Routes to service-specific classifier based on service name.
         """
-        service = service.lower()
-
-        if service == "kusto":
-            return StorageErrorClassifier.classify_kusto_error(error, context)
-        elif service == "delta":
-            return StorageErrorClassifier.classify_delta_error(error, context)
-        elif service == "onelake":
-            return StorageErrorClassifier.classify_onelake_error(error, context)
-        else:
-            # Fall back to generic classification
-            return wrap_exception(error, context=context)
+        classifiers = {
+            "kusto": StorageErrorClassifier.classify_kusto_error,
+            "delta": StorageErrorClassifier.classify_delta_error,
+            "onelake": StorageErrorClassifier.classify_onelake_error,
+        }
+        classifier = classifiers.get(service.lower(), wrap_exception)
+        return classifier(error, context=context)

@@ -33,7 +33,7 @@ from pipeline.claimx.schemas.tasks import (
     ClaimXEnrichmentTask,
 )
 from pipeline.claimx.workers.download_factory import DownloadTaskFactory
-from pipeline.claimx.workers.worker_defaults import WorkerDefaults
+from pipeline.claimx.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_delta_write,
@@ -233,7 +233,7 @@ class ClaimXEnrichmentWorker:
         initialize_worker_telemetry(self.domain, "enrichment-worker")
 
         self._stats_logger = PeriodicStatsLogger(
-            interval_seconds=WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS,
+            interval_seconds=CYCLE_LOG_INTERVAL_SECONDS,
             get_stats=self._get_cycle_stats,
             stage="enrichment",
             worker_id=self.worker_id,

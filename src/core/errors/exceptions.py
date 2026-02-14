@@ -2,7 +2,7 @@
 Unified exception hierarchy for verisk_pipeline.
 
 Provides typed exceptions with retry classification to enable
-itelligent error handling throughout the pipeline.
+intelligent error handling throughout the pipeline.
 """
 
 # Import ErrorCategory from canonical source to avoid duplicate enum issues

@@ -286,7 +286,6 @@ class DeltaTableWriter:
         self._init_lock = asyncio.Lock()
 
     async def __aenter__(self) -> DeltaTableWriter:
-        """Async context manager entry."""
         return self
 
     async def __aexit__(
@@ -492,7 +491,6 @@ class DeltaTableWriter:
             return pl.Int16
         if arrow_type == pa.int8():
             return pl.Int8
-        # String-based fallback for integer types
         if "int64" in type_str or type_str == "long":
             return pl.Int64
         if "int32" in type_str or type_str == "int":
@@ -536,51 +534,20 @@ class DeltaTableWriter:
 
         return None
 
-    @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
-    def append(
-        self,
-        df: pl.DataFrame,
-        batch_id: str | None = None,
-    ) -> int:
+    def _prepare_dataframe_for_append(
+        self, df: pl.DataFrame, opts: dict[str, str]
+    ) -> tuple[pl.DataFrame, list[str] | None, int | None]:
+        """Align schema, resolve partitions, and capture version before append.
+
+        Returns (prepared_df, partition_by, version_before).
         """
-        Append DataFrame to Delta table.
-
-        No deduplication at write time - duplicates are handled by:
-        1. Download worker's in-memory cache (for downloads)
-        2. Daily maintenance job (for events tables)
-
-        Args:
-            df: Data to append
-            batch_id: Optional short identifier for log correlation
-
-        Returns:
-            Number of rows written
-        """
-        if df.is_empty():
-            logger.debug("No data to write", extra={"batch_id": batch_id})
-            return 0
-
-        # Write to Delta - convert to Arrow for write_deltalake
-        # Log auth context before write to help debug 403 errors
-        auth = get_auth()
-        logger.info(
-            "Delta write starting",
-            extra={
-                "batch_id": batch_id,
-                "rows": len(df),
-                "table_path": self.table_path,
-                "auth_mode": auth.auth_mode,
-            },
-        )
-        opts = get_storage_options()
+        table_existed_before = self._table_exists(opts)
 
         # Align source schema with target to ensure column order matches
         # (alignment also handles null-typed columns)
-        table_existed_before = self._table_exists(opts)
         if table_existed_before:
             df = self._align_schema_with_target(df, opts)
         else:
-            # Table doesn't exist - cast null-typed columns to avoid Delta Lake errors
             df = self._cast_null_columns(df)
 
         # Determine partition columns - use existing table's partitions if table exists,
@@ -595,49 +562,19 @@ class DeltaTableWriter:
                 existing_partitions = dt.metadata().partition_columns
                 partition_by = existing_partitions if existing_partitions else None
             except Exception:
-                # Fall back to configured partition column
                 partition_by = [self.partition_column] if self.partition_column else None
         else:
             partition_by = [self.partition_column] if self.partition_column else None
 
-        # DIAGNOSTIC: Log comprehensive write details
-        logger.info(
-            "Delta write details",
-            extra={
-                "batch_id": batch_id,
-                "table_path": self.table_path,
-                "table_existed_before": table_existed_before,
-                "partition_by": partition_by,
-                "partition_column_config": self.partition_column,
-                "df_columns": df.columns,
-                "df_schema": {
-                    col: str(dtype) for col, dtype in zip(df.columns, df.dtypes, strict=False)
-                },
-                "rows_to_write": len(df),
-                "first_row_sample": df.head(1).to_dicts()[0] if not df.is_empty() else {},
-            },
-        )
+        return df, partition_by, version_before
 
-        write_deltalake(
-            self.table_path,
-            df.to_arrow(),
-            mode="append",
-            schema_mode="merge",
-            storage_options=opts,
-            partition_by=partition_by,
-        )  # type: ignore[call-overload]
-
-        # DIAGNOSTIC: Verify write completed by checking table
-        logger.info(
-            "Delta write completed, verifying",
-            extra={
-                "batch_id": batch_id,
-                "rows_written": len(df),
-            },
-        )
-
-        # Verify write actually committed by checking version increment
-        # and counting files added in the new commit
+    def _verify_append_version(
+        self,
+        opts: dict[str, str],
+        version_before: int | None,
+        batch_id: str | None,
+    ) -> None:
+        """Check that the table version incremented after an append write."""
         try:
             dt = DeltaTable(self.table_path, storage_options=opts)
             version_after = dt.version()
@@ -688,7 +625,133 @@ class DeltaTableWriter:
                 exc_info=True,
             )
 
+    @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
+    def append(
+        self,
+        df: pl.DataFrame,
+        batch_id: str | None = None,
+    ) -> int:
+        """
+        Append DataFrame to Delta table.
+
+        No deduplication at write time - duplicates are handled by:
+        1. Download worker's in-memory cache (for downloads)
+        2. Daily maintenance job (for events tables)
+
+        Args:
+            df: Data to append
+            batch_id: Optional short identifier for log correlation
+
+        Returns:
+            Number of rows written
+        """
+        if df.is_empty():
+            logger.debug("No data to write", extra={"batch_id": batch_id})
+            return 0
+
+        # Log auth context before write to help debug 403 errors
+        auth = get_auth()
+        logger.info(
+            "Delta write starting",
+            extra={
+                "batch_id": batch_id,
+                "rows": len(df),
+                "table_path": self.table_path,
+                "auth_mode": auth.auth_mode,
+            },
+        )
+        opts = get_storage_options()
+
+        df, partition_by, version_before = self._prepare_dataframe_for_append(df, opts)
+
+        logger.info(
+            "Delta write details",
+            extra={
+                "batch_id": batch_id,
+                "table_path": self.table_path,
+                "table_existed_before": version_before is not None or self._table_exists(opts),
+                "partition_by": partition_by,
+                "partition_column_config": self.partition_column,
+                "df_columns": df.columns,
+                "df_schema": {
+                    col: str(dtype) for col, dtype in zip(df.columns, df.dtypes, strict=False)
+                },
+                "rows_to_write": len(df),
+                "first_row_sample": df.head(1).to_dicts()[0] if not df.is_empty() else {},
+            },
+        )
+
+        write_deltalake(
+            self.table_path,
+            df.to_arrow(),
+            mode="append",
+            schema_mode="merge",
+            storage_options=opts,
+            partition_by=partition_by,
+        )  # type: ignore[call-overload]
+
+        logger.info(
+            "Delta write completed, verifying",
+            extra={
+                "batch_id": batch_id,
+                "rows_written": len(df),
+            },
+        )
+
+        self._verify_append_version(opts, version_before, batch_id)
+
         return len(df)
+
+    def _deduplicate_batch(
+        self, df: pl.DataFrame, merge_keys: list[str]
+    ) -> pl.DataFrame:
+        """Combine rows with the same merge keys; later non-null values win."""
+        initial_len = len(df)
+
+        rows = df.to_dicts()
+        merged: dict[tuple, dict] = {}
+        for row in rows:
+            key = tuple(row.get(k) for k in merge_keys)
+            if key in merged:
+                for col, val in row.items():
+                    if val is not None:
+                        merged[key][col] = val
+            else:
+                merged[key] = row.copy()
+
+        del rows
+        df = pl.DataFrame(list(merged.values()), infer_schema_length=None)
+        del merged
+
+        if len(df) < initial_len:
+            logger.debug(
+                "Deduped batch",
+                extra={
+                    "records_processed": initial_len,
+                    "rows_written": len(df),
+                },
+            )
+
+        return df
+
+    def _build_merge_conditions(
+        self,
+        df_columns: list[str],
+        merge_keys: list[str],
+        preserve_columns: list[str],
+    ) -> tuple[str, dict[str, str], dict[str, str]]:
+        """Build the predicate, update dict, and insert dict for a Delta merge.
+
+        Returns (predicate, update_dict, insert_dict).
+        """
+        predicate = " AND ".join(f"target.{k} = source.{k}" for k in merge_keys)
+
+        update_cols = [c for c in df_columns if c not in merge_keys and c not in preserve_columns]
+        update_dict = {c: f"source.{c}" for c in update_cols}
+
+        insert_dict = {c: f"source.{c}" for c in df_columns}
+
+        return predicate, update_dict, insert_dict
 
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def merge(
@@ -734,33 +797,7 @@ class DeltaTableWriter:
         if preserve_columns is None:
             preserve_columns = ["created_at"]
 
-        initial_len = len(df)
-
-        # Combine rows within batch by merge keys (later non-null values overlay earlier)
-        # Always dedupe to ensure consistency - checking if needed is as expensive as deduping
-        rows = df.to_dicts()
-        merged: dict[tuple, dict] = {}
-        for row in rows:
-            key = tuple(row.get(k) for k in merge_keys)
-            if key in merged:
-                for col, val in row.items():
-                    if val is not None:
-                        merged[key][col] = val
-            else:
-                merged[key] = row.copy()
-
-        del rows  # Free original list
-        df = pl.DataFrame(list(merged.values()), infer_schema_length=None)
-        del merged  # Free dict
-
-        if len(df) < initial_len:
-            logger.debug(
-                "Deduped batch",
-                extra={
-                    "records_processed": initial_len,
-                    "rows_written": len(df),
-                },
-            )
+        df = self._deduplicate_batch(df, merge_keys)
 
         opts = get_storage_options()
 
@@ -790,21 +827,13 @@ class DeltaTableWriter:
             )
             return len(df)
 
-        # Build merge predicate
-        predicate = " AND ".join(f"target.{k} = source.{k}" for k in merge_keys)
+        predicate, update_dict, insert_dict = self._build_merge_conditions(
+            df.columns, merge_keys, preserve_columns
+        )
 
-        # Build update dict - all columns except merge keys and preserved
-        update_cols = [c for c in df.columns if c not in merge_keys and c not in preserve_columns]
-        update_dict = {c: f"source.{c}" for c in update_cols}
-
-        # Build insert dict - all columns
-        insert_dict = {c: f"source.{c}" for c in df.columns}
-
-        # Convert to PyArrow for merge, then free polars df
         pa_df = df.to_arrow()
         del df
 
-        # Perform merge
         dt = DeltaTable(self.table_path, storage_options=opts)
 
         merge_builder = dt.merge(
@@ -824,10 +853,8 @@ class DeltaTableWriter:
 
         result = merge_builder.when_not_matched_insert(insert_dict).execute()
 
-        # Free PyArrow table and DeltaTable reference
         del pa_df, dt
 
-        # Result contains metrics
         rows_updated = result.get("num_target_rows_updated", 0) or 0
         rows_inserted = result.get("num_target_rows_inserted", 0) or 0
 

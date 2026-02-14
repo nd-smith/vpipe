@@ -1,7 +1,7 @@
 """
 Retry utilities with exception-aware handling.
 
-Uses the exception hierarchy to make itelligent retry decisions:
+Uses the exception hierarchy to make intelligent retry decisions:
 - Transient errors: retry with exponential backoff
 - Auth errors: refresh credentials, then retry
 - Permanent errors: fail immediately (no retry)
@@ -311,7 +311,7 @@ def with_retry(
     wrap_errors: bool = True,
 ):
     """
-    Decorator for retrying functions with itelligent backoff.
+    Decorator for retrying functions with intelligent backoff.
 
     Args:
         config: Retry configuration (defaults to DEFAULT_RETRY)

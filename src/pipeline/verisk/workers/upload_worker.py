@@ -29,6 +29,7 @@ from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.decorators import set_log_context_from_message
+from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -44,7 +45,7 @@ from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.worker_defaults import WorkerDefaults
+from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS, CONCURRENCY, BATCH_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class UploadWorker:
     WORKER_NAME = "upload_worker"
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
+    CYCLE_LOG_INTERVAL_SECONDS = CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,
@@ -134,8 +135,8 @@ class UploadWorker:
 
         # Get worker-specific processing config
         processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
-        self.concurrency = processing_config.get("concurrency", WorkerDefaults.CONCURRENCY)
-        self.batch_size = processing_config.get("batch_size", WorkerDefaults.BATCH_SIZE)
+        self.concurrency = processing_config.get("concurrency", CONCURRENCY)
+        self.batch_size = processing_config.get("batch_size", BATCH_SIZE)
 
         # Topic to consume from
         self.topics = [config.get_topic(domain, "downloads_cached")]
@@ -178,11 +179,14 @@ class UploadWorker:
         self._records_succeeded = 0
         self._records_failed = 0
         self._bytes_uploaded = 0
-        self._stale_files_removed = 0
         self._cycle_offset_start_ts = None
         self._cycle_offset_end_ts = None
         self._stats_logger: PeriodicStatsLogger | None = None
-        self._cleanup_task: asyncio.Task | None = None
+        self._stale_cleaner = StaleFileCleaner(
+            scan_dir=self.cache_dir,
+            in_flight_lock=self._in_flight_lock,
+            in_flight_tasks=self._in_flight_tasks,
+        )
 
         # Log configured domains
         configured_domains = list(config.onelake_domain_paths.keys())
@@ -305,7 +309,7 @@ class UploadWorker:
         # Update connection status
         update_connection_status("consumer", connected=True)
 
-        self._cleanup_task = asyncio.create_task(self._periodic_stale_cleanup())
+        await self._stale_cleaner.start()
 
         logger.info("Upload worker started successfully")
 
@@ -357,12 +361,7 @@ class UploadWorker:
         if self._stats_logger:
             await self._stats_logger.stop()
 
-        # Cancel stale file cleanup task
-        if self._cleanup_task:
-            self._cleanup_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cleanup_task
-            self._cleanup_task = None
+        await self._stale_cleaner.stop()
 
         # Signal shutdown
         if self._shutdown_event:
@@ -674,7 +673,7 @@ class UploadWorker:
             "records_failed": self._records_failed,
             "bytes_uploaded": self._bytes_uploaded,
             "in_flight": len(self._in_flight_tasks),
-            "stale_files_removed": self._stale_files_removed,
+            "stale_files_removed": self._stale_cleaner.total_removed,
             "cycle_offset_start_ts": self._cycle_offset_start_ts,
             "cycle_offset_end_ts": self._cycle_offset_end_ts,
         }
@@ -708,59 +707,6 @@ class UploadWorker:
                 extra={"remaining_tasks": count},
             )
             await asyncio.sleep(0.5)
-
-    STALE_FILE_MAX_AGE_HOURS = 24
-
-    async def _periodic_stale_cleanup(self) -> None:
-        """Periodically clean up stale files in cache directory."""
-        while self._running:
-            try:
-                await asyncio.sleep(3600)
-                await self._cleanup_stale_files()
-            except asyncio.CancelledError:
-                return
-            except Exception as e:
-                logger.warning(
-                    "Error in periodic stale file cleanup",
-                    extra={"error": str(e)},
-                )
-
-    async def _cleanup_stale_files(self) -> None:
-        """Remove files older than STALE_FILE_MAX_AGE_HOURS, skipping in-flight tasks."""
-        scan_dir = self.cache_dir
-        max_age_seconds = self.STALE_FILE_MAX_AGE_HOURS * 3600
-
-        async with self._in_flight_lock:
-            in_flight = set(self._in_flight_tasks)
-
-        def _scan_and_remove() -> int:
-            count = 0
-            now = time.time()
-            if not scan_dir.exists():
-                return 0
-            for path in scan_dir.rglob("*"):
-                if not path.is_file():
-                    continue
-                if path.parent.name in in_flight:
-                    continue
-                try:
-                    age = now - path.stat().st_mtime
-                    if age > max_age_seconds:
-                        path.unlink()
-                        count += 1
-                        logger.warning(
-                            "Removed stale file",
-                            extra={
-                                "file_path": str(path),
-                                "age_hours": round(age / 3600, 1),
-                            },
-                        )
-                except OSError:
-                    pass
-            return count
-
-        removed = await asyncio.to_thread(_scan_and_remove)
-        self._stale_files_removed += removed
 
     async def _cleanup_cache_file(self, cache_path: Path) -> None:
         try:

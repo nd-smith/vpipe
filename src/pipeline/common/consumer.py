@@ -53,7 +53,6 @@ class MessageConsumer:
         self._consumer: AIOKafkaConsumer | None = None
         self._running = False
 
-        # Generate unique worker ID using coolnames for easier tracing in logs
         prefix = f"{domain}-{worker_name}"
         if instance_id:
             prefix = f"{prefix}-{instance_id}"

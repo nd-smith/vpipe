@@ -285,6 +285,28 @@ class ConnectionManager:
         self._started = False
         logger.info("ConnectionManager closed")
 
+    async def _build_request_headers(
+        self,
+        config: "ConnectionConfig",
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Merge connection headers with overrides and inject authentication."""
+        request_headers = {**config.headers}
+        if headers:
+            request_headers.update(headers)
+
+        if config.auth_type == AuthType.OAUTH2 and self._oauth2_manager:
+            token = await self._oauth2_manager.get_token(config.name)
+            request_headers[config.auth_header] = f"Bearer {token}"
+        elif config.auth_type == AuthType.BEARER and config.auth_token:
+            request_headers[config.auth_header] = f"Bearer {config.auth_token}"
+        elif config.auth_type == AuthType.API_KEY and config.auth_token:
+            request_headers[config.auth_header] = config.auth_token
+        elif config.auth_type == AuthType.BASIC and config.auth_token:
+            request_headers[config.auth_header] = f"Basic {config.auth_token}"
+
+        return request_headers
+
     async def request(
         self,
         connection_name: str,
@@ -322,26 +344,8 @@ class ConnectionManager:
             raise RuntimeError("ConnectionManager not started. Call start() first.")
 
         config = self.get_connection(connection_name)
-
-        # Build full URL
         url = f"{config.base_url}{path}"
-
-        # Merge headers
-        request_headers = {**config.headers}
-        if headers:
-            request_headers.update(headers)
-
-        # Add authentication
-        if config.auth_type == AuthType.OAUTH2 and self._oauth2_manager:
-            token = await self._oauth2_manager.get_token(config.name)
-            request_headers[config.auth_header] = f"Bearer {token}"
-        elif config.auth_type == AuthType.BEARER and config.auth_token:
-            request_headers[config.auth_header] = f"Bearer {config.auth_token}"
-        elif config.auth_type == AuthType.API_KEY and config.auth_token:
-            request_headers[config.auth_header] = config.auth_token
-        elif config.auth_type == AuthType.BASIC and config.auth_token:
-            # Expect token to be base64 encoded "username:password"
-            request_headers[config.auth_header] = f"Basic {config.auth_token}"
+        request_headers = await self._build_request_headers(config, headers)
 
         # Determine timeout and retries
         timeout = timeout_override if timeout_override is not None else config.timeout_seconds
@@ -445,23 +449,7 @@ class ConnectionManager:
             raise RuntimeError("ConnectionManager not started. Call start() first.")
 
         config = self.get_connection(connection_name)
-
-        # Merge headers
-        request_headers = {**config.headers}
-        if headers:
-            request_headers.update(headers)
-
-        # Add authentication
-        if config.auth_type == AuthType.OAUTH2 and self._oauth2_manager:
-            token = await self._oauth2_manager.get_token(config.name)
-            request_headers[config.auth_header] = f"Bearer {token}"
-        elif config.auth_type == AuthType.BEARER and config.auth_token:
-            request_headers[config.auth_header] = f"Bearer {config.auth_token}"
-        elif config.auth_type == AuthType.API_KEY and config.auth_token:
-            request_headers[config.auth_header] = config.auth_token
-        elif config.auth_type == AuthType.BASIC and config.auth_token:
-            request_headers[config.auth_header] = f"Basic {config.auth_token}"
-
+        request_headers = await self._build_request_headers(config, headers)
         timeout = timeout_override if timeout_override is not None else config.timeout_seconds
 
         # Direct request (no retry wrapper — caller handles errors)

@@ -309,7 +309,6 @@ class HealthCheckServer:
 
     @property
     def is_ready(self) -> bool:
-        """Check if worker is currently ready."""
         return self._ready
 
     @property
@@ -323,7 +322,6 @@ class HealthCheckServer:
 
     @property
     def is_enabled(self) -> bool:
-        """Check if health check server is enabled."""
         return self._enabled
 
 

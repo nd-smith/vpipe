@@ -35,7 +35,7 @@ from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.worker_defaults import WorkerDefaults
+from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 from pipeline.verisk.writers.delta_inventory import (
     DeltaFailedAttachmentsWriter,
     DeltaInventoryWriter,
@@ -88,7 +88,7 @@ class ResultProcessor:
     BATCH_TIMEOUT_SECONDS = 5
 
     # Cycle output configuration
-    CYCLE_LOG_INTERVAL_SECONDS = WorkerDefaults.CYCLE_LOG_INTERVAL_SECONDS
+    CYCLE_LOG_INTERVAL_SECONDS = CYCLE_LOG_INTERVAL_SECONDS
 
     def __init__(
         self,

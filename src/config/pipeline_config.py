@@ -54,11 +54,6 @@ def _get_config_value(env_var: str, yaml_value: str, default: str = "") -> str:
     return result
 
 
-def _get_storage_config(kafka_data: dict) -> dict:
-    """Get storage config from kafka.storage section only."""
-    return kafka_data.get("storage", {})
-
-
 def _parse_bool_env(env_var: str, yaml_value: Any) -> bool:
     """Parse boolean from env var or yaml value."""
     env_str = os.getenv(env_var)

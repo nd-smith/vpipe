@@ -25,7 +25,7 @@ DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
 
 
-def _get_next_instance_id() -> str:
+def _generate_instance_id() -> str:
     """Generate unique human-readable instance ID using coolname."""
     from coolname import generate_slug
 
@@ -222,7 +222,7 @@ def get_log_file_path(
         base_name = f"pipeline_{date_str}_{time_str}"
 
     # Generate or use instance ID (ordinal number)
-    phrase = instance_id or _get_next_instance_id()
+    phrase = instance_id or _generate_instance_id()
 
     # Append instance ID to filename
     filename = f"{base_name}_{phrase}.log"
@@ -398,9 +398,8 @@ def setup_logging(
 
         # Generate ordinal instance ID for multi-worker isolation
         # Uses ordinal numbers (0, 1, 2, ...) for clear identification in production
-        instance_id = _get_next_instance_id() if use_instance_id else None
+        instance_id = _generate_instance_id() if use_instance_id else None
 
-        # Build log file path with subfolders
         log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
 
         # Ensure directory exists
@@ -611,7 +610,7 @@ def setup_multi_worker_logging(
         root_logger.addHandler(console_handler)
 
         # Generate ordinal instance ID for multi-instance isolation (only if file logging enabled)
-        instance_id = _get_next_instance_id() if use_instance_id else None
+        instance_id = _generate_instance_id() if use_instance_id else None
 
         # Create formatters
         if json_format:

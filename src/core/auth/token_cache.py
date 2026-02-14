@@ -66,31 +66,15 @@ class TokenCache:
     """
 
     def __init__(self):
-        """Initialize empty token cache with thread lock."""
         self._tokens: dict[str, tuple[str, datetime]] = {}
         self._lock = threading.Lock()
 
     def _is_valid(self, acquired_at: datetime, buffer_mins: int = TOKEN_REFRESH_MINS) -> bool:
-        """Check if token is still valid based on age."""
         age = datetime.now(UTC) - acquired_at
         return age < timedelta(minutes=buffer_mins)
 
     def get(self, resource: str) -> str | None:
-        """
-        Get cached token if still valid.
-
-        Thread-safe operation that checks cache and validates token age.
-
-        Args:
-            resource: Resource URL to look up (e.g., "https://storage.azure.com/")
-
-        Returns:
-            Token string if cached and valid, None if expired or not found.
-
-        Example:
-            >>> cache.get("https://storage.azure.com/")
-            'eyJ0eXAiOiJKV1...'  # or None if expired/missing
-        """
+        """Get cached token if still valid."""
         with self._lock:
             cached = self._tokens.get(resource)
             if cached:
@@ -100,37 +84,12 @@ class TokenCache:
             return None
 
     def set(self, resource: str, token: str) -> None:
-        """
-        Cache a token with current timestamp.
-
-        Thread-safe operation that stores token with UTC acquisition time.
-
-        Args:
-            resource: Resource URL to cache for (e.g., "https://storage.azure.com/")
-            token: Access token string to cache
-
-        Example:
-            >>> cache.set("https://storage.azure.com/", "eyJ0eXAiOiJKV1...")
-        """
+        """Cache a token with current timestamp."""
         with self._lock:
             self._tokens[resource] = (token, datetime.now(UTC))
 
     def clear(self, resource: str | None = None) -> None:
-        """
-        Clear one or all cached tokens.
-
-        Thread-safe operation to invalidate cache entries.
-
-        Args:
-            resource: Specific resource URL to clear. If None, clears all tokens.
-
-        Example:
-            >>> # Clear specific resource
-            >>> cache.clear("https://storage.azure.com/")
-            >>>
-            >>> # Clear all tokens
-            >>> cache.clear()
-        """
+        """Clear cached tokens. If resource is None, clears all."""
         with self._lock:
             if resource:
                 self._tokens.pop(resource, None)
@@ -138,22 +97,7 @@ class TokenCache:
                 self._tokens.clear()
 
     def get_age(self, resource: str) -> timedelta | None:
-        """
-        Get age of cached token for diagnostics.
-
-        Thread-safe operation to check token freshness.
-
-        Args:
-            resource: Resource URL to check
-
-        Returns:
-            timedelta representing token age, or None if not cached.
-
-        Example:
-            >>> age = cache.get_age("https://storage.azure.com/")
-            >>> if age and age.total_seconds() > 3000:
-            ...     print("Token is over 50 minutes old")
-        """
+        """Get age of cached token for diagnostics."""
         with self._lock:
             cached = self._tokens.get(resource)
             if cached:

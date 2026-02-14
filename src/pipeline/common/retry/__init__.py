@@ -4,7 +4,7 @@ Retry handling for Kafka pipeline.
 Provides:
 - Delta batch retry handler for Delta Lake writes
 - Delayed redelivery scheduling and dead-letter queue (DLQ) handling
-- Retry decorator with itelligent backoff for transient failures
+- Retry decorator with intelligent backoff for transient failures
 - Common retry utility functions to reduce handler duplication
 """
 

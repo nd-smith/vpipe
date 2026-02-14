@@ -44,18 +44,12 @@ async def run_claimx_event_ingester(
 
 async def run_claimx_enrichment_worker(
     kafka_config,
-    pipeline_config,
     shutdown_event: asyncio.Event,
+    enable_delta_writes: bool = True,
+    claimx_projects_table_path: str = "",
     instance_id: int | None = None,
 ):
-    """ClaimX enrichment worker with entity extraction.
-
-    Args:
-        kafka_config: Kafka configuration
-        pipeline_config: Pipeline configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        instance_id: Optional instance ID for parallel workers
-    """
+    """ClaimX enrichment worker with entity extraction."""
     from pipeline.claimx.workers.enrichment_worker import (
         ClaimXEnrichmentWorker,
     )
@@ -63,8 +57,8 @@ async def run_claimx_enrichment_worker(
     worker = ClaimXEnrichmentWorker(
         config=kafka_config,
         domain="claimx",
-        enable_delta_writes=pipeline_config.enable_delta_writes,
-        projects_table_path=pipeline_config.claimx_projects_table_path,
+        enable_delta_writes=enable_delta_writes,
+        projects_table_path=claimx_projects_table_path,
         instance_id=instance_id,
     )
 
@@ -81,13 +75,7 @@ async def run_claimx_download_worker(
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
 ):
-    """ClaimX download worker.
-
-    Args:
-        kafka_config: Kafka configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        instance_id: Optional instance ID for parallel workers
-    """
+    """ClaimX download worker."""
     from pipeline.claimx.workers.download_worker import ClaimXDownloadWorker
 
     worker = ClaimXDownloadWorker(
@@ -109,13 +97,7 @@ async def run_claimx_upload_worker(
     shutdown_event: asyncio.Event,
     instance_id: int | None = None,
 ):
-    """ClaimX upload worker.
-
-    Args:
-        kafka_config: Kafka configuration
-        shutdown_event: Shutdown event for graceful shutdown
-        instance_id: Optional instance ID for parallel workers
-    """
+    """ClaimX upload worker."""
     from pipeline.claimx.workers.upload_worker import ClaimXUploadWorker
 
     worker = ClaimXUploadWorker(config=kafka_config, domain="claimx", instance_id=instance_id)

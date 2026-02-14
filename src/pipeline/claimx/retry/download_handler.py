@@ -195,7 +195,6 @@ class DownloadRetryHandler:
                 await self._send_to_dlq(task, error, error_category, url_refresh_attempted=True)
                 return
 
-        # Send to next retry topic
         await self._send_to_retry_topic(task, error, error_category)
 
     def _should_refresh_url(self, error: Exception, error_category: ErrorCategory) -> bool:
@@ -269,10 +268,8 @@ class DownloadRetryHandler:
                 )
                 return None
 
-            # Get first media record
             media = media_list[0]
 
-            # Extract new download URL
             new_url = media.get("full_download_link")
             if not new_url:
                 logger.warning(
@@ -284,11 +281,9 @@ class DownloadRetryHandler:
                 )
                 return None
 
-            # Create updated task with new URL
             updated_task = task.model_copy(deep=True)
             updated_task.download_url = new_url
 
-            # Add metadata about URL refresh
             if updated_task.metadata is None:
                 updated_task.metadata = {}
             updated_task.metadata["url_refreshed_at"] = datetime.now(UTC).isoformat()
@@ -330,7 +325,6 @@ class DownloadRetryHandler:
         retry_topic = self.config.get_retry_topic(self.domain)
         delay_seconds = self._retry_delays[retry_count]
 
-        # Create updated task with incremented retry count
         updated_task = task.model_copy(deep=True)
         updated_task.retry_count += 1
 

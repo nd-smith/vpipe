@@ -18,24 +18,9 @@ class StageContextFilter(logging.Filter):
     """
 
     def __init__(self, stage: str):
-        """
-        Initialize filter for a specific stage.
-
-        Args:
-            stage: Stage name to match (e.g., "download", "upload")
-        """
         super().__init__()
         self.stage = stage
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """
-        Check if log record should pass to this handler.
-
-        Args:
-            record: Log record to check
-
-        Returns:
-            True if record's context stage matches this filter's stage
-        """
         log_context = get_log_context()
         return log_context.get("stage") == self.stage

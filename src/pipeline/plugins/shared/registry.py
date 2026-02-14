@@ -658,94 +658,120 @@ class ActionExecutor:
             )
             return
 
+        # Resolve project_id: use explicit value or look up from claim_number
         project_id = params.get("project_id")
-        claim_number = params.get("claim_number")
-        task_type = params.get("task_type")
-        task_data = params.get("task_data", {})
-        use_primary_contact_as_sender = params.get("use_primary_contact_as_sender", True)
-        sender_username = params.get("sender_username")
+        if not project_id and params.get("claim_number"):
+            project_id = await self._resolve_claimx_project_id(
+                connection_name, params["claim_number"], context
+            )
 
-        # Resolve project_id from claim_number if needed
-        if not project_id and claim_number:
+        # Build and validate the API payload
+        payload = self._build_claimx_task_payload(params, project_id, context)
+        if payload is None:
+            return
+
+        # Submit the task to ClaimX
+        await self._submit_claimx_task(connection_name, payload, context)
+
+    async def _resolve_claimx_project_id(
+        self,
+        connection_name: str,
+        claim_number: str,
+        context: PluginContext,
+    ):
+        """Look up a ClaimX project ID from a claim number. Returns the ID or None."""
+        logger.info(
+            "Resolving ClaimX project ID from claim number",
+            extra={
+                "connection": connection_name,
+                "claim_number": claim_number,
+                "event_id": context.event_id,
+            },
+        )
+
+        try:
+            response = await self.connection_manager.request(
+                connection_name=connection_name,
+                method="GET",
+                path="/export/project/projectId",
+                params={"projectNumber": claim_number},  # API uses projectNumber param
+            )
+
+            if response.status >= 400:
+                response_body = await response.text()
+                logger.warning(
+                    "Failed to resolve ClaimX project ID from claim number",
+                    extra={
+                        "status": response.status,
+                        "response": response_body[:200],
+                        "connection": connection_name,
+                        "claim_number": claim_number,
+                        "event_id": context.event_id,
+                    },
+                )
+                return None
+
+            # Parse the response - may be just a number or a dict
+            response_data = await response.json()
+            if isinstance(response_data, int):
+                project_id = response_data
+            elif isinstance(response_data, dict):
+                project_id = response_data.get("projectId") or response_data.get("id")
+            else:
+                project_id = None
+
+            if not project_id:
+                logger.warning(
+                    "ClaimX project ID not found in API response",
+                    extra={
+                        "connection": connection_name,
+                        "claim_number": claim_number,
+                        "response": str(response_data)[:200],
+                        "event_id": context.event_id,
+                    },
+                )
+                return None
+
             logger.info(
-                "Resolving ClaimX project ID from claim number",
+                "Resolved ClaimX project ID from claim number",
                 extra={
                     "connection": connection_name,
                     "claim_number": claim_number,
+                    "project_id": project_id,
                     "event_id": context.event_id,
                 },
             )
+            return project_id
 
-            try:
-                response = await self.connection_manager.request(
-                    connection_name=connection_name,
-                    method="GET",
-                    path="/export/project/projectId",
-                    params={"projectNumber": claim_number},  # API uses projectNumber param
-                )
+        except Exception as e:
+            logger.error(
+                "Failed to resolve ClaimX project ID from claim number",
+                extra={
+                    "connection": connection_name,
+                    "claim_number": claim_number,
+                    "error": str(e),
+                    "event_id": context.event_id,
+                },
+                exc_info=True,
+            )
+            raise
 
-                if response.status >= 400:
-                    response_body = await response.text()
-                    logger.warning(
-                        "Failed to resolve ClaimX project ID from claim number",
-                        extra={
-                            "status": response.status,
-                            "response": response_body[:200],
-                            "connection": connection_name,
-                            "claim_number": claim_number,
-                            "event_id": context.event_id,
-                        },
-                    )
-                    return
-
-                # Parse the response - may be just a number or a dict
-                response_data = await response.json()
-                if isinstance(response_data, int):
-                    project_id = response_data
-                elif isinstance(response_data, dict):
-                    project_id = response_data.get("projectId") or response_data.get("id")
-
-                if not project_id:
-                    logger.warning(
-                        "ClaimX project ID not found in API response",
-                        extra={
-                            "connection": connection_name,
-                            "claim_number": claim_number,
-                            "response": str(response_data)[:200],
-                            "event_id": context.event_id,
-                        },
-                    )
-                    return
-
-                logger.info(
-                    "Resolved ClaimX project ID from claim number",
-                    extra={
-                        "connection": connection_name,
-                        "claim_number": claim_number,
-                        "project_id": project_id,
-                        "event_id": context.event_id,
-                    },
-                )
-
-            except Exception as e:
-                logger.error(
-                    "Failed to resolve ClaimX project ID from claim number",
-                    extra={
-                        "connection": connection_name,
-                        "claim_number": claim_number,
-                        "error": str(e),
-                        "event_id": context.event_id,
-                    },
-                    exc_info=True,
-                )
-                raise
+    def _build_claimx_task_payload(
+        self,
+        params: dict,
+        project_id,
+        context: PluginContext,
+    ) -> dict | None:
+        """Validate parameters and build the ClaimX task API payload. Returns None on validation failure."""
+        task_type = params.get("task_type")
+        task_data = params.get("task_data", {})
 
         if not project_id:
             logger.error(
                 "Create ClaimX task action requires project_id or claim_number parameter",
                 extra={"event_id": context.event_id},
             )
-            return
+            return None
 
         if not task_type:
             logger.error(
@@ -755,7 +781,7 @@ class ActionExecutor:
                     "project_id": project_id,
                 },
             )
-            return
+            return None
 
         if not task_data:
             logger.error(
@@ -765,19 +791,30 @@ class ActionExecutor:
                     "project_id": project_id,
                 },
             )
-            return
+            return None
 
-        # Build the API payload according to ClaimX spec
         payload = {
             "projectId": project_id,
-            "usePrimaryContactAsSender": use_primary_contact_as_sender,
+            "usePrimaryContactAsSender": params.get("use_primary_contact_as_sender", True),
             "type": task_type,
             "data": task_data,
         }
 
-        # Add sender username if provided
+        sender_username = params.get("sender_username")
         if sender_username:
             payload["senderUserName"] = sender_username
+
+        return payload
+
+    async def _submit_claimx_task(
+        self,
+        connection_name: str,
+        payload: dict,
+        context: PluginContext,
+    ) -> None:
+        """POST the task payload to the ClaimX API."""
+        project_id = payload["projectId"]
+        task_type = payload["type"]
 
         logger.info(
             "Plugin action: create ClaimX task",

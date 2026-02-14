@@ -15,6 +15,9 @@ from core.security.exceptions import URLValidationError
 # Allowed schemes for attachment downloads
 ALLOWED_SCHEMES: set[str] = {"https", "http"}
 
+# Hostname prefix used by simulation/development Docker containers
+SIMULATION_HOST_PREFIX = "pcesdopodappv1_"
+
 # Domains explicitly allowed for attachment downloads
 # Configure via environment or extend this set
 DEFAULT_ALLOWED_DOMAINS: set[str] = {
@@ -125,7 +128,7 @@ def validate_download_url(
     is_localhost = hostname_lower in ("localhost", "127.0.0.1")
     # In simulation mode, also treat Docker internal hostnames as localhost
     is_simulation_internal = allow_localhost and (
-        hostname_lower.endswith("-simulation") or hostname_lower.startswith("pcesdopodappv1_")
+        hostname_lower.endswith("-simulation") or hostname_lower.startswith(SIMULATION_HOST_PREFIX)
     )
 
     # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
@@ -186,7 +189,7 @@ def _validate_localhost_url(url: str, parsed) -> None:
     is_valid_internal = (
         hostname_lower in ("localhost", "127.0.0.1")
         or hostname_lower.endswith("-simulation")
-        or hostname_lower.startswith("pcesdopodappv1_")
+        or hostname_lower.startswith(SIMULATION_HOST_PREFIX)
     )
     if not is_valid_internal:
         raise URLValidationError(f"Invalid localhost/internal hostname: {hostname_lower}")
@@ -313,11 +316,9 @@ def is_private_ip(hostname: str) -> bool:
 
 
 def extract_filename_from_url(url: str) -> tuple[str, str]:
-    """
-    Extract filename and file extension from URL.
+    """Extract filename and extension from URL path.
 
-    Returns:
-        Tuple of (filename, file_type) where file_type is uppercase extension
+    Returns (filename, file_type) where file_type is uppercase extension.
     """
     try:
         parsed = urlparse(url)
@@ -370,12 +371,7 @@ SENSITIVE_PARAMS = {
 
 
 def sanitize_url(url: str) -> str:
-    """
-    Remove sensitive query parameters from URL for safe logging.
-
-    Returns:
-        URL with sensitive parameters replaced with [REDACTED]
-    """
+    """Remove sensitive query parameters from URL for safe logging."""
     if not url:
         return url
 
