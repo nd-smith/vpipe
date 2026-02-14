@@ -282,7 +282,7 @@ class ClaimXUploadWorker:
             # Clean up OneLake client, producer, and health server on consumer creation failure
             if self.onelake_client is not None:
                 try:
-                    await self.onelake_client.close()
+                    await asyncio.to_thread(self.onelake_client.close)
                 except Exception as cleanup_error:
                     logger.warning(
                         "Error cleaning up OneLake client",
@@ -394,7 +394,7 @@ class ClaimXUploadWorker:
         # Close OneLake client
         if self.onelake_client is not None:
             try:
-                await self.onelake_client.close()
+                await asyncio.to_thread(self.onelake_client.close)
                 logger.debug("Closed OneLake client")
             except Exception as e:
                 logger.warning("Error closing OneLake client", extra={"error": str(e)})

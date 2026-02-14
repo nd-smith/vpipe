@@ -59,7 +59,7 @@ def mock_storage_client():
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock()
     client.async_upload_file = AsyncMock(return_value="claimx/proj-456/media/file.jpg")
-    client.close = AsyncMock()
+    client.close = Mock()
     return client
 
 
