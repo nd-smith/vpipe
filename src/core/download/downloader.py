@@ -130,7 +130,26 @@ class AttachmentDownloader:
                 # Use in-memory download for small files
                 outcome = await self._download_in_memory(task, session)
 
-            # Step 5: Validate Content-Type from response
+            # Step 5: Validate download integrity
+            if outcome.success:
+                integrity_error = None
+                if outcome.bytes_downloaded == 0:
+                    integrity_error = "Download produced zero bytes"
+                elif content_length and outcome.bytes_downloaded != content_length:
+                    integrity_error = (
+                        f"Size mismatch: expected {content_length} bytes, "
+                        f"got {outcome.bytes_downloaded}"
+                    )
+
+                if integrity_error:
+                    if outcome.file_path and outcome.file_path.exists():
+                        outcome.file_path.unlink()
+                    return DownloadOutcome.download_failure(
+                        error_message=integrity_error,
+                        error_category=ErrorCategory.TRANSIENT,
+                    )
+
+            # Step 6: Validate Content-Type from response
             if outcome.success and task.validate_file_type and outcome.content_type:
                 try:
                     validate_file_type(

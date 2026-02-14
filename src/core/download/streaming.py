@@ -7,12 +7,14 @@ reusable across pipeline components.
 """
 
 import asyncio
+import random
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 
 import aiohttp
 
+from core.download.http_client import RETRYABLE_STATUSES
 from core.errors.exceptions import (
     ErrorCategory,
     classify_http_status,
@@ -70,82 +72,78 @@ async def stream_download_url(
     Returns:
         Tuple of (StreamDownloadResponse, None) on success or (None, StreamDownloadError)
     """
-    try:
-        # Create the HTTP request context
-        # sock_read timeout ensures we don't hang on stalled connections
-        # where the server stops sending data mid-stream
-        response_ctx = session.get(
-            url,
-            timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
-            allow_redirects=allow_redirects,
-        )
+    max_attempts = 3
+    last_error = None
 
-        # Get the response object
-        response = await response_ctx.__aenter__()
-
-        # Check status code
-        if response.status != 200:
-            error_category = classify_http_status(response.status)
-            await response_ctx.__aexit__(None, None, None)
-
-            return None, StreamDownloadError(
-                status_code=response.status,
-                error_message=f"HTTP {response.status}",
-                error_category=error_category,
+    for attempt in range(max_attempts):
+        try:
+            response_ctx = session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
+                allow_redirects=allow_redirects,
             )
 
-        # Extract metadata
-        content_length = response.content_length
-        content_type = response.headers.get("Content-Type")
+            response = await response_ctx.__aenter__()
 
-        # Create async iterator for chunks
-        async def chunk_iterator() -> AsyncIterator[bytes]:
-            """
-            Async generator that yields chunks from the response.
-
-            Note: This iterator manages the response context lifecycle.
-            It will close the response when iteration completes or fails.
-            """
-            try:
-                async for chunk in response.content.iter_chunked(chunk_size):
-                    yield chunk
-            finally:
-                # Ensure response is closed after iteration
+            if response.status != 200:
+                error_category = classify_http_status(response.status)
                 await response_ctx.__aexit__(None, None, None)
+                last_error = StreamDownloadError(
+                    status_code=response.status,
+                    error_message=f"HTTP {response.status}",
+                    error_category=error_category,
+                )
+                if response.status not in RETRYABLE_STATUSES:
+                    return None, last_error
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
+                    continue
+                return None, last_error
 
-        return (
-            StreamDownloadResponse(
-                status_code=response.status,
-                content_length=content_length,
-                content_type=content_type,
-                chunk_iterator=chunk_iterator(),
-            ),
-            None,
-        )
+            content_length = response.content_length
+            content_type = response.headers.get("Content-Type")
 
-    except TimeoutError:
-        # Timeout during download - could be connection, read, or total timeout
-        return None, StreamDownloadError(
-            status_code=None,
-            error_message=f"Download timeout after {timeout}s",
-            error_category=ErrorCategory.TRANSIENT,
-        )
+            async def chunk_iterator() -> AsyncIterator[bytes]:
+                try:
+                    async for chunk in response.content.iter_chunked(chunk_size):
+                        yield chunk
+                finally:
+                    await response_ctx.__aexit__(None, None, None)
 
-    except aiohttp.ServerTimeoutError as e:
-        # Server timeout - server took too long to respond
-        return None, StreamDownloadError(
-            status_code=None,
-            error_message=f"Server timeout: {str(e)}",
-            error_category=ErrorCategory.TRANSIENT,
-        )
+            return (
+                StreamDownloadResponse(
+                    status_code=response.status,
+                    content_length=content_length,
+                    content_type=content_type,
+                    chunk_iterator=chunk_iterator(),
+                ),
+                None,
+            )
 
-    except aiohttp.ClientError as e:
-        # Connection errors, DNS failures, etc.
-        return None, StreamDownloadError(
-            status_code=None,
-            error_message=f"Connection error: {str(e)}",
-            error_category=ErrorCategory.TRANSIENT,
-        )
+        except (TimeoutError, aiohttp.ServerTimeoutError, aiohttp.ClientError) as e:
+            if isinstance(e, TimeoutError):
+                last_error = StreamDownloadError(
+                    status_code=None,
+                    error_message=f"Download timeout after {timeout}s",
+                    error_category=ErrorCategory.TRANSIENT,
+                )
+            elif isinstance(e, aiohttp.ServerTimeoutError):
+                last_error = StreamDownloadError(
+                    status_code=None,
+                    error_message=f"Server timeout: {str(e)}",
+                    error_category=ErrorCategory.TRANSIENT,
+                )
+            else:
+                last_error = StreamDownloadError(
+                    status_code=None,
+                    error_message=f"Connection error: {str(e)}",
+                    error_category=ErrorCategory.TRANSIENT,
+                )
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
+                continue
+
+    return None, last_error
 
 
 @dataclass

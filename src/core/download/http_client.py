@@ -9,6 +9,8 @@ This module is extracted from xact_download.py to be reusable across
 different pipeline components.
 """
 
+import asyncio
+import random
 from dataclasses import dataclass
 
 import aiohttp
@@ -17,6 +19,8 @@ from core.errors.exceptions import (
     ErrorCategory,
     classify_http_status,
 )
+
+RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -66,64 +70,68 @@ async def download_url(
                 # Process response.content
                 pass
     """
-    try:
-        # sock_read timeout ensures we don't hang on stalled connections
-        # where the server stops sending data mid-transfer
-        async with session.get(
-            url,
-            timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
-            allow_redirects=allow_redirects,
-        ) as response:
-            # Check status code
-            if response.status != 200:
-                error_category = classify_http_status(response.status)
+    max_attempts = 3
+    last_error = None
 
-                return None, DownloadError(
-                    status_code=response.status,
-                    error_message=f"HTTP {response.status}",
-                    error_category=error_category,
+    for attempt in range(max_attempts):
+        try:
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
+                allow_redirects=allow_redirects,
+            ) as response:
+                if response.status != 200:
+                    error_category = classify_http_status(response.status)
+                    last_error = DownloadError(
+                        status_code=response.status,
+                        error_message=f"HTTP {response.status}",
+                        error_category=error_category,
+                    )
+                    if response.status not in RETRYABLE_STATUSES:
+                        return None, last_error
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
+                        continue
+                    return None, last_error
+
+                content = await response.read()
+                content_length = response.content_length
+                content_type = response.headers.get("Content-Type")
+
+                return (
+                    DownloadResponse(
+                        content=content,
+                        status_code=response.status,
+                        content_length=content_length,
+                        content_type=content_type,
+                    ),
+                    None,
                 )
 
-            # Read content
-            content = await response.read()
+        except (TimeoutError, aiohttp.ServerTimeoutError, aiohttp.ClientError) as e:
+            if isinstance(e, TimeoutError):
+                last_error = DownloadError(
+                    status_code=None,
+                    error_message=f"Download timeout after {timeout}s",
+                    error_category=ErrorCategory.TRANSIENT,
+                )
+            elif isinstance(e, aiohttp.ServerTimeoutError):
+                last_error = DownloadError(
+                    status_code=None,
+                    error_message=f"Server timeout: {str(e)}",
+                    error_category=ErrorCategory.TRANSIENT,
+                )
+            else:
+                last_error = DownloadError(
+                    status_code=None,
+                    error_message=f"Connection error: {str(e)}",
+                    error_category=ErrorCategory.TRANSIENT,
+                )
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
+                continue
 
-            # Extract metadata
-            content_length = response.content_length
-            content_type = response.headers.get("Content-Type")
-
-            return (
-                DownloadResponse(
-                    content=content,
-                    status_code=response.status,
-                    content_length=content_length,
-                    content_type=content_type,
-                ),
-                None,
-            )
-
-    except TimeoutError:
-        # Timeout during download - could be connection, read, or total timeout
-        return None, DownloadError(
-            status_code=None,
-            error_message=f"Download timeout after {timeout}s",
-            error_category=ErrorCategory.TRANSIENT,
-        )
-
-    except aiohttp.ServerTimeoutError as e:
-        # Server timeout - server took too long to respond
-        return None, DownloadError(
-            status_code=None,
-            error_message=f"Server timeout: {str(e)}",
-            error_category=ErrorCategory.TRANSIENT,
-        )
-
-    except aiohttp.ClientError as e:
-        # Connection errors, DNS failures, etc.
-        return None, DownloadError(
-            status_code=None,
-            error_message=f"Connection error: {str(e)}",
-            error_category=ErrorCategory.TRANSIENT,
-        )
+    return None, last_error
 
 
 def create_session(
