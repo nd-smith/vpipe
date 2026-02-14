@@ -366,12 +366,17 @@ class ClaimXDownloadWorker:
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        await self._wait_for_in_flight(timeout=30.0)
+        try:
+            await self._wait_for_in_flight(timeout=30.0)
+        except asyncio.CancelledError:
+            logger.warning("Interrupted while waiting for in-flight downloads")
 
         if self._consumer:
             try:
                 # Batch consumer's stop() method flushes remaining batches
                 await self._consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
             except Exception as e:
                 logger.error(
                     "Error stopping consumer",
@@ -384,13 +389,21 @@ class ClaimXDownloadWorker:
         if self._http_session:
             try:
                 await self._http_session.close()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while closing HTTP session")
             except Exception as e:
-                logger.error("Error closing HTTP session", extra={"error": str(e)})
+                logger.error(
+                    "Error closing HTTP session",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
             finally:
                 self._http_session = None
 
         try:
             await self.producer.stop()
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while stopping producer")
         except Exception as e:
             logger.error(
                 "Error stopping producer",
@@ -401,6 +414,8 @@ class ClaimXDownloadWorker:
         if self.api_client:
             try:
                 await self.api_client.close()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while closing API client")
             except Exception as e:
                 logger.error(
                     "Error closing API client",
@@ -413,6 +428,8 @@ class ClaimXDownloadWorker:
         if self.retry_handler:
             try:
                 await self.retry_handler.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping retry handler")
             except Exception as e:
                 logger.error(
                     "Error stopping retry handler",

@@ -370,10 +370,16 @@ class DownloadWorker:
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        await self._wait_for_in_flight(timeout=30.0)
+        try:
+            await self._wait_for_in_flight(timeout=30.0)
+        except asyncio.CancelledError:
+            logger.warning("Interrupted while waiting for in-flight downloads")
+
         if self._consumer:
             try:
                 await self._consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
             except Exception as e:
                 logger.error(
                     "Error stopping consumer",
@@ -384,15 +390,54 @@ class DownloadWorker:
                 self._consumer = None
 
         if self._http_session:
-            await self._http_session.close()
-            self._http_session = None
+            try:
+                await self._http_session.close()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while closing HTTP session")
+            except Exception as e:
+                logger.error(
+                    "Error closing HTTP session",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self._http_session = None
 
-        await self.producer.stop()
-        await self.results_producer.stop()
+        try:
+            await self.producer.stop()
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while stopping producer")
+        except Exception as e:
+            logger.error(
+                "Error stopping producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
+
+        try:
+            await self.results_producer.stop()
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while stopping results producer")
+        except Exception as e:
+            logger.error(
+                "Error stopping results producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
 
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping retry handler")
+            except Exception as e:
+                logger.error(
+                    "Error stopping retry handler",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self.retry_handler = None
 
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)
