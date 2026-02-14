@@ -9,7 +9,7 @@ import hashlib
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 
 class ClaimXEventMessage(BaseModel):
@@ -53,7 +53,12 @@ class ClaimXEventMessage(BaseModel):
         'PROJECT_FILE_ADDED'
     """
 
-    trace_id: str = Field(..., description="Unique event identifier", min_length=1)
+    trace_id: str = Field(
+        ...,
+        description="Unique event identifier",
+        min_length=1,
+        validation_alias=AliasChoices("trace_id", "event_id"),
+    )
     event_type: str = Field(
         ...,
         description="Event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",

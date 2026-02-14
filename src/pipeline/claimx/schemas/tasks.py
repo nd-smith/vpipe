@@ -8,7 +8,7 @@ Enrichment tasks trigger API calls, download tasks handle media file downloads.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_serializer, field_validator
 
 
 class ClaimXEnrichmentTask(BaseModel):
@@ -43,7 +43,10 @@ class ClaimXEnrichmentTask(BaseModel):
     """
 
     trace_id: str = Field(
-        ..., description="Unique event identifier (from source event)", min_length=1
+        ...,
+        description="Unique event identifier (from source event)",
+        min_length=1,
+        validation_alias=AliasChoices("trace_id", "event_id"),
     )
     event_type: str = Field(
         ...,
