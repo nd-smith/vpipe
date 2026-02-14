@@ -203,6 +203,11 @@ class ClaimXDownloadWorker:
         self._shutdown_event = asyncio.Event()
         self._in_flight_tasks = set()
 
+        # Close session from a previous failed start attempt to prevent leak
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
+            self._http_session = None
+
         connector = aiohttp.TCPConnector(
             limit=self.concurrency,
             limit_per_host=self.concurrency,
