@@ -21,7 +21,7 @@ from .conftest import make_project_api_response
 class TestProjectToRow:
     def test_project_to_row_extracts_basic_fields(self):
         data = make_project_api_response()
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
 
         assert row["project_id"] == "123"
         assert row["project_number"] == "PN-001"
@@ -33,7 +33,7 @@ class TestProjectToRow:
 
     def test_project_to_row_extracts_customer_info(self):
         data = make_project_api_response()
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
 
         assert row["customer_first_name"] == "John"
         assert row["customer_last_name"] == "Doe"
@@ -43,7 +43,7 @@ class TestProjectToRow:
 
     def test_project_to_row_extracts_address(self):
         data = make_project_api_response()
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
 
         assert row["street1"] == "123 Main St"
         assert row["city"] == "Springfield"
@@ -65,7 +65,7 @@ class TestProjectToRow:
                 },
             },
         }
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
         assert row["primary_email"] == "primary@test.com"
 
     def test_project_to_row_falls_back_to_first_email_when_no_primary(self):
@@ -82,7 +82,7 @@ class TestProjectToRow:
                 },
             },
         }
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
         assert row["primary_email"] == "first@test.com"
 
     def test_project_to_row_handles_no_emails(self):
@@ -94,7 +94,7 @@ class TestProjectToRow:
                 },
             },
         }
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
         assert row["primary_email"] is None
 
     def test_project_to_row_handles_no_phones(self):
@@ -106,14 +106,14 @@ class TestProjectToRow:
                 },
             },
         }
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
         assert row["primary_phone"] is None
         assert row["primary_phone_country_code"] is None
 
     def test_project_to_row_handles_empty_data(self):
-        row = project_to_row({}, event_id="evt_001")
+        row = project_to_row({}, trace_id="evt_001")
         assert row["project_id"] is None
-        assert row["event_id"] == "evt_001"
+        assert row["trace_id"] == "evt_001"
 
     def test_project_to_row_handles_flat_response_without_data_key(self):
         data = {
@@ -122,21 +122,21 @@ class TestProjectToRow:
                 "status": "Closed",
             },
         }
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
         assert row["project_id"] == "99"
         assert row["status"] == "Closed"
 
     def test_project_to_row_includes_metadata_without_last_enriched(self):
         data = make_project_api_response()
-        row = project_to_row(data, event_id="evt_001")
-        assert row["event_id"] == "evt_001"
+        row = project_to_row(data, trace_id="evt_001")
+        assert row["trace_id"] == "evt_001"
         assert "created_at" in row
         assert "updated_at" in row
         assert "last_enriched_at" not in row
 
     def test_project_to_row_parses_timestamps(self):
         data = make_project_api_response()
-        row = project_to_row(data, event_id="evt_001")
+        row = project_to_row(data, trace_id="evt_001")
         assert row["created_date"] == "2024-01-15T10:00:00+00:00"
         assert row["date_of_loss"] == "2024-01-10T00:00:00+00:00"
 
@@ -149,7 +149,7 @@ class TestProjectToRow:
 class TestProjectToContacts:
     def test_project_to_contacts_extracts_policyholder(self):
         data = make_project_api_response()
-        contacts = project_to_contacts(data, project_id="123", event_id="evt_001")
+        contacts = project_to_contacts(data, project_id="123", trace_id="evt_001")
 
         policyholder = [c for c in contacts if c["contact_type"] == "POLICYHOLDER"]
         assert len(policyholder) == 1
@@ -161,7 +161,7 @@ class TestProjectToContacts:
 
     def test_project_to_contacts_extracts_team_members(self):
         data = make_project_api_response()
-        contacts = project_to_contacts(data, project_id="123", event_id="evt_001")
+        contacts = project_to_contacts(data, project_id="123", trace_id="evt_001")
 
         claim_reps = [c for c in contacts if c["contact_type"] == "CLAIM_REP"]
         assert len(claim_reps) == 1
@@ -178,7 +178,7 @@ class TestProjectToContacts:
                 "teamMembers": [],
             },
         }
-        contacts = project_to_contacts(data, project_id="123", event_id="evt_001")
+        contacts = project_to_contacts(data, project_id="123", trace_id="evt_001")
         assert len(contacts) == 0
 
     def test_project_to_contacts_skips_team_member_without_username(self):
@@ -193,18 +193,18 @@ class TestProjectToContacts:
                 ],
             },
         }
-        contacts = project_to_contacts(data, project_id="123", event_id="evt_001")
+        contacts = project_to_contacts(data, project_id="123", trace_id="evt_001")
         assert len(contacts) == 0
 
     def test_project_to_contacts_handles_empty_response(self):
-        contacts = project_to_contacts({}, project_id="123", event_id="evt_001")
+        contacts = project_to_contacts({}, project_id="123", trace_id="evt_001")
         assert contacts == []
 
     def test_project_to_contacts_includes_metadata(self):
         data = make_project_api_response()
-        contacts = project_to_contacts(data, project_id="123", event_id="evt_001")
+        contacts = project_to_contacts(data, project_id="123", trace_id="evt_001")
         for contact in contacts:
-            assert contact["event_id"] == "evt_001"
+            assert contact["trace_id"] == "evt_001"
             assert "created_at" in contact
             assert "last_enriched_at" in contact
 
@@ -229,7 +229,7 @@ class TestTaskToRow:
             "stpEnabled": True,
             "url": "https://example.com/task/100",
         }
-        row = task_to_row(data, event_id="evt_001")
+        row = task_to_row(data, trace_id="evt_001")
 
         assert row["assignment_id"] == 100
         assert row["task_id"] == 200
@@ -241,14 +241,14 @@ class TestTaskToRow:
         assert row["task_url"] == "https://example.com/task/100"
 
     def test_task_to_row_handles_empty_data(self):
-        row = task_to_row({}, event_id="evt_001")
+        row = task_to_row({}, trace_id="evt_001")
         assert row["assignment_id"] is None
         assert row["task_id"] is None
-        assert row["event_id"] == "evt_001"
+        assert row["trace_id"] == "evt_001"
 
     def test_task_to_row_includes_metadata(self):
-        row = task_to_row({"assignmentId": 1}, event_id="evt_001")
-        assert row["event_id"] == "evt_001"
+        row = task_to_row({"assignmentId": 1}, trace_id="evt_001")
+        assert row["trace_id"] == "evt_001"
         assert "created_at" in row
         assert "last_enriched_at" in row
 
@@ -275,7 +275,7 @@ class TestTemplateToRow:
             "modifiedBy": "admin@example.com",
             "modifiedById": 1,
         }
-        row = template_to_row(data, event_id="evt_001")
+        row = template_to_row(data, trace_id="evt_001")
 
         assert row["task_id"] == 50
         assert row["comp_id"] == 10
@@ -286,7 +286,7 @@ class TestTemplateToRow:
         assert row["allow_resubmit"] is True
 
     def test_template_to_row_handles_empty_data(self):
-        row = template_to_row({}, event_id="evt_001")
+        row = template_to_row({}, trace_id="evt_001")
         assert row["task_id"] is None
         assert row["name"] is None
 
@@ -306,7 +306,7 @@ class TestLinkToRow:
             "countryId": 1,
             "stateId": 14,
         }
-        row = link_to_row(data, assignment_id=100, project_id=123, event_id="evt_001")
+        row = link_to_row(data, assignment_id=100, project_id=123, trace_id="evt_001")
 
         assert row["link_id"] == 300
         assert row["assignment_id"] == 100
@@ -315,12 +315,12 @@ class TestLinkToRow:
         assert row["url"] == "https://example.com/link/300"
 
     def test_link_to_row_does_not_include_last_enriched(self):
-        row = link_to_row({}, assignment_id=1, project_id=1, event_id="evt_001")
+        row = link_to_row({}, assignment_id=1, project_id=1, trace_id="evt_001")
         assert "last_enriched_at" not in row
         assert "created_at" in row
 
     def test_link_to_row_handles_empty_data(self):
-        row = link_to_row({}, assignment_id=1, project_id=1, event_id="evt_001")
+        row = link_to_row({}, assignment_id=1, project_id=1, trace_id="evt_001")
         assert row["link_id"] is None
         assert row["link_code"] is None
 
@@ -339,7 +339,7 @@ class TestLinkToContact:
             "phone": "555-0200",
             "phoneCountryCode": 1,
         }
-        row = link_to_contact(data, project_id=123, assignment_id=100, event_id="evt_001")
+        row = link_to_contact(data, project_id=123, assignment_id=100, trace_id="evt_001")
 
         assert row is not None
         assert row["contact_email"] == "policyholder@example.com"
@@ -353,18 +353,18 @@ class TestLinkToContact:
 
     def test_link_to_contact_returns_none_when_no_email(self):
         data = {"firstName": "Jane", "lastName": "Doe"}
-        result = link_to_contact(data, project_id=123, assignment_id=100, event_id="evt_001")
+        result = link_to_contact(data, project_id=123, assignment_id=100, trace_id="evt_001")
         assert result is None
 
     def test_link_to_contact_returns_none_for_empty_email(self):
         data = {"email": "  "}
-        result = link_to_contact(data, project_id=123, assignment_id=100, event_id="evt_001")
+        result = link_to_contact(data, project_id=123, assignment_id=100, trace_id="evt_001")
         assert result is None
 
     def test_link_to_contact_includes_metadata(self):
         data = {"email": "test@example.com"}
-        row = link_to_contact(data, project_id=123, assignment_id=100, event_id="evt_001")
-        assert row["event_id"] == "evt_001"
+        row = link_to_contact(data, project_id=123, assignment_id=100, trace_id="evt_001")
+        assert row["trace_id"] == "evt_001"
         assert "last_enriched_at" in row
 
 
@@ -389,7 +389,7 @@ class TestMediaToRow:
             "expiresAt": "2024-02-15T00:00:00Z",
             "taskAssignmentId": "100",
         }
-        row = media_to_row(data, project_id=123, event_id="evt_001")
+        row = media_to_row(data, project_id=123, trace_id="evt_001")
 
         assert row["media_id"] == "500"
         assert row["project_id"] == "123"
@@ -400,13 +400,13 @@ class TestMediaToRow:
         assert row["task_assignment_id"] == "100"
 
     def test_media_to_row_handles_empty_data(self):
-        row = media_to_row({}, project_id=123, event_id="evt_001")
+        row = media_to_row({}, project_id=123, trace_id="evt_001")
         assert row["media_id"] is None
         assert row["file_type"] is None
 
     def test_media_to_row_includes_metadata(self):
-        row = media_to_row({"mediaID": 1}, project_id=1, event_id="evt_001")
-        assert row["event_id"] == "evt_001"
+        row = media_to_row({"mediaID": 1}, project_id=1, trace_id="evt_001")
+        assert row["trace_id"] == "evt_001"
         assert "last_enriched_at" in row
 
 
@@ -437,7 +437,7 @@ class TestVideoCollabToRow:
             "companyName": "Test Co",
             "guid": "abc-123",
         }
-        row = video_collab_to_row(data, event_id="evt_001")
+        row = video_collab_to_row(data, trace_id="evt_001")
 
         assert row["video_collaboration_id"] == 700
         assert row["claim_id"] == 123
@@ -450,21 +450,21 @@ class TestVideoCollabToRow:
             "claimRepFirstName": "Jane",
             "claimRepLastName": "Smith",
         }
-        row = video_collab_to_row(data, event_id="evt_001")
+        row = video_collab_to_row(data, trace_id="evt_001")
         assert row["claim_rep_full_name"] == "Jane Smith"
 
     def test_video_collab_to_row_builds_full_name_from_first_only(self):
         data = {
             "claimRepFirstName": "Jane",
         }
-        row = video_collab_to_row(data, event_id="evt_001")
+        row = video_collab_to_row(data, trace_id="evt_001")
         assert row["claim_rep_full_name"] == "Jane"
 
     def test_video_collab_to_row_builds_full_name_from_last_only(self):
         data = {
             "claimRepLastName": "Smith",
         }
-        row = video_collab_to_row(data, event_id="evt_001")
+        row = video_collab_to_row(data, trace_id="evt_001")
         assert row["claim_rep_full_name"] == "Smith"
 
     def test_video_collab_to_row_preserves_explicit_full_name(self):
@@ -473,15 +473,15 @@ class TestVideoCollabToRow:
             "claimRepLastName": "Smith",
             "claimRepFullName": "Dr. Jane Smith",
         }
-        row = video_collab_to_row(data, event_id="evt_001")
+        row = video_collab_to_row(data, trace_id="evt_001")
         assert row["claim_rep_full_name"] == "Dr. Jane Smith"
 
     def test_video_collab_to_row_uses_id_fallback(self):
         data = {"id": 999}
-        row = video_collab_to_row(data, event_id="evt_001")
+        row = video_collab_to_row(data, trace_id="evt_001")
         assert row["video_collaboration_id"] == 999
 
     def test_video_collab_to_row_handles_empty_data(self):
-        row = video_collab_to_row({}, event_id="evt_001")
+        row = video_collab_to_row({}, trace_id="evt_001")
         assert row["video_collaboration_id"] is None
         assert row["claim_rep_full_name"] is None

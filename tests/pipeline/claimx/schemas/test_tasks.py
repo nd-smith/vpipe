@@ -22,10 +22,10 @@ class TestClaimXEnrichmentTaskCreation:
         """ClaimXEnrichmentTask can be created with only required fields."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="evt_123", event_type="PROJECT_CREATED", project_id="proj_456", created_at=now
+            trace_id="evt_123", event_type="PROJECT_CREATED", project_id="proj_456", created_at=now
         )
 
-        assert task.event_id == "evt_123"
+        assert task.trace_id == "evt_123"
         assert task.event_type == "PROJECT_CREATED"
         assert task.project_id == "proj_456"
         assert task.retry_count == 0
@@ -39,7 +39,7 @@ class TestClaimXEnrichmentTaskCreation:
         """ClaimXEnrichmentTask with media_id for file events."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="evt_789",
+            trace_id="evt_789",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj_456",
             created_at=now,
@@ -52,7 +52,7 @@ class TestClaimXEnrichmentTaskCreation:
         """ClaimXEnrichmentTask with non-zero retry_count."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="evt_retry",
+            trace_id="evt_retry",
             event_type="PROJECT_CREATED",
             project_id="proj_456",
             created_at=now,
@@ -65,7 +65,7 @@ class TestClaimXEnrichmentTaskCreation:
         """ClaimXEnrichmentTask with all optional fields populated."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="evt_full",
+            trace_id="evt_full",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj_456",
             created_at=now,
@@ -85,8 +85,8 @@ class TestClaimXEnrichmentTaskCreation:
 class TestClaimXEnrichmentTaskValidation:
     """Test field validation rules for ClaimXEnrichmentTask."""
 
-    def test_missing_event_id_raises_error(self):
-        """Missing event_id raises ValidationError."""
+    def test_missing_trace_id_raises_error(self):
+        """Missing trace_id raises ValidationError."""
         now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEnrichmentTask(
@@ -94,25 +94,25 @@ class TestClaimXEnrichmentTaskValidation:
             )
 
         errors = exc_info.value.errors()
-        assert any("event_id" in str(e) for e in errors)
+        assert any("trace_id" in str(e) for e in errors)
 
-    def test_empty_event_id_raises_error(self):
-        """Empty event_id raises ValidationError."""
+    def test_empty_trace_id_raises_error(self):
+        """Empty trace_id raises ValidationError."""
         now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEnrichmentTask(
-                event_id="", event_type="PROJECT_CREATED", project_id="proj_456", created_at=now
+                trace_id="", event_type="PROJECT_CREATED", project_id="proj_456", created_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any("event_id" in str(e) for e in errors)
+        assert any("trace_id" in str(e) for e in errors)
 
     def test_negative_retry_count_raises_error(self):
         """Negative retry_count raises ValidationError."""
         now = datetime.now(UTC)
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEnrichmentTask(
-                event_id="evt_123",
+                trace_id="evt_123",
                 event_type="PROJECT_CREATED",
                 project_id="proj_456",
                 created_at=now,
@@ -126,13 +126,13 @@ class TestClaimXEnrichmentTaskValidation:
         """Leading/trailing whitespace is trimmed from validated fields."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="  evt_123  ",
+            trace_id="  evt_123  ",
             event_type="  PROJECT_CREATED  ",
             project_id="  proj_456  ",
             created_at=now,
         )
 
-        assert task.event_id == "evt_123"
+        assert task.trace_id == "evt_123"
         assert task.event_type == "PROJECT_CREATED"
         assert task.project_id == "proj_456"
 
@@ -144,7 +144,7 @@ class TestClaimXEnrichmentTaskSerialization:
         """ClaimXEnrichmentTask serializes to JSON correctly."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="evt_123",
+            trace_id="evt_123",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj_456",
             created_at=now,
@@ -161,7 +161,7 @@ class TestClaimXEnrichmentTaskSerialization:
         """created_at field serializes as ISO 8601 string."""
         now = datetime.now(UTC)
         task = ClaimXEnrichmentTask(
-            event_id="evt_123", event_type="PROJECT_CREATED", project_id="proj_456", created_at=now
+            trace_id="evt_123", event_type="PROJECT_CREATED", project_id="proj_456", created_at=now
         )
 
         json_str = task.model_dump_json()
@@ -186,7 +186,7 @@ class TestClaimXDownloadTaskCreation:
         assert task.blob_path == "claimx/proj_456/media/photo.jpg"
         assert task.file_type == ""
         assert task.file_name == ""
-        assert task.source_event_id == ""
+        assert task.trace_id == ""
         assert task.retry_count == 0
         assert task.expires_at is None
         assert task.refresh_count == 0
@@ -200,7 +200,7 @@ class TestClaimXDownloadTaskCreation:
             blob_path="claimx/proj_456/media/photo.jpg",
             file_type="jpg",
             file_name="photo.jpg",
-            source_event_id="evt_123",
+            trace_id="evt_123",
             retry_count=2,
             expires_at="2024-12-26T10:30:00Z",
             refresh_count=1,
@@ -208,7 +208,7 @@ class TestClaimXDownloadTaskCreation:
 
         assert task.file_type == "jpg"
         assert task.file_name == "photo.jpg"
-        assert task.source_event_id == "evt_123"
+        assert task.trace_id == "evt_123"
         assert task.retry_count == 2
         assert task.expires_at == "2024-12-26T10:30:00Z"
         assert task.refresh_count == 1

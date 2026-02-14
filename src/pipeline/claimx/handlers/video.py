@@ -56,7 +56,7 @@ class VideoCollabHandler(EventHandler):
             # We need to ensure the project exists in our warehouse
             project_rows = await self.ensure_project_exists(
                 int(event.project_id),
-                source_event_id=event.event_id,
+                trace_id=event.trace_id,
             )
             rows.merge(project_rows)
 
@@ -65,7 +65,7 @@ class VideoCollabHandler(EventHandler):
                     "No video collaboration data",
                     extra={
                         "handler_name": VideoCollabHandler.HANDLER_NAME,
-                        "event_id": event.event_id,
+                        "trace_id": event.trace_id,
                         "project_id": event.project_id,
                     },
                 )
@@ -79,7 +79,7 @@ class VideoCollabHandler(EventHandler):
 
             video_row = transformers.video_collab_to_row(
                 collab_data,
-                event_id=event.event_id,
+                trace_id=event.trace_id,
             )
             if video_row.get("video_collaboration_id") is not None:
                 rows.video_collab.append(video_row)

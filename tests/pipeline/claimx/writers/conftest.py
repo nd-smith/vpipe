@@ -20,7 +20,7 @@ if "DELTA_LAKE_TEST_MODE" not in os.environ:
 def sample_claimx_event():
     """Create a sample ClaimX event for testing."""
     return {
-        "event_id": "evt-12345",
+        "trace_id": "evt-12345",
         "event_type": "PROJECT_CREATED",
         "project_id": "123456",
         "media_id": None,
@@ -43,7 +43,7 @@ def sample_project_row():
         "date_of_loss": "2024-01-01",
         "customer_first_name": "John",
         "customer_last_name": "Doe",
-        "event_id": "evt-12345",
+        "trace_id": "evt-12345",
         "created_at": datetime.now(UTC),
         "updated_at": datetime.now(UTC),
         "last_enriched_at": datetime.now(UTC),
@@ -62,7 +62,7 @@ def sample_contact_row():
         "phone_number": "555-1234",
         "is_primary_contact": True,
         "master_file_name": "MFN-123456",
-        "event_id": "evt-12345",
+        "trace_id": "evt-12345",
         "created_at": datetime.now(UTC),
         "last_enriched_at": datetime.now(UTC),
     }
@@ -78,7 +78,7 @@ def sample_media_row():
         "file_name": "photo001.jpg",
         "media_description": "Front of house",
         "full_download_link": "https://example.com/media/photo001.jpg",
-        "event_id": "evt-12345",
+        "trace_id": "evt-12345",
         "created_at": "2024-01-01T12:00:00Z",
         "updated_at": "2024-01-01T12:00:00Z",
         "last_enriched_at": "2024-01-01T12:00:00Z",
@@ -98,7 +98,7 @@ def sample_task_row():
         "status": "assigned",
         "stp_enabled": False,
         "mfn": "MFN-123456",
-        "event_id": "evt-12345",
+        "trace_id": "evt-12345",
         "created_at": datetime.now(UTC),
         "updated_at": datetime.now(UTC),
         "last_enriched_at": datetime.now(UTC),

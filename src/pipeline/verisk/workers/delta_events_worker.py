@@ -428,12 +428,9 @@ class DeltaEventsWorker:
             )
 
             trace_ids = []
-            event_ids = []
             for event_dict in batch_to_write[:10]:
                 if event_dict.get("traceId") or event_dict.get("trace_id"):
                     trace_ids.append(event_dict.get("traceId") or event_dict.get("trace_id"))
-                if event_dict.get("eventId") or event_dict.get("event_id"):
-                    event_ids.append(event_dict.get("eventId") or event_dict.get("event_id"))
             logger.warning(
                 "Batch write failed, routing to retry topic",
                 extra={
@@ -441,7 +438,6 @@ class DeltaEventsWorker:
                     "batch_size": batch_size,
                     "error_category": category_str,
                     "trace_ids": trace_ids,
-                    "event_ids": event_ids,
                 },
             )
             try:
@@ -498,12 +494,9 @@ class DeltaEventsWorker:
                 self._last_error_category = error_category
 
                 trace_ids = []
-                event_ids = []
                 for evt in batch[:10]:
                     if evt.get("traceId") or evt.get("trace_id"):
                         trace_ids.append(evt.get("traceId") or evt.get("trace_id"))
-                    if evt.get("eventId") or evt.get("event_id"):
-                        event_ids.append(evt.get("eventId") or evt.get("event_id"))
 
                 span.set_tag("write.success", False)
                 span.set_tag("error.category", error_category.value)
@@ -519,7 +512,6 @@ class DeltaEventsWorker:
                     batch_size=batch_size,
                     error_type=type(e).__name__,
                     trace_ids=trace_ids,
-                    event_ids=event_ids,
                 )
                 record_delta_write(
                     table="xact_events",

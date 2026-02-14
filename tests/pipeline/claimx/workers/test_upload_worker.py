@@ -76,7 +76,7 @@ def sample_cached_message():
         content_type="image/jpeg",
         file_type="jpg",
         file_name="file.jpg",
-        source_event_id="evt-abc",
+        trace_id="evt-abc",
         downloaded_at=datetime.now(UTC),
     )
 

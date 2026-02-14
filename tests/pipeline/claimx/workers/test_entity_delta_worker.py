@@ -54,7 +54,7 @@ def mock_config():
 def sample_entity_rows():
     """Sample entity rows message."""
     return EntityRowsMessage(
-        event_id="evt-123",
+        trace_id="evt-123",
         event_type="PROJECT_CREATED",
         project_id="proj-456",
         projects=[

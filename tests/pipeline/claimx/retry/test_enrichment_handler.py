@@ -92,7 +92,7 @@ class TestEnrichmentRetryHandlerErrorCategoryRouting:
     def sample_task(self):
         """Sample ClaimX enrichment task for testing."""
         return ClaimXEnrichmentTask(
-            event_id="evt-123",
+            trace_id="evt-123",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj-456",
             retry_count=0,
@@ -119,7 +119,7 @@ class TestEnrichmentRetryHandlerErrorCategoryRouting:
         dlq_message = dlq_call.kwargs["value"]
 
         assert isinstance(dlq_message, FailedEnrichmentMessage)
-        assert dlq_message.event_id == "evt-123"
+        assert dlq_message.trace_id == "evt-123"
         assert dlq_message.error_category == "permanent"
 
     @pytest.mark.asyncio
@@ -141,7 +141,7 @@ class TestEnrichmentRetryHandlerErrorCategoryRouting:
 
         assert isinstance(retry_task, ClaimXEnrichmentTask)
         assert retry_task.retry_count == 1
-        assert retry_task.event_id == "evt-123"
+        assert retry_task.trace_id == "evt-123"
 
     @pytest.mark.asyncio
     async def test_auth_error_routes_to_retry_topic(self, retry_handler, sample_task):
@@ -212,7 +212,7 @@ class TestEnrichmentRetryHandlerRetryExhaustion:
     def sample_task(self):
         """Sample ClaimX enrichment task."""
         return ClaimXEnrichmentTask(
-            event_id="evt-123",
+            trace_id="evt-123",
             event_type="PROJECT_CREATED",
             project_id="proj-456",
             retry_count=0,
@@ -277,7 +277,7 @@ class TestEnrichmentRetryHandlerMetadata:
     def sample_task(self):
         """Sample ClaimX enrichment task."""
         return ClaimXEnrichmentTask(
-            event_id="evt-123",
+            trace_id="evt-123",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj-456",
             retry_count=0,
@@ -372,7 +372,7 @@ class TestEnrichmentRetryHandlerHeaders:
     def sample_task(self):
         """Sample ClaimX enrichment task."""
         return ClaimXEnrichmentTask(
-            event_id="evt-abc-123",
+            trace_id="evt-abc-123",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj-456",
             retry_count=2,
@@ -413,8 +413,8 @@ class TestEnrichmentRetryHandlerHeaders:
         assert headers["domain"] == "claimx"
 
     @pytest.mark.asyncio
-    async def test_retry_message_key_is_event_id(self, retry_handler, sample_task):
-        """Retry message key is event_id for partitioning."""
+    async def test_retry_message_key_is_trace_id(self, retry_handler, sample_task):
+        """Retry message key is trace_id for partitioning."""
         await retry_handler.handle_failure(
             task=sample_task,
             error=ConnectionError("Error"),
@@ -425,8 +425,8 @@ class TestEnrichmentRetryHandlerHeaders:
         assert retry_call.kwargs["key"] == "evt-abc-123"
 
     @pytest.mark.asyncio
-    async def test_dlq_message_key_is_event_id(self, retry_handler, sample_task):
-        """DLQ message key is event_id for partitioning."""
+    async def test_dlq_message_key_is_trace_id(self, retry_handler, sample_task):
+        """DLQ message key is trace_id for partitioning."""
         sample_task.retry_count = 4
 
         await retry_handler.handle_failure(
@@ -465,7 +465,7 @@ class TestEnrichmentRetryHandlerDLQMessage:
     def sample_task(self):
         """Sample ClaimX enrichment task."""
         return ClaimXEnrichmentTask(
-            event_id="evt-123",
+            trace_id="evt-123",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj-456",
             retry_count=4,
@@ -475,8 +475,8 @@ class TestEnrichmentRetryHandlerDLQMessage:
         )
 
     @pytest.mark.asyncio
-    async def test_dlq_message_includes_event_id(self, retry_handler, sample_task):
-        """DLQ message includes event_id from original task."""
+    async def test_dlq_message_includes_trace_id(self, retry_handler, sample_task):
+        """DLQ message includes trace_id from original task."""
         await retry_handler.handle_failure(
             task=sample_task,
             error=ValueError("Permanent error"),
@@ -486,7 +486,7 @@ class TestEnrichmentRetryHandlerDLQMessage:
         dlq_call = retry_handler._dlq_producer.send.call_args
         dlq_message = dlq_call.kwargs["value"]
 
-        assert dlq_message.event_id == "evt-123"
+        assert dlq_message.trace_id == "evt-123"
 
     @pytest.mark.asyncio
     async def test_dlq_message_includes_event_type(self, retry_handler, sample_task):
@@ -573,7 +573,7 @@ class TestEnrichmentRetryHandlerTaskImmutability:
     def sample_task(self):
         """Sample ClaimX enrichment task."""
         return ClaimXEnrichmentTask(
-            event_id="evt-123",
+            trace_id="evt-123",
             event_type="PROJECT_CREATED",
             project_id="proj-456",
             retry_count=0,

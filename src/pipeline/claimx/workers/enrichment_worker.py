@@ -381,7 +381,7 @@ class ClaimXEnrichmentWorker:
         logger.debug(
             "Processing enrichment task",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "event_type": task.event_type,
                 "project_id": task.project_id,
                 "retry_count": task.retry_count,
@@ -453,13 +453,13 @@ class ClaimXEnrichmentWorker:
                     "Pre-flight project verification failed, handler will retry",
                     extra={
                         "project_id": task.project_id,
-                        "event_id": task.event_id,
+                        "trace_id": task.trace_id,
                     },
                 )
 
         # Step 2: Create event message from task
         event = ClaimXEventMessage(
-            event_id=task.event_id,
+            trace_id=task.trace_id,
             event_type=task.event_type,
             project_id=task.project_id,
             media_id=task.media_id,
@@ -475,7 +475,7 @@ class ClaimXEnrichmentWorker:
             logger.warning(
                 "No handler found for event",
                 extra={
-                    "event_id": event.event_id,
+                    "trace_id": event.trace_id,
                     "event_type": event.event_type,
                 },
             )
@@ -508,8 +508,8 @@ class ClaimXEnrichmentWorker:
                 log_worker_error(
                     logger,
                     "Handler returned failure result",
-                    event_id=task.event_id,
                     error_category=error_category.value,
+                    trace_id=task.trace_id,
                     handler=handler_class.__name__,
                     error_detail=error_msg[:200],
                     succeeded=handler_result.succeeded,
@@ -534,7 +534,7 @@ class ClaimXEnrichmentWorker:
             logger.debug(
                 "Enrichment task complete",
                 extra={
-                    "event_id": task.event_id,
+                    "trace_id": task.trace_id,
                     "event_type": task.event_type,
                     "handler": handler_class.__name__,
                     "entity_rows": entity_rows.row_count(),
@@ -547,8 +547,8 @@ class ClaimXEnrichmentWorker:
             log_worker_error(
                 logger,
                 "Handler failed with API error",
-                event_id=task.event_id,
                 error_category=e.category.value,
+                trace_id=task.trace_id,
                 exc=e,
                 handler=handler_class.__name__,
             )
@@ -564,8 +564,8 @@ class ClaimXEnrichmentWorker:
             log_worker_error(
                 logger,
                 "Handler failed with unexpected error",
-                event_id=task.event_id,
                 error_category=error_category.value,
+                trace_id=task.trace_id,
                 exc=e,
                 handler=handler_class.__name__,
                 error_type=type(e).__name__,
@@ -611,7 +611,7 @@ class ClaimXEnrichmentWorker:
         project_handler = ProjectHandler(self.api_client, project_cache=self.project_cache)
         return await project_handler.fetch_project_data(
             int(project_id),
-            source_event_id=None,
+            trace_id=None,
         )
 
     async def _produce_entity_rows(
@@ -621,10 +621,10 @@ class ClaimXEnrichmentWorker:
     ) -> None:
         """Write entity rows to Kafka. On failure, routes all tasks to retry/DLQ."""
         batch_id = uuid.uuid4().hex[:8]
-        event_ids = [task.event_id for task in tasks[:5]]
+        event_ids = [task.trace_id for task in tasks[:5]]
 
         try:
-            event_id = tasks[0].event_id if tasks else batch_id
+            event_id = tasks[0].trace_id if tasks else batch_id
             await self.producer.send(
                 value=entity_rows,
                 key=event_id,
@@ -676,15 +676,17 @@ class ClaimXEnrichmentWorker:
             try:
                 metadata = await self.download_producer.send(
                     value=task,
-                    key=task.source_event_id,
-                    headers={"event_id": task.source_event_id},
+                    key=task.trace_id,
+                    headers={"trace_id": task.trace_id},
                 )
 
-                logger.debug(
+                logger.info(
                     "Produced download task",
                     extra={
+                        "trace_id": task.trace_id,
                         "media_id": task.media_id,
                         "project_id": task.project_id,
+                        "blob_path": task.blob_path,
                         "partition": metadata.partition,
                         "offset": metadata.offset,
                     },
@@ -694,6 +696,7 @@ class ClaimXEnrichmentWorker:
                 logger.error(
                     "Failed to produce download task",
                     extra={
+                        "trace_id": task.trace_id,
                         "media_id": task.media_id,
                         "project_id": task.project_id,
                         "error": str(e),
@@ -717,8 +720,8 @@ class ClaimXEnrichmentWorker:
         log_worker_error(
             logger,
             "Enrichment task failed",
-            event_id=task.event_id,
             error_category=error_category.value,
+            trace_id=task.trace_id,
             exc=error,
             event_type=task.event_type,
             project_id=task.project_id,

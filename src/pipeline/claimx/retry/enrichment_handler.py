@@ -137,7 +137,7 @@ class EnrichmentRetryHandler:
         logger.info(
             "Handling enrichment task failure",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "event_type": task.event_type,
                 "project_id": task.project_id,
                 "retry_count": retry_count,
@@ -150,11 +150,11 @@ class EnrichmentRetryHandler:
 
         if send_to_dlq:
             action = "dlq_permanent" if dlq_reason == "permanent" else "dlq_exhausted"
-            log_retry_decision(action, task.event_id, retry_count, error_category, error)
+            log_retry_decision(action, task.trace_id, retry_count, error_category, error)
             await self._send_to_dlq(task, error, error_category)
             return
 
-        log_retry_decision("retry", task.event_id, retry_count, error_category, error)
+        log_retry_decision("retry", task.trace_id, retry_count, error_category, error)
         await self._send_to_retry_topic(task, error, error_category)
 
     async def _send_to_retry_topic(
@@ -203,7 +203,7 @@ class EnrichmentRetryHandler:
         logger.info(
             "Sending task to retry topic",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "retry_topic": retry_topic,
                 "retry_count": updated_task.retry_count,
                 "delay_seconds": delay_seconds,
@@ -214,14 +214,14 @@ class EnrichmentRetryHandler:
 
         await self._retry_producer.send(
             value=updated_task,
-            key=task.event_id,
+            key=task.trace_id,
             headers=create_retry_headers(
                 retry_count=updated_task.retry_count,
                 retry_at=retry_at,
                 delay_seconds=delay_seconds,
                 target_topic=target_topic,
                 worker_type="enrichment_worker",
-                original_key=task.event_id,
+                original_key=task.trace_id,
                 error_category=error_category,
                 domain=self.domain,
             ),
@@ -230,7 +230,7 @@ class EnrichmentRetryHandler:
         logger.debug(
             "Task sent to retry topic successfully",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "retry_topic": retry_topic,
                 "target_topic": target_topic,
             },
@@ -259,7 +259,7 @@ class EnrichmentRetryHandler:
         """
         # Create DLQ message
         dlq_message = FailedEnrichmentMessage(
-            event_id=task.event_id,
+            trace_id=task.trace_id,
             event_type=task.event_type,
             project_id=task.project_id,
             original_task=task,
@@ -273,7 +273,7 @@ class EnrichmentRetryHandler:
         logger.warning(
             "Sending task to DLQ",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "error_category": error_category.value,
                 "event_type": task.event_type,
                 "project_id": task.project_id,
@@ -284,14 +284,14 @@ class EnrichmentRetryHandler:
 
         await self._dlq_producer.send(
             value=dlq_message,
-            key=task.event_id,
+            key=task.trace_id,
             headers=create_dlq_headers(task.retry_count, error_category),
         )
 
         logger.debug(
             "Task sent to DLQ successfully",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "dlq_topic": self.dlq_topic,
             },
         )

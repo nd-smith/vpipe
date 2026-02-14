@@ -325,7 +325,6 @@ def log_startup_banner(
 def log_worker_error(
     logger: logging.Logger,
     error_message: str,
-    event_id: str | None = None,
     error_category: str | None = None,
     exc: Exception | None = None,
     **context: Any,
@@ -334,22 +333,21 @@ def log_worker_error(
     Log worker error with standardized context.
 
     This function ensures all worker errors are logged consistently with
-    required context fields like event_id, error_category, etc.
+    required context fields like error_category, etc.
 
     Args:
         logger: Logger instance
         error_message: Human-readable error description
-        event_id: Event/trace ID for correlation (if available)
         error_category: Error category (TRANSIENT, PERMANENT, AUTH, etc.)
         exc: Exception object (will include traceback if provided)
-        **context: Additional context fields (media_id, status_code, etc.)
+        **context: Additional context fields (trace_id, media_id, status_code, etc.)
 
     Example:
         log_worker_error(
             logger,
             "Download failed",
-            event_id="evt_123",
             error_category="TRANSIENT",
+            trace_id="evt_123",
             media_id="media_456",
             status_code=500,
             retry_count=2,
@@ -357,10 +355,6 @@ def log_worker_error(
     """
     # Build structured context
     extra = dict(context)
-
-    if event_id:
-        extra["event_id"] = event_id
-        extra["correlation_id"] = event_id  # Also set correlation_id for consistency
 
     if error_category:
         extra["error_category"] = error_category

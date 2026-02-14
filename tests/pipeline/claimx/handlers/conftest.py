@@ -32,7 +32,7 @@ def mock_project_cache():
 def make_event(
     event_type="PROJECT_CREATED",
     project_id="123",
-    event_id="evt_001",
+    trace_id="evt_001",
     media_id=None,
     task_assignment_id=None,
     video_collaboration_id=None,
@@ -40,7 +40,7 @@ def make_event(
 ):
     """Create a ClaimXEventMessage for testing."""
     return ClaimXEventMessage(
-        event_id=event_id,
+        trace_id=trace_id,
         event_type=event_type,
         project_id=project_id,
         ingested_at=datetime(2024, 12, 25, 10, 0, 0, tzinfo=UTC),

@@ -27,7 +27,7 @@ class ClaimXCachedDownloadMessage(BaseModel):
         content_type: MIME type of the downloaded file (if available)
         file_type: File type/extension (e.g., "pdf", "jpg", "mp4")
         file_name: Original file name
-        source_event_id: ID of the event that triggered this download
+        trace_id: ID of the event that triggered this download
         downloaded_at: Timestamp when the file was downloaded to cache
 
     Example:
@@ -42,7 +42,7 @@ class ClaimXCachedDownloadMessage(BaseModel):
         ...     content_type="image/jpeg",
         ...     file_type="jpg",
         ...     file_name="photo.jpg",
-        ...     source_event_id="evt_12345",
+        ...     trace_id="evt_12345",
         ...     downloaded_at=datetime.now(timezone.utc)
         ... )
     """
@@ -70,7 +70,7 @@ class ClaimXCachedDownloadMessage(BaseModel):
         default="", description="File type/extension (e.g., 'pdf', 'jpg', 'mp4')"
     )
     file_name: str = Field(default="", description="Original file name")
-    source_event_id: str = Field(
+    trace_id: str = Field(
         default="", description="ID of the event that triggered this download"
     )
     downloaded_at: datetime = Field(
@@ -105,7 +105,7 @@ class ClaimXCachedDownloadMessage(BaseModel):
                     "content_type": "image/jpeg",
                     "file_type": "jpg",
                     "file_name": "photo.jpg",
-                    "source_event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "downloaded_at": "2024-12-25T10:30:05Z",
                 }
             ]

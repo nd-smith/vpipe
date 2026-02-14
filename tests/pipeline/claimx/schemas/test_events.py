@@ -19,7 +19,7 @@ class TestClaimXEventMessageCreation:
         """ClaimXEventMessage can be created with all fields populated."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_12345",
+            trace_id="evt_12345",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj_67890",
             ingested_at=now,
@@ -30,7 +30,7 @@ class TestClaimXEventMessageCreation:
             raw_data={"fileName": "photo.jpg", "fileSize": 1024},
         )
 
-        assert event.event_id == "evt_12345"
+        assert event.trace_id == "evt_12345"
         assert event.event_type == "PROJECT_FILE_ADDED"
         assert event.project_id == "proj_67890"
         assert event.ingested_at == now
@@ -44,13 +44,13 @@ class TestClaimXEventMessageCreation:
         """ClaimXEventMessage can be created with only required fields."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_minimal",
+            trace_id="evt_minimal",
             event_type="PROJECT_CREATED",
             project_id="proj_minimal",
             ingested_at=now,
         )
 
-        assert event.event_id == "evt_minimal"
+        assert event.trace_id == "evt_minimal"
         assert event.event_type == "PROJECT_CREATED"
         assert event.project_id == "proj_minimal"
         assert event.ingested_at == now
@@ -64,7 +64,7 @@ class TestClaimXEventMessageCreation:
         """PROJECT_CREATED event with typical fields."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_proj_001",
+            trace_id="evt_proj_001",
             event_type="PROJECT_CREATED",
             project_id="proj_001",
             ingested_at=now,
@@ -78,7 +78,7 @@ class TestClaimXEventMessageCreation:
         """PROJECT_FILE_ADDED event with media_id."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_file_001",
+            trace_id="evt_file_001",
             event_type="PROJECT_FILE_ADDED",
             project_id="proj_001",
             ingested_at=now,
@@ -93,7 +93,7 @@ class TestClaimXEventMessageCreation:
         """CUSTOM_TASK_ASSIGNED event with task_assignment_id."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_task_001",
+            trace_id="evt_task_001",
             event_type="CUSTOM_TASK_ASSIGNED",
             project_id="proj_001",
             ingested_at=now,
@@ -108,7 +108,7 @@ class TestClaimXEventMessageCreation:
         """VIDEO_COLLABORATION_INVITE_SENT event with video_collaboration_id."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_video_001",
+            trace_id="evt_video_001",
             event_type="VIDEO_COLLABORATION_INVITE_SENT",
             project_id="proj_001",
             ingested_at=now,
@@ -123,7 +123,7 @@ class TestClaimXEventMessageCreation:
         """PROJECT_MFN_ADDED event with master_file_name."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_mfn_001",
+            trace_id="evt_mfn_001",
             event_type="PROJECT_MFN_ADDED",
             project_id="proj_001",
             ingested_at=now,
@@ -147,35 +147,35 @@ class TestClaimXEventMessageValidation:
                 event_type="PROJECT_CREATED",
                 project_id="proj_001",
                 ingested_at=now,
-                # Missing event_id
+                # Missing trace_id
             )
 
         errors = exc_info.value.errors()
-        assert any(err["loc"] == ("event_id",) for err in errors)
+        assert any(err["loc"] == ("trace_id",) for err in errors)
 
-    def test_empty_event_id_raises_error(self):
-        """Empty event_id raises validation error."""
+    def test_empty_trace_id_raises_error(self):
+        """Empty trace_id raises validation error."""
         now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="", event_type="PROJECT_CREATED", project_id="proj_001", ingested_at=now
+                trace_id="", event_type="PROJECT_CREATED", project_id="proj_001", ingested_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any("event_id" in str(err) for err in errors)
+        assert any("trace_id" in str(err) for err in errors)
 
-    def test_whitespace_event_id_raises_error(self):
-        """Whitespace-only event_id raises validation error."""
+    def test_whitespace_trace_id_raises_error(self):
+        """Whitespace-only trace_id raises validation error."""
         now = datetime.now(UTC)
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="   ", event_type="PROJECT_CREATED", project_id="proj_001", ingested_at=now
+                trace_id="   ", event_type="PROJECT_CREATED", project_id="proj_001", ingested_at=now
             )
 
         errors = exc_info.value.errors()
-        assert any("event_id" in str(err) for err in errors)
+        assert any("trace_id" in str(err) for err in errors)
 
     def test_empty_event_type_raises_error(self):
         """Empty event_type raises validation error."""
@@ -183,7 +183,7 @@ class TestClaimXEventMessageValidation:
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="evt_001", event_type="", project_id="proj_001", ingested_at=now
+                trace_id="evt_001", event_type="", project_id="proj_001", ingested_at=now
             )
 
         errors = exc_info.value.errors()
@@ -195,7 +195,7 @@ class TestClaimXEventMessageValidation:
 
         with pytest.raises(ValidationError) as exc_info:
             ClaimXEventMessage(
-                event_id="evt_001", event_type="PROJECT_CREATED", project_id="", ingested_at=now
+                trace_id="evt_001", event_type="PROJECT_CREATED", project_id="", ingested_at=now
             )
 
         errors = exc_info.value.errors()
@@ -205,13 +205,13 @@ class TestClaimXEventMessageValidation:
         """String fields with leading/trailing whitespace are trimmed."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="  evt_001  ",
+            trace_id="  evt_001  ",
             event_type="  PROJECT_CREATED  ",
             project_id="  proj_001  ",
             ingested_at=now,
         )
 
-        assert event.event_id == "evt_001"
+        assert event.trace_id == "evt_001"
         assert event.event_type == "PROJECT_CREATED"
         assert event.project_id == "proj_001"
 
@@ -236,7 +236,7 @@ class TestClaimXEventMessageFromRawEvent:
 
         event = ClaimXEventMessage.from_raw_event(row)
 
-        assert event.event_id == "evt_12345"
+        assert event.trace_id == "evt_12345"
         assert event.event_type == "PROJECT_FILE_ADDED"
         assert event.project_id == "proj_67890"
         assert event.ingested_at == now
@@ -257,7 +257,7 @@ class TestClaimXEventMessageFromRawEvent:
 
         event = ClaimXEventMessage.from_raw_event(row)
 
-        assert event.event_id == "evt_12345"
+        assert event.trace_id == "evt_12345"
         assert event.event_type == "PROJECT_CREATED"
         assert event.project_id == "proj_67890"
         assert event.ingested_at == now
@@ -277,7 +277,7 @@ class TestClaimXEventMessageFromRawEvent:
 
         event = ClaimXEventMessage.from_raw_event(row)
 
-        assert event.event_id == "evt_001"
+        assert event.trace_id == "evt_001"
         assert event.event_type == "CUSTOM_TASK_ASSIGNED"
         assert event.project_id == "proj_001"
         assert event.task_assignment_id == "task_222"
@@ -331,7 +331,7 @@ class TestClaimXEventMessageSerialization:
         """model_dump includes all fields."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_001",
+            trace_id="evt_001",
             event_type="PROJECT_CREATED",
             project_id="proj_001",
             ingested_at=now,
@@ -340,7 +340,7 @@ class TestClaimXEventMessageSerialization:
 
         dumped = event.model_dump()
 
-        assert dumped["event_id"] == "evt_001"
+        assert dumped["trace_id"] == "evt_001"
         assert dumped["event_type"] == "PROJECT_CREATED"
         assert dumped["project_id"] == "proj_001"
         assert dumped["ingested_at"] == now
@@ -350,7 +350,7 @@ class TestClaimXEventMessageSerialization:
         """model_dump_json produces valid JSON."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_001",
+            trace_id="evt_001",
             event_type="PROJECT_CREATED",
             project_id="proj_001",
             ingested_at=now,
@@ -368,7 +368,7 @@ class TestClaimXEventMessageSerialization:
         """Can validate and create from dict."""
         now = datetime.now(UTC)
         data = {
-            "event_id": "evt_001",
+            "trace_id": "evt_001",
             "event_type": "PROJECT_CREATED",
             "project_id": "proj_001",
             "ingested_at": now,
@@ -377,17 +377,17 @@ class TestClaimXEventMessageSerialization:
 
         event = ClaimXEventMessage.model_validate(data)
 
-        assert event.event_id == "evt_001"
+        assert event.trace_id == "evt_001"
         assert event.media_id == "media_111"
 
     def test_model_validate_json_from_json_string(self):
         """Can validate and create from JSON string."""
         now = datetime.now(UTC)
-        json_str = f'{{"event_id":"evt_001","event_type":"PROJECT_CREATED","project_id":"proj_001","ingested_at":"{now.isoformat()}"}}'
+        json_str = f'{{"trace_id":"evt_001","event_type":"PROJECT_CREATED","project_id":"proj_001","ingested_at":"{now.isoformat()}"}}'
 
         event = ClaimXEventMessage.model_validate_json(json_str)
 
-        assert event.event_id == "evt_001"
+        assert event.trace_id == "evt_001"
         assert event.event_type == "PROJECT_CREATED"
 
 
@@ -400,7 +400,7 @@ class TestClaimXEventMessageEdgeCases:
         complex_data = {"level1": {"level2": {"level3": {"value": "deeply_nested"}}}}
 
         event = ClaimXEventMessage(
-            event_id="evt_nested",
+            trace_id="evt_nested",
             event_type="PROJECT_CREATED",
             project_id="proj_nested",
             ingested_at=now,
@@ -413,7 +413,7 @@ class TestClaimXEventMessageEdgeCases:
         """raw_data can contain lists."""
         now = datetime.now(UTC)
         event = ClaimXEventMessage(
-            event_id="evt_list",
+            trace_id="evt_list",
             event_type="PROJECT_CREATED",
             project_id="proj_list",
             ingested_at=now,
@@ -443,7 +443,7 @@ class TestClaimXEventMessageEdgeCases:
 
         for event_type in event_types:
             event = ClaimXEventMessage(
-                event_id=f"evt_{event_type.lower()}",
+                trace_id=f"evt_{event_type.lower()}",
                 event_type=event_type,
                 project_id="proj_001",
                 ingested_at=now,

@@ -370,7 +370,6 @@ class EventIngesterWorker:
                     "Event missing assignmentId in data, skipping enrichment",
                     extra={
                         "trace_id": event.trace_id,
-                        "event_id": event.event_id,
                         "type": event.type,
                     },
                 )
@@ -518,7 +517,7 @@ class EventIngesterWorker:
                     self._dedup_blob_hits += 1
                     logger.debug(
                         "Found duplicate in blob storage (restored to memory cache)",
-                        extra={"trace_id": trace_id, "event_id": cached_event_id},
+                        extra={"trace_id": trace_id},
                     )
                     return True, cached_event_id
             except Exception as e:

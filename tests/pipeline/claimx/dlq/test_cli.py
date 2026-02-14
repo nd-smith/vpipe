@@ -252,7 +252,7 @@ class TestInspectDLQ:
         record.value = b'{"some": "json"}'
 
         mock_parsed = Mock()
-        mock_parsed.event_id = "evt_123"
+        mock_parsed.trace_id = "evt_123"
         mock_parsed.event_type = "PROJECT_CREATED"
         mock_parsed.project_id = "proj_456"
         mock_parsed.error_category = "transient"
@@ -269,7 +269,7 @@ class TestInspectDLQ:
         messages = await manager.inspect_dlq("enrichment", limit=10)
 
         assert len(messages) == 1
-        assert messages[0]["event_id"] == "evt_123"
+        assert messages[0]["trace_id"] == "evt_123"
         assert messages[0]["event_type"] == "PROJECT_CREATED"
         assert messages[0]["project_id"] == "proj_456"
         assert messages[0]["error_category"] == "transient"
@@ -336,7 +336,7 @@ class TestInspectDLQ:
             records.append(r)
 
         mock_parsed = Mock()
-        mock_parsed.event_id = "evt_x"
+        mock_parsed.trace_id = "evt_x"
         mock_parsed.event_type = "PROJECT_CREATED"
         mock_parsed.project_id = "proj_456"
         mock_parsed.error_category = "transient"
@@ -392,7 +392,7 @@ class TestInspectDLQ:
         record.value = b"{}"
 
         mock_parsed = Mock()
-        mock_parsed.event_id = "evt_1"
+        mock_parsed.trace_id = "evt_1"
         mock_parsed.event_type = "X"
         mock_parsed.project_id = "p1"
         mock_parsed.error_category = "transient"
@@ -440,7 +440,7 @@ class TestReplayMessages:
         mock_original_task.model_dump_json.return_value = '{"replayed": true}'
 
         mock_parsed = Mock()
-        mock_parsed.event_id = "evt_123"
+        mock_parsed.trace_id = "evt_123"
         mock_parsed.original_task = mock_original_task
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
@@ -464,7 +464,7 @@ class TestReplayMessages:
     @patch(SECURITY_PATCH, return_value={})
     @patch("pipeline.claimx.dlq.cli.AIOKafkaProducer")
     @patch("pipeline.claimx.dlq.cli.AIOKafkaConsumer")
-    async def test_replay_download_with_event_id_filter(
+    async def test_replay_download_with_trace_id_filter(
         self, mock_consumer_cls, mock_producer_cls, mock_security, mock_schema_cls, manager
     ):
         # Two records: one matching, one not
@@ -554,7 +554,7 @@ class TestReplayMessages:
         mock_original_task.model_copy.return_value = mock_original_task
         mock_original_task.model_dump_json.return_value = "{}"
 
-        mock_parsed = Mock(event_id="evt_123", original_task=mock_original_task)
+        mock_parsed = Mock(trace_id="evt_123", original_task=mock_original_task)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
         consumer = _make_async_iterator([record])
@@ -574,7 +574,7 @@ class TestReplayMessages:
     @patch(SECURITY_PATCH, return_value={})
     @patch("pipeline.claimx.dlq.cli.AIOKafkaProducer")
     @patch("pipeline.claimx.dlq.cli.AIOKafkaConsumer")
-    async def test_replay_sends_message_key_as_event_id(
+    async def test_replay_sends_message_key_as_trace_id(
         self, mock_consumer_cls, mock_producer_cls, mock_security, mock_schema_cls, manager
     ):
         record = Mock(partition=0, offset=10, value=b"{}")
@@ -583,7 +583,7 @@ class TestReplayMessages:
         mock_original_task.model_copy.return_value = mock_original_task
         mock_original_task.model_dump_json.return_value = "{}"
 
-        mock_parsed = Mock(event_id="evt_abc", original_task=mock_original_task)
+        mock_parsed = Mock(trace_id="evt_abc", original_task=mock_original_task)
         mock_schema_cls.model_validate_json.return_value = mock_parsed
 
         consumer = _make_async_iterator([record])
@@ -787,7 +787,7 @@ class TestCmdInspect:
         mock_config_cls.from_env.return_value = Mock()
         mock_manager = AsyncMock()
         mock_manager.inspect_dlq.return_value = [
-            {"event_id": "evt_123", "error_category": "transient"},
+            {"trace_id": "evt_123", "error_category": "transient"},
         ]
         mock_manager_cls.return_value = mock_manager
 

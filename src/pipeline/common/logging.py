@@ -69,7 +69,6 @@ def extract_log_context(obj: Any) -> dict[str, Any]:
         "trace_id",
         "assignment_id",
         "status_subtype",  # Xact
-        "event_id",
         "event_type",
         "project_id",
         "media_id",  # ClaimX

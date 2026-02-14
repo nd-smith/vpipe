@@ -76,7 +76,7 @@ class TestMediaHandlerHandleBatch:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="500",
-                event_id="evt_1",
+                trace_id="evt_1",
             ),
         ]
 
@@ -98,7 +98,7 @@ class TestMediaHandlerHandleBatch:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id=str(i),
-                event_id=f"evt_{i}",
+                trace_id=f"evt_{i}",
             )
             for i in range(1, BATCH_THRESHOLD + 2)
         ]
@@ -141,13 +141,13 @@ class TestMediaHandlerHandleBatch:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="1",
-                event_id="evt_1",
+                trace_id="evt_1",
             ),
             make_event(
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="2",
-                event_id="evt_2",
+                trace_id="evt_2",
             ),
         ]
 
@@ -229,13 +229,13 @@ class TestMediaHandlerErrors:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="500",
-                event_id="evt_1",
+                trace_id="evt_1",
             ),
             make_event(
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="501",
-                event_id="evt_2",
+                trace_id="evt_2",
             ),
         ]
 
@@ -277,13 +277,13 @@ class TestMediaHandlerErrors:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="1",
-                event_id="evt_1",
+                trace_id="evt_1",
             ),
             make_event(
                 event_type="PROJECT_FILE_ADDED",
                 project_id="123",
                 media_id="2",
-                event_id="evt_2",
+                trace_id="evt_2",
             ),
         ]
 
@@ -316,13 +316,13 @@ class TestMediaHandlerProcess:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="100",
                 media_id="500",
-                event_id="evt_1",
+                trace_id="evt_1",
             ),
             make_event(
                 event_type="PROJECT_FILE_ADDED",
                 project_id="200",
                 media_id="500",
-                event_id="evt_2",
+                trace_id="evt_2",
             ),
         ]
 
@@ -349,13 +349,13 @@ class TestMediaHandlerProcess:
                 event_type="PROJECT_FILE_ADDED",
                 project_id="100",
                 media_id="500",
-                event_id="evt_1",
+                trace_id="evt_1",
             ),
             make_event(
                 event_type="PROJECT_FILE_ADDED",
                 project_id="200",
                 media_id="500",
-                event_id="evt_2",
+                trace_id="evt_2",
             ),
         ]
 

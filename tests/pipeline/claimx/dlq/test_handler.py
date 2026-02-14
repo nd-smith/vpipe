@@ -45,7 +45,7 @@ def sample_download_task():
         blob_path="claimx/proj_456/media/file.pdf",
         file_type="pdf",
         file_name="file.pdf",
-        source_event_id="evt_789",
+        trace_id="evt_789",
         retry_count=3,
         metadata={"last_error": "Connection timeout"},
     )
@@ -55,7 +55,7 @@ def sample_download_task():
 def sample_enrichment_task():
     """Create a sample enrichment task for testing."""
     return ClaimXEnrichmentTask(
-        event_id="evt_123",
+        trace_id="evt_123",
         event_type="PROJECT_CREATED",
         project_id="proj_456",
         retry_count=2,
@@ -78,7 +78,7 @@ def valid_download_dlq_message_dict(sample_download_task):
             "blob_path": sample_download_task.blob_path,
             "file_type": sample_download_task.file_type,
             "file_name": sample_download_task.file_name,
-            "source_event_id": sample_download_task.source_event_id,
+            "trace_id": sample_download_task.trace_id,
             "retry_count": sample_download_task.retry_count,
             "metadata": sample_download_task.metadata,
         },
@@ -92,11 +92,11 @@ def valid_download_dlq_message_dict(sample_download_task):
 def valid_enrichment_dlq_message_dict(sample_enrichment_task):
     """Create a valid enrichment DLQ message as a dict."""
     return {
-        "event_id": sample_enrichment_task.event_id,
+        "trace_id": sample_enrichment_task.trace_id,
         "event_type": sample_enrichment_task.event_type,
         "project_id": sample_enrichment_task.project_id,
         "original_task": {
-            "event_id": sample_enrichment_task.event_id,
+            "trace_id": sample_enrichment_task.trace_id,
             "event_type": sample_enrichment_task.event_type,
             "project_id": sample_enrichment_task.project_id,
             "retry_count": sample_enrichment_task.retry_count,
@@ -301,7 +301,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
         dlq_msg = enrichment_handler.parse_dlq_message(record)
 
         assert isinstance(dlq_msg, FailedEnrichmentMessage)
-        assert dlq_msg.event_id == "evt_123"
+        assert dlq_msg.trace_id == "evt_123"
         assert dlq_msg.event_type == "PROJECT_CREATED"
         assert dlq_msg.project_id == "proj_456"
         assert dlq_msg.final_error == "API call failed"
@@ -347,7 +347,7 @@ class TestClaimXDLQHandlerParsingEnrichment:
     ):
         """Test parsing fails when required fields are missing."""
         incomplete_message = {
-            "event_id": "evt_123",
+            "trace_id": "evt_123",
             # Missing event_type, project_id, etc.
         }
         json_bytes = json.dumps(incomplete_message).encode("utf-8")
@@ -412,12 +412,12 @@ class TestClaimXDLQHandlerReplayDownload:
         assert replayed_task.metadata["dlq_offset"] == 456
         assert replayed_task.metadata["dlq_partition"] == 2
 
-        # Verify message key uses source_event_id
+        # Verify message key uses trace_id
         assert call_args.kwargs["key"] == "evt_789"
 
         # Verify headers
         headers = call_args.kwargs["headers"]
-        assert headers["source_event_id"] == "evt_789"
+        assert headers["trace_id"] == "evt_789"
         assert headers["replayed_from_dlq"] == "true"
 
     @pytest.mark.asyncio
@@ -561,7 +561,7 @@ class TestClaimXDLQHandlerReplayEnrichment:
         # Verify the replayed task
         replayed_task = call_args.kwargs["value"]
         assert isinstance(replayed_task, ClaimXEnrichmentTask)
-        assert replayed_task.event_id == "evt_123"
+        assert replayed_task.trace_id == "evt_123"
         assert replayed_task.event_type == "PROJECT_CREATED"
         assert replayed_task.project_id == "proj_456"
         assert replayed_task.retry_count == 0  # Reset to 0
@@ -569,12 +569,12 @@ class TestClaimXDLQHandlerReplayEnrichment:
         assert replayed_task.metadata["dlq_offset"] == 789
         assert replayed_task.metadata["dlq_partition"] == 1
 
-        # Verify message key uses event_id
+        # Verify message key uses trace_id
         assert call_args.kwargs["key"] == "evt_123"
 
         # Verify headers
         headers = call_args.kwargs["headers"]
-        assert headers["event_id"] == "evt_123"
+        assert headers["trace_id"] == "evt_123"
         assert headers["replayed_from_dlq"] == "true"
 
     @pytest.mark.asyncio

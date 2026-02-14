@@ -89,7 +89,7 @@ def mock_consumer():
 def sample_enrichment_task():
     """Sample enrichment task for testing."""
     return ClaimXEnrichmentTask(
-        event_id="evt-123",
+        trace_id="evt-123",
         event_type="PROJECT_CREATED",
         project_id="proj-456",
         retry_count=0,
@@ -353,7 +353,7 @@ class TestEnrichmentWorkerMessageProcessing:
         assert worker._process_single_task.called
         task = worker._process_single_task.call_args[0][0]
         assert isinstance(task, ClaimXEnrichmentTask)
-        assert task.event_id == "evt-123"
+        assert task.trace_id == "evt-123"
         assert task.event_type == "PROJECT_CREATED"
         assert task.project_id == "proj-456"
         assert worker._records_processed == 1

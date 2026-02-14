@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 class EntityRowsMessage(BaseModel):
     """Entity rows extracted from ClaimX API for Delta table writes."""
 
-    event_id: str | None = None
+    trace_id: str | None = None
     event_type: str | None = None
     project_id: str | None = None
     projects: list[dict[str, Any]] = Field(default_factory=list)

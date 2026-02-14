@@ -324,7 +324,7 @@ class TestInjectMetadata:
     def test_inject_metadata_adds_fields(self):
         row = {"key": "value"}
         result = inject_metadata(row, "evt_001")
-        assert result["event_id"] == "evt_001"
+        assert result["trace_id"] == "evt_001"
         assert "created_at" in result
         assert "updated_at" in result
         assert "last_enriched_at" in result
@@ -332,7 +332,7 @@ class TestInjectMetadata:
     def test_inject_metadata_without_last_enriched(self):
         row = {"key": "value"}
         result = inject_metadata(row, "evt_001", include_last_enriched=False)
-        assert result["event_id"] == "evt_001"
+        assert result["trace_id"] == "evt_001"
         assert "created_at" in result
         assert "updated_at" in result
         assert "last_enriched_at" not in result

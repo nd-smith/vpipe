@@ -59,7 +59,7 @@ class ProjectHandler(EventHandler):
                 # In-flight project verification: ensure project exists in warehouse
                 # Fetch full project data first, then overlay MFN from event
                 rows = await self.fetch_project_data(
-                    int(event.project_id), source_event_id=event.event_id
+                    int(event.project_id), trace_id=event.trace_id
                 )
 
                 # Overlay the MFN from event payload (this is the authoritative value)
@@ -72,7 +72,7 @@ class ProjectHandler(EventHandler):
                             "project_id": event.project_id,
                             "master_file_name": event.master_file_name,
                             "updated_at": now_datetime(),
-                            "event_id": event.event_id,
+                            "trace_id": event.trace_id,
                         }
                     )
 
@@ -99,7 +99,7 @@ class ProjectHandler(EventHandler):
 
             # PROJECT_CREATED - fetch full project details
             rows = await self.fetch_project_data(
-                int(event.project_id), source_event_id=event.event_id
+                int(event.project_id), trace_id=event.trace_id
             )
 
             duration_ms = elapsed_ms(start_time)
@@ -171,7 +171,7 @@ class ProjectHandler(EventHandler):
     async def fetch_project_data(
         self,
         project_id: int,
-        source_event_id: str | None = None,
+        trace_id: str | None = None,
     ) -> EntityRowsMessage:
         """
         Fetch project details and transform to entity rows.
@@ -189,7 +189,7 @@ class ProjectHandler(EventHandler):
                 "Project in cache - skipping API call",
                 extra={
                     "project_id": project_id,
-                    "source_event_id": source_event_id,
+                    "trace_id": trace_id,
                     "cache_size": self.project_cache.size(),
                 },
             )
@@ -202,7 +202,7 @@ class ProjectHandler(EventHandler):
         # Transform response to entity rows
         project_row = transformers.project_to_row(
             response,
-            event_id=source_event_id,
+            trace_id=trace_id,
         )
         # Use input project_id as fallback when API response structure varies
         if project_row.get("project_id") is None:
@@ -212,7 +212,7 @@ class ProjectHandler(EventHandler):
         contact_rows = transformers.project_to_contacts(
             response,
             project_id=str(project_id),
-            event_id=source_event_id or "",
+            trace_id=trace_id or "",
         )
         rows.contacts.extend(contact_rows)
 

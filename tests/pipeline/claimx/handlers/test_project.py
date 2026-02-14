@@ -177,7 +177,7 @@ class TestProjectHandlerFetchProjectData:
         mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
 
-        rows = await handler.fetch_project_data(123, source_event_id="evt_001")
+        rows = await handler.fetch_project_data(123, trace_id="evt_001")
 
         assert len(rows.projects) == 1
         assert len(rows.contacts) > 0
@@ -187,7 +187,7 @@ class TestProjectHandlerFetchProjectData:
         mock_project_cache.has = MagicMock(return_value=True)
         handler = ProjectHandler(mock_client, project_cache=mock_project_cache)
 
-        rows = await handler.fetch_project_data(123, source_event_id="evt_001")
+        rows = await handler.fetch_project_data(123, trace_id="evt_001")
 
         # Should return empty rows and skip API call
         assert rows.is_empty()
@@ -200,7 +200,7 @@ class TestProjectHandlerFetchProjectData:
         mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client, project_cache=mock_project_cache)
 
-        await handler.fetch_project_data(123, source_event_id="evt_001")
+        await handler.fetch_project_data(123, trace_id="evt_001")
 
         mock_project_cache.add.assert_called_once_with("123")
 
@@ -208,7 +208,7 @@ class TestProjectHandlerFetchProjectData:
         mock_client.get_project = AsyncMock(return_value=make_project_api_response())
         handler = ProjectHandler(mock_client)
 
-        rows = await handler.fetch_project_data(123, source_event_id="evt_001")
+        rows = await handler.fetch_project_data(123, trace_id="evt_001")
 
         assert len(rows.projects) == 1
         mock_client.get_project.assert_called_once_with(123)
@@ -220,7 +220,7 @@ class TestProjectHandlerFetchProjectData:
         )
         handler = ProjectHandler(mock_client)
 
-        rows = await handler.fetch_project_data(123, source_event_id="evt_001")
+        rows = await handler.fetch_project_data(123, trace_id="evt_001")
 
         assert len(rows.projects) == 1
         assert rows.projects[0]["project_id"] == "123"

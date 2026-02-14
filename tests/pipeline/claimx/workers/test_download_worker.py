@@ -59,7 +59,7 @@ def sample_download_task():
         blob_path="claimx/proj-456/media/file.jpg",
         file_type="jpg",
         file_name="file.jpg",
-        source_event_id="evt-abc",
+        trace_id="evt-abc",
         retry_count=0,
     )
 
@@ -444,7 +444,7 @@ class TestClaimXDownloadWorkerSuccessHandling:
             assert worker.producer.send.called
             call_args = worker.producer.send.call_args
 
-            # Verify message key (uses source_event_id)
+            # Verify message key (uses trace_id)
             assert call_args.kwargs["key"] == "evt-abc"
 
 

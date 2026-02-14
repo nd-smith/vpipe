@@ -190,7 +190,7 @@ class EventHandler(ABC):
     async def ensure_project_exists(
         self,
         project_id: int,
-        source_event_id: str,
+        trace_id: str,
     ) -> "EntityRowsMessage":
         """
         Ensure project exists in warehouse by fetching project data.
@@ -200,7 +200,7 @@ class EventHandler(ABC):
 
         Args:
             project_id: Project ID to verify
-            source_event_id: Source event ID for traceability
+            trace_id: Trace ID for traceability
 
         Returns:
             EntityRowsMessage containing project and contact rows
@@ -210,7 +210,7 @@ class EventHandler(ABC):
         project_handler = ProjectHandler(self.client, project_cache=self.project_cache)
         return await project_handler.fetch_project_data(
             project_id,
-            source_event_id=source_event_id,
+            trace_id=trace_id,
         )
 
     @abstractmethod

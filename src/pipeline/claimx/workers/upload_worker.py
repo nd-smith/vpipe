@@ -497,7 +497,7 @@ class ClaimXUploadWorker:
             media_id = cached_message.media_id
 
             # Set logging context for correlation
-            set_log_context(trace_id=cached_message.source_event_id, media_id=cached_message.media_id)
+            set_log_context(trace_id=cached_message.trace_id, media_id=cached_message.media_id)
 
             # Track in-flight
             async with self._in_flight_lock:
@@ -536,7 +536,7 @@ class ClaimXUploadWorker:
             logger.info(
                 "Uploaded file to OneLake",
                 extra={
-                    "correlation_id": cached_message.source_event_id,
+                    "trace_id": cached_message.trace_id,
                     "media_id": media_id,
                     "project_id": cached_message.project_id,
                     "domain": self.domain,
@@ -558,16 +558,16 @@ class ClaimXUploadWorker:
                 blob_path=cached_message.destination_path,
                 file_type=cached_message.file_type,
                 file_name=cached_message.file_name,
-                source_event_id=cached_message.source_event_id,
+                trace_id=cached_message.trace_id,
                 status="completed",
                 bytes_uploaded=cached_message.bytes_downloaded,
                 created_at=datetime.now(UTC),
             )
 
-            # Use source_event_id as key for consistent partitioning across all ClaimX topics
+            # Use trace_id as key for consistent partitioning across all ClaimX topics
             await self.producer.send(
                 value=result_message,
-                key=cached_message.source_event_id,
+                key=cached_message.trace_id,
             )
 
             # Clean up cached file
@@ -590,18 +590,18 @@ class ClaimXUploadWorker:
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
             # Build error log extra fields
-            event_id = None
+            trace_id = None
             project_id = None
             if cached_message is not None:
-                event_id = cached_message.source_event_id
+                trace_id = cached_message.trace_id
                 project_id = cached_message.project_id
 
             # Use standardized error logging
             log_worker_error(
                 logger,
                 "Upload failed",
-                event_id=event_id,
                 error_category="permanent",  # Upload failures are typically permanent
+                trace_id=trace_id,
                 exc=e,
                 media_id=media_id,
                 project_id=project_id,
@@ -624,16 +624,16 @@ class ClaimXUploadWorker:
                     blob_path=cached_message.destination_path,
                     file_type=cached_message.file_type,
                     file_name=cached_message.file_name,
-                    source_event_id=cached_message.source_event_id,
+                    trace_id=cached_message.trace_id,
                     status="failed_permanent",
                     bytes_uploaded=0,
                     error_message=str(e)[:500],
                     created_at=datetime.now(UTC),
                 )
 
-                # Use source_event_id as key for consistent partitioning across all ClaimX topics
+                # Use trace_id as key for consistent partitioning across all ClaimX topics
                 await self.producer.send(
-                    key=cached_message.source_event_id,
+                    key=cached_message.trace_id,
                     value=result_message,
                 )
             except Exception as produce_error:

@@ -98,7 +98,7 @@ class ProjectUpdateHandler(EventHandler):
                 # Fetch full project data for verification
                 rows = await self.ensure_project_exists(
                     int(event.project_id),
-                    source_event_id=event.event_id,
+                    trace_id=event.trace_id,
                 )
 
                 # Apply field updates to the fetched project row
@@ -108,7 +108,7 @@ class ProjectUpdateHandler(EventHandler):
                     # Fallback: create minimal project row if API didn't return data
                     project_row = {
                         "project_id": event.project_id,
-                        "event_id": event.event_id,
+                        "trace_id": event.trace_id,
                     }
                     project_row.update(fields_to_update)
                     rows.projects.append(project_row)
@@ -118,7 +118,7 @@ class ProjectUpdateHandler(EventHandler):
                 project_row = {
                     "project_id": event.project_id,
                     "updated_at": now_datetime(),
-                    "event_id": event.event_id,
+                    "trace_id": event.trace_id,
                 }
                 project_row.update(fields_to_update)
                 rows.projects.append(project_row)

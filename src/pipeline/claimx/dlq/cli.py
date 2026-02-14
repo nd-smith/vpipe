@@ -176,7 +176,7 @@ class DLQManager:
                     if dlq_type == "enrichment":
                         message_data.update(
                             {
-                                "event_id": failed_message.event_id,
+                                "trace_id": failed_message.trace_id,
                                 "event_type": failed_message.event_type,
                                 "project_id": failed_message.project_id,
                                 "error_category": failed_message.error_category,
@@ -237,7 +237,7 @@ class DLQManager:
             dlq_topic = self.enrichment_dlq_topic
             pending_topic = self.enrichment_pending_topic
             schema_class = FailedEnrichmentMessage
-            id_field = "event_id"
+            id_field = "trace_id"
         elif dlq_type == "download":
             dlq_topic = self.download_dlq_topic
             pending_topic = self.download_pending_topic

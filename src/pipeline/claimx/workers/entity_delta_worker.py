@@ -414,7 +414,7 @@ class ClaimXEntityDeltaWorker:
                         events.append(
                             {
                                 "entity_type": entity_type,
-                                "event_id": merged_rows.event_id,
+                                "trace_id": merged_rows.trace_id,
                                 "event_type": merged_rows.event_type,
                                 "project_id": merged_rows.project_id,
                                 **entity,
@@ -436,7 +436,7 @@ class ClaimXEntityDeltaWorker:
                                 "Entity batch sent to DLQ (permanent error)",
                                 extra={
                                     "event_count": len(events),
-                                    "event_id": merged_rows.event_id,
+                                    "trace_id": merged_rows.trace_id,
                                     "error_category": error_category.value,
                                 },
                             )
@@ -445,7 +445,7 @@ class ClaimXEntityDeltaWorker:
                                 "Entity batch sent to retry topic",
                                 extra={
                                     "event_count": len(events),
-                                    "event_id": merged_rows.event_id,
+                                    "trace_id": merged_rows.trace_id,
                                     "error_category": error_category.value,
                                 },
                             )
@@ -456,7 +456,7 @@ class ClaimXEntityDeltaWorker:
                                 "original_error": str(e),
                                 "retry_error": str(retry_error),
                                 "event_count": len(events),
-                                "event_id": merged_rows.event_id,
+                                "trace_id": merged_rows.trace_id,
                             },
                             exc_info=True,
                         )

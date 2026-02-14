@@ -6,13 +6,10 @@ Schema aligned with verisk_pipeline ClaimXEvent for compatibility.
 """
 
 import hashlib
-import logging
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
-logger = logging.getLogger(__name__)
 
 
 class ClaimXEventMessage(BaseModel):
@@ -22,7 +19,7 @@ class ClaimXEventMessage(BaseModel):
     Represents raw ClaimX webhook event data before enrichment.
 
     Attributes:
-        event_id: Unique identifier for the event
+        trace_id: Unique identifier for the event
         event_type: Type of event (PROJECT_CREATED, PROJECT_FILE_ADDED, etc.)
         project_id: ClaimX project ID this event belongs to
         ingested_at: Timestamp when event was ingested from webhook
@@ -45,7 +42,7 @@ class ClaimXEventMessage(BaseModel):
 
     Example:
         >>> event = ClaimXEventMessage(
-        ...     event_id="evt_12345",
+        ...     trace_id="evt_12345",
         ...     event_type="PROJECT_FILE_ADDED",
         ...     project_id="proj_67890",
         ...     ingested_at=datetime.now(timezone.utc),
@@ -56,7 +53,7 @@ class ClaimXEventMessage(BaseModel):
         'PROJECT_FILE_ADDED'
     """
 
-    event_id: str = Field(..., description="Unique event identifier", min_length=1)
+    trace_id: str = Field(..., description="Unique event identifier", min_length=1)
     event_type: str = Field(
         ...,
         description="Event type (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)",
@@ -80,7 +77,7 @@ class ClaimXEventMessage(BaseModel):
         default=None, description="Raw event payload for handler-specific parsing"
     )
 
-    @field_validator("event_id", "event_type", "project_id")
+    @field_validator("trace_id", "event_type", "project_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -101,20 +98,13 @@ class ClaimXEventMessage(BaseModel):
         Returns:
             ClaimXEventMessage instance
         """
-        raw_event_id = row.get("event_id") or row.get("eventId") or ""
-        event_id = raw_event_id
+        trace_id = row.get("event_id") or row.get("eventId") or ""
         event_type = row.get("event_type") or row.get("eventType") or ""
         project_id = str(row.get("project_id") or row.get("projectId") or "")
         ingested_at = row.get("ingested_at") or row.get("ingestedAt") or datetime.now()
 
-        logger.debug(
-            "from_raw_event event_id lookup: raw=%s, event_type=%s, project_id=%s, "
-            "sha256_fallback=%s",
-            raw_event_id, event_type, project_id, not bool(raw_event_id),
-        )
-
         # Generate deterministic ID if missing
-        if not event_id:
+        if not trace_id:
             composite_parts = [project_id, event_type]
 
             # Use ingested_at (webhook timestamp) as the stable timestamp
@@ -140,7 +130,7 @@ class ClaimXEventMessage(BaseModel):
                 composite_parts.append(f"file:{master_file}")
 
             composite_key = "|".join(composite_parts)
-            event_id = hashlib.sha256(composite_key.encode()).hexdigest()
+            trace_id = hashlib.sha256(composite_key.encode()).hexdigest()
 
         media_id = row.get("media_id") or row.get("mediaId")
         task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
@@ -148,7 +138,7 @@ class ClaimXEventMessage(BaseModel):
         master_file = row.get("master_file_name") or row.get("masterFileName")
 
         return cls(
-            event_id=event_id,
+            trace_id=trace_id,
             event_type=event_type,
             project_id=project_id,
             ingested_at=ingested_at,
@@ -164,7 +154,7 @@ class ClaimXEventMessage(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "event_type": "PROJECT_FILE_ADDED",
                     "project_id": "proj_67890",
                     "ingested_at": "2024-12-25T10:30:00Z",
@@ -172,14 +162,14 @@ class ClaimXEventMessage(BaseModel):
                     "raw_data": {"fileName": "photo.jpg", "fileSize": 1024},
                 },
                 {
-                    "event_id": "evt_67890",
+                    "trace_id": "evt_67890",
                     "event_type": "PROJECT_CREATED",
                     "project_id": "proj_12345",
                     "ingested_at": "2024-12-25T09:00:00Z",
                     "raw_data": {"projectName": "Insurance Claim 2024"},
                 },
                 {
-                    "event_id": "evt_11111",
+                    "trace_id": "evt_11111",
                     "event_type": "CUSTOM_TASK_ASSIGNED",
                     "project_id": "proj_22222",
                     "ingested_at": "2024-12-25T14:15:00Z",

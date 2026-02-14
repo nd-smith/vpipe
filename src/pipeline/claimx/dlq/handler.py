@@ -145,7 +145,7 @@ class ClaimXDLQHandler:
                 logger.info(
                     "Download DLQ message received for review",
                     extra={
-                        "event_id": dlq_msg.event_id,
+                        "trace_id": dlq_msg.trace_id,
                         "media_id": dlq_msg.media_id,
                         "project_id": dlq_msg.project_id,
                         "download_url": dlq_msg.download_url[:100],
@@ -160,7 +160,7 @@ class ClaimXDLQHandler:
                 logger.info(
                     "Enrichment DLQ message received for review",
                     extra={
-                        "event_id": dlq_msg.event_id,
+                        "trace_id": dlq_msg.trace_id,
                         "project_id": dlq_msg.project_id,
                         "event_type": dlq_msg.event_type,
                         "retry_count": dlq_msg.retry_count,
@@ -242,7 +242,7 @@ class ClaimXDLQHandler:
                 blob_path=dlq_msg.original_task.blob_path,
                 file_type=dlq_msg.original_task.file_type,
                 file_name=dlq_msg.original_task.file_name,
-                source_event_id=dlq_msg.original_task.source_event_id,
+                trace_id=dlq_msg.original_task.trace_id,
                 retry_count=0,  # Reset retry count
                 metadata={
                     **(dlq_msg.original_task.metadata or {}),
@@ -267,9 +267,9 @@ class ClaimXDLQHandler:
             # Send to downloads_pending topic
             await self._producer.send(
                 value=replayed_task,
-                key=replayed_task.source_event_id,
+                key=replayed_task.trace_id,
                 headers={
-                    "source_event_id": replayed_task.source_event_id,
+                    "trace_id": replayed_task.trace_id,
                     "replayed_from_dlq": "true",
                 },
             )
@@ -285,7 +285,7 @@ class ClaimXDLQHandler:
         else:  # enrichment
             # Create new task message with reset retry count
             replayed_task = ClaimXEnrichmentTask(
-                event_id=dlq_msg.original_task.event_id,
+                trace_id=dlq_msg.original_task.trace_id,
                 event_type=dlq_msg.original_task.event_type,
                 project_id=dlq_msg.original_task.project_id,
                 created_at=dlq_msg.original_task.created_at,
@@ -305,7 +305,7 @@ class ClaimXDLQHandler:
             logger.info(
                 "Replaying enrichment DLQ message to pending topic",
                 extra={
-                    "event_id": dlq_msg.event_id,
+                    "trace_id": dlq_msg.trace_id,
                     "project_id": dlq_msg.project_id,
                     "event_type": dlq_msg.event_type,
                     "original_retry_count": dlq_msg.retry_count,
@@ -317,9 +317,9 @@ class ClaimXDLQHandler:
             # Send to enrichment_pending topic
             await self._producer.send(
                 value=replayed_task,
-                key=replayed_task.event_id,
+                key=replayed_task.trace_id,
                 headers={
-                    "event_id": replayed_task.event_id,
+                    "trace_id": replayed_task.trace_id,
                     "replayed_from_dlq": "true",
                 },
             )
@@ -327,7 +327,7 @@ class ClaimXDLQHandler:
             logger.info(
                 "Enrichment DLQ message replayed successfully",
                 extra={
-                    "event_id": dlq_msg.event_id,
+                    "trace_id": dlq_msg.trace_id,
                     "project_id": dlq_msg.project_id,
                 },
             )
@@ -368,7 +368,7 @@ class ClaimXDLQHandler:
             logger.info(
                 "Acknowledging enrichment DLQ message",
                 extra={
-                    "event_id": dlq_msg.event_id,
+                    "trace_id": dlq_msg.trace_id,
                     "project_id": dlq_msg.project_id,
                     "topic": record.topic,
                     "partition": record.partition,

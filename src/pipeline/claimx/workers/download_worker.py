@@ -538,13 +538,13 @@ class ClaimXDownloadWorker:
         async with self._in_flight_lock:
             self._in_flight_tasks.add(task_message.media_id)
 
-        set_log_context(trace_id=task_message.source_event_id, media_id=task_message.media_id)
+        set_log_context(trace_id=task_message.trace_id, media_id=task_message.media_id)
 
         try:
             logger.info(
                 "Processing ClaimX download task",
                 extra={
-                    "event_id": task_message.source_event_id,
+                    "trace_id": task_message.trace_id,
                     "media_id": task_message.media_id,
                     "project_id": task_message.project_id,
                     "download_url": task_message.download_url,
@@ -683,7 +683,7 @@ class ClaimXDownloadWorker:
         logger.info(
             "ClaimX download completed successfully",
             extra={
-                "event_id": task_message.source_event_id,
+                "trace_id": task_message.trace_id,
                 "media_id": task_message.media_id,
                 "project_id": task_message.project_id,
                 "download_url": task_message.download_url,
@@ -726,13 +726,13 @@ class ClaimXDownloadWorker:
             content_type=outcome.content_type,
             file_type=task_message.file_type,
             file_name=task_message.file_name,
-            source_event_id=task_message.source_event_id,
+            trace_id=task_message.trace_id,
             downloaded_at=datetime.now(UTC),
         )
 
         await self.producer.send(
             value=cached_message,
-            key=task_message.source_event_id,
+            key=task_message.trace_id,
         )
 
         logger.debug(
@@ -764,7 +764,7 @@ class ClaimXDownloadWorker:
             f"bytes={outcome.bytes_downloaded}, "
             f"processing_time_ms={processing_time_ms}",
             extra={
-                "event_id": task_message.source_event_id,
+                "trace_id": task_message.trace_id,
                 "media_id": task_message.media_id,
                 "error_message": outcome.error_message,
                 "error_category": error_category.value,
@@ -777,8 +777,8 @@ class ClaimXDownloadWorker:
         log_worker_error(
             logger,
             "Download failed",
-            event_id=task_message.source_event_id,
             error_category=error_category.value,
+            trace_id=task_message.trace_id,
             media_id=task_message.media_id,
             project_id=task_message.project_id,
             download_url=task_message.download_url,
@@ -799,7 +799,7 @@ class ClaimXDownloadWorker:
             logger.warning(
                 "Circuit breaker open - will reprocess on next poll",
                 extra={
-                    "event_id": task_message.source_event_id,
+                    "trace_id": task_message.trace_id,
                     "media_id": task_message.media_id,
                     "download_url": task_message.download_url,
                 },
@@ -821,7 +821,7 @@ class ClaimXDownloadWorker:
             logger.debug(
                 "Routed failed task through retry handler",
                 extra={
-                    "event_id": task_message.source_event_id,
+                    "trace_id": task_message.trace_id,
                     "media_id": task_message.media_id,
                     "error_category": error_category.value,
                     "retry_count": task_message.retry_count,
@@ -832,7 +832,7 @@ class ClaimXDownloadWorker:
             logger.error(
                 "Failed to route task through retry handler",
                 extra={
-                    "event_id": task_message.source_event_id,
+                    "trace_id": task_message.trace_id,
                     "media_id": task_message.media_id,
                     "error": str(e),
                 },

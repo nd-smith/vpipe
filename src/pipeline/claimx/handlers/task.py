@@ -79,7 +79,7 @@ class TaskHandler(EventHandler):
 
             task_row = transformers.task_to_row(
                 response,
-                event_id=event.event_id,
+                trace_id=event.trace_id,
             )
             if task_row.get("assignment_id") is not None:
                 rows.tasks.append(task_row)
@@ -91,7 +91,7 @@ class TaskHandler(EventHandler):
             # 2. In-flight Project Verification
             project_rows = await self.ensure_project_exists(
                 project_id,
-                source_event_id=event.event_id,
+                trace_id=event.trace_id,
             )
             rows.merge(project_rows)
 
@@ -99,7 +99,7 @@ class TaskHandler(EventHandler):
             if custom_task:
                 template_row = transformers.template_to_row(
                     custom_task,
-                    event_id=event.event_id,
+                    trace_id=event.trace_id,
                 )
                 if template_row.get("task_id") is not None:
                     rows.task_templates.append(template_row)
@@ -110,7 +110,7 @@ class TaskHandler(EventHandler):
                     link_data,
                     assignment_id=assignment_id,
                     project_id=project_id,
-                    event_id=event.event_id,
+                    trace_id=event.trace_id,
                 )
                 if link_row.get("link_id") is not None:
                     rows.external_links.append(link_row)
@@ -119,7 +119,7 @@ class TaskHandler(EventHandler):
                     link_data,
                     project_id=project_id,
                     assignment_id=assignment_id,
-                    event_id=event.event_id,
+                    trace_id=event.trace_id,
                 )
                 if contact_row:
                     rows.contacts.append(contact_row)

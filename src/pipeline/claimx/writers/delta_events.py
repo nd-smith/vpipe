@@ -13,7 +13,7 @@ from pipeline.common.writers.base import BaseDeltaWriter
 # Explicit schema for claimx_events table matching actual Delta table schema
 # This ensures type compatibility and prevents inference issues
 EVENTS_SCHEMA = {
-    "event_id": pl.Utf8,
+    "trace_id": pl.Utf8,
     "event_type": pl.Utf8,
     "project_id": pl.Utf8,
     "media_id": pl.Utf8,
@@ -55,7 +55,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
 
         Args:
             events: List of event dicts from ClaimXEventMessage.model_dump():
-                - event_id: Unique event identifier
+                - trace_id: Unique trace identifier
                 - event_type: Event type string
                 - project_id: ClaimX project ID
                 - ingested_at: Event ingestion timestamp
@@ -79,7 +79,7 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             processed_events = []
             for event in events:
                 processed = {
-                    "event_id": event.get("event_id"),
+                    "trace_id": event.get("trace_id"),
                     "event_type": event.get("event_type"),
                     "project_id": event.get("project_id"),
                     "media_id": event.get("media_id"),
@@ -109,16 +109,16 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
 
                 processed_events.append(processed)
 
-            # Filter out events with null event_id or event_type before creating DataFrame
+            # Filter out events with null trace_id or event_type before creating DataFrame
             valid_events = [
                 event
                 for event in processed_events
-                if event.get("event_id") is not None and event.get("event_type") is not None
+                if event.get("trace_id") is not None and event.get("event_type") is not None
             ]
 
             if len(valid_events) < len(processed_events):
                 self.logger.debug(
-                    "Dropped events with null event_id or event_type",
+                    "Dropped events with null trace_id or event_type",
                     extra={
                         "dropped_count": len(processed_events) - len(valid_events),
                         "remaining_count": len(valid_events),

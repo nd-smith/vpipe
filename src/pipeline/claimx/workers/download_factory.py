@@ -51,7 +51,7 @@ class DownloadTaskFactory:
                 blob_path=DownloadTaskFactory._generate_blob_path(media_row),
                 file_type=media_row.get("file_type", ""),
                 file_name=media_row.get("file_name", ""),
-                source_event_id=media_row.get("event_id", ""),
+                trace_id=media_row.get("trace_id", ""),
                 retry_count=0,
                 expires_at=media_row.get("expires_at"),
                 refresh_count=0,

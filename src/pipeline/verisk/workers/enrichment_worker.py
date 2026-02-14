@@ -326,7 +326,6 @@ class XACTEnrichmentWorker:
         logger.debug(
             "Processing enrichment task",
             extra={
-                "event_id": task.event_id,
                 "trace_id": task.trace_id,
                 "event_type": task.event_type,
                 "status_subtype": task.status_subtype,
@@ -366,7 +365,6 @@ class XACTEnrichmentWorker:
                         logger.info(
                             "Pipeline terminated by plugin",
                             extra={
-                                "event_id": task.event_id,
                                 "trace_id": task.trace_id,
                                 "status_subtype": task.status_subtype,
                                 "reason": orchestrator_result.termination_reason,
@@ -380,7 +378,7 @@ class XACTEnrichmentWorker:
                         logger.debug(
                             "Plugin actions executed",
                             extra={
-                                "event_id": task.event_id,
+                                "trace_id": task.trace_id,
                                 "actions": orchestrator_result.actions_executed,
                                 "plugins": orchestrator_result.success_count,
                             },
@@ -390,7 +388,7 @@ class XACTEnrichmentWorker:
                     logger.error(
                         "Plugin execution failed",
                         extra={
-                            "event_id": task.event_id,
+                            "trace_id": task.trace_id,
                             "error": str(e),
                         },
                         exc_info=True,
@@ -408,7 +406,6 @@ class XACTEnrichmentWorker:
             logger.debug(
                 "Enrichment task complete",
                 extra={
-                    "event_id": task.event_id,
                     "trace_id": task.trace_id,
                     "status_subtype": task.status_subtype,
                     "download_tasks": len(download_tasks),
@@ -421,7 +418,7 @@ class XACTEnrichmentWorker:
             log_worker_error(
                 logger,
                 "Enrichment task failed with unexpected error",
-                event_id=task.event_id,
+                trace_id=task.trace_id,
                 error_category=error_category.value,
                 exc=e,
                 status_subtype=task.status_subtype,
@@ -448,7 +445,6 @@ class XACTEnrichmentWorker:
                     logger.warning(
                         "Invalid attachment URL, skipping",
                         extra={
-                            "event_id": task.event_id,
                             "trace_id": task.trace_id,
                             "url": sanitize_url(attachment_url),
                             "validation_error": str(e),
@@ -491,7 +487,6 @@ class XACTEnrichmentWorker:
                 logger.error(
                     "Failed to create download task for attachment",
                     extra={
-                        "event_id": task.event_id,
                         "trace_id": task.trace_id,
                         "url": sanitize_url(attachment_url),
                         "error": str(e),
@@ -503,7 +498,7 @@ class XACTEnrichmentWorker:
         logger.debug(
             "Created download tasks from attachments",
             extra={
-                "event_id": task.event_id,
+                "trace_id": task.trace_id,
                 "attachments": len(task.attachments),
                 "download_tasks": len(download_tasks),
             },
@@ -588,7 +583,7 @@ class XACTEnrichmentWorker:
         log_worker_error(
             logger,
             "Enrichment task failed",
-            event_id=task.event_id,
+            trace_id=task.trace_id,
             error_category=error_category.value,
             exc=error,
             status_subtype=task.status_subtype,

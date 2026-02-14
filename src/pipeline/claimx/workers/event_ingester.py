@@ -392,7 +392,7 @@ class ClaimXEventIngesterWorker:
                 )
                 continue
 
-            event_id = event.event_id
+            event_id = event.trace_id
             latest_timestamp = event.ingested_at
 
             if self._dedup_enabled:
@@ -431,25 +431,25 @@ class ClaimXEventIngesterWorker:
                     except Exception as e:
                         logger.warning(
                             "Error checking blob storage for duplicate (falling back to memory-only)",
-                            extra={"event_id": event_id, "error": str(e)},
+                            extra={"trace_id": event_id, "error": str(e)},
                         )
                     return event_id, False
 
             results = await asyncio.gather(
-                *(_check_blob(ev.event_id) for ev in parsed_events)
+                *(_check_blob(ev.trace_id) for ev in parsed_events)
             )
             blob_duplicates = {eid for eid, is_dup in results if is_dup}
 
         # Pass 3: Build enrichment tasks from non-duplicate events
         for event in parsed_events:
-            if event.event_id in blob_duplicates:
+            if event.trace_id in blob_duplicates:
                 self._records_deduplicated += 1
                 continue
 
             self._records_processed += 1
 
             enrichment_task = ClaimXEnrichmentTask(
-                event_id=event.event_id,
+                trace_id=event.trace_id,
                 event_type=event.event_type,
                 project_id=event.project_id,
                 retry_count=0,
@@ -460,10 +460,10 @@ class ClaimXEventIngesterWorker:
                 master_file_name=event.master_file_name,
             )
 
-            enrichment_tasks.append((event.event_id, enrichment_task))
-            processed_event_ids.append(event.event_id)
+            enrichment_tasks.append((event.trace_id, enrichment_task))
+            processed_event_ids.append(event.trace_id)
             if self._dedup_enabled:
-                self._mark_processed(event.event_id)
+                self._mark_processed(event.trace_id)
 
         # Batch-produce all enrichment tasks
         if enrichment_tasks:
@@ -539,13 +539,13 @@ class ClaimXEventIngesterWorker:
                     self._dedup_blob_hits += 1
                     logger.debug(
                         "Found duplicate in blob storage (restored to memory cache)",
-                        extra={"event_id": event_id},
+                        extra={"trace_id": event_id},
                     )
                     return True
             except Exception as e:
                 logger.warning(
                     "Error checking blob storage for duplicate (falling back to memory-only)",
-                    extra={"event_id": event_id, "error": str(e)},
+                    extra={"trace_id": event_id, "error": str(e)},
                     exc_info=False,
                 )
 
@@ -591,7 +591,7 @@ class ClaimXEventIngesterWorker:
             except Exception as e:
                 logger.warning(
                     "Error persisting to blob storage (memory cache still updated)",
-                    extra={"event_id": event_id, "error": str(e)},
+                    extra={"trace_id": event_id, "error": str(e)},
                 )
 
     def _cleanup_dedup_cache(self) -> None:

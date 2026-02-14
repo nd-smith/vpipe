@@ -38,7 +38,7 @@ class TestClaimXCachedDownloadMessageCreation:
         assert cached.content_type is None
         assert cached.file_type == ""
         assert cached.file_name == ""
-        assert cached.source_event_id == ""
+        assert cached.trace_id == ""
 
     def test_create_with_all_fields(self):
         """ClaimXCachedDownloadMessage can be created with all fields."""
@@ -53,14 +53,14 @@ class TestClaimXCachedDownloadMessageCreation:
             content_type="image/jpeg",
             file_type="jpg",
             file_name="photo.jpg",
-            source_event_id="evt_123",
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
         assert cached.content_type == "image/jpeg"
         assert cached.file_type == "jpg"
         assert cached.file_name == "photo.jpg"
-        assert cached.source_event_id == "evt_123"
+        assert cached.trace_id == "evt_123"
 
     def test_create_with_zero_bytes(self):
         """ClaimXCachedDownloadMessage can handle zero-byte files."""
@@ -269,7 +269,7 @@ class TestClaimXCachedDownloadMessageSerialization:
             content_type="image/jpeg",
             file_type="jpg",
             file_name="photo.jpg",
-            source_event_id="evt_123",
+            trace_id="evt_123",
             downloaded_at=now,
         )
 
@@ -285,7 +285,7 @@ class TestClaimXCachedDownloadMessageSerialization:
         assert restored.content_type == original.content_type
         assert restored.file_type == original.file_type
         assert restored.file_name == original.file_name
-        assert restored.source_event_id == original.source_event_id
+        assert restored.trace_id == original.trace_id
 
 
 class TestClaimXCachedDownloadMessageEdgeCases:

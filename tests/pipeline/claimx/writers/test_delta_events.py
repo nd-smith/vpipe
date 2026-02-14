@@ -54,7 +54,7 @@ class TestClaimXEventsDeltaWriter:
         now = datetime.now(UTC)
         events = [
             {
-                "event_id": f"evt-{i}",
+                "trace_id": f"evt-{i}",
                 "event_type": "PROJECT_CREATED",
                 "project_id": f"proj-{i}",
                 "ingested_at": now,
@@ -71,7 +71,7 @@ class TestClaimXEventsDeltaWriter:
         call_args = claimx_events_writer._delta_writer.append.call_args
         df_written = call_args[0][0]
         assert len(df_written) == 3
-        assert "event_id" in df_written.columns
+        assert "trace_id" in df_written.columns
         assert "event_type" in df_written.columns
         assert "project_id" in df_written.columns
         assert "created_at" in df_written.columns
@@ -101,7 +101,7 @@ class TestClaimXEventsDeltaWriter:
     async def test_write_events_with_string_timestamp(self, claimx_events_writer):
         """Test writing events with ISO format string timestamps."""
         event = {
-            "event_id": "evt-str-ts",
+            "trace_id": "evt-str-ts",
             "event_type": "PROJECT_CREATED",
             "project_id": "123456",
             "ingested_at": "2024-01-01T12:00:00Z",
@@ -116,7 +116,7 @@ class TestClaimXEventsDeltaWriter:
     async def test_write_events_derives_event_date(self, claimx_events_writer):
         """Test that event_date is derived from ingested_at."""
         event = {
-            "event_id": "evt-date-test",
+            "trace_id": "evt-date-test",
             "event_type": "PROJECT_CREATED",
             "project_id": "123456",
             "ingested_at": datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC),
@@ -139,7 +139,7 @@ class TestClaimXEventsDeltaWriter:
     async def test_write_events_fills_missing_ingested_at(self, claimx_events_writer):
         """Test that missing ingested_at is filled with current time."""
         event = {
-            "event_id": "evt-no-ts",
+            "trace_id": "evt-no-ts",
             "event_type": "PROJECT_CREATED",
             "project_id": "123456",
             # ingested_at is intentionally missing
@@ -158,17 +158,17 @@ class TestClaimXEventsDeltaWriter:
         assert before <= ingested_at <= after
 
     @pytest.mark.asyncio
-    async def test_write_events_drops_null_event_id(self, claimx_events_writer):
-        """Test that events with null event_id are filtered out."""
+    async def test_write_events_drops_null_trace_id(self, claimx_events_writer):
+        """Test that events with null trace_id are filtered out."""
         events = [
             {
-                "event_id": "valid-evt",
+                "trace_id": "valid-evt",
                 "event_type": "PROJECT_CREATED",
                 "project_id": "123456",
                 "ingested_at": datetime.now(UTC),
             },
             {
-                "event_id": None,  # This should be dropped
+                "trace_id": None,  # This should be dropped
                 "event_type": "PROJECT_CREATED",
                 "project_id": "123456",
                 "ingested_at": datetime.now(UTC),
@@ -184,20 +184,20 @@ class TestClaimXEventsDeltaWriter:
 
         # Only valid event should be written
         assert len(df_written) == 1
-        assert df_written["event_id"][0] == "valid-evt"
+        assert df_written["trace_id"][0] == "valid-evt"
 
     @pytest.mark.asyncio
     async def test_write_events_drops_null_event_type(self, claimx_events_writer):
         """Test that events with null event_type are filtered out."""
         events = [
             {
-                "event_id": "evt-with-type",
+                "trace_id": "evt-with-type",
                 "event_type": "PROJECT_CREATED",
                 "project_id": "123456",
                 "ingested_at": datetime.now(UTC),
             },
             {
-                "event_id": "evt-no-type",
+                "trace_id": "evt-no-type",
                 "event_type": None,  # This should be dropped
                 "project_id": "123456",
                 "ingested_at": datetime.now(UTC),
@@ -213,7 +213,7 @@ class TestClaimXEventsDeltaWriter:
 
         # Only event with type should be written
         assert len(df_written) == 1
-        assert df_written["event_id"][0] == "evt-with-type"
+        assert df_written["trace_id"][0] == "evt-with-type"
 
     @pytest.mark.asyncio
     async def test_write_events_async_execution(self, claimx_events_writer, sample_claimx_event):
@@ -240,7 +240,7 @@ class TestClaimXEventsDeltaWriterSchema:
         from pipeline.claimx.writers.delta_events import EVENTS_SCHEMA
 
         required_fields = [
-            "event_id",
+            "trace_id",
             "event_type",
             "project_id",
             "media_id",
@@ -261,7 +261,7 @@ class TestClaimXEventsDeltaWriterSchema:
 
         # String fields
         string_fields = [
-            "event_id",
+            "trace_id",
             "event_type",
             "project_id",
             "media_id",
@@ -306,7 +306,7 @@ async def test_claimx_events_writer_integration():
 
         # Write an event
         event = {
-            "event_id": "integration-test-evt",
+            "trace_id": "integration-test-evt",
             "event_type": "PROJECT_FILE_ADDED",
             "project_id": "123456",
             "media_id": "media-789",

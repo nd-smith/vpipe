@@ -378,7 +378,7 @@ class TestEventIngesterEnrichmentTaskCreation:
         assert len(messages) == 1
         key, task = messages[0]
         assert isinstance(task, ClaimXEnrichmentTask)
-        assert task.event_id == "evt-123"
+        assert task.trace_id == "evt-123"
         assert task.event_type == "PROJECT_CREATED"
         assert task.project_id == "proj-456"
         assert task.retry_count == 0

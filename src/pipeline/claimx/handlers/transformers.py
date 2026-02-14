@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def project_to_row(
     data: dict[str, Any],
-    event_id: str | None,
+    trace_id: str | None,
 ) -> dict[str, Any]:
     """Transform API response to project row."""
     inner = data.get("data", data)
@@ -100,13 +100,13 @@ def project_to_row(
         "custom_external_unique_id": safe_str(project.get("customExternalUniqueId")),
         "company_name": safe_str(inner.get("companyName")),
     }
-    return inject_metadata(row, event_id, include_last_enriched=False)
+    return inject_metadata(row, trace_id, include_last_enriched=False)
 
 
 def project_to_contacts(
     data: dict[str, Any],
     project_id: str,
-    event_id: str,
+    trace_id: str,
 ) -> list[dict[str, Any]]:
     """Extract contacts from project API response."""
     contacts = []
@@ -149,7 +149,7 @@ def project_to_contacts(
             "task_assignment_id": None,
             "video_collaboration_id": None,
         }
-        contacts.append(inject_metadata(row, event_id))
+        contacts.append(inject_metadata(row, trace_id))
 
     for member in team_members:
         username = safe_str(member.get("userName"))
@@ -169,7 +169,7 @@ def project_to_contacts(
                 "task_assignment_id": None,
                 "video_collaboration_id": None,
             }
-            contacts.append(inject_metadata(row, event_id))
+            contacts.append(inject_metadata(row, trace_id))
 
     policyholder_count = sum(1 for c in contacts if c["contact_type"] == "POLICYHOLDER")
     claim_rep_count = sum(1 for c in contacts if c["contact_type"] == "CLAIM_REP")
@@ -189,7 +189,7 @@ def project_to_contacts(
 
 def task_to_row(
     data: dict[str, Any],
-    event_id: str,
+    trace_id: str,
 ) -> dict[str, Any]:
     """Transform task assignment to row."""
     row = {
@@ -217,12 +217,12 @@ def task_to_row(
         "resubmit_task_assignment_id": safe_int(data.get("resubmitTaskAssignmentId")),
         "task_url": safe_str(data.get("url")),
     }
-    return inject_metadata(row, event_id)
+    return inject_metadata(row, trace_id)
 
 
 def template_to_row(
     template: dict[str, Any],
-    event_id: str,
+    trace_id: str,
 ) -> dict[str, Any]:
     """Transform custom task template to row."""
     row = {
@@ -250,14 +250,14 @@ def template_to_row(
         "modified_by_id": safe_int(template.get("modifiedById")),
         "modified_date": parse_timestamp(template.get("modifiedDate")),
     }
-    return inject_metadata(row, event_id)
+    return inject_metadata(row, trace_id)
 
 
 def link_to_row(
     link: dict[str, Any],
     assignment_id: int,
     project_id: Any,
-    event_id: str,
+    trace_id: str,
 ) -> dict[str, Any]:
     """Transform external link data to row."""
     row = {
@@ -273,14 +273,14 @@ def link_to_row(
         "accessed_count": 0,
         "last_accessed": None,
     }
-    return inject_metadata(row, event_id, include_last_enriched=False)
+    return inject_metadata(row, trace_id, include_last_enriched=False)
 
 
 def link_to_contact(
     link: dict[str, Any],
     project_id: Any,
     assignment_id: int,
-    event_id: str,
+    trace_id: str,
 ) -> dict[str, Any] | None:
     """Extract contact from external link data."""
     email = safe_str(link.get("email"))
@@ -303,13 +303,13 @@ def link_to_contact(
         "updated_at": now_iso(),
         "created_date": today,
     }
-    return inject_metadata(row, event_id)
+    return inject_metadata(row, trace_id)
 
 
 def media_to_row(
     media: dict[str, Any],
     project_id: Any,
-    event_id: str,
+    trace_id: str,
 ) -> dict[str, Any]:
     """Transform media item to row."""
     download_link = safe_str(media.get("fullDownloadLink"))
@@ -329,12 +329,12 @@ def media_to_row(
         "full_download_link": download_link,
         "expires_at": safe_str(media.get("expiresAt")),
     }
-    return inject_metadata(row, event_id)
+    return inject_metadata(row, trace_id)
 
 
 def video_collab_to_row(
     data: dict[str, Any],
-    event_id: str,
+    trace_id: str,
 ) -> dict[str, Any]:
     """Transform API response to video collaboration row."""
     first_name = safe_str(data.get("claimRepFirstName"))
@@ -368,4 +368,4 @@ def video_collab_to_row(
         "company_name": safe_str(data.get("companyName")),
         "guid": safe_str(data.get("guid")),
     }
-    return inject_metadata(row, event_id)
+    return inject_metadata(row, trace_id)

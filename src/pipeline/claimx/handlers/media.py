@@ -185,7 +185,7 @@ class MediaHandler(EventHandler):
             # Ensure the project exists in our warehouse before processing media
             project_rows = await self.ensure_project_exists(
                 int(project_id),
-                source_event_id=events[0].event_id,
+                trace_id=events[0].trace_id,
             )
 
             results = []
@@ -297,7 +297,7 @@ class MediaHandler(EventHandler):
             media_row = transformers.media_to_row(
                 media_data,
                 project_id=project_id,
-                event_id=event.event_id,
+                trace_id=event.trace_id,
             )
             if media_row.get("media_id") is not None:
                 rows.media.append(media_row)

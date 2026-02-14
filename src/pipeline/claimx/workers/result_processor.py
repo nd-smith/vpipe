@@ -298,7 +298,7 @@ class ClaimXResultProcessor:
         if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
             self._cycle_offset_end_ts = ts
 
-        set_log_context(trace_id=result.source_event_id)
+        set_log_context(trace_id=result.trace_id)
 
         if result.status == "completed":
             self._records_succeeded += 1
@@ -395,7 +395,7 @@ class ClaimXResultProcessor:
                         "file_type": upload_result.file_type,
                         "blob_path": upload_result.blob_path,
                         "bytes": upload_result.bytes_uploaded,
-                        "source_event_id": upload_result.source_event_id,
+                        "trace_id": upload_result.trace_id,
                         "created_at": now,
                         "updated_at": now,
                     }

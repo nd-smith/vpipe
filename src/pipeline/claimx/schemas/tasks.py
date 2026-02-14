@@ -21,7 +21,7 @@ class ClaimXEnrichmentTask(BaseModel):
     API enrichment first to get download URLs and entity data.
 
     Attributes:
-        event_id: Unique identifier from the source event (for correlation)
+        trace_id: Unique identifier from the source event (for correlation)
         event_type: Type of event to process (PROJECT_CREATED, PROJECT_FILE_ADDED, etc.)
         project_id: ClaimX project ID to enrich
         retry_count: Number of times this task has been retried (starts at 0)
@@ -33,7 +33,7 @@ class ClaimXEnrichmentTask(BaseModel):
 
     Example:
         >>> task = ClaimXEnrichmentTask(
-        ...     event_id="evt_12345",
+        ...     trace_id="evt_12345",
         ...     event_type="PROJECT_FILE_ADDED",
         ...     project_id="proj_67890",
         ...     retry_count=0,
@@ -42,7 +42,7 @@ class ClaimXEnrichmentTask(BaseModel):
         ... )
     """
 
-    event_id: str = Field(
+    trace_id: str = Field(
         ..., description="Unique event identifier (from source event)", min_length=1
     )
     event_type: str = Field(
@@ -70,7 +70,7 @@ class ClaimXEnrichmentTask(BaseModel):
         description="Metadata for enrichment tracking (error context, retry info, etc.)",
     )
 
-    @field_validator("event_id", "event_type", "project_id")
+    @field_validator("trace_id", "event_type", "project_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -96,7 +96,7 @@ class ClaimXEnrichmentTask(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "event_type": "PROJECT_FILE_ADDED",
                     "project_id": "proj_67890",
                     "retry_count": 0,
@@ -104,7 +104,7 @@ class ClaimXEnrichmentTask(BaseModel):
                     "media_id": "media_111",
                 },
                 {
-                    "event_id": "evt_67890",
+                    "trace_id": "evt_67890",
                     "event_type": "PROJECT_CREATED",
                     "project_id": "proj_12345",
                     "retry_count": 0,
@@ -130,7 +130,7 @@ class ClaimXDownloadTask(BaseModel):
         blob_path: Target path in OneLake/blob storage for the downloaded file
         file_type: File type/extension (e.g., "pdf", "jpg", "mp4")
         file_name: Original file name
-        source_event_id: ID of the event that triggered this download
+        trace_id: ID of the event that triggered this download
         retry_count: Number of times this task has been retried (starts at 0)
         expires_at: Optional ISO datetime when presigned URL expires
         refresh_count: Number of times URL was refreshed (for expired URLs)
@@ -143,7 +143,7 @@ class ClaimXDownloadTask(BaseModel):
         ...     blob_path="claimx/proj_67890/media/photo.jpg",
         ...     file_type="jpg",
         ...     file_name="photo.jpg",
-        ...     source_event_id="evt_12345",
+        ...     trace_id="evt_12345",
         ...     retry_count=0
         ... )
     """
@@ -156,7 +156,7 @@ class ClaimXDownloadTask(BaseModel):
     blob_path: str = Field(..., description="Target path in OneLake/blob storage", min_length=1)
     file_type: str = Field(default="", description="File type/extension (e.g., pdf, jpg, mp4)")
     file_name: str = Field(default="", description="Original file name")
-    source_event_id: str = Field(
+    trace_id: str = Field(
         default="", description="ID of the event that triggered this download"
     )
     retry_count: int = Field(default=0, description="Number of retry attempts (starts at 0)", ge=0)
@@ -200,7 +200,7 @@ class ClaimXDownloadTask(BaseModel):
                     "blob_path": "claimx/proj_67890/media/photo.jpg",
                     "file_type": "jpg",
                     "file_name": "photo.jpg",
-                    "source_event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "retry_count": 0,
                     "expires_at": "2024-12-26T10:30:00Z",
                     "refresh_count": 0,
@@ -212,7 +212,7 @@ class ClaimXDownloadTask(BaseModel):
                     "blob_path": "claimx/proj_12345/media/video.mp4",
                     "file_type": "mp4",
                     "file_name": "damage_video.mp4",
-                    "source_event_id": "evt_67890",
+                    "trace_id": "evt_67890",
                     "retry_count": 1,
                     "expires_at": "2024-12-26T11:00:00Z",
                     "refresh_count": 1,

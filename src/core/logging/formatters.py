@@ -23,7 +23,6 @@ class JSONFormatter(logging.Formatter):
     EXTRA_FIELDS = [
         # Correlation and tracing
         "trace_id",
-        "correlation_id",
         "batch_id",
         "duration_ms",
         # HTTP
@@ -75,7 +74,6 @@ class JSONFormatter(logging.Formatter):
         "columns",
         "limit",
         # Identifiers
-        "event_id",
         "event_type",
         "project_id",
         "media_id",

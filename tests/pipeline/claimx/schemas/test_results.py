@@ -35,7 +35,7 @@ class TestClaimXUploadResultMessageCreation:
         assert result.error_message is None
         assert result.file_type == ""
         assert result.file_name == ""
-        assert result.source_event_id == ""
+        assert result.trace_id == ""
 
     def test_create_failed_upload(self):
         """ClaimXUploadResultMessage for failed upload."""
@@ -82,7 +82,7 @@ class TestClaimXUploadResultMessageCreation:
             blob_path="claimx/proj_456/media/photo.jpg",
             file_type="jpg",
             file_name="photo.jpg",
-            source_event_id="evt_123",
+            trace_id="evt_123",
             status="completed",
             bytes_uploaded=2048576,
             created_at=now,
@@ -90,7 +90,7 @@ class TestClaimXUploadResultMessageCreation:
 
         assert result.file_type == "jpg"
         assert result.file_name == "photo.jpg"
-        assert result.source_event_id == "evt_123"
+        assert result.trace_id == "evt_123"
 
 
 class TestClaimXUploadResultMessageValidation:
@@ -261,7 +261,7 @@ class TestClaimXUploadResultMessageSerialization:
             blob_path="claimx/proj_456/media/photo.jpg",
             file_type="jpg",
             file_name="photo.jpg",
-            source_event_id="evt_123",
+            trace_id="evt_123",
             status="failed",
             bytes_uploaded=0,
             error_message="Connection timeout",

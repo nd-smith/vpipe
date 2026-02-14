@@ -229,7 +229,7 @@ class TestDeltaEventsWorkerMessageProcessing:
     async def test_event_message_parsed_successfully(
         self, mock_config, mock_producer, sample_event_message
     ):
-        """Worker parses event message with normalized fields and generated event_id."""
+        """Worker parses event message with normalized fields and generated trace_id."""
         with patch("pipeline.claimx.workers.delta_events_worker.DeltaRetryHandler"):
             worker = ClaimXDeltaEventsWorker(
                 config=mock_config,
@@ -245,16 +245,16 @@ class TestDeltaEventsWorkerMessageProcessing:
 
             # Verify batch contains normalized snake_case fields
             batch_event = worker._batch[0]
-            assert batch_event["event_id"] == "evt-123"
+            assert batch_event["trace_id"] == "evt-123"
             assert batch_event["event_type"] == "PROJECT_CREATED"
             assert batch_event["project_id"] == "proj-456"
             assert "raw_data" not in batch_event
 
     @pytest.mark.asyncio
-    async def test_event_message_generates_event_id_when_missing(
+    async def test_event_message_generates_trace_id_when_missing(
         self, mock_config, mock_producer
     ):
-        """Worker generates deterministic event_id when source has none."""
+        """Worker generates deterministic trace_id when source has none."""
         event_data = {
             "eventType": "PROJECT_CREATED",
             "projectId": "proj-456",
@@ -282,8 +282,8 @@ class TestDeltaEventsWorkerMessageProcessing:
 
             assert len(worker._batch) == 1
             batch_event = worker._batch[0]
-            # event_id should be a SHA256 hex digest (64 chars)
-            assert len(batch_event["event_id"]) == 64
+            # trace_id should be a SHA256 hex digest (64 chars)
+            assert len(batch_event["trace_id"]) == 64
             assert batch_event["event_type"] == "PROJECT_CREATED"
             assert batch_event["project_id"] == "proj-456"
 

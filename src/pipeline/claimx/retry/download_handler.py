@@ -356,17 +356,17 @@ class DownloadRetryHandler:
             },
         )
 
-        # Use source_event_id as key for consistent partitioning across all ClaimX topics
+        # Use trace_id as key for consistent partitioning across all ClaimX topics
         await self._retry_producer.send(
             value=updated_task,
-            key=task.source_event_id,
+            key=task.trace_id,
             headers=create_retry_headers(
                 retry_count=updated_task.retry_count,
                 retry_at=retry_at,
                 delay_seconds=delay_seconds,
                 target_topic=target_topic,
                 worker_type="download_worker",
-                original_key=task.source_event_id,
+                original_key=task.trace_id,
                 error_category=error_category,
                 domain=self.domain,
             ),
@@ -375,7 +375,7 @@ class DownloadRetryHandler:
         logger.debug(
             "Task sent to retry topic successfully",
             extra={
-                "event_id": task.source_event_id,
+                "trace_id": task.trace_id,
                 "media_id": task.media_id,
                 "retry_topic": retry_topic,
                 "target_topic": target_topic,
@@ -398,7 +398,7 @@ class DownloadRetryHandler:
             Exception: If send to DLQ fails
         """
         dlq_message = FailedDownloadMessage(
-            event_id=task.source_event_id,
+            trace_id=task.trace_id,
             media_id=task.media_id,
             project_id=task.project_id,
             download_url=task.download_url,
@@ -412,7 +412,7 @@ class DownloadRetryHandler:
         logger.warning(
             "Sending task to DLQ",
             extra={
-                "event_id": task.source_event_id,
+                "trace_id": task.trace_id,
                 "media_id": task.media_id,
                 "error_category": error_category.value,
                 "project_id": task.project_id,
@@ -425,12 +425,12 @@ class DownloadRetryHandler:
         # Record DLQ routing metric
         record_dlq_message(domain="claimx", reason=reason)
 
-        # Use source_event_id as key for consistent partitioning across all ClaimX topics
+        # Use trace_id as key for consistent partitioning across all ClaimX topics
         dlq_headers = create_dlq_headers(task.retry_count, error_category)
         dlq_headers["url_refresh_attempted"] = str(url_refresh_attempted)
         await self._dlq_producer.send(
             value=dlq_message,
-            key=task.source_event_id,
+            key=task.trace_id,
             headers=dlq_headers,
         )
 

@@ -134,12 +134,12 @@ def elapsed_ms(start: datetime) -> int:
 
 def inject_metadata(
     row: dict[str, Any],
-    event_id: str,
+    trace_id: str,
     include_last_enriched: bool = True,
 ) -> dict[str, Any]:
     """Inject common metadata fields into a row dictionary."""
     now = now_datetime()
-    row["event_id"] = event_id
+    row["trace_id"] = trace_id
     row["created_at"] = now
     row["updated_at"] = now
     if include_last_enriched:

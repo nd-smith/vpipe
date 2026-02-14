@@ -30,7 +30,7 @@ class ClaimXUploadResultMessage(BaseModel):
         blob_path: Target path in OneLake (relative to base path)
         file_type: File type/extension (e.g., "pdf", "jpg", "mp4")
         file_name: Original file name
-        source_event_id: ID of the event that triggered this download
+        trace_id: ID of the event that triggered this download
         status: Outcome status (completed, failed, failed_permanent)
         bytes_uploaded: Number of bytes uploaded (0 if failed)
         error_message: Error description if failed (truncated to 500 chars)
@@ -45,7 +45,7 @@ class ClaimXUploadResultMessage(BaseModel):
         ...     blob_path="claimx/proj_67890/media/photo.jpg",
         ...     file_type="jpg",
         ...     file_name="photo.jpg",
-        ...     source_event_id="evt_12345",
+        ...     trace_id="evt_12345",
         ...     status="completed",
         ...     bytes_uploaded=2048576,
         ...     created_at=datetime.now(timezone.utc)
@@ -66,7 +66,7 @@ class ClaimXUploadResultMessage(BaseModel):
         default="", description="File type/extension (e.g., 'pdf', 'jpg', 'mp4')"
     )
     file_name: str = Field(default="", description="Original file name")
-    source_event_id: str = Field(
+    trace_id: str = Field(
         default="", description="ID of the event that triggered this download"
     )
     status: Literal["completed", "failed", "failed_permanent"] = Field(
@@ -104,7 +104,7 @@ class ClaimXUploadResultMessage(BaseModel):
                     "blob_path": "claimx/proj_67890/media/photo.jpg",
                     "file_type": "jpg",
                     "file_name": "photo.jpg",
-                    "source_event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "status": "completed",
                     "bytes_uploaded": 2048576,
                     "created_at": "2024-12-25T10:30:10Z",
@@ -116,7 +116,7 @@ class ClaimXUploadResultMessage(BaseModel):
                     "blob_path": "claimx/proj_12345/media/video.mp4",
                     "file_type": "mp4",
                     "file_name": "damage_video.mp4",
-                    "source_event_id": "evt_67890",
+                    "trace_id": "evt_67890",
                     "status": "failed_permanent",
                     "bytes_uploaded": 0,
                     "error_message": "OneLake upload failed: Connection timeout",
@@ -140,7 +140,7 @@ class FailedEnrichmentMessage(BaseModel):
     - Audit trail for compliance
 
     Attributes:
-        event_id: Unique event identifier from source event
+        trace_id: Unique event identifier from source event
         event_type: Type of event (e.g., PROJECT_CREATED, PROJECT_FILE_ADDED)
         project_id: ClaimX project ID this event belongs to
         original_task: Complete original enrichment task for replay capability
@@ -152,7 +152,7 @@ class FailedEnrichmentMessage(BaseModel):
     Example:
         >>> from datetime import datetime, timezone
         >>> failed = FailedEnrichmentMessage(
-        ...     event_id="evt_12345",
+        ...     trace_id="evt_12345",
         ...     event_type="PROJECT_CREATED",
         ...     project_id="proj_67890",
         ...     original_task=enrichment_task,
@@ -163,7 +163,7 @@ class FailedEnrichmentMessage(BaseModel):
         ... )
     """
 
-    event_id: str = Field(
+    trace_id: str = Field(
         ..., description="Unique event identifier from source event", min_length=1
     )
     event_type: str = Field(
@@ -185,7 +185,7 @@ class FailedEnrichmentMessage(BaseModel):
     retry_count: int = Field(..., description="Number of retry attempts before reaching DLQ", ge=0)
     failed_at: datetime = Field(..., description="Timestamp when task was moved to DLQ")
 
-    @field_validator("event_id", "event_type", "project_id")
+    @field_validator("trace_id", "event_type", "project_id")
     @classmethod
     def validate_non_empty_strings(cls, v: str, info) -> str:
         """Ensure string fields are not empty or whitespace-only."""
@@ -202,11 +202,11 @@ class FailedEnrichmentMessage(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "event_type": "PROJECT_CREATED",
                     "project_id": "proj_67890",
                     "original_task": {
-                        "event_id": "evt_12345",
+                        "trace_id": "evt_12345",
                         "event_type": "PROJECT_CREATED",
                         "project_id": "proj_67890",
                         "retry_count": 4,
@@ -218,11 +218,11 @@ class FailedEnrichmentMessage(BaseModel):
                     "failed_at": "2024-12-25T12:30:45Z",
                 },
                 {
-                    "event_id": "evt_67890",
+                    "trace_id": "evt_67890",
                     "event_type": "PROJECT_FILE_ADDED",
                     "project_id": "proj_12345",
                     "original_task": {
-                        "event_id": "evt_67890",
+                        "trace_id": "evt_67890",
                         "event_type": "PROJECT_FILE_ADDED",
                         "project_id": "proj_12345",
                         "media_id": "media_111",
@@ -255,7 +255,7 @@ class FailedDownloadMessage(BaseModel):
         failed_at: Timestamp when task was moved to DLQ
     """
 
-    event_id: str = Field(default="", description="Event ID for correlation")
+    trace_id: str = Field(default="", description="Event ID for correlation")
     media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     download_url: str = Field(..., description="Original S3 presigned URL", min_length=1)
@@ -285,7 +285,7 @@ class FailedDownloadMessage(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "event_id": "evt_12345",
+                    "trace_id": "evt_12345",
                     "media_id": "media_111",
                     "project_id": "proj_67890",
                     "download_url": "https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?expired=1",
@@ -297,7 +297,7 @@ class FailedDownloadMessage(BaseModel):
                         "blob_path": "claimx/proj_67890/media/photo.jpg",
                         "file_type": "jpg",
                         "file_name": "photo.jpg",
-                        "source_event_id": "evt_12345",
+                        "trace_id": "evt_12345",
                         "retry_count": 4,
                         "created_at": "2024-12-25T10:00:00Z",
                     },
@@ -308,7 +308,7 @@ class FailedDownloadMessage(BaseModel):
                     "failed_at": "2024-12-25T12:30:45Z",
                 },
                 {
-                    "event_id": "evt_67890",
+                    "trace_id": "evt_67890",
                     "media_id": "media_222",
                     "project_id": "proj_12345",
                     "download_url": "https://s3.amazonaws.com/claimx-media/missing.pdf",
@@ -320,7 +320,7 @@ class FailedDownloadMessage(BaseModel):
                         "blob_path": "claimx/proj_12345/media/document.pdf",
                         "file_type": "pdf",
                         "file_name": "document.pdf",
-                        "source_event_id": "evt_67890",
+                        "trace_id": "evt_67890",
                         "retry_count": 0,
                         "created_at": "2024-12-25T11:00:00Z",
                     },

@@ -251,7 +251,7 @@ class TestEventHandlerProcess:
 
     async def test_process_handles_multiple_events(self, mock_client):
         handler = ConcreteHandler(mock_client)
-        events = [make_event(event_id=f"evt_{i}") for i in range(5)]
+        events = [make_event(trace_id=f"evt_{i}") for i in range(5)]
         result = await handler.process(events)
 
         assert result.total == 5
@@ -266,7 +266,7 @@ class TestEventHandlerHandleBatch:
 
     async def test_handle_batch_processes_each_event(self, mock_client):
         handler = ConcreteHandler(mock_client)
-        events = [make_event(event_id=f"evt_{i}") for i in range(3)]
+        events = [make_event(trace_id=f"evt_{i}") for i in range(3)]
         results = await handler.handle_batch(events)
 
         assert len(results) == 3
@@ -303,7 +303,7 @@ class TestEventHandlerHandleBatch:
                 return EnrichmentResult(event=event, success=True)
 
         handler = MixedHandler(mock_client)
-        events = [make_event(event_id=f"evt_{i}") for i in range(4)]
+        events = [make_event(trace_id=f"evt_{i}") for i in range(4)]
         results = await handler.handle_batch(events)
 
         assert len(results) == 4
@@ -326,7 +326,7 @@ class TestEventHandlerEnsureProjectExists:
             }
         )
 
-        rows = await handler.ensure_project_exists(123, source_event_id="evt_001")
+        rows = await handler.ensure_project_exists(123, trace_id="evt_001")
         assert isinstance(rows, EntityRowsMessage)
         mock_client.get_project.assert_called_once_with(123)
 
@@ -361,9 +361,9 @@ class TestHandlerRegistry:
     def test_group_events_by_handler_groups_correctly(self):
         registry = HandlerRegistry()
         events = [
-            make_event(event_type="PROJECT_CREATED", event_id="evt_1"),
-            make_event(event_type="PROJECT_CREATED", event_id="evt_2"),
-            make_event(event_type="PROJECT_FILE_ADDED", event_id="evt_3", media_id="100"),
+            make_event(event_type="PROJECT_CREATED", trace_id="evt_1"),
+            make_event(event_type="PROJECT_CREATED", trace_id="evt_2"),
+            make_event(event_type="PROJECT_FILE_ADDED", trace_id="evt_3", media_id="100"),
         ]
         groups = registry.group_events_by_handler(events)
 
@@ -374,7 +374,7 @@ class TestHandlerRegistry:
     def test_group_events_by_handler_tracks_unhandled(self):
         registry = HandlerRegistry()
         events = [
-            make_event(event_type="UNKNOWN_TYPE", event_id="evt_1"),
+            make_event(event_type="UNKNOWN_TYPE", trace_id="evt_1"),
         ]
         groups = registry.group_events_by_handler(events)
         assert len(groups) == 0

@@ -113,7 +113,7 @@ class TestDownloadRetryHandlerErrorCategoryRouting:
             blob_path="claimx/projects/67890/media/12345.pdf",
             file_type="pdf",
             file_name="document.pdf",
-            source_event_id="evt-123",
+            trace_id="evt-123",
             retry_count=0,
             metadata={"original_key": "value"},
         )
@@ -313,7 +313,7 @@ class TestDownloadRetryHandlerURLRefresh:
             blob_path="claimx/projects/67890/media/12345.pdf",
             file_type="pdf",
             file_name="document.pdf",
-            source_event_id="evt-123",
+            trace_id="evt-123",
             retry_count=0,
             metadata={},
         )
@@ -475,7 +475,7 @@ class TestDownloadRetryHandlerURLRefreshIntegration:
             blob_path="claimx/projects/67890/media/12345.pdf",
             file_type="pdf",
             file_name="document.pdf",
-            source_event_id="evt-123",
+            trace_id="evt-123",
             retry_count=0,
             metadata={},
         )
@@ -565,7 +565,7 @@ class TestDownloadRetryHandlerRetryExhaustion:
             blob_path="claimx/projects/67890/media/12345.pdf",
             file_type="pdf",
             file_name="document.pdf",
-            source_event_id="evt-123",
+            trace_id="evt-123",
             retry_count=0,
             metadata={},
         )
@@ -602,7 +602,7 @@ class TestDownloadRetryHandlerRetryExhaustion:
 
 
 class TestDownloadRetryHandlerMessageKeys:
-    """Tests for message key usage (source_event_id)."""
+    """Tests for message key usage (trace_id)."""
 
     @pytest.fixture
     def mock_config(self):
@@ -640,14 +640,14 @@ class TestDownloadRetryHandlerMessageKeys:
             blob_path="claimx/projects/67890/media/12345.pdf",
             file_type="pdf",
             file_name="document.pdf",
-            source_event_id="evt-abc-123",
+            trace_id="evt-abc-123",
             retry_count=0,
             metadata={},
         )
 
     @pytest.mark.asyncio
-    async def test_retry_message_key_is_source_event_id(self, retry_handler, sample_task):
-        """Retry message key is source_event_id for consistent partitioning."""
+    async def test_retry_message_key_is_trace_id(self, retry_handler, sample_task):
+        """Retry message key is trace_id for consistent partitioning."""
         await retry_handler.handle_failure(
             task=sample_task,
             error=ConnectionError("Error"),
@@ -658,8 +658,8 @@ class TestDownloadRetryHandlerMessageKeys:
         assert retry_call.kwargs["key"] == "evt-abc-123"
 
     @pytest.mark.asyncio
-    async def test_dlq_message_key_is_source_event_id(self, retry_handler, sample_task):
-        """DLQ message key is source_event_id for consistent partitioning."""
+    async def test_dlq_message_key_is_trace_id(self, retry_handler, sample_task):
+        """DLQ message key is trace_id for consistent partitioning."""
         sample_task.retry_count = 4
 
         await retry_handler.handle_failure(
@@ -673,7 +673,7 @@ class TestDownloadRetryHandlerMessageKeys:
 
     @pytest.mark.asyncio
     async def test_retry_headers_include_original_key(self, retry_handler, sample_task):
-        """Retry headers include original_key as source_event_id."""
+        """Retry headers include original_key as trace_id."""
         await retry_handler.handle_failure(
             task=sample_task,
             error=ConnectionError("Error"),
@@ -724,7 +724,7 @@ class TestDownloadRetryHandlerTaskImmutability:
             blob_path="claimx/projects/67890/media/12345.pdf",
             file_type="pdf",
             file_name="document.pdf",
-            source_event_id="evt-123",
+            trace_id="evt-123",
             retry_count=0,
             metadata={"original": "value"},
         )
