@@ -365,6 +365,8 @@ def log_worker_error(
     if error_category:
         extra["error_category"] = error_category
 
+    extra["error_message"] = error_message
+
     # Log with or without traceback
     if exc:
         logger.error(error_message, extra=extra, exc_info=exc)
