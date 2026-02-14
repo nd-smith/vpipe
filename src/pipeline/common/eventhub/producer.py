@@ -242,18 +242,21 @@ class EventHubProducer:
         else:
             value_bytes = json.dumps(value, default=json_serializer).encode("utf-8")
 
-        # Create EventData with properties
+        # Create EventData and set application properties via setter
+        # (item assignment on the getter-returned dict may not persist
+        #  across all azure-eventhub SDK versions)
         event_data = EventData(value_bytes)
+        props = {}
 
-        # Add key as property if provided
         if key is not None:
             key_str = key.decode("utf-8") if isinstance(key, bytes) else str(key)
-            event_data.properties["_key"] = key_str
+            props["_key"] = key_str
 
-        # Add headers as properties if provided
         if headers:
-            for k, v in headers.items():
-                event_data.properties[k] = v
+            props.update(headers)
+
+        if props:
+            event_data.properties = props
 
         logger.debug(
             "Sending message to Event Hub",
@@ -350,11 +353,12 @@ class EventHubProducer:
                 total_bytes += len(value_bytes)
 
                 event_data = EventData(value_bytes)
-                event_data.properties["_key"] = key
+                props = {"_key": key}
 
                 if headers:
-                    for k, v in headers.items():
-                        event_data.properties[k] = v
+                    props.update(headers)
+
+                event_data.properties = props
 
                 try:
                     batch.add(event_data)
