@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from config.config import MessageConfig
 from core.logging.periodic_logger import PeriodicStatsLogger
+from core.logging.context import set_log_context
 from core.logging.utilities import (
     detect_log_output_mode,
     log_startup_banner,
@@ -378,7 +379,9 @@ class ClaimXEnrichmentWorker:
         if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
             self._cycle_offset_end_ts = ts
 
-        logger.debug(
+        set_log_context(trace_id=task.trace_id)
+
+        logger.info(
             "Processing enrichment task",
             extra={
                 "trace_id": task.trace_id,
@@ -531,7 +534,7 @@ class ClaimXEnrichmentWorker:
 
             # Log completion
             elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
-            logger.debug(
+            logger.info(
                 "Enrichment task complete",
                 extra={
                     "trace_id": task.trace_id,

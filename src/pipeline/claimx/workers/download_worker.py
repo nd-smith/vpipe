@@ -565,7 +565,7 @@ class ClaimXDownloadWorker:
             logger.info(
                 f"HTTP session state: session_closed={sess_closed}, "
                 f"connector_closed={conn_closed}",
-                extra={"media_id": task_message.media_id},
+                extra={"media_id": task_message.media_id, "trace_id": task_message.trace_id},
             )
 
             t0 = time.perf_counter()
@@ -582,6 +582,7 @@ class ClaimXDownloadWorker:
                 f"bytes={outcome.bytes_downloaded}",
                 extra={
                     "media_id": task_message.media_id,
+                    "trace_id": task_message.trace_id,
                     "error_message": outcome.error_message,
                     "error_category": outcome.error_category.value if outcome.error_category else None,
                     "status_code": outcome.status_code,
