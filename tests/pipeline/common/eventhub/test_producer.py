@@ -116,12 +116,13 @@ class TestEventHubProducerLifecycle:
         # Should not raise
         await producer.start()
 
+    @patch("asyncio.sleep", new_callable=AsyncMock)
     @patch("pipeline.common.eventhub.producer.update_connection_status")
     @patch("pipeline.common.eventhub.producer.log_connection_attempt_details")
     @patch("pipeline.common.eventhub.producer.log_connection_diagnostics")
     @patch("pipeline.common.eventhub.producer.EventHubProducerClient")
     async def test_start_raises_on_connection_failure(
-        self, MockClient, mock_diag, mock_attempt, mock_conn_status
+        self, MockClient, mock_diag, mock_attempt, mock_conn_status, mock_sleep
     ):
         producer = self._make_producer()
         MockClient.from_connection_string.side_effect = RuntimeError("connect failed")

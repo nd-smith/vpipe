@@ -10,6 +10,7 @@ Architecture notes:
 - Event Hub names are resolved per-topic from config.yaml by the transport layer
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -117,34 +118,8 @@ class EventHubProducer:
         logger.info("Starting Event Hub producer")
 
         try:
-            # Log comprehensive connection diagnostics
             log_connection_diagnostics(self.connection_string, self.eventhub_name)
-
-            ssl_kwargs = get_ca_bundle_kwargs()
-
-            # Log connection attempt details
-            log_connection_attempt_details(
-                eventhub_name=self.eventhub_name,
-                transport_type="AmqpOverWebsocket",
-                ssl_kwargs=ssl_kwargs,
-            )
-
-            # Create producer with AMQP over WebSocket transport
-            # Namespace connection string + eventhub_name parameter
-            # This is required for Azure Private Link endpoints
-            self._producer = EventHubProducerClient.from_connection_string(
-                conn_str=self.connection_string,
-                eventhub_name=self.eventhub_name,
-                transport_type=TransportType.AmqpOverWebsocket,
-                **ssl_kwargs,
-            )
-
-            # Test connection by getting properties
-            props = await self._producer.get_eventhub_properties()
-            logger.info(
-                f"Connected to Event Hub: {props.get('name', 'unknown')}, "
-                f"partitions: {len(props.get('partition_ids', []))}"
-            )
+            await self._connect()
 
             self._started = True
             update_connection_status("producer", connected=True)
@@ -158,7 +133,6 @@ class EventHubProducer:
             )
 
         except Exception as e:
-            # Log masked connection string for troubleshooting
             masked_conn = mask_connection_string(self.connection_string)
 
             logger.error(
@@ -172,6 +146,64 @@ class EventHubProducer:
                 exc_info=True,
             )
             raise
+
+    async def _connect(self) -> None:
+        """Create producer client and verify connectivity.
+
+        Retries up to 3 times with exponential backoff to handle transient
+        CBS token authentication failures during initial connection.
+        """
+        max_attempts = 3
+        base_delay = 2.0
+
+        for attempt in range(max_attempts):
+            try:
+                ssl_kwargs = get_ca_bundle_kwargs()
+
+                log_connection_attempt_details(
+                    eventhub_name=self.eventhub_name,
+                    transport_type="AmqpOverWebsocket",
+                    ssl_kwargs=ssl_kwargs,
+                )
+
+                self._producer = EventHubProducerClient.from_connection_string(
+                    conn_str=self.connection_string,
+                    eventhub_name=self.eventhub_name,
+                    transport_type=TransportType.AmqpOverWebsocket,
+                    **ssl_kwargs,
+                )
+
+                props = await self._producer.get_eventhub_properties()
+                logger.info(
+                    f"Connected to Event Hub: {props.get('name', 'unknown')}, "
+                    f"partitions: {len(props.get('partition_ids', []))}"
+                )
+                return
+
+            except Exception as e:
+                if self._producer is not None:
+                    try:
+                        await self._producer.close()
+                    except Exception:
+                        pass
+                    self._producer = None
+
+                if attempt == max_attempts - 1:
+                    raise
+
+                delay = base_delay * (2**attempt)
+                logger.warning(
+                    "Connection attempt %d/%d failed, retrying in %.0fs",
+                    attempt + 1,
+                    max_attempts,
+                    delay,
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "eventhub_name": self.eventhub_name,
+                    },
+                )
+                await asyncio.sleep(delay)
 
     async def stop(self) -> None:
         if not self._started or self._producer is None:
@@ -197,8 +229,6 @@ class EventHubProducer:
             # Allow time for aiohttp sessions to close properly
             # EventHubProducerClient uses aiohttp internally with AmqpOverWebsocket
             # and doesn't always close sessions cleanly on exit
-            import asyncio
-
             await asyncio.sleep(0.250)
 
     async def send(
