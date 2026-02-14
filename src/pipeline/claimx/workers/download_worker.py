@@ -203,10 +203,18 @@ class ClaimXDownloadWorker:
         self._shutdown_event = asyncio.Event()
         self._in_flight_tasks = set()
 
-        # Close session from a previous failed start attempt to prevent leak
+        # Close resources from a previous failed start attempt to prevent leak
         if self._http_session and not self._http_session.closed:
             await self._http_session.close()
             self._http_session = None
+
+        if self.api_client:
+            await self.api_client.close()
+            self.api_client = None
+
+        if self.retry_handler:
+            await self.retry_handler.stop()
+            self.retry_handler = None
 
         connector = aiohttp.TCPConnector(
             limit=self.concurrency,
@@ -356,15 +364,38 @@ class ClaimXDownloadWorker:
             await self._http_session.close()
             self._http_session = None
 
-        await self.producer.stop()
+        try:
+            await self.producer.stop()
+        except Exception as e:
+            logger.error(
+                "Error stopping producer",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
 
         if self.api_client:
-            await self.api_client.close()
-            self.api_client = None
+            try:
+                await self.api_client.close()
+            except Exception as e:
+                logger.error(
+                    "Error closing API client",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self.api_client = None
 
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except Exception as e:
+                logger.error(
+                    "Error stopping retry handler",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                self.retry_handler = None
 
         await self.health_server.stop()
 
