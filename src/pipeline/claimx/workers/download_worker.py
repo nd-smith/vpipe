@@ -764,6 +764,7 @@ class ClaimXDownloadWorker:
             f"bytes={outcome.bytes_downloaded}, "
             f"processing_time_ms={processing_time_ms}",
             extra={
+                "event_id": task_message.source_event_id,
                 "media_id": task_message.media_id,
                 "error_message": outcome.error_message,
                 "error_category": error_category.value,
@@ -798,6 +799,7 @@ class ClaimXDownloadWorker:
             logger.warning(
                 "Circuit breaker open - will reprocess on next poll",
                 extra={
+                    "event_id": task_message.source_event_id,
                     "media_id": task_message.media_id,
                     "download_url": task_message.download_url,
                 },
@@ -819,6 +821,7 @@ class ClaimXDownloadWorker:
             logger.debug(
                 "Routed failed task through retry handler",
                 extra={
+                    "event_id": task_message.source_event_id,
                     "media_id": task_message.media_id,
                     "error_category": error_category.value,
                     "retry_count": task_message.retry_count,
@@ -829,6 +832,7 @@ class ClaimXDownloadWorker:
             logger.error(
                 "Failed to route task through retry handler",
                 extra={
+                    "event_id": task_message.source_event_id,
                     "media_id": task_message.media_id,
                     "error": str(e),
                 },

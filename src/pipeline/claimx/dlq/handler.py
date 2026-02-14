@@ -145,6 +145,7 @@ class ClaimXDLQHandler:
                 logger.info(
                     "Download DLQ message received for review",
                     extra={
+                        "event_id": dlq_msg.event_id,
                         "media_id": dlq_msg.media_id,
                         "project_id": dlq_msg.project_id,
                         "download_url": dlq_msg.download_url[:100],

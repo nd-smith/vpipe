@@ -255,6 +255,7 @@ class FailedDownloadMessage(BaseModel):
         failed_at: Timestamp when task was moved to DLQ
     """
 
+    event_id: str = Field(default="", description="Event ID for correlation")
     media_id: str = Field(..., description="Media file identifier from ClaimX", min_length=1)
     project_id: str = Field(..., description="ClaimX project ID", min_length=1)
     download_url: str = Field(..., description="Original S3 presigned URL", min_length=1)
@@ -284,6 +285,7 @@ class FailedDownloadMessage(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
+                    "event_id": "evt_12345",
                     "media_id": "media_111",
                     "project_id": "proj_67890",
                     "download_url": "https://s3.amazonaws.com/claimx-media/presigned/photo.jpg?expired=1",
@@ -306,6 +308,7 @@ class FailedDownloadMessage(BaseModel):
                     "failed_at": "2024-12-25T12:30:45Z",
                 },
                 {
+                    "event_id": "evt_67890",
                     "media_id": "media_222",
                     "project_id": "proj_12345",
                     "download_url": "https://s3.amazonaws.com/claimx-media/missing.pdf",

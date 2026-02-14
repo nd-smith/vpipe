@@ -6,10 +6,13 @@ Schema aligned with verisk_pipeline ClaimXEvent for compatibility.
 """
 
 import hashlib
+import logging
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class ClaimXEventMessage(BaseModel):
@@ -98,10 +101,17 @@ class ClaimXEventMessage(BaseModel):
         Returns:
             ClaimXEventMessage instance
         """
-        event_id = row.get("event_id") or row.get("eventId") or ""
+        raw_event_id = row.get("event_id") or row.get("eventId") or ""
+        event_id = raw_event_id
         event_type = row.get("event_type") or row.get("eventType") or ""
         project_id = str(row.get("project_id") or row.get("projectId") or "")
         ingested_at = row.get("ingested_at") or row.get("ingestedAt") or datetime.now()
+
+        logger.debug(
+            "from_raw_event event_id lookup: raw=%s, event_type=%s, project_id=%s, "
+            "sha256_fallback=%s",
+            raw_event_id, event_type, project_id, not bool(raw_event_id),
+        )
 
         # Generate deterministic ID if missing
         if not event_id:

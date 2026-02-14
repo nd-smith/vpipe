@@ -375,6 +375,7 @@ class DownloadRetryHandler:
         logger.debug(
             "Task sent to retry topic successfully",
             extra={
+                "event_id": task.source_event_id,
                 "media_id": task.media_id,
                 "retry_topic": retry_topic,
                 "target_topic": target_topic,
@@ -397,6 +398,7 @@ class DownloadRetryHandler:
             Exception: If send to DLQ fails
         """
         dlq_message = FailedDownloadMessage(
+            event_id=task.source_event_id,
             media_id=task.media_id,
             project_id=task.project_id,
             download_url=task.download_url,
@@ -410,6 +412,7 @@ class DownloadRetryHandler:
         logger.warning(
             "Sending task to DLQ",
             extra={
+                "event_id": task.source_event_id,
                 "media_id": task.media_id,
                 "error_category": error_category.value,
                 "project_id": task.project_id,
