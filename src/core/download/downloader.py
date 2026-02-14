@@ -175,9 +175,12 @@ class AttachmentDownloader:
                     if outcome.file_path and outcome.file_path.exists():
                         outcome.file_path.unlink()
 
+                    # Content-Type mismatch likely means the server returned an
+                    # error page (e.g. JSON 403) instead of the actual file.
+                    # Classify as transient so it gets retried rather than DLQ'd.
                     return DownloadOutcome.validation_failure(
                         validation_error=f"Content-Type validation failed: {str(e)}",
-                        error_category=ErrorCategory.PERMANENT,
+                        error_category=ErrorCategory.TRANSIENT,
                     )
 
             return outcome
