@@ -597,11 +597,13 @@ class XACTEnrichmentWorker:
 
         self._records_failed += 1
 
-        # Convert XACTEnrichmentTask to dict for retry handler
-        task_dict = task.model_dump()
+        # Ensure metadata dict exists (XACTEnrichmentTask defaults to None,
+        # but RetryHandler writes to task.metadata[...])
+        if task.metadata is None:
+            task.metadata = {}
 
         await self.retry_handler.handle_failure(
-            task=task_dict,
+            task=task,
             error=error,
             error_category=error_category,
         )
