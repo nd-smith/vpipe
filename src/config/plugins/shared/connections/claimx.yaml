@@ -40,7 +40,7 @@ connections:
   # ===========================================================================
   claimx_api:
     name: claimx_api
-    base_url: ${CLAIMX_API_URL}
+    base_url: ${CLAIMX_API_URL:-https://www.claimxperience.com/service/cxedirest}
     auth_type: basic
     auth_token: ${CLAIMX_API_TOKEN}
     timeout_seconds: 30

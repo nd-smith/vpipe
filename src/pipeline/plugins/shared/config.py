@@ -63,12 +63,12 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
         if "${" in base_url:
             raise ValueError(
                 f"Environment variable not expanded in base_url for connection '{conn_name}': {base_url}. "
-                f"Check that all required environment variables are set in .env file."
+                f"Check that the required environment variables are set or that defaults are configured in the connection YAML."
             )
         if auth_token and "${" in auth_token:
             raise ValueError(
                 f"Environment variable not expanded in auth_token for connection '{conn_name}'. "
-                f"Check that all required environment variables are set in .env file."
+                f"Check that the required environment variables are set or that defaults are configured in the connection YAML."
             )
 
         auth_type = conn_data.get("auth_type", "none")
@@ -98,7 +98,7 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
                     raise ValueError(
                         f"Environment variable not expanded in oauth2.{field_name} "
                         f"for connection '{conn_name}'. "
-                        f"Check that all required environment variables are set in .env file."
+                        f"Check that the required environment variables are set or that defaults are configured in the connection YAML."
                     )
 
         conn = ConnectionConfig(
