@@ -210,6 +210,7 @@ class ClaimXEventIngesterWorker:
     async def stop(self) -> None:
         if not self._running:
             return
+        self._running = False
         logger.info("Stopping ClaimXEventIngesterWorker")
         if self._stats_logger:
             await self._stats_logger.stop()

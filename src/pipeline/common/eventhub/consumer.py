@@ -489,19 +489,23 @@ class EventHubConsumer:
                 },
             )
 
+        # NOTE: Do not use `async with self._consumer:` here. The stop() method
+        # calls self._consumer.close() to terminate receive(). Using the context
+        # manager would call close() a second time via __aexit__, and the Azure
+        # EventHub SDK does not always clean up its internal aiohttp session on
+        # double-close, causing "Unclosed client session" errors.
         try:
-            async with self._consumer:
-                await self._consumer.receive(
-                    on_event=on_event,
-                    on_partition_initialize=on_partition_initialize,
-                    on_partition_close=on_partition_close,
-                    on_error=on_error,
-                    starting_position=self.starting_position,
-                    starting_position_inclusive=self.starting_position_inclusive,
-                    max_wait_time=5,
-                    prefetch=self.prefetch,
-                    owner_level=self._owner_level,
-                )
+            await self._consumer.receive(
+                on_event=on_event,
+                on_partition_initialize=on_partition_initialize,
+                on_partition_close=on_partition_close,
+                on_error=on_error,
+                starting_position=self.starting_position,
+                starting_position_inclusive=self.starting_position_inclusive,
+                max_wait_time=5,
+                prefetch=self.prefetch,
+                owner_level=self._owner_level,
+            )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
             raise
