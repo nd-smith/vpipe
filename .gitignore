@@ -122,3 +122,6 @@ gradle.properties
 gradlew
 gradlew.bat
 gradle/
+src/data/eventhub-checkpoints/eh-0418b0006320-eus2-pcesdopodappv1_servicebus_windows_net/claimx-enrichment-pending/claimx-enrichment-pipeline/checkpoints.json
+src/data/eventhub-checkpoints/eh-0418b0006320-eus2-pcesdopodappv1_servicebus_windows_net/claimx-enrichment-pending/claimx-enrichment-pipeline/ownership.json
+src/config/config.yaml
