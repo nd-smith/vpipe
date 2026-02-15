@@ -85,6 +85,7 @@ class EventHubBatchConsumer:
         prefetch: int = 300,
         starting_position: str | Any = "@latest",
         starting_position_inclusive: bool = False,
+        owner_level: int = 0,
     ):
         """Initialize Event Hub batch consumer.
 
@@ -106,6 +107,9 @@ class EventHubBatchConsumer:
                 "@latest" (default), "-1" (earliest), or datetime.
             starting_position_inclusive: Whether the starting position is inclusive.
                 True for datetime positions.
+            owner_level: Epoch value for exclusive partition ownership. A consumer
+                with a higher owner_level takes ownership from consumers with lower
+                levels. Default 0.
         """
         self.connection_string = connection_string
         self.domain = domain
@@ -124,6 +128,7 @@ class EventHubBatchConsumer:
         self._consumer: EventHubConsumerClient | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
+        self._owner_level = owner_level or None  # None means no exclusive ownership
 
         # Per-partition batch buffers
         self._batch_buffers: dict[str, list[BufferedMessage]] = {}
@@ -374,6 +379,7 @@ class EventHubBatchConsumer:
                     starting_position=self.starting_position,
                     starting_position_inclusive=self.starting_position_inclusive,
                     prefetch=self.prefetch,
+                    owner_level=self._owner_level,
                 )
         except Exception:
             logger.error("Error in Event Hub batch receive loop", exc_info=True)

@@ -37,12 +37,12 @@ pipeline:
   # Shared Storage
   # ---------------------------------------------------------------------------
   storage:
-    onelake_base_path: ${ONELAKE_BASE_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline}
+    onelake_base_path: ${ONELAKE_BASE_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Files/pcesdopodapp}
     onelake_domain_paths:
-      verisk: ""
-      claimx: ""
-    cache_dir: ${CACHE_DIR:-/tmp/pipeline_cache}
-    temp_dir: ${TEMP_DIR:-/tmp/pipeline_temp}
+      verisk: "abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Files/pcesdopodapp/verisk/attachments"
+      claimx: "abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Files/pcesdopodapp/claimx/attachments"
+    cache_dir: ${CACHE_DIR:-/mnt/pcesdopodapp/cache}
+    temp_dir: ${TEMP_DIR:-/mnt/pcesdopodapp/tmp}
 
 # =============================================================================
 # AZURE AUTHENTICATION
@@ -55,7 +55,7 @@ azure:
   client_id: ${AZURE_CLIENT_ID}
   client_secret: ${AZURE_CLIENT_SECRET}
   workspace_id: ${AZURE_WORKSPACE_ID:-7729c159-0674-42ba-abf7-a6756723c62f}
-  lakehouse_id: ${AZURE_LAKEHOUSE_ID:-584315ee-2f41-4943-949f-901d438bcd36}
+  lakehouse_id: ${AZURE_LAKEHOUSE_ID:-153b8535-fdd8-48c3-a792-a8a9f5539e2c}
 
 # =============================================================================
 # DELTA LAKE TABLE PATHS
@@ -65,22 +65,22 @@ delta:
 
   # XACT domain
   verisk:
-    events_table_path: ${XACT_DELTA_EVENTS_TABLE}
-    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE}
+    events_table_path: ${XACT_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/verisk_events}
+    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/verisk_attachments}
     failed_table_path: ""
 
   # ClaimX domain
   claimx:
-    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE}
-    inventory_table_path: ${CLAIMX_DELTA_INVENTORY_TABLE}
+    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_events}
+    inventory_table_path: ${CLAIMX_DELTA_INVENTORY_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_attachments}
     failed_table_path: ""
-    projects_table_path: ${CLAIMX_DELTA_PROJECTS_TABLE}
-    contacts_table_path: ${CLAIMX_DELTA_CONTACTS_TABLE}
-    media_table_path: ${CLAIMX_DELTA_MEDIA_TABLE}
-    tasks_table_path: ${CLAIMX_DELTA_TASKS_TABLE}
-    task_templates_table_path: ${CLAIMX_DELTA_TASK_TEMPLATES_TABLE}
-    external_links_table_path: ${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE}
-    video_collab_table_path: ${CLAIMX_DELTA_VIDEO_COLLAB_TABLE}
+    projects_table_path: ${CLAIMX_DELTA_PROJECTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_projects}
+    contacts_table_path: ${CLAIMX_DELTA_CONTACTS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_contacts}
+    media_table_path: ${CLAIMX_DELTA_MEDIA_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_attachment_metadata}
+    tasks_table_path: ${CLAIMX_DELTA_TASKS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_tasks}
+    task_templates_table_path: ${CLAIMX_DELTA_TASK_TEMPLATES_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_task_templates}
+    external_links_table_path: ${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_external_links}
+    video_collab_table_path: ${CLAIMX_DELTA_VIDEO_COLLAB_TABLE:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Tables/dbo/claimx_video_collab}
 
 # =============================================================================
 # CLAIMX API
@@ -134,6 +134,14 @@ transport:
 #   Consumer groups are keyed by worker_name under each topic:
 #     eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}
 #   Consumer groups must be pre-created in Azure before use.
+#
+# Owner level (epoch) notes:
+#   owner_levels is an optional sibling to consumer_groups that sets the epoch
+#   for exclusive partition ownership per consumer group. A consumer with a higher
+#   owner_level takes ownership from consumers with lower levels. Default: 0.
+#   Example:
+#     owner_levels:
+#       enrichment_worker: 1
 eventhub:
   # Namespace-level connection string (no EntityPath)
   # Falls back to EVENTHUB_CONNECTION_STRING for backward compatibility
@@ -146,10 +154,6 @@ eventhub:
   # Default consumer group (used when not specified per-topic)
   default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
 
-  # Starting position when no checkpoint exists (first run, new consumer group, checkpoint loss).
-  # Values: "@latest" (default), "-1" (earliest), or ISO datetime (e.g., "2025-06-01T00:00:00Z")
-  default_starting_position: ${EVENTHUB_DEFAULT_STARTING_POSITION:-@latest}
-
   # Checkpoint store configuration for durable offset persistence.
   # Checkpoints enable graceful restarts and partition rebalancing across consumers.
   # Supported types:
@@ -160,14 +164,13 @@ eventhub:
     type: ${EVENTHUB_CHECKPOINT_STORE_TYPE:-blob}
     # Blob storage settings (used when type=blob)
     blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
-    container_name: ${EVENTHUB_CHECKPOINT_CONTAINER_NAME:-eventhub-checkpoints}
+    container_name: ${EVENTHUB_CHECKPOINT_CONTAINER_NAME:-eh1-checkpoints}
     # JSON file storage path (used when type=json)
-    storage_path: ${EVENTHUB_CHECKPOINT_JSON_PATH:-./data/eventhub-checkpoints}
+    storage_path: ${EVENTHUB_CHECKPOINT_JSON_PATH:-./data/eh1-checkpoints}
 
   # Deduplication cache store (persistent across worker restarts)
   # Complements in-memory caching by providing blob storage persistence
   dedup_store:
-    enabled: ${EVENTHUB_DEDUP_ENABLED:-true}
     # Store type: "blob" or "json"
     type: ${EVENTHUB_DEDUP_STORE_TYPE:-blob}
     # Blob storage settings (reuses same storage account as checkpoint store)
@@ -189,18 +192,24 @@ eventhub:
     namespace_connection_string: ${SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
     verisk:
       events:
-        eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-verisk_events}
-        starting_position: "@latest"
+        eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-xactanalysis}
+        starting_position: "2026-02-13T13:00:00+00:00"
         consumer_groups:
-          event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-verisk-event-ingester}
-          delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-verisk-delta-events-writer}
+          event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-pcesdopodappv1-xa}
+          delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-pcesdopodappv1-xa-delta}
+        owner_levels:
+          event_ingester: ${EVENTHUB_VERISK_EVENTS_OL_EVENT_INGESTER:-0}
+          delta_events_writer: ${EVENTHUB_VERISK_EVENTS_OL_DELTA_EVENTS_WRITER:-0}
     claimx:
       events:
-        eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimx_events}
-        starting_position: "@latest"
+        eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-claimxperience}
+        starting_position: "2026-02-13T13:00:00+00:00"
         consumer_groups:
-          event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-claimx-event-ingester}
-          delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-claimx-delta-events-writer}
+          event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-pcesdopodappv1-cx}
+          delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-pcesdopodappv1-cx-delta}
+        owner_levels:
+          event_ingester: ${EVENTHUB_CLAIMX_EVENTS_OL_EVENT_INGESTER:-0}
+          delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_OL_DELTA_EVENTS_WRITER:-0}
 
   # ---------------------------------------------------------------------------
   # Verisk Domain (formerly XACT)
@@ -212,31 +221,43 @@ eventhub:
       starting_position: "@latest"
       consumer_groups:
         enrichment_worker: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-verisk-enrichment-pipeline}
+      owner_levels:
+        enrichment_worker: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_OL_ENRICHMENT_WORKER:-0}
     downloads_pending:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_NAME:-verisk-downloads-pending}
       starting_position: "@latest"
       consumer_groups:
         download_worker: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-verisk-downloads-pipeline}
+      owner_levels:
+        download_worker: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_OL_DOWNLOAD_WORKER:-0}
     downloads_cached:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_NAME:-verisk-downloads-cached}
       starting_position: "@latest"
       consumer_groups:
         upload_worker: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-verisk-downloads-cached-pipeline}
+      owner_levels:
+        upload_worker: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_OL_UPLOAD_WORKER:-0}
     downloads_results:
       eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_NAME:-verisk-downloads-results}
       starting_position: "@latest"
       consumer_groups:
         result_processor: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-verisk-downloads-results-pipeline}
+      owner_levels:
+        result_processor: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_OL_RESULT_PROCESSOR:-0}
     retry:
       eventhub_name: ${EVENTHUB_VERISK_RETRY_NAME:-verisk-retry}
       starting_position: "@latest"
       consumer_groups:
         unified_retry_scheduler: ${EVENTHUB_VERISK_RETRY_CG_RETRY_SCHEDULER:-verisk-retry-pipeline}
+      owner_levels:
+        unified_retry_scheduler: ${EVENTHUB_VERISK_RETRY_OL_RETRY_SCHEDULER:-0}
     dlq:
       eventhub_name: ${EVENTHUB_VERISK_DLQ_NAME:-verisk-dlq}
       starting_position: "@latest"
       consumer_groups:
         dlq_handler: ${EVENTHUB_VERISK_DLQ_CG_DLQ_HANDLER:-verisk-dlq-pipeline}
+      owner_levels:
+        dlq_handler: ${EVENTHUB_VERISK_DLQ_OL_DLQ_HANDLER:-0}
 
   # ---------------------------------------------------------------------------
   # ClaimX Domain
@@ -248,36 +269,50 @@ eventhub:
       starting_position: "@latest"
       consumer_groups:
         enrichment_worker: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-claimx-enrichment-pipeline}
+      owner_levels:
+        enrichment_worker: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_OL_ENRICHMENT_WORKER:-0}
     enriched:
       eventhub_name: ${EVENTHUB_CLAIMX_ENRICHED_NAME:-claimx-enriched}
       starting_position: "@latest"
       consumer_groups:
         entity_delta_writer: ${EVENTHUB_CLAIMX_ENRICHED_CG_ENTITY_DELTA_WRITER:-claimx-enriched-pipeline}
+      owner_levels:
+        entity_delta_writer: ${EVENTHUB_CLAIMX_ENRICHED_OL_ENTITY_DELTA_WRITER:-0}
     downloads_pending:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_NAME:-claimx-downloads-pending}
       starting_position: "@latest"
       consumer_groups:
         download_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-claimx-downloads-pipeline}
+      owner_levels:
+        download_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_OL_DOWNLOAD_WORKER:-0}
     downloads_cached:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_NAME:-claimx-downloads-cached}
       starting_position: "@latest"
       consumer_groups:
         upload_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-claimx-downloads-cached-pipeline}
+      owner_levels:
+        upload_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_OL_UPLOAD_WORKER:-0}
     downloads_results:
       eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_NAME:-claimx-downloads-results}
       starting_position: "@latest"
       consumer_groups:
         result_processor: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-claimx-downloads-results-pipeline}
+      owner_levels:
+        result_processor: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_OL_RESULT_PROCESSOR:-0}
     retry:
       eventhub_name: ${EVENTHUB_CLAIMX_RETRY_NAME:-claimx-retry}
       starting_position: "@latest"
       consumer_groups:
         unified_retry_scheduler: ${EVENTHUB_CLAIMX_RETRY_CG_RETRY_SCHEDULER:-claimx-retry-pipeline}
+      owner_levels:
+        unified_retry_scheduler: ${EVENTHUB_CLAIMX_RETRY_OL_RETRY_SCHEDULER:-0}
     dlq:
       eventhub_name: ${EVENTHUB_CLAIMX_DLQ_NAME:-claimx-dlq}
       starting_position: "@latest"
       consumer_groups:
         dlq_handler: ${EVENTHUB_CLAIMX_DLQ_CG_DLQ_HANDLER:-claimx-dlq-pipeline}
+      owner_levels:
+        dlq_handler: ${EVENTHUB_CLAIMX_DLQ_OL_DLQ_HANDLER:-0}
 
   # ---------------------------------------------------------------------------
   # Plugins Domain
@@ -289,26 +324,37 @@ eventhub:
       starting_position: "@latest"
       consumer_groups:
         itel_cabinet_tracking_worker: ${EVENTHUB_ITEL_CABINET_PENDING_CG_TRACKING_WORKER:-itel-cabinet-pending-pipeline}
+      owner_levels:
+        itel_cabinet_tracking_worker: ${EVENTHUB_ITEL_CABINET_PENDING_OL_TRACKING_WORKER:-0}
     itel_cabinet_completed:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_COMPLETED_NAME:-pcesdopodappv1-itel-cabinet-completed}
       starting_position: "@latest"
       consumer_groups:
         itel_cabinet_api_worker: ${EVENTHUB_ITEL_CABINET_COMPLETED_CG_API_WORKER:-itel-cabinet-completed-pipeline}
+      owner_levels:
+        itel_cabinet_api_worker: ${EVENTHUB_ITEL_CABINET_COMPLETED_OL_API_WORKER:-0}
     itel_cabinet_success:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_SUCCESS_NAME:-pcesdopodappv1-itel-cabinet-success}
+      starting_position: "@latest"
     itel_cabinet_errors:
       eventhub_name: ${EVENTHUB_ITEL_CABINET_ERRORS_NAME:-pcesdopodappv1-itel-cabinet-errors}
+      starting_position: "@latest"
     itel_api_success:
       eventhub_name: ${EVENTHUB_ITEL_API_SUCCESS_NAME:-pcesdopodappv1-itel-api-success}
+      starting_position: "@latest"
     itel_api_errors:
       eventhub_name: ${EVENTHUB_ITEL_API_ERRORS_NAME:-pcesdopodappv1-itel-api-errors}
+      starting_position: "@latest"
     ghrn_mitigation_pending:
       eventhub_name: ${EVENTHUB_GHRN_MITIGATION_PENDING_NAME:-pcesdopodappv1-ghrn-mitigation-pending}
       starting_position: "@latest"
       consumer_groups:
         mitigation_tracking_worker: ${EVENTHUB_GHRN_MITIGATION_PENDING_CG_TRACKING_WORKER:-ghrn-mitigation-pending-pipeline}
+      owner_levels:
+        mitigation_tracking_worker: ${EVENTHUB_GHRN_MITIGATION_PENDING_OL_TRACKING_WORKER:-0}
     ghrn_mitigation_completed:
       eventhub_name: ${EVENTHUB_GHRN_MITIGATION_COMPLETED_NAME:-pcesdopodappv1-ghrn-mitigation-completed}
+      starting_position: "@latest"
 
 # =============================================================================
 # LOGGING & MONITORING
@@ -316,7 +362,7 @@ eventhub:
 logging:
   level: ${LOG_LEVEL:-INFO}
   log_to_stdout: ${LOG_TO_STDOUT:-true}
-  log_dir: "logs"
+  log_dir: "/mnt/pcesdopodapp/logs"
 
   # File logging configuration
   file_logging:
@@ -339,4 +385,4 @@ observability:
   log_max_size_mb: ${LOG_MAX_SIZE_MB:-5}
   log_rotation_minutes: ${LOG_ROTATION_MINUTES:-5}
   log_retention_hours: ${LOG_RETENTION_HOURS:-1}
-  onelake_log_path: ${ONELAKE_LOG_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/584315ee-2f41-4943-949f-901d438bcd36/Files/veriskPipeline/logs}
+  onelake_log_path: ${ONELAKE_LOG_PATH:-abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Files/pcesdopodapp}

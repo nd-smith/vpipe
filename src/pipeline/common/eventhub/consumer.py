@@ -136,6 +136,7 @@ class EventHubConsumer:
         starting_position: str | Any = "@latest",
         starting_position_inclusive: bool = False,
         checkpoint_interval: int = 1,
+        owner_level: int = 0,
     ):
         """Initialize Event Hub consumer.
 
@@ -156,6 +157,9 @@ class EventHubConsumer:
                 True for datetime positions.
             checkpoint_interval: Checkpoint every N successfully processed events per
                 partition. Default 1 checkpoints every event (current behavior).
+            owner_level: Epoch value for exclusive partition ownership. A consumer
+                with a higher owner_level takes ownership from consumers with lower
+                levels. Default 0.
         """
         self.connection_string = connection_string
         self.domain = domain
@@ -177,6 +181,7 @@ class EventHubConsumer:
         self._checkpoint_count = 0  # Total checkpoints since startup
         self._checkpoint_interval = checkpoint_interval
         self._partition_since_checkpoint = {}  # partition_id -> events since last checkpoint
+        self._owner_level = owner_level or None  # None means no exclusive ownership
 
         # Generate unique worker ID using coolnames for easier tracing in logs
         prefix = f"{domain}-{worker_name}"
@@ -198,6 +203,7 @@ class EventHubConsumer:
                 "prefetch": prefetch,
                 "checkpoint_interval": checkpoint_interval,
                 "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
+                "owner_level": self._owner_level,
             },
         )
 
@@ -494,6 +500,7 @@ class EventHubConsumer:
                     starting_position_inclusive=self.starting_position_inclusive,
                     max_wait_time=5,
                     prefetch=self.prefetch,
+                    owner_level=self._owner_level,
                 )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)

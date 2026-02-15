@@ -39,6 +39,7 @@ EVENTHUB_CONFIG_KEY = "eventhub"
 NAMESPACE_CONNECTION_STRING_KEY = "namespace_connection_string"
 EVENTHUB_NAME_KEY = "eventhub_name"
 CONSUMER_GROUPS_KEY = "consumer_groups"
+OWNER_LEVELS_KEY = "owner_levels"
 DEFAULT_CONSUMER_GROUP_KEY = "default_consumer_group"
 SOURCE_CONFIG_KEY = "source"
 STARTING_POSITION_KEY = "starting_position"
@@ -319,6 +320,44 @@ def _resolve_eventhub_consumer_group(
     )
 
 
+def _resolve_owner_level(
+    domain: str,
+    topic_key: str | None,
+    worker_name: str,
+) -> int:
+    """Resolve Event Hub owner level (epoch) for a given domain/topic/worker.
+
+    Owner level determines exclusive partition ownership — a consumer with a
+    higher owner_level takes ownership from consumers with lower levels.
+
+    Lookup order:
+    1. eventhub.source.{domain}.{topic_key}.owner_levels.{worker_name}
+    2. eventhub.{domain}.{topic_key}.owner_levels.{worker_name}
+    3. Default: 0 (no exclusive ownership)
+    """
+    config = _load_eventhub_config()
+
+    if topic_key:
+        # Check source section first
+        source_config = config.get(SOURCE_CONFIG_KEY, {})
+        source_domain = source_config.get(domain, {})
+        source_topic = source_domain.get(topic_key, {})
+        source_levels = source_topic.get(OWNER_LEVELS_KEY, {})
+        level = source_levels.get(worker_name)
+        if level is not None:
+            return int(level)
+
+        # Then check domain section
+        domain_config = config.get(domain, {})
+        topic_config = domain_config.get(topic_key, {})
+        owner_levels = topic_config.get(OWNER_LEVELS_KEY, {})
+        level = owner_levels.get(worker_name)
+        if level is not None:
+            return int(level)
+
+    return 0
+
+
 def _parse_starting_position(value: str) -> tuple[str | datetime.datetime, bool]:
     """Parse a starting position config value into SDK-compatible (position, inclusive) tuple.
 
@@ -511,6 +550,7 @@ async def _setup_eventhub_consumer_args(
         eventhub_name = topics[0]
 
     consumer_group = _resolve_eventhub_consumer_group(domain, topic_key, worker_name, config)
+    owner_level = _resolve_owner_level(domain, topic_key, worker_name)
 
     checkpoint_store = None
     try:
@@ -542,6 +582,7 @@ async def _setup_eventhub_consumer_args(
         "connection_string": namespace_connection_string,
         "eventhub_name": eventhub_name,
         "consumer_group": consumer_group,
+        "owner_level": owner_level,
         "checkpoint_store": checkpoint_store,
         "starting_position": pos,
         "starting_position_inclusive": pos_inclusive,
@@ -624,6 +665,7 @@ async def create_consumer(
             starting_position=eh["starting_position"],
             starting_position_inclusive=eh["starting_position_inclusive"],
             checkpoint_interval=checkpoint_interval,
+            owner_level=eh["owner_level"],
         )
 
     else:  # TransportType.KAFKA
@@ -745,6 +787,7 @@ async def create_batch_consumer(
             prefetch=prefetch,
             starting_position=eh["starting_position"],
             starting_position_inclusive=eh["starting_position_inclusive"],
+            owner_level=eh["owner_level"],
         )
 
     else:  # TransportType.KAFKA
