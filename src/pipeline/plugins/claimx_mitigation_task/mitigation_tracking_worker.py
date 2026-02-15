@@ -20,25 +20,31 @@ Environment Variables:
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 
-from config.config import MessageConfig, expand_env_var_string
+from config.config import MessageConfig
 from core.logging import log_worker_startup, setup_logging
+from core.logging.context import set_log_context
 from core.logging.eventhub_config import prepare_eventhub_logging_config
+from core.logging.periodic_logger import PeriodicStatsLogger
+from pipeline.common.health import HealthCheckServer
+from pipeline.common.metrics import (
+    message_processing_duration_seconds,
+    record_message_consumed,
+    record_processing_error,
+)
 from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
-from pipeline.plugins.shared.connections import (
-    AuthType,
-    ConnectionConfig,
-    ConnectionManager,
-)
+from pipeline.plugins.shared.config import load_connections, load_yaml_config
+from pipeline.plugins.shared.connections import ConnectionManager
 
 from .pipeline import MitigationTaskPipeline
 
@@ -51,6 +57,9 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
 WORKERS_CONFIG_PATH = CONFIG_DIR / "plugins" / "claimx" / "claimx_mitigation_task" / "workers.yaml"
 CONNECTIONS_CONFIG_PATH = CONFIG_DIR / "plugins" / "shared" / "connections" / "claimx.yaml"
+
+CONSUMER_GROUP = "claimx-mitigation-tracking"
+TOPIC_KEY = "ghrn_mitigation_pending"
 
 
 class MitigationTrackingWorker:
@@ -68,38 +77,64 @@ class MitigationTrackingWorker:
 
     def __init__(
         self,
-        kafka_config: dict,
+        transport_config: dict,
         connection_manager: ConnectionManager,
         pipeline: MitigationTaskPipeline,
+        health_server: HealthCheckServer | None = None,
+        health_port: int = 8098,
+        health_enabled: bool = True,
     ):
-        """
-        Initialize worker.
-
-        Args:
-            kafka_config: Kafka consumer configuration
-            connection_manager: For API connections
-            pipeline: Processing pipeline
-        """
-        self.kafka_config = kafka_config
+        self.transport_config = transport_config
         self.connections = connection_manager
         self.pipeline = pipeline
 
         self.consumer = None
         self.running = False
 
+        # Health server for Kubernetes liveness/readiness probes
+        self.health_server = health_server or HealthCheckServer(
+            port=health_port,
+            worker_name="mitigation-tracking",
+            enabled=health_enabled,
+        )
+
         # Shutdown handling
         self._shutdown_event = asyncio.Event()
 
-    async def _handle_message(self, record: PipelineMessage) -> None:
-        """
-        Process a single message from the transport layer.
+        # Cycle output counters
+        self._records_processed = 0
+        self._records_succeeded = 0
+        self._records_failed = 0
+        self._stats_logger: PeriodicStatsLogger | None = None
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
 
-        Args:
-            record: PipelineMessage from consumer
-        """
+    def _update_cycle_offsets(self, timestamp):
+        if self._cycle_offset_start_ts is None or timestamp < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = timestamp
+        if self._cycle_offset_end_ts is None or timestamp > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = timestamp
+
+    async def _handle_message(self, record: PipelineMessage) -> None:
+        """Process a single message from the transport layer."""
+        start_time = time.perf_counter()
+        topic = self.transport_config["input_topic"]
+
         try:
-            # Process message through pipeline
-            result = await self.pipeline.process(record.value)
+            message_data = json.loads(record.value.decode("utf-8"))
+            event_id = message_data.get("eventId", message_data.get("event_id", ""))
+            set_log_context(trace_id=event_id)
+
+            result = await self.pipeline.process(message_data)
+
+            self._records_processed += 1
+            self._records_succeeded += 1
+            self._update_cycle_offsets(record.timestamp)
+            record_message_consumed(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+                message_bytes=len(record.value),
+            )
 
             logger.info(
                 "Message processed successfully",
@@ -112,60 +147,85 @@ class MitigationTrackingWorker:
             )
 
         except ValueError as e:
-            # Validation error - log and skip message
+            self._records_processed += 1
+            self._records_failed += 1
+            self._update_cycle_offsets(record.timestamp)
+            record_processing_error(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+                error_category="validation",
+            )
             logger.error(
-                f"Validation error: {e}",
+                "Validation error: %s",
+                e,
                 extra={"offset": getattr(record, "offset", "unknown")},
             )
-            # Message handler exceptions are caught by transport layer
 
         except Exception as e:
-            # Processing error - log and raise to trigger transport layer error handling
+            self._records_processed += 1
+            self._records_failed += 1
+            self._update_cycle_offsets(record.timestamp)
+            record_processing_error(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+                error_category="processing",
+            )
             logger.exception(
-                f"Failed to process message: {e}",
+                "Failed to process message: %s",
+                e,
                 extra={"offset": getattr(record, "offset", "unknown")},
             )
-            # Re-raise to let transport layer handle retry/DLQ
             raise
+
+        finally:
+            duration = time.perf_counter() - start_time
+            message_processing_duration_seconds.labels(
+                topic=topic,
+                consumer_group=CONSUMER_GROUP,
+            ).observe(duration)
 
     async def start(self):
         """Start the worker using transport layer."""
         logger.info("Starting Mitigation Task Tracking Worker")
 
-        # Initialize telemetry
-        from pipeline.common.telemetry import initialize_telemetry
+        from pipeline.common.telemetry import initialize_worker_telemetry
 
-        initialize_telemetry(
-            service_name="mitigation-tracking-worker",
-            environment=os.getenv("ENVIRONMENT", "development"),
-        )
+        initialize_worker_telemetry("plugins", "mitigation-tracking")
+        set_log_context(stage="tracking", worker_id="mitigation-tracking")
 
-        # Create minimal KafkaConfig for transport layer
-        config = MessageConfig(bootstrap_servers=self.kafka_config["bootstrap_servers"])
+        config = MessageConfig(bootstrap_servers=self.transport_config["bootstrap_servers"])
 
-        # Create consumer via transport layer
         self.consumer = await create_consumer(
             config=config,
             domain="plugins",
             worker_name="mitigation_tracking_worker",
-            topics=[self.kafka_config["input_topic"]],
+            topics=[self.transport_config["input_topic"]],
             message_handler=self._handle_message,
             enable_message_commit=True,
-            topic_key="ghrn_mitigation_pending",
+            topic_key=TOPIC_KEY,
         )
 
+        await self.health_server.start()
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=30,
+            get_stats=self._get_cycle_stats,
+            stage="tracking",
+            worker_id="mitigation-tracking",
+        )
+        self._stats_logger.start()
         await self.consumer.start()
 
         logger.info(
             "Consumer started via transport layer",
             extra={
-                "topic": self.kafka_config["input_topic"],
-                "group": self.kafka_config["consumer_group"],
+                "topic": self.transport_config["input_topic"],
+                "group": self.transport_config["consumer_group"],
                 "transport_layer": "enabled",
             },
         )
 
         self.running = True
+        self.health_server.set_ready(consumer_connected=True)
 
     async def run(self):
         """
@@ -177,7 +237,6 @@ class MitigationTrackingWorker:
         logger.info("Worker running - transport layer consuming messages")
 
         try:
-            # Wait for shutdown signal
             await self._shutdown_event.wait()
             logger.info("Shutdown signal received")
 
@@ -185,30 +244,34 @@ class MitigationTrackingWorker:
             logger.exception("Worker run loop error: %s", e)
             raise
 
+    def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict]:
+        extra = {
+            "records_processed": self._records_processed,
+            "records_succeeded": self._records_succeeded,
+            "records_failed": self._records_failed,
+            "records_skipped": 0,
+            "records_deduplicated": 0,
+            "cycle_offset_start_ts": self._cycle_offset_start_ts,
+            "cycle_offset_end_ts": self._cycle_offset_end_ts,
+        }
+        self._cycle_offset_start_ts = None
+        self._cycle_offset_end_ts = None
+        return "", extra
+
     async def stop(self):
         """Stop the worker gracefully."""
         logger.info("Stopping worker")
         self.running = False
         self._shutdown_event.set()
 
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
         if self.consumer:
             await self.consumer.stop()
             logger.info("Consumer stopped")
 
-    def signal_handler(self, signum, frame):
-        """Handle shutdown signals."""
-        logger.info("Received signal %s", signum)
-        self._shutdown_event.set()
-
-
-def load_yaml_config(path: Path) -> dict:
-    """Load YAML configuration file."""
-    if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
-
-    logger.info("Loading configuration from %s", path)
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        await self.health_server.stop()
 
 
 def load_worker_config() -> dict:
@@ -222,59 +285,61 @@ def load_worker_config() -> dict:
     return workers["mitigation_tracking"]
 
 
-def load_connections() -> list[ConnectionConfig]:
-    """Load connection configurations."""
-    config_data = load_yaml_config(CONNECTIONS_CONFIG_PATH)
+async def build_tracking_worker(
+    worker_config: dict,
+    health_server: HealthCheckServer,
+) -> tuple:
+    """Build a configured tracking worker and its resources.
 
-    connections = []
-    for conn_name, conn_data in config_data.get("connections", {}).items():
-        if not conn_data or not conn_data.get("base_url"):
-            continue
+    Args:
+        worker_config: Parsed worker configuration from workers.yaml.
+        health_server: Pre-started health server for the worker to use.
 
-        # Expand environment variables
-        base_url = expand_env_var_string(conn_data["base_url"])
-        auth_token = expand_env_var_string(conn_data.get("auth_token", ""))
+    Returns:
+        Tuple of (worker, connection_manager, producer) for lifecycle management.
+    """
+    connections_list = load_connections(CONNECTIONS_CONFIG_PATH)
 
-        # Validate that environment variables were actually expanded
-        if "${" in base_url:
-            raise ValueError(
-                f"Environment variable not expanded in base_url for connection '{conn_name}': {base_url}. "
-                f"Check that the required environment variables are set or that defaults are configured in the connection YAML."
-            )
-        if auth_token and "${" in auth_token:
-            raise ValueError(
-                f"Environment variable not expanded in auth_token for connection '{conn_name}'. "
-                f"Check that the required environment variables are set or that defaults are configured in the connection YAML."
-            )
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
+    transport_config = {
+        "bootstrap_servers": bootstrap_servers,
+        "input_topic": worker_config["kafka"]["input_topic"],
+        "consumer_group": worker_config["kafka"]["consumer_group"],
+    }
 
-        auth_type = conn_data.get("auth_type", "none")
-        if isinstance(auth_type, str):
-            auth_type = AuthType(auth_type)
+    connection_manager = ConnectionManager()
+    for conn in connections_list:
+        connection_manager.add_connection(conn)
 
-        conn = ConnectionConfig(
-            name=conn_data.get("name", conn_name),
-            base_url=base_url,
-            auth_type=auth_type,
-            auth_token=auth_token,
-            auth_header=conn_data.get("auth_header"),
-            timeout_seconds=conn_data.get("timeout_seconds", 30),
-            max_retries=conn_data.get("max_retries", 3),
-            retry_backoff_base=conn_data.get("retry_backoff_base", 2),
-            retry_backoff_max=conn_data.get("retry_backoff_max", 60),
-            headers=conn_data.get("headers", {}),
-        )
-        connections.append(conn)
-        logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)
+    config = MessageConfig(bootstrap_servers=bootstrap_servers)
+    producer = create_producer(
+        config=config,
+        domain="plugins",
+        worker_name="mitigation_tracking_worker",
+        topic_key="ghrn_mitigation_completed",
+    )
+    await producer.start()
 
-    return connections
+    pipeline = MitigationTaskPipeline(
+        connection_manager=connection_manager,
+        kafka_producer=producer,
+        config=worker_config.get("pipeline", {}),
+    )
+
+    worker = MitigationTrackingWorker(
+        transport_config=transport_config,
+        connection_manager=connection_manager,
+        pipeline=pipeline,
+        health_server=health_server,
+    )
+
+    return worker, connection_manager, producer
 
 
 async def main():
     """Main entry point."""
-    # Load environment variables from .env file before any config access
     load_dotenv(PROJECT_ROOT / ".env")
 
-    # Setup logging
     from config import load_config
 
     try:
@@ -302,68 +367,58 @@ async def main():
         enable_eventhub_logging=eventhub_enabled,
     )
 
-    # Load configuration
+    # Load worker config early to get health port
     try:
         worker_config = load_worker_config()
-        connections_list = load_connections()
     except (FileNotFoundError, ValueError) as e:
         logger.error("Configuration error: %s", e)
         sys.exit(1)
 
-    # Setup Kafka configuration
-    kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
-    kafka_config = {
-        "bootstrap_servers": kafka_servers,
-        "input_topic": worker_config["kafka"]["input_topic"],
-        "consumer_group": worker_config["kafka"]["consumer_group"],
-    }
+    processing_config = worker_config.get("processing", {})
+    health_port = processing_config.get("health_port", 8098)
+    health_enabled = processing_config.get("health_enabled", True)
 
-    # Log startup with Kafka config
+    # Start health server before building the worker so it survives build failures
+    health_server = HealthCheckServer(
+        port=health_port,
+        worker_name="mitigation-tracking",
+        enabled=health_enabled,
+    )
+    await health_server.start()
+
+    shutdown_event = asyncio.Event()
+    setup_shutdown_signal_handlers(shutdown_event.set)
+
+    try:
+        worker, connection_manager, producer = await build_tracking_worker(
+            worker_config=worker_config,
+            health_server=health_server,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        logger.error("Configuration error: %s", e)
+        health_server.set_error(f"Configuration error: {e}")
+        logger.warning("Entering error mode - health server will remain active")
+        await shutdown_event.wait()
+        await health_server.stop()
+        logger.info("Pipeline shutdown complete")
+        return
+
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
     log_worker_startup(
         logger=logger,
         worker_name="Mitigation Task Tracking Worker",
-        kafka_bootstrap_servers=kafka_servers,
-        input_topic=kafka_config["input_topic"],
+        kafka_bootstrap_servers=bootstrap_servers,
+        input_topic=worker.transport_config["input_topic"],
         output_topic=worker_config.get("pipeline", {}).get("output_topic"),
-        consumer_group=kafka_config["consumer_group"],
+        consumer_group=worker.transport_config["consumer_group"],
     )
-
-    # Setup connection manager
-    connection_manager = ConnectionManager()
-    for conn in connections_list:
-        connection_manager.add_connection(conn)
-
-    # Setup producer via transport layer (supports both Kafka and Event Hub)
-    # Create minimal MessageConfig for transport layer
-    config = MessageConfig(bootstrap_servers=kafka_servers)
-    producer = create_producer(
-        config=config,
-        domain="plugins",
-        worker_name="mitigation_tracking_worker",
-        topic_key="ghrn_mitigation_completed",
-    )
-    await producer.start()
-
-    # Create pipeline
-    pipeline = MitigationTaskPipeline(
-        connection_manager=connection_manager,
-        kafka_producer=producer,
-        config=worker_config.get("pipeline", {}),
-    )
-
-    # Create and run worker
-    worker = MitigationTrackingWorker(
-        kafka_config=kafka_config,
-        connection_manager=connection_manager,
-        pipeline=pipeline,
-    )
-
-    setup_shutdown_signal_handlers(lambda: asyncio.create_task(worker.stop()))
 
     try:
         await connection_manager.start()
-        await worker.start()
-        await worker.run()
+
+        from pipeline.runners.common import execute_worker_with_shutdown
+
+        await execute_worker_with_shutdown(worker, "mitigation-tracking", shutdown_event)
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
     except Exception as e:
