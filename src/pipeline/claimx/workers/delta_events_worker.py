@@ -181,6 +181,14 @@ class ClaimXDeltaEventsWorker:
 
         initialize_worker_telemetry(self.domain, "delta-events-worker")
 
+        # Close resources from a previous failed start attempt to prevent leak.
+        if self.consumer:
+            await self.consumer.stop()
+            self.consumer = None
+        if self._stats_logger:
+            await self._stats_logger.stop()
+            self._stats_logger = None
+
         # Start retry handler producers
         await self.retry_handler.start()
 
@@ -227,27 +235,27 @@ class ClaimXDeltaEventsWorker:
         logger.info("Stopping ClaimXDeltaEventsWorker")
         self._running = False
 
-        # Stop stats logger
         if self._stats_logger:
             await self._stats_logger.stop()
+            self._stats_logger = None
+
         if self._batch_timer:
             self._batch_timer.cancel()
+            self._batch_timer = None
 
-        # Flush pending batch
         async with self._batch_lock:
             if self._batch:
                 logger.info("Flushing remaining batch on shutdown")
                 await self._flush_batch()
 
-        # Stop consumer
         if self.consumer:
             await self.consumer.stop()
+            self.consumer = None
 
-        # Stop retry handler producers
         if self.retry_handler:
             await self.retry_handler.stop()
+            self.retry_handler = None
 
-        # Stop health check server
         await self.health_server.stop()
 
         logger.info("ClaimXDeltaEventsWorker stopped successfully")

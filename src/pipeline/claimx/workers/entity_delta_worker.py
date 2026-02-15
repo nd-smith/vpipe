@@ -149,6 +149,17 @@ class ClaimXEntityDeltaWorker:
 
         initialize_worker_telemetry(self.domain, "entity-delta-worker")
 
+        # Close resources from a previous failed start attempt to prevent leak.
+        if self._consumer:
+            await self._consumer.stop()
+            self._consumer = None
+        if self.retry_handler:
+            await self.retry_handler.stop()
+            self.retry_handler = None
+        if self._stats_logger:
+            await self._stats_logger.stop()
+            self._stats_logger = None
+
         # Create consumer via transport factory
         self._consumer = await create_consumer(
             config=self._consumer_config,
@@ -196,38 +207,32 @@ class ClaimXEntityDeltaWorker:
 
     async def stop(self) -> None:
         """Stop the worker."""
-        if not self._running:
-            return
-
         self._running = False
 
-        # Stop stats logger
         if self._stats_logger:
             await self._stats_logger.stop()
+            self._stats_logger = None
 
-        # Cancel batch timer
         if self._batch_timer:
             self._batch_timer.cancel()
             self._batch_timer = None
 
-        # Wait for pending flush to complete
         if self._pending_flush_task and not self._pending_flush_task.done():
             logger.info("Waiting for pending flush to complete before shutdown")
             with contextlib.suppress(asyncio.CancelledError):
                 await self._pending_flush_task
 
-        # Flush remaining batch
-        await self._flush_batch()
+        if self._batch:
+            await self._flush_batch()
 
-        # Stop the consumer
         if self._consumer:
             await self._consumer.stop()
+            self._consumer = None
 
-        # Stop retry handler producers
         if self.retry_handler:
             await self.retry_handler.stop()
+            self.retry_handler = None
 
-        # Stop health check server
         await self.health_server.stop()
 
     async def commit(self) -> None:
