@@ -24,6 +24,7 @@ class DownloadTask:
     url: str
     destination: Path
     timeout: int = 60
+    sock_read_timeout: int = 30
     validate_url: bool = True
     validate_file_type: bool = True
     check_expiration: bool = False

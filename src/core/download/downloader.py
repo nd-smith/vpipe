@@ -216,6 +216,7 @@ class AttachmentDownloader:
             url=task.url,
             session=session,
             timeout=task.timeout,
+            sock_read_timeout=task.sock_read_timeout,
         )
 
         if error:
@@ -269,6 +270,7 @@ class AttachmentDownloader:
             url=task.url,
             output_path=task.destination,
             session=session,
+            sock_read_timeout=task.sock_read_timeout,
         )
 
         if error:

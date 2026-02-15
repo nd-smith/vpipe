@@ -247,7 +247,7 @@ class ClaimXDownloadWorker:
         timeout = aiohttp.ClientTimeout(
             total=300,
             connect=30,
-            sock_read=60,
+            sock_read=120,
             sock_connect=30,
         )
 
@@ -673,7 +673,8 @@ class ClaimXDownloadWorker:
         return DownloadTask(
             url=task_message.download_url,
             destination=temp_file,
-            timeout=60,
+            timeout=300,
+            sock_read_timeout=120,
             validate_url=True,
             validate_file_type=True,
             allow_localhost=False,
