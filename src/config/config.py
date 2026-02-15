@@ -91,6 +91,24 @@ def get_config_value(env_var: str, yaml_value: str, default: str = "") -> str:
     return yaml_value or default
 
 
+_ENV_VAR_PATTERN = re.compile(r"\$\{([^}:]+)(?::-(([^}]*))?)?\}")
+
+
+def expand_env_var_string(value: str) -> str:
+    """Expand ${VAR} and ${VAR:-default} syntax in a string.
+
+    Unlike os.path.expandvars, this supports the :-default syntax.
+    If a variable has no default and is not set, the original ${VAR}
+    reference is left in place (to be caught by validation).
+    """
+    def replacer(match):
+        var_name = match.group(1)
+        default_value = match.group(2) if match.group(2) is not None else match.group(0)
+        return os.getenv(var_name, default_value)
+
+    return _ENV_VAR_PATTERN.sub(replacer, value)
+
+
 def _expand_env_vars(data: Any) -> Any:
     """Recursively expand ${VAR_NAME} and ${VAR_NAME:-default} environment variables in config data."""
     if isinstance(data, dict):
@@ -98,15 +116,7 @@ def _expand_env_vars(data: Any) -> Any:
     elif isinstance(data, list):
         return [_expand_env_vars(item) for item in data]
     elif isinstance(data, str):
-        # Support both ${VAR} and ${VAR:-default} syntax
-        pattern = r"\$\{([^}:]+)(?::-(([^}]*))?)?\}"
-
-        def replacer(match):
-            var_name = match.group(1)
-            default_value = match.group(2) if match.group(2) is not None else match.group(0)
-            return os.getenv(var_name, default_value)
-
-        return re.sub(pattern, replacer, data)
+        return expand_env_var_string(data)
     else:
         return data
 

@@ -33,6 +33,7 @@ from core.logging import log_worker_startup, setup_logging
 from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
+from config.config import expand_env_var_string
 from pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,
@@ -231,8 +232,8 @@ def load_connections() -> list[ConnectionConfig]:
             continue
 
         # Expand environment variables
-        base_url = os.path.expandvars(conn_data["base_url"])
-        auth_token = os.path.expandvars(conn_data.get("auth_token", ""))
+        base_url = expand_env_var_string(conn_data["base_url"])
+        auth_token = expand_env_var_string(conn_data.get("auth_token", ""))
 
         # Validate that environment variables were actually expanded
         if "${" in base_url:
