@@ -161,10 +161,14 @@ class EventHubProducer:
             ssl_kwargs=ssl_kwargs,
         )
 
+        # keep_alive_interval sends heartbeats to prevent Azure Load Balancer
+        # (4-min idle timeout) and proxies from closing idle WebSocket connections,
+        # which otherwise surface as WSMessageTypeError(257) / ConnectError.
         self._producer = EventHubProducerClient.from_connection_string(
             conn_str=self.connection_string,
             eventhub_name=self.eventhub_name,
             transport_type=TransportType.AmqpOverWebsocket,
+            keep_alive_interval=30,
             **ssl_kwargs,
         )
 

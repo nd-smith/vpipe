@@ -147,10 +147,13 @@ class EventHubLogHandler(logging.Handler):
         try:
             # Use AMQP over WebSocket (port 443) instead of AMQP over TCP (port 5671)
             # This works better in corporate networks where 5671 may be blocked
+            # keep_alive_interval sends heartbeats to prevent Azure Load Balancer
+            # (4-min idle timeout) and proxies from closing idle WebSocket connections.
             producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
                 transport_type=TransportType.AmqpOverWebsocket,
+                keep_alive_interval=30,
                 **get_ca_bundle_kwargs(),
             )
             print(
