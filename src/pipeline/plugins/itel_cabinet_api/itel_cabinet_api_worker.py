@@ -597,6 +597,19 @@ class ItelCabinetApiWorker:
             },
         )
 
+        # Verify OAuth2 credentials by fetching a token
+        connection_name = self.api_config.get("connection")
+        if connection_name and self.connections._oauth2_manager:
+            token = await self.connections._oauth2_manager.get_token(connection_name)
+            token_info = self.connections._oauth2_manager.get_cached_token_info(connection_name)
+            token_path = output_dir / f"token_{assignment_id}_{timestamp}.json"
+            with open(token_path, "w") as f:
+                json.dump(token_info, f, indent=2, default=str)
+            logger.info(
+                "[TEST MODE] OAuth2 token verified and saved",
+                extra={"token_file": str(token_path), "assignment_id": assignment_id},
+            )
+
     async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to simulation directory (simulation mode).
 
