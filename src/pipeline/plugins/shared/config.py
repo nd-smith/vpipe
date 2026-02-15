@@ -5,11 +5,11 @@ Extracted from the iTel cabinet workers to avoid duplication.
 """
 
 import logging
-import os
 from pathlib import Path
 
 import yaml
 
+from config.config import expand_env_var_string
 from pipeline.plugins.shared.connections import AuthType, ConnectionConfig
 
 logger = logging.getLogger(__name__)
@@ -57,8 +57,8 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
         if not conn_data or not conn_data.get("base_url"):
             continue
 
-        base_url = os.path.expandvars(conn_data["base_url"])
-        auth_token = os.path.expandvars(conn_data.get("auth_token", ""))
+        base_url = expand_env_var_string(conn_data["base_url"])
+        auth_token = expand_env_var_string(conn_data.get("auth_token", ""))
 
         if "${" in base_url:
             raise ValueError(
@@ -83,9 +83,9 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
         oauth2_scope = None
 
         if oauth2_data:
-            oauth2_client_id = os.path.expandvars(oauth2_data.get("client_id", "")) or None
-            oauth2_client_credential = os.path.expandvars(oauth2_data.get("client_credential", "")) or None
-            oauth2_token_url = os.path.expandvars(oauth2_data.get("token_url", "")) or None
+            oauth2_client_id = expand_env_var_string(oauth2_data.get("client_id", "")) or None
+            oauth2_client_credential = expand_env_var_string(oauth2_data.get("client_credential", "")) or None
+            oauth2_token_url = expand_env_var_string(oauth2_data.get("token_url", "")) or None
             oauth2_scope = oauth2_data.get("scope")
 
             # Validate env var expansion for OAuth2 fields

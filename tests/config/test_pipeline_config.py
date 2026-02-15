@@ -39,7 +39,7 @@ class TestGetConfigValue:
 
     def test_expands_env_vars_in_yaml_value(self):
         with patch.dict(os.environ, {"INNER": "expanded"}, clear=True):
-            result = _get_config_value("MISSING", "$INNER")
+            result = _get_config_value("MISSING", "${INNER}")
             assert result == "expanded"
 
     def test_warns_on_unexpanded_variable(self):

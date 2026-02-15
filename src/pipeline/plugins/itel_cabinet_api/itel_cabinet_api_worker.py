@@ -47,6 +47,7 @@ from pipeline.common.metrics import (
 )
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
+from config.config import expand_env_var_string
 from pipeline.plugins.shared.config import load_connections, load_yaml_config
 from pipeline.plugins.shared.connections import (
     ConnectionManager,
@@ -697,7 +698,7 @@ async def build_api_worker(dev_mode: bool = False) -> tuple:
     api_config = worker_config["api"]
     for key in ("carrier_id", "subscription_id"):
         if key in api_config and isinstance(api_config[key], str):
-            expanded = os.path.expandvars(api_config[key])
+            expanded = expand_env_var_string(api_config[key])
             if "${" in expanded:
                 raise ValueError(
                     f"Environment variable not expanded for api.{key}: {expanded}. "

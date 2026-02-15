@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config.config import MessageConfig
+from config.config import MessageConfig, expand_env_var_string
 
 # Default config file: config/config.yaml in src/ directory
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -37,7 +37,7 @@ def _get_config_value(env_var: str, yaml_value: str, default: str = "") -> str:
     # This handles cases like "events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE}"
     result = yaml_value or default
     if result:
-        expanded = os.path.expandvars(result)
+        expanded = expand_env_var_string(result)
 
         # Warn if expansion failed (still contains ${...})
         if "${" in expanded and "}" in expanded:
