@@ -328,7 +328,7 @@ class ClaimXResultProcessor:
                 "Upload failed permanently",
                 error_category="permanent",
                 media_id=result.media_id,
-                error_message=result.error_message,
+                upstream_error=result.error_message,
             )
 
         elif result.status == "failed":
@@ -338,7 +338,7 @@ class ClaimXResultProcessor:
                 "Upload failed (transient)",
                 error_category="transient",
                 media_id=result.media_id,
-                error_message=result.error_message,
+                upstream_error=result.error_message,
             )
 
         # Record message consumption metric
