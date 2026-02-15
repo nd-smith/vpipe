@@ -632,12 +632,14 @@ class ClaimXEnrichmentWorker:
             await self.producer.send(
                 value=entity_rows,
                 key=trace_id,
+                headers={"trace_id": trace_id},
             )
 
             logger.info(
                 "Produced entity rows batch",
                 extra={
                     "batch_id": batch_id,
+                    "trace_id": trace_id,
                     "trace_ids": trace_ids,
                     "row_count": entity_rows.row_count(),
                 },
@@ -648,6 +650,7 @@ class ClaimXEnrichmentWorker:
                 "Error writing entities to Delta - routing batch to retry",
                 extra={
                     "batch_id": batch_id,
+                    "trace_id": trace_id,
                     "trace_ids": trace_ids,
                     "row_count": entity_rows.row_count(),
                     "task_count": len(tasks),
@@ -671,9 +674,13 @@ class ClaimXEnrichmentWorker:
         self,
         download_tasks: list[ClaimXDownloadTask],
     ) -> None:
+        trace_ids = list({t.trace_id for t in download_tasks})
         logger.info(
             "Producing download tasks",
-            extra={"task_count": len(download_tasks)},
+            extra={
+                "task_count": len(download_tasks),
+                "trace_ids": trace_ids,
+            },
         )
 
         for task in download_tasks:

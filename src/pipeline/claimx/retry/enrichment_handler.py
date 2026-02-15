@@ -283,7 +283,7 @@ class EnrichmentRetryHandler:
         await self._dlq_producer.send(
             value=dlq_message,
             key=task.trace_id,
-            headers=create_dlq_headers(task.retry_count, error_category),
+            headers=create_dlq_headers(task.retry_count, error_category, trace_id=task.trace_id),
         )
 
         logger.debug(

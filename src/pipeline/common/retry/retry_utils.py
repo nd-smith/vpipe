@@ -84,6 +84,7 @@ def create_retry_headers(
         Dict of header key-value pairs
     """
     return {
+        "trace_id": original_key,
         "retry_count": str(retry_count),
         "scheduled_retry_time": retry_at.isoformat(),
         "retry_delay_seconds": str(delay_seconds),
@@ -98,6 +99,7 @@ def create_retry_headers(
 def create_dlq_headers(
     retry_count: int,
     error_category: ErrorCategory,
+    trace_id: str = "",
 ) -> dict[str, str]:
     """
     Create standard headers for DLQ messages.
@@ -105,15 +107,19 @@ def create_dlq_headers(
     Args:
         retry_count: Final retry attempt count
         error_category: Classification of the error
+        trace_id: Trace identifier for the failed message
 
     Returns:
         Dict of header key-value pairs
     """
-    return {
+    headers = {
         "retry_count": str(retry_count),
         "error_category": error_category.value,
         "failed": "true",
     }
+    if trace_id:
+        headers["trace_id"] = trace_id
+    return headers
 
 
 def truncate_error_message(error: Exception, max_length: int = 500) -> str:
