@@ -1,380 +1,389 @@
 # =============================================================================
 # EventHub Pipeline Configuration
 # =============================================================================
-# This file configures the EventHub-based event processing pipeline for both
-# Verisk and ClaimX domains. Each worker can be individually configured with
-# batch sizes, time windows, and performance settings.
-#
-# Configuration is loaded ONLY from this YAML file.
-# Environment variables are NOT supported.
+# This file configures the EventHub-based event processing pipeline.
+# Supports ${VAR} and ${VAR:-default} syntax for environment variable expansion.
+# Secrets use env var references so they are never stored in this file.
 #
 # NOTE: Kafka has been removed - EventHub is used for all pipeline communication
+#
+# Priority chain (highest wins):
+#   1. OS environment variables (Jenkins envVars in deployed environments)
+#   2. .env file (local development — only sets vars not already in OS)
+#   3. Values in this YAML (with ${VAR:-default} expansion)
+#   4. Dataclass defaults in Python config classes
 # =============================================================================
 
 # =============================================================================
-# PIPELINE EVENT SOURCE
+# ENVIRONMENT & PLATFORM
 # =============================================================================
-# Determines which event source the pipeline uses for ingestion
-# Options:
-#   - "eventhub": Production source - Azure Event Hub
-#   - "dummy": Test source - generates realistic synthetic data locally
-event_source: "eventhub"
-
 # =============================================================================
 # PIPELINE CONFIGURATION
 # =============================================================================
 pipeline:
-  # ===========================================================================
-  # VERISK DOMAIN CONFIGURATION (formerly XACT)
-  # Verisk property claim assignments and attachments pipeline
-  # ===========================================================================
+  # ---------------------------------------------------------------------------
+  # Verisk Domain
+  # ---------------------------------------------------------------------------
   verisk:
-    # -------------------------------------------------------------------------
-    # EventHub Entity Names (formerly Kafka topics)
-    # -------------------------------------------------------------------------
-    topics:
-      events: "com.allstate.pcesdopodappv1.verisk.events.raw"                  # Raw events from Event Hub
-      enrichment_pending: "com.allstate.pcesdopodappv1.verisk.enrichment.pending"  # Events awaiting enrichment
-      downloads_pending: "com.allstate.pcesdopodappv1.verisk.downloads.pending"  # Download tasks awaiting processing
-      downloads_cached: "com.allstate.pcesdopodappv1.verisk.downloads.cached"    # Downloads cached locally, awaiting upload
-      downloads_results: "com.allstate.pcesdopodappv1.verisk.downloads.results"  # Upload results for Delta processing
-      dlq: "com.allstate.pcesdopodappv1.verisk.downloads.dlq"                    # Dead letter queue for failed messages
+    retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
 
-    # Consumer group prefix for all consumers in this domain
-    # Group names will be: {prefix}-{worker_name}
-    consumer_group_prefix: "verisk"
-
-    # Retry configuration for download retry topics
-    # Delays in seconds for each retry attempt: 5min, 10min, 20min, 40min
-    retry_delays: [300, 600, 1200, 2400]
-
-    # Maximum number of retry attempts before sending to DLQ
-    max_retries: 4
-
-    # -------------------------------------------------------------------------
-    # Event Ingester Worker
-    # Consumes from: verisk.events.raw
-    # Produces to: verisk.enrichment.pending
-    # Purpose: Parse events, create enrichment tasks for plugin execution
-    # -------------------------------------------------------------------------
-    event_ingester:
-      processing:
-        # Application-level batch size for event processing
-        batch_size: 100
-
-        # Optional limit on number of batches to process (for testing)
-        # null = unlimited, integer = stop after N batches
-        max_batches: null
-
-    # -------------------------------------------------------------------------
-    # Download Worker
-    # Consumes from: verisk.downloads.pending + verisk.retry
-    # Produces to: verisk.downloads.cached
-    # Purpose: Download attachments from S3, cache locally for upload
-    # -------------------------------------------------------------------------
-    download_worker:
-      processing:
-        # Maximum number of concurrent downloads (1-50)
-        # Higher = more throughput but more memory and connections
-        concurrency: 10
-
-        # Application batch size for download processing
-        batch_size: 20
-
-        # Timeout for individual download operations (seconds)
-        timeout_seconds: 60
-
-    # -------------------------------------------------------------------------
-    # Upload Worker
-    # Consumes from: verisk.downloads.cached
-    # Produces to: verisk.downloads.results
-    # Purpose: Upload cached files to OneLake, produce results
-    # -------------------------------------------------------------------------
-    upload_worker:
-      processing:
-        # Maximum number of concurrent uploads (1-50)
-        concurrency: 10
-
-        # Application batch size for upload processing
-        batch_size: 20
-
-    # -------------------------------------------------------------------------
-    # Delta Events Writer Worker
-    # Consumes from: verisk.downloads.results
-    # Produces to: delta-events.retry.*, delta-events.dlq
-    # Purpose: Write events to Delta tables in batches
-    # -------------------------------------------------------------------------
-    delta_events_writer:
-      processing:
-        # Number of events per Delta batch write
-        batch_size: 1000
-
-        # Optional limit for testing (null = unlimited)
-        max_batches: null
-
-        # Retry delays for failed Delta writes (seconds)
-        retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
-
-        # Maximum retries before DLQ
-        max_retries: 4
-
-        # EventHub entity prefix for retry
-        retry_topic_prefix: "com.allstate.pcesdopodappv1.delta-events.retry"
-
-        # Dead letter queue entity
-        dlq_topic: "com.allstate.pcesdopodappv1.delta-events.dlq"
-
-  # ===========================================================================
-  # CLAIMX DOMAIN CONFIGURATION
-  # Verisk ClaimXperience pipeline - claim enrichment and media
-  # ===========================================================================
+  # ---------------------------------------------------------------------------
+  # ClaimX Domain
+  # ---------------------------------------------------------------------------
   claimx:
-    # -------------------------------------------------------------------------
-    # EventHub Entity Names
-    # -------------------------------------------------------------------------
-    topics:
-      events: "com.allstate.pcesdopodappv1.claimx.events.raw"                      # Raw events from Event Hub
-      enrichment_pending: "com.allstate.pcesdopodappv1.claimx.enrichment.pending"  # Events awaiting API enrichment
-      enrichment.dlq: "com.allstate.pcesdopodappv1.claimx.enrichment.dlq"          # Enrichment dead letter queue
-      enriched: "com.allstate.pcesdopodappv1.claimx.entities.rows"                 # Enriched entity data rows
-      downloads_pending: "com.allstate.pcesdopodappv1.claimx.downloads.pending"    # Download tasks awaiting processing
-      downloads_cached: "com.allstate.pcesdopodappv1.claimx.downloads.cached"      # Downloads cached locally
-      downloads_results: "com.allstate.pcesdopodappv1.claimx.downloads.results"    # Upload results
-      dlq: "com.allstate.pcesdopodappv1.claimx.downloads.dlq"                      # Dead letter queue
+    retry_delays: [300, 600, 1200, 2400]  # 5m, 10m, 20m, 40m
 
-    consumer_group_prefix: "claimx"
-
-    retry_delays: [300, 600, 1200, 2400]
-    max_retries: 4
-
-    # -------------------------------------------------------------------------
-    # Event Ingester Worker
-    # Consumes from: claimx.events.raw
-    # Produces to: claimx.enrichment.pending
-    # Purpose: Parse events, route to enrichment
-    # -------------------------------------------------------------------------
-    event_ingester:
-      processing:
-        batch_size: 100
-
-    # -------------------------------------------------------------------------
-    # Enrichment Worker
-    # Consumes from: claimx.enrichment.pending
-    # Produces to: claimx.downloads.pending
-    # Purpose: Enrich events with ClaimX API data
-    # -------------------------------------------------------------------------
-    enrichment_worker:
-      processing:
-        # Maximum concurrent API requests
-        api_concurrency: 20
-
-        # Timeout per API request (seconds)
-        api_timeout_seconds: 30
-
-        # Batch size for processing
-        batch_size: 50
-
-    # -------------------------------------------------------------------------
-    # Download Worker
-    # Consumes from: claimx.downloads.pending + claimx.retry
-    # Produces to: claimx.downloads.cached
-    # Purpose: Download attachments from ClaimX S3
-    # -------------------------------------------------------------------------
-    download_worker:
-      processing:
-        # ClaimX may need higher concurrency
-        concurrency: 15
-        batch_size: 30
-
-        # ClaimX files may be larger, need longer timeout
-        timeout_seconds: 90
-
-    # -------------------------------------------------------------------------
-    # Upload Worker
-    # Consumes from: claimx.downloads.cached
-    # Produces to: claimx.downloads.results
-    # Purpose: Upload cached files to OneLake
-    # -------------------------------------------------------------------------
-    upload_worker:
-      processing:
-        concurrency: 15
-        batch_size: 30
-
-    # -------------------------------------------------------------------------
-    # Delta Events Writer Worker
-    # Consumes from: claimx.downloads.results
-    # Produces to: delta-events.retry.*, delta-events.dlq
-    # Purpose: Write events to Delta tables
-    # -------------------------------------------------------------------------
-    delta_events_writer:
-      processing:
-        batch_size: 1000
-        retry_delays: [300, 600, 1200, 2400]
-        max_retries: 4
-
-  # ===========================================================================
-  # SHARED STORAGE CONFIGURATION
-  # ===========================================================================
+  # ---------------------------------------------------------------------------
+  # Shared Storage
+  # ---------------------------------------------------------------------------
   storage:
-    # OneLake paths by domain (abfss:// URIs)
-    # Format: abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Files/{domain}
+    onelake_base_path: ${ONELAKE_BASE_PATH:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Files/<app-name>}
     onelake_domain_paths:
-      verisk: ""   # OneLake path for Verisk domain
-      claimx: ""   # OneLake path for ClaimX domain
-
-    # Fallback path if domain not in onelake_domain_paths
-    onelake_base_path: ""
-
-    # Local directory for caching downloads awaiting upload
-    cache_dir: "/tmp/pipeline_cache"
-
+      verisk: "abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Files/<app-name>/verisk/attachments"
+      claimx: "abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Files/<app-name>/claimx/attachments"
+    cache_dir: ${CACHE_DIR:-/mnt/<app-name>/cache}
+    temp_dir: ${TEMP_DIR:-/mnt/<app-name>/tmp}
+    retry_persistence_dir: ${RETRY_PERSISTENCE_DIR:-/mnt/<app-name>/retry}
 
 # =============================================================================
-# DELTA LAKE TABLE CONFIGURATION
+# AZURE AUTHENTICATION
 # =============================================================================
-# Paths to Delta tables for the pipeline. These support both verisk and claimx domains.
-# Format: abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/{table}
+# Secrets use env var references — never stored as plain text in this file.
+# In deployed environments, Jenkins injects these as OS env vars.
+# Locally, set them in the .env file.
+azure:
+  tenant_id: ${AZURE_TENANT_ID}
+  client_id: ${AZURE_CLIENT_ID}
+  client_secret: ${AZURE_CLIENT_SECRET}
+  workspace_id: ${AZURE_WORKSPACE_ID:-<workspace-id>}
+  lakehouse_id: ${AZURE_LAKEHOUSE_ID:-<lakehouse-id>}
+
+# =============================================================================
+# DELTA LAKE TABLE PATHS
+# =============================================================================
 delta:
-  # Enable/disable Delta Lake writes globally
   enable_writes: true
 
-  # Verisk domain tables
+  # XACT domain
   verisk:
-    # Path to verisk_events table (for deduplication and analytics)
-    events_table_path: ""
-
-    # Path to verisk_attachments table (for tracking downloaded attachments)
-    inventory_table_path: ""
-
-    # Path to verisk_attachments_failed table (for tracking permanent failures)
-    # Optional: If not set, permanent failures are only tracked in DLQ
+    events_table_path: ${XACT_DELTA_EVENTS_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/verisk_events}
+    inventory_table_path: ${XACT_DELTA_INVENTORY_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/verisk_attachments}
     failed_table_path: ""
 
-  # ClaimX domain tables
+  # ClaimX domain
   claimx:
-    # Path to claimx_events table
-    events_table_path: ""
-    projects_table_path: ""
-    contacts_table_path: ""
-    media_table_path: ""
-    tasks_table_path: ""
-    task_templates_table_path: ""
-    external_links_table_path: ""
-    video_collab_table_path: ""
-
+    events_table_path: ${CLAIMX_DELTA_EVENTS_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_events}
+    inventory_table_path: ${CLAIMX_DELTA_INVENTORY_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_attachments}
+    failed_table_path: ""
+    projects_table_path: ${CLAIMX_DELTA_PROJECTS_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_projects}
+    contacts_table_path: ${CLAIMX_DELTA_CONTACTS_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_contacts}
+    media_table_path: ${CLAIMX_DELTA_MEDIA_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_attachment_metadata}
+    tasks_table_path: ${CLAIMX_DELTA_TASKS_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_tasks}
+    task_templates_table_path: ${CLAIMX_DELTA_TASK_TEMPLATES_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_task_templates}
+    external_links_table_path: ${CLAIMX_DELTA_EXTERNAL_LINKS_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_external_links}
+    video_collab_table_path: ${CLAIMX_DELTA_VIDEO_COLLAB_TABLE:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/dbo/claimx_video_collab}
 
 # =============================================================================
-# CLAIMX API CONFIGURATION
+# CLAIMX API
 # =============================================================================
 claimx:
   api:
-    # Base URL for ClaimX API
-    base_url: "https://api.claimx.com/v1"
-
-    # Timeout for API requests (seconds)
+    base_url: ${CLAIMX_API_BASE_PATH:-https://your-claimx-api-host/service/cxedirest}
     timeout_seconds: 30
-
-    # Maximum concurrent API requests
     max_concurrent: 20
-
-    # Credentials are loaded from environment variables ONLY:
-    # - CLAIMX_API_TOKEN (Base64 encoded Basic auth token)
-
+    # Token loaded from CLAIMX_API_TOKEN env var
 
 # =============================================================================
-# DUMMY DATA SOURCE (for testing without external dependencies)
+# PLUGINS - ITEL CABINET API
 # =============================================================================
-# When event_source is set to "dummy", the pipeline generates realistic
-# synthetic insurance claim data instead of connecting to external sources.
-# This allows testing the full pipeline locally without access to production
-# systems like Eventhouse, Event Hub, or the ClaimX API.
-dummy:
-  # ---------------------------------------------------------------------------
-  # Generator Settings
-  # ---------------------------------------------------------------------------
-  generator:
-    # Random seed for reproducible data (null = random each run)
-    seed: null
-
-    # Base URL for the dummy file server (auto-configured when running)
-    base_url: "http://localhost:8765"
-
-    # Include some failing scenarios for testing error handling
-    include_failures: false
-
-    # Percentage of events that will have simulated failures (0.0-1.0)
-    failure_rate: 0.05
-
-  # ---------------------------------------------------------------------------
-  # File Server Settings
-  # ---------------------------------------------------------------------------
-  # The dummy file server provides downloadable test files for attachments
-  file_server:
-    host: "0.0.0.0"
-    port: 8765
-
-    # Default size for generated files (bytes)
-    default_file_size: 100000  # 100KB
-
-    # Maximum file size to generate (bytes)
-    max_file_size: 10000000  # 10MB
-
-  # ---------------------------------------------------------------------------
-  # Event Generation Settings
-  # ---------------------------------------------------------------------------
-  # Which domains to generate events for
-  domains:
-    - "verisk"
-    - "claimx"
-
-  # Events generated per minute (per domain)
-  events_per_minute: 10.0
-
-  # Burst mode: generate events in batches for load testing
-  burst_mode: false
-  burst_size: 50
-  burst_interval_seconds: 60
-
-  # Generate all ClaimX event types (PROJECT_CREATED, PROJECT_FILE_ADDED, etc.)
-  include_all_event_types: true
-
-  # Maximum number of concurrent simulated claims to track
-  max_active_claims: 100
-
-  # ---------------------------------------------------------------------------
-  # Runtime Limits (for controlled testing)
-  # ---------------------------------------------------------------------------
-  # Stop after generating this many events (null = unlimited)
-  max_events: null
-
-  # Stop after running for this many seconds (null = unlimited)
-  max_runtime_seconds: null
-
+itel_cabinet:
+  api_base_url: ${ITEL_CABINET_API_BASE_URL}
+  api_token: ${ITEL_CABINET_API_TOKEN}
+  delta_forms_table: ${ITEL_DELTA_FORMS_TABLE}
+  delta_attachments_table: ${ITEL_DELTA_ATTACHMENTS_TABLE}
+  attachments_path: ${ITEL_ATTACHMENTS_PATH}
 
 # =============================================================================
-# SHARED SETTINGS
+# TRANSPORT LAYER CONFIGURATION
 # =============================================================================
-health:
-  enabled: true
-  host: "127.0.0.1"
-  port: 8080
+# Select transport protocol: "eventhub" (default) or "kafka"
+# Event Hub is required for Azure Private Link (AMQP port 443)
+# Kafka protocol (port 9093) is not exposed by Private Link endpoints
+transport:
+  type: ${PIPELINE_TRANSPORT:-eventhub}
 
+# =============================================================================
+# EVENT HUB (AMQP TRANSPORT - DEFAULT)
+# =============================================================================
+# Azure Event Hub using AMQP over WebSocket (port 443)
+# Compatible with Azure Private Link endpoints
+#
+# Architecture:
+#   One Event Hub NAMESPACE contains multiple Event Hubs.
+#   A single namespace-level connection string (no EntityPath) provides
+#   access to all Event Hubs. Each is specified separately per-topic below.
+#
+# Connection string format (namespace-level — NO EntityPath):
+#   Endpoint=sb://<namespace>.servicebus.windows.net/;
+#   SharedAccessKeyName=<policy>;SharedAccessKey=<key>
+#
+# Jenkins/deployment injects ONE secret: EVENTHUB_NAMESPACE_CONNECTION_STRING
+# Event Hub names and consumer groups are defined below per-domain.
+#
+# Consumer group notes:
+#   Each worker that independently reads a stream needs its own consumer group.
+#   Consumer groups are keyed by worker_name under each topic:
+#     eventhub.{domain}.{topic_key}.consumer_groups.{worker_name}
+#   Consumer groups must be pre-created in Azure before use.
+#
+# Owner level (epoch) notes:
+#   owner_levels is an optional sibling to consumer_groups that sets the epoch
+#   for exclusive partition ownership per consumer group. A consumer with a higher
+#   owner_level takes ownership from consumers with lower levels. Default: 0.
+#   Example:
+#     owner_levels:
+#       enrichment_worker: 1
+eventhub:
+  # Namespace-level connection string (no EntityPath)
+  # Falls back to EVENTHUB_CONNECTION_STRING for backward compatibility
+  # (EntityPath is stripped automatically if present)
+  namespace_connection_string: ${EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
+
+  # Transport type: AmqpOverWebsocket (required for Private Link)
+  transport_type: AmqpOverWebsocket
+
+  # Default consumer group (used when not specified per-topic)
+  default_consumer_group: ${EVENTHUB_DEFAULT_CONSUMER_GROUP:-$Default}
+
+  # Checkpoint store configuration for durable offset persistence.
+  # Checkpoints enable graceful restarts and partition rebalancing across consumers.
+  # Supported types:
+  #   "blob" - Azure Blob Storage (production)
+  #   "json" - Local filesystem JSON files (development)
+  checkpoint_store:
+    # Store type: "blob" or "json"
+    type: ${EVENTHUB_CHECKPOINT_STORE_TYPE:-blob}
+    # Blob storage settings (used when type=blob)
+    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+    container_name: ${EVENTHUB_CHECKPOINT_CONTAINER_NAME:-<app-name>-checkpoints}
+    # JSON file storage path (used when type=json)
+    storage_path: ${EVENTHUB_CHECKPOINT_JSON_PATH:-./data/eh1-checkpoints}
+
+  # Deduplication cache store (persistent across worker restarts)
+  # Complements in-memory caching by providing blob storage persistence
+  dedup_store:
+    # Store type: "blob" or "json"
+    type: ${EVENTHUB_DEDUP_STORE_TYPE:-blob}
+    # Blob storage settings (reuses same storage account as checkpoint store)
+    blob_storage_connection_string: ${EVENTHUB_CHECKPOINT_BLOB_CONNECTION_STRING:-}
+    # Different container in same storage account
+    container_name: ${EVENTHUB_DEDUP_CONTAINER_NAME:-eventhub-dedup-cache}
+    # TTL for dedup entries (seconds) - matches Verisk's in-memory cache default
+    ttl_seconds: ${EVENTHUB_DEDUP_TTL_SECONDS:-86400}
+    # JSON file storage path for local dev (used when type=json)
+    storage_path: ${EVENTHUB_DEDUP_JSON_PATH:-./data/eventhub-dedup-cache}
+
+  # ---------------------------------------------------------------------------
+  # Source EventHubs (external namespace)
+  # ---------------------------------------------------------------------------
+  # Source event topics live in a separate EventHub namespace from the internal
+  # pipeline topics. This section provides the connection string and topic
+  # configuration for reading raw events from the source namespace.
+  source:
+    namespace_connection_string: ${SOURCE_EVENTHUB_NAMESPACE_CONNECTION_STRING:-}
+    verisk:
+      events:
+        eventhub_name: ${EVENTHUB_VERISK_EVENTS_NAME:-<verisk-source-eventhub>}
+        starting_position: "<ISO-8601-datetime-or-@latest>"
+        consumer_groups:
+          event_ingester: ${EVENTHUB_VERISK_EVENTS_CG_EVENT_INGESTER:-<app-name>-xa}
+          delta_events_writer: ${EVENTHUB_VERISK_EVENTS_CG_DELTA_EVENTS_WRITER:-<app-name>-xa-delta}
+        owner_levels:
+          event_ingester: ${EVENTHUB_VERISK_EVENTS_OL_EVENT_INGESTER:-0}
+          delta_events_writer: ${EVENTHUB_VERISK_EVENTS_OL_DELTA_EVENTS_WRITER:-0}
+    claimx:
+      events:
+        eventhub_name: ${EVENTHUB_CLAIMX_EVENTS_NAME:-<claimx-source-eventhub>}
+        starting_position: "<ISO-8601-datetime-or-@latest>"
+        consumer_groups:
+          event_ingester: ${EVENTHUB_CLAIMX_EVENTS_CG_EVENT_INGESTER:-<app-name>-cx}
+          delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_CG_DELTA_EVENTS_WRITER:-<app-name>-cx-delta}
+        owner_levels:
+          event_ingester: ${EVENTHUB_CLAIMX_EVENTS_OL_EVENT_INGESTER:-0}
+          delta_events_writer: ${EVENTHUB_CLAIMX_EVENTS_OL_DELTA_EVENTS_WRITER:-0}
+
+  # ---------------------------------------------------------------------------
+  # Verisk Domain (formerly XACT)
+  # ---------------------------------------------------------------------------
+  # Event Hub entities for Verisk/XACT event processing pipeline
+  verisk:
+    enrichment_pending:
+      eventhub_name: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_NAME:-verisk-enrichment-pending}
+      starting_position: "@latest"
+      consumer_groups:
+        enrichment_worker: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-verisk-enrichment-pipeline}
+      owner_levels:
+        enrichment_worker: ${EVENTHUB_VERISK_ENRICHMENT_PENDING_OL_ENRICHMENT_WORKER:-0}
+    downloads_pending:
+      eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_NAME:-verisk-downloads-pending}
+      starting_position: "@latest"
+      consumer_groups:
+        download_worker: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-verisk-downloads-pipeline}
+      owner_levels:
+        download_worker: ${EVENTHUB_VERISK_DOWNLOADS_PENDING_OL_DOWNLOAD_WORKER:-0}
+    downloads_cached:
+      eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_NAME:-verisk-downloads-cached}
+      starting_position: "@latest"
+      consumer_groups:
+        upload_worker: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-verisk-downloads-cached-pipeline}
+      owner_levels:
+        upload_worker: ${EVENTHUB_VERISK_DOWNLOADS_CACHED_OL_UPLOAD_WORKER:-0}
+    downloads_results:
+      eventhub_name: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_NAME:-verisk-downloads-results}
+      starting_position: "@latest"
+      consumer_groups:
+        result_processor: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-verisk-downloads-results-pipeline}
+      owner_levels:
+        result_processor: ${EVENTHUB_VERISK_DOWNLOADS_RESULTS_OL_RESULT_PROCESSOR:-0}
+    retry:
+      eventhub_name: ${EVENTHUB_VERISK_RETRY_NAME:-verisk-retry}
+      starting_position: "@latest"
+      consumer_groups:
+        unified_retry_scheduler: ${EVENTHUB_VERISK_RETRY_CG_RETRY_SCHEDULER:-verisk-retry-pipeline}
+      owner_levels:
+        unified_retry_scheduler: ${EVENTHUB_VERISK_RETRY_OL_RETRY_SCHEDULER:-0}
+    dlq:
+      eventhub_name: ${EVENTHUB_VERISK_DLQ_NAME:-verisk-dlq}
+      starting_position: "@latest"
+      consumer_groups:
+        dlq_handler: ${EVENTHUB_VERISK_DLQ_CG_DLQ_HANDLER:-verisk-dlq-pipeline}
+      owner_levels:
+        dlq_handler: ${EVENTHUB_VERISK_DLQ_OL_DLQ_HANDLER:-0}
+
+  # ---------------------------------------------------------------------------
+  # ClaimX Domain
+  # ---------------------------------------------------------------------------
+  # Event Hub entities for ClaimX event processing pipeline
+  claimx:
+    enrichment_pending:
+      eventhub_name: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_NAME:-claimx-enrichment-pending}
+      starting_position: "@latest"
+      consumer_groups:
+        enrichment_worker: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_CG_ENRICHMENT_WORKER:-claimx-enrichment-pipeline}
+      owner_levels:
+        enrichment_worker: ${EVENTHUB_CLAIMX_ENRICHMENT_PENDING_OL_ENRICHMENT_WORKER:-0}
+    enriched:
+      eventhub_name: ${EVENTHUB_CLAIMX_ENRICHED_NAME:-claimx-enriched}
+      starting_position: "@latest"
+      consumer_groups:
+        entity_delta_writer: ${EVENTHUB_CLAIMX_ENRICHED_CG_ENTITY_DELTA_WRITER:-claimx-enriched-pipeline}
+      owner_levels:
+        entity_delta_writer: ${EVENTHUB_CLAIMX_ENRICHED_OL_ENTITY_DELTA_WRITER:-0}
+    downloads_pending:
+      eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_NAME:-claimx-downloads-pending}
+      starting_position: "@latest"
+      consumer_groups:
+        download_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_CG_DOWNLOAD_WORKER:-claimx-downloads-pipeline}
+      owner_levels:
+        download_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_PENDING_OL_DOWNLOAD_WORKER:-0}
+    downloads_cached:
+      eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_NAME:-claimx-downloads-cached}
+      starting_position: "@latest"
+      consumer_groups:
+        upload_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_CG_UPLOAD_WORKER:-claimx-downloads-cached-pipeline}
+      owner_levels:
+        upload_worker: ${EVENTHUB_CLAIMX_DOWNLOADS_CACHED_OL_UPLOAD_WORKER:-0}
+    downloads_results:
+      eventhub_name: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_NAME:-claimx-downloads-results}
+      starting_position: "@latest"
+      consumer_groups:
+        result_processor: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_CG_RESULT_PROCESSOR:-claimx-downloads-results-pipeline}
+      owner_levels:
+        result_processor: ${EVENTHUB_CLAIMX_DOWNLOADS_RESULTS_OL_RESULT_PROCESSOR:-0}
+    retry:
+      eventhub_name: ${EVENTHUB_CLAIMX_RETRY_NAME:-claimx-retry}
+      starting_position: "@latest"
+      consumer_groups:
+        unified_retry_scheduler: ${EVENTHUB_CLAIMX_RETRY_CG_RETRY_SCHEDULER:-claimx-retry-pipeline}
+      owner_levels:
+        unified_retry_scheduler: ${EVENTHUB_CLAIMX_RETRY_OL_RETRY_SCHEDULER:-0}
+    dlq:
+      eventhub_name: ${EVENTHUB_CLAIMX_DLQ_NAME:-claimx-dlq}
+      starting_position: "@latest"
+      consumer_groups:
+        dlq_handler: ${EVENTHUB_CLAIMX_DLQ_CG_DLQ_HANDLER:-claimx-dlq-pipeline}
+      owner_levels:
+        dlq_handler: ${EVENTHUB_CLAIMX_DLQ_OL_DLQ_HANDLER:-0}
+
+  # ---------------------------------------------------------------------------
+  # Plugins Domain
+  # ---------------------------------------------------------------------------
+  # Event Hub entities for plugin integrations (iTEL Cabinet, GHRN, etc.)
+  plugins:
+    itel_cabinet_pending:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_PENDING_NAME:-<app-name>-itel-cabinet-pending}
+      starting_position: "@latest"
+      consumer_groups:
+        itel_cabinet_tracking_worker: ${EVENTHUB_ITEL_CABINET_PENDING_CG_TRACKING_WORKER:-itel-cabinet-pending-pipeline}
+      owner_levels:
+        itel_cabinet_tracking_worker: ${EVENTHUB_ITEL_CABINET_PENDING_OL_TRACKING_WORKER:-0}
+    itel_cabinet_completed:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_COMPLETED_NAME:-<app-name>-itel-cabinet-completed}
+      starting_position: "@latest"
+      consumer_groups:
+        itel_cabinet_api_worker: ${EVENTHUB_ITEL_CABINET_COMPLETED_CG_API_WORKER:-itel-cabinet-completed-pipeline}
+      owner_levels:
+        itel_cabinet_api_worker: ${EVENTHUB_ITEL_CABINET_COMPLETED_OL_API_WORKER:-0}
+    itel_cabinet_success:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_SUCCESS_NAME:-<app-name>-itel-cabinet-success}
+      starting_position: "@latest"
+    itel_cabinet_errors:
+      eventhub_name: ${EVENTHUB_ITEL_CABINET_ERRORS_NAME:-<app-name>-itel-cabinet-errors}
+      starting_position: "@latest"
+    itel_api_success:
+      eventhub_name: ${EVENTHUB_ITEL_API_SUCCESS_NAME:-<app-name>-itel-api-success}
+      starting_position: "@latest"
+    itel_api_errors:
+      eventhub_name: ${EVENTHUB_ITEL_API_ERRORS_NAME:-<app-name>-itel-api-errors}
+      starting_position: "@latest"
+    ghrn_mitigation_pending:
+      eventhub_name: ${EVENTHUB_GHRN_MITIGATION_PENDING_NAME:-<app-name>-ghrn-mitigation-pending}
+      starting_position: "@latest"
+      consumer_groups:
+        mitigation_tracking_worker: ${EVENTHUB_GHRN_MITIGATION_PENDING_CG_TRACKING_WORKER:-ghrn-mitigation-pending-pipeline}
+      owner_levels:
+        mitigation_tracking_worker: ${EVENTHUB_GHRN_MITIGATION_PENDING_OL_TRACKING_WORKER:-0}
+    ghrn_mitigation_completed:
+      eventhub_name: ${EVENTHUB_GHRN_MITIGATION_COMPLETED_NAME:-<app-name>-ghrn-mitigation-completed}
+      starting_position: "@latest"
+
+# =============================================================================
+# LOGGING & MONITORING
+# =============================================================================
 logging:
-  level: "INFO"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  log_dir: "logs"
+  level: ${LOG_LEVEL:-INFO}
+  log_to_stdout: ${LOG_TO_STDOUT:-true}
+  log_dir: "/mnt/<app-name>/logs"
+
+  # File logging configuration
+  file_logging:
+    enabled: ${FILE_LOGGING_ENABLED:-true}
+    level: ${FILE_LOG_LEVEL:-DEBUG}
+
+  # EventHub logging configuration (real-time streaming to ADX)
+  eventhub_logging:
+    enabled: ${EVENTHUB_LOGGING_ENABLED:-true}
+    level: ${EVENTHUB_LOG_LEVEL:-INFO}
+    eventhub_name: ${EVENTHUB_LOGS_NAME:-<app-name>-application-logs}
+    batch_size: ${EVENTHUB_LOG_BATCH_SIZE:-100}
+    batch_timeout_seconds: ${EVENTHUB_LOG_BATCH_TIMEOUT:-1.0}
+    max_queue_size: ${EVENTHUB_LOG_QUEUE_SIZE:-10000}
+    circuit_breaker_threshold: ${EVENTHUB_LOG_CIRCUIT_THRESHOLD:-5}
 
 observability:
   json_logs: true
-  log_upload_enabled: true
-  log_upload_interval_cycles: 10
-  log_retention_days: 7
-  memory_checkpoints_enabled: true
-  memory_checkpoint_level: "DEBUG"
-  memory_profiling_enabled: true
-  memory_snapshot_interval: 5
-  memory_alert_threshold_mb: 4096
-
-# Runtime metadata
-worker_id: "worker-01"
-test_mode: false
+  log_upload_enabled: ${LOG_UPLOAD_ENABLED:-true}
+  log_max_size_mb: ${LOG_MAX_SIZE_MB:-5}
+  log_rotation_minutes: ${LOG_ROTATION_MINUTES:-5}
+  log_retention_hours: ${LOG_RETENTION_HOURS:-1}
+  onelake_log_path: ${ONELAKE_LOG_PATH:-abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Files/<app-name>}
