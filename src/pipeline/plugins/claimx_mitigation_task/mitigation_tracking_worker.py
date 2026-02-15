@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 
 from config.config import MessageConfig, expand_env_var_string
 from core.logging import log_worker_startup, setup_logging
+from core.logging.eventhub_config import prepare_eventhub_logging_config
 from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
@@ -274,14 +275,31 @@ async def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
     # Setup logging
+    from config import load_config
+
+    try:
+        config = load_config()
+    except Exception:
+        config = None
+
+    log_dir = Path(config.logging_config.get("log_dir", "logs")) if config else Path("logs")
+    eventhub_config = prepare_eventhub_logging_config(config.logging_config) if config else None
+    eventhub_enabled = (
+        config.logging_config.get("eventhub_logging", {}).get("enabled", True)
+        if config
+        else True
+    )
+
     setup_logging(
         name="mitigation_tracking",
         domain="claimx_mitigation_task",
         stage="tracking",
-        log_dir=Path("logs"),
+        log_dir=log_dir,
         json_format=True,
         console_level=logging.INFO,
         file_level=logging.DEBUG,
+        eventhub_config=eventhub_config,
+        enable_eventhub_logging=eventhub_enabled,
     )
 
     # Load configuration

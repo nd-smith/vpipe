@@ -195,26 +195,24 @@ def format_cycle_output(
 
 def get_log_output_mode(
     log_to_stdout: bool,
-    enable_file_logging: bool,
     enable_eventhub_logging: bool,
 ) -> str:
     """
     Determine log output mode based on configuration flags.
 
-    Returns:
-        String describing where logs are being sent: "stdout", "file",
-        "eventhub", "file+eventhub", etc.
-    """
-    if log_to_stdout:
-        return "stdout"
+    File logging is always active. log_to_stdout adds verbose console output.
 
-    modes = []
-    if enable_file_logging:
-        modes.append("file")
+    Returns:
+        String describing where logs are being sent: "file+stdout",
+        "file+eventhub+stdout", "file", "file+eventhub", etc.
+    """
+    modes = ["file"]
     if enable_eventhub_logging:
         modes.append("eventhub")
+    if log_to_stdout:
+        modes.append("stdout")
 
-    return "+".join(modes) if modes else "none"
+    return "+".join(modes)
 
 
 def detect_log_output_mode() -> str:

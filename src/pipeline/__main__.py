@@ -496,9 +496,6 @@ def _setup_logging(args, domain, worker_id):
 
     json_logs = os.getenv("JSON_LOGS", "true").lower() in ("true", "1", "yes")
 
-    log_dir_str = args.log_dir or os.getenv("LOG_DIR", "logs")
-    log_dir = Path(log_dir_str)
-
     log_to_stdout = args.log_to_stdout or os.getenv("LOG_TO_STDOUT", "false").lower() in (
         "true",
         "1",
@@ -518,14 +515,16 @@ def _setup_logging(args, domain, worker_id):
         )
         config = None
 
+    log_dir_str = args.log_dir or os.getenv("LOG_DIR") or (
+        config.logging_config.get("log_dir") if config else None
+    ) or "logs"
+    log_dir = Path(log_dir_str)
+
     # Prepare EventHub logging config
     eventhub_config = prepare_eventhub_logging_config(config.logging_config) if config else None
 
-    # Get toggle flags
-    file_enabled = True
     eventhub_enabled = True
     if config:
-        file_enabled = config.logging_config.get("file_logging", {}).get("enabled", True)
         eventhub_enabled = config.logging_config.get("eventhub_logging", {}).get("enabled", True)
 
     if args.worker == "all":
@@ -537,7 +536,6 @@ def _setup_logging(args, domain, worker_id):
             console_level=log_level,
             log_to_stdout=log_to_stdout,
             eventhub_config=eventhub_config,
-            enable_file_logging=file_enabled,
             enable_eventhub_logging=eventhub_enabled,
         )
     else:
@@ -551,17 +549,15 @@ def _setup_logging(args, domain, worker_id):
             worker_id=worker_id,
             log_to_stdout=log_to_stdout,
             eventhub_config=eventhub_config,
-            enable_file_logging=file_enabled,
             enable_eventhub_logging=eventhub_enabled,
         )
 
-    return config, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config
+    return config, log_to_stdout, eventhub_enabled, eventhub_config
 
 
-def _display_startup_info(worker_id, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config):
+def _display_startup_info(worker_id, log_to_stdout, eventhub_enabled, eventhub_config):
     log_output_mode = get_log_output_mode(
         log_to_stdout=log_to_stdout,
-        enable_file_logging=file_enabled,
         enable_eventhub_logging=eventhub_enabled,
     )
 
@@ -732,12 +728,12 @@ def main():
 
     args, domain, worker_id = _setup_environment()
 
-    config, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config_logging = _setup_logging(
+    config, log_to_stdout, eventhub_enabled, eventhub_config_logging = _setup_logging(
         args, domain, worker_id
     )
     logger = logging.getLogger(__name__)
 
-    _display_startup_info(worker_id, log_to_stdout, file_enabled, eventhub_enabled, eventhub_config_logging)
+    _display_startup_info(worker_id, log_to_stdout, eventhub_enabled, eventhub_config_logging)
 
     loop, early_health_server = _initialize_infrastructure(args, domain)
 

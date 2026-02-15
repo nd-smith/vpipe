@@ -449,19 +449,6 @@ class TestSetupLogging:
         assert len(file_handlers) >= 1
 
     @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
-    def test_eventhub_only_mode_hits_unbound_log_file_bug(self, _, tmp_path):
-        # When enable_file_logging=False and log_to_stdout=False, setup_logging
-        # references log_file in the debug log but it was never defined.
-        # This is a known bug in the source; the test documents the behavior.
-        with pytest.raises(UnboundLocalError):
-            setup_logging(
-                name="test",
-                log_to_stdout=False,
-                enable_file_logging=False,
-                log_dir=tmp_path,
-            )
-
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
     def test_root_logger_level_set_to_debug(self, _, tmp_path):
         setup_logging(
             name="test",

@@ -348,23 +348,17 @@ class TestFormatCycleOutput:
 
 
 class TestGetLogOutputMode:
-    def test_returns_stdout_when_log_to_stdout(self):
-        assert get_log_output_mode(True, False, False) == "stdout"
+    def test_file_always_included(self):
+        assert get_log_output_mode(False, False) == "file"
 
-    def test_returns_stdout_even_with_other_flags(self):
-        assert get_log_output_mode(True, True, True) == "stdout"
+    def test_file_plus_eventhub(self):
+        assert get_log_output_mode(False, True) == "file+eventhub"
 
-    def test_returns_file_when_file_enabled(self):
-        assert get_log_output_mode(False, True, False) == "file"
+    def test_file_plus_stdout(self):
+        assert get_log_output_mode(True, False) == "file+stdout"
 
-    def test_returns_eventhub_when_eventhub_enabled(self):
-        assert get_log_output_mode(False, False, True) == "eventhub"
-
-    def test_returns_file_plus_eventhub(self):
-        assert get_log_output_mode(False, True, True) == "file+eventhub"
-
-    def test_returns_none_when_nothing_enabled(self):
-        assert get_log_output_mode(False, False, False) == "none"
+    def test_file_plus_eventhub_plus_stdout(self):
+        assert get_log_output_mode(True, True) == "file+eventhub+stdout"
 
 
 class TestDetectLogOutputMode:

@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 
 from config.config import MessageConfig, expand_env_var_string
 from core.logging import log_worker_startup, setup_logging
+from core.logging.eventhub_config import prepare_eventhub_logging_config
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.common.health import HealthCheckServer
@@ -363,14 +364,31 @@ async def main():
     """Main entry point for standalone execution."""
     load_dotenv(PROJECT_ROOT / ".env")
 
+    from config import load_config
+
+    try:
+        config = load_config()
+    except Exception:
+        config = None
+
+    log_dir = Path(config.logging_config.get("log_dir", "logs")) if config else Path("logs")
+    eventhub_config = prepare_eventhub_logging_config(config.logging_config) if config else None
+    eventhub_enabled = (
+        config.logging_config.get("eventhub_logging", {}).get("enabled", True)
+        if config
+        else True
+    )
+
     setup_logging(
         name="itel_cabinet_tracking",
         domain="itel_cabinet_api",
         stage="tracking",
-        log_dir=Path("logs"),
+        log_dir=log_dir,
         json_format=True,
         console_level=logging.INFO,
         file_level=logging.DEBUG,
+        eventhub_config=eventhub_config,
+        enable_eventhub_logging=eventhub_enabled,
     )
 
     # Load worker config early to get health port

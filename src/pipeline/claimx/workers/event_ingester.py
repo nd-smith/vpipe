@@ -522,6 +522,7 @@ class ClaimXEventIngesterWorker:
                     "trace_id": event.trace_id,
                     "project_id": event.project_id,
                     "event_type": event.event_type,
+                    "media_id": event.media_id,
                 },
             )
 

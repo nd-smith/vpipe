@@ -285,6 +285,79 @@ def _create_eventhub_handler(
         return None
 
 
+def _build_file_handler(
+    log_file: Path,
+    log_dir: Path,
+    backup_count: int,
+    rotation_when: str = DEFAULT_ROTATION_WHEN,
+    rotation_interval: int = DEFAULT_ROTATION_INTERVAL,
+) -> PipelineFileHandler:
+    """Build a PipelineFileHandler with archiver and optional OneLake uploader.
+
+    Reads OneLake configuration from environment variables (LOG_UPLOAD_ENABLED,
+    ONELAKE_LOG_PATH, LOG_MAX_SIZE_MB, LOG_ROTATION_MINUTES, LOG_RETENTION_HOURS).
+    When upload is enabled, uses size+time rotation and uploads on rotate.
+    Otherwise, uses standard time-based rotation with archiving only.
+    """
+    # Calculate archive directory: logs/archive/domain/date
+    try:
+        relative_path = log_file.relative_to(log_dir)
+        archive_dir = log_dir / "archive" / relative_path.parent
+    except ValueError:
+        archive_dir = log_file.parent / "archive"
+
+    upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
+    max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "50"))
+    rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "15"))
+    retention_hours = int(os.getenv("LOG_RETENTION_HOURS", "2"))
+
+    onelake_client = None
+    if upload_enabled:
+        onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
+        if not onelake_log_path:
+            print(
+                "Warning: LOG_UPLOAD_ENABLED=true but ONELAKE_LOG_PATH not configured, "
+                "disabling log upload",
+                file=sys.stderr,
+            )
+            upload_enabled = False
+        else:
+            try:
+                from pipeline.common.storage.onelake import OneLakeClient
+
+                onelake_client = OneLakeClient(base_path=onelake_log_path)
+            except Exception as e:
+                print(
+                    f"Warning: Failed to initialize OneLake client for log upload: {e}",
+                    file=sys.stderr,
+                )
+                upload_enabled = False
+
+    archiver = LogArchiver(archive_dir)
+
+    if upload_enabled and onelake_client:
+        uploader = OneLakeLogUploader(onelake_client, retention_hours)
+        return PipelineFileHandler(
+            log_file,
+            when="M",
+            interval=rotation_minutes,
+            backupCount=backup_count,
+            encoding="utf-8",
+            archiver=archiver,
+            uploader=uploader,
+            max_bytes=max_size_mb * 1024 * 1024,
+        )
+
+    return PipelineFileHandler(
+        log_file,
+        when=rotation_when,
+        interval=rotation_interval,
+        backupCount=backup_count,
+        encoding="utf-8",
+        archiver=archiver,
+    )
+
+
 def setup_logging(
     name: str = "pipeline",
     stage: str | None = None,
@@ -301,7 +374,6 @@ def setup_logging(
     use_instance_id: bool = True,
     log_to_stdout: bool = False,
     eventhub_config: dict | None = None,
-    enable_file_logging: bool = True,
     enable_eventhub_logging: bool = True,
 ) -> logging.Logger:
     """
@@ -334,8 +406,8 @@ def setup_logging(
         worker_id: Worker identifier for context
         use_instance_id: Generate unique phrase for log filename (default: True).
             Set to False for single-worker deployments or when log aggregation is preferred.
-        log_to_stdout: Send all log output to stdout only, skipping file handlers (default: False).
-            Useful for containerized deployments where logs are captured from stdout.
+        log_to_stdout: Also send verbose (file_level) output to stdout (default: False).
+            File and EventHub handlers are always active regardless of this flag.
 
     Returns:
         Configured logger instance
@@ -380,109 +452,29 @@ def setup_logging(
         else:
             print("[STARTUP] EventHub log handler creation FAILED - check error logs")
 
-    if log_to_stdout:
-        # Stdout-only mode: all log output goes to stdout, no file handlers
-        console_handler.setLevel(file_level)
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
-    elif not enable_file_logging:
-        # EventHub-only mode: console + EventHub handlers
-        console_handler.setLevel(console_level)
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
+    # Console handler: log_to_stdout makes it verbose (file_level), otherwise normal
+    console_handler.setLevel(file_level if log_to_stdout else console_level)
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler — always created regardless of log_to_stdout
+    instance_id = _generate_instance_id() if use_instance_id else None
+    log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if json_format:
+        file_formatter = JSONFormatter()
     else:
-        # Normal mode: console + file handlers
-        console_handler.setLevel(console_level)
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+        )
 
-        # Generate ordinal instance ID for multi-worker isolation
-        # Uses ordinal numbers (0, 1, 2, ...) for clear identification in production
-        instance_id = _generate_instance_id() if use_instance_id else None
-
-        log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
-
-        # Ensure directory exists
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create formatters
-        if json_format:
-            file_formatter = JSONFormatter()
-        else:
-            file_formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-            )
-
-        # File handler with time-based rotation and auto-archiving
-        # Calculate centralized archive directory
-        # Structure: logs/archive/domain/date
-        try:
-            relative_path = log_file.relative_to(log_dir)
-            archive_dir = log_dir / "archive" / relative_path.parent
-        except ValueError:
-            # Fallback if relative path calculation fails
-            archive_dir = log_file.parent / "archive"
-
-        # Check if OneLake upload is enabled
-        upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
-        max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "50"))
-        rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "15"))
-        retention_hours = int(os.getenv("LOG_RETENTION_HOURS", "2"))
-
-        # Create OneLake client if upload enabled
-        onelake_client = None
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
-        if upload_enabled:
-            if not onelake_log_path:
-                print(
-                    "Warning: LOG_UPLOAD_ENABLED=true but ONELAKE_LOG_PATH not configured, "
-                    "disabling log upload",
-                    file=sys.stderr,
-                )
-                upload_enabled = False
-            else:
-                try:
-                    from pipeline.common.storage.onelake import OneLakeClient
-
-                    onelake_client = OneLakeClient(base_path=onelake_log_path)
-                except Exception as e:
-                    print(
-                        f"Warning: Failed to initialize OneLake client for log upload: {e}",
-                        file=sys.stderr,
-                    )
-                    upload_enabled = False
-
-        # Build helpers for file handler
-        archiver = LogArchiver(archive_dir)
-        uploader = None
-
-        if upload_enabled and onelake_client:
-            uploader = OneLakeLogUploader(onelake_client, retention_hours)
-            file_handler = PipelineFileHandler(
-                log_file,
-                when="M",
-                interval=rotation_minutes,
-                backupCount=backup_count,
-                encoding="utf-8",
-                archiver=archiver,
-                uploader=uploader,
-                max_bytes=max_size_mb * 1024 * 1024,
-            )
-        else:
-            file_handler = PipelineFileHandler(
-                log_file,
-                when=rotation_when,
-                interval=rotation_interval,
-                backupCount=backup_count,
-                encoding="utf-8",
-                archiver=archiver,
-            )
-
-        file_handler.setLevel(file_level)
-        file_handler.setFormatter(file_formatter)
-
-        root_logger.addHandler(file_handler)
-        root_logger.addHandler(console_handler)
+    file_handler = _build_file_handler(
+        log_file, log_dir, backup_count, rotation_when, rotation_interval
+    )
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
 
     # Suppress noisy loggers
     if suppress_noisy:
@@ -494,16 +486,10 @@ def setup_logging(
         logging.getLogger("aiohttp.client").setLevel(logging.CRITICAL)
 
     logger = logging.getLogger(name)
-    if log_to_stdout:
-        logger.debug(
-            "Logging initialized: stdout-only mode",
-            extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
-        )
-    else:
-        logger.debug(
-            f"Logging initialized: file={log_file}, json={json_format}",
-            extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
-        )
+    logger.debug(
+        f"Logging initialized: file={log_file}, json={json_format}, stdout={log_to_stdout}",
+        extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
+    )
 
     return logger
 
@@ -522,7 +508,6 @@ def setup_multi_worker_logging(
     use_instance_id: bool = True,
     log_to_stdout: bool = False,
     eventhub_config: dict | None = None,
-    enable_file_logging: bool = True,
     enable_eventhub_logging: bool = True,
 ) -> logging.Logger:
     """
@@ -555,8 +540,8 @@ def setup_multi_worker_logging(
         backup_count: Number of backup files to keep (default: 7)
         suppress_noisy: Quiet down Azure SDK and HTTP client loggers
         use_instance_id: Generate unique phrase for log filenames (default: True)
-        log_to_stdout: Send all log output to stdout only, skipping file handlers (default: False).
-            Useful for containerized deployments where logs are captured from stdout.
+        log_to_stdout: Also send verbose (file_level) output to stdout (default: False).
+            File and EventHub handlers are always active regardless of this flag.
 
     Returns:
         Configured logger instance
@@ -594,82 +579,48 @@ def setup_multi_worker_logging(
         console_handler = logging.StreamHandler(safe_stdout)
     else:
         console_handler = logging.StreamHandler(sys.stdout)
+    # Console handler: log_to_stdout makes it verbose (file_level), otherwise normal
+    console_handler.setLevel(file_level if log_to_stdout else console_level)
     console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
 
-    if log_to_stdout:
-        # Stdout-only mode: all log output goes to stdout, no file handlers
-        console_handler.setLevel(file_level)
-        root_logger.addHandler(console_handler)
-    elif not enable_file_logging:
-        # EventHub-only mode: console + EventHub handlers
-        console_handler.setLevel(console_level)
-        root_logger.addHandler(console_handler)
+    # File handlers — always created regardless of log_to_stdout
+    instance_id = _generate_instance_id() if use_instance_id else None
+
+    if json_format:
+        file_formatter = JSONFormatter()
     else:
-        # Normal mode: console + per-worker file handlers
-        console_handler.setLevel(console_level)
-        root_logger.addHandler(console_handler)
-
-        # Generate ordinal instance ID for multi-instance isolation (only if file logging enabled)
-        instance_id = _generate_instance_id() if use_instance_id else None
-
-        # Create formatters
-        if json_format:
-            file_formatter = JSONFormatter()
-        else:
-            file_formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-            )
-
-        # Add per-worker file handlers with auto-archiving
-        for worker in workers:
-            log_file = get_log_file_path(
-                log_dir, domain=domain, stage=worker, instance_id=instance_id
-            )
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-
-            try:
-                relative_path = log_file.relative_to(log_dir)
-                archive_dir = log_dir / "archive" / relative_path.parent
-            except ValueError:
-                archive_dir = log_file.parent / "archive"
-
-            archiver = LogArchiver(archive_dir)
-            handler = PipelineFileHandler(
-                log_file,
-                when=rotation_when,
-                interval=rotation_interval,
-                backupCount=backup_count,
-                encoding="utf-8",
-                archiver=archiver,
-            )
-            handler.setLevel(file_level)
-            handler.setFormatter(file_formatter)
-            handler.addFilter(StageContextFilter(worker))
-            root_logger.addHandler(handler)
-
-        # Add combined file handler with auto-archiving (no filter - receives all logs)
-        combined_file = get_log_file_path(
-            log_dir, domain=domain, stage="pipeline", instance_id=instance_id
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
         )
-        combined_file.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            relative_path = combined_file.relative_to(log_dir)
-            combined_archive_dir = log_dir / "archive" / relative_path.parent
-        except ValueError:
-            combined_archive_dir = combined_file.parent / "archive"
 
-        combined_archiver = LogArchiver(combined_archive_dir)
-        combined_handler = PipelineFileHandler(
-            combined_file,
-            when=rotation_when,
-            interval=rotation_interval,
-            backupCount=backup_count,
-            encoding="utf-8",
-            archiver=combined_archiver,
+    # Per-worker file handlers (filtered by stage context)
+    for worker in workers:
+        log_file = get_log_file_path(
+            log_dir, domain=domain, stage=worker, instance_id=instance_id
         )
-        combined_handler.setLevel(file_level)
-        combined_handler.setFormatter(file_formatter)
-        root_logger.addHandler(combined_handler)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        handler = _build_file_handler(
+            log_file, log_dir, backup_count, rotation_when, rotation_interval
+        )
+        handler.setLevel(file_level)
+        handler.setFormatter(file_formatter)
+        handler.addFilter(StageContextFilter(worker))
+        root_logger.addHandler(handler)
+
+    # Combined file handler (no filter — receives all logs)
+    combined_file = get_log_file_path(
+        log_dir, domain=domain, stage="pipeline", instance_id=instance_id
+    )
+    combined_file.parent.mkdir(parents=True, exist_ok=True)
+
+    combined_handler = _build_file_handler(
+        combined_file, log_dir, backup_count, rotation_when, rotation_interval
+    )
+    combined_handler.setLevel(file_level)
+    combined_handler.setFormatter(file_formatter)
+    root_logger.addHandler(combined_handler)
 
     # Suppress noisy loggers
     if suppress_noisy:
