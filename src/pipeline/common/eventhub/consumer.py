@@ -83,16 +83,28 @@ class EventHubConsumerRecord:
         # Extract key from properties (stored by EventHub producer)
         key_bytes = None
         if event_data.properties and "_key" in event_data.properties:
-            key_str = event_data.properties.get("_key", "")
-            if key_str:
-                key_bytes = key_str.encode("utf-8")
+            key_prop = event_data.properties.get("_key", "")
+            if key_prop:
+                if isinstance(key_prop, bytes):
+                    key_bytes = key_prop
+                else:
+                    key_bytes = str(key_prop).encode("utf-8")
 
         # Convert properties to headers format: dict -> List[Tuple[str, bytes]]
         headers = []
         if event_data.properties:
             for k, v in event_data.properties.items():
-                if k != "_key":  # Skip internal key property
-                    headers.append((k, str(v).encode("utf-8")))
+                key_name = (
+                    k.decode("utf-8", errors="replace") if isinstance(k, bytes) else str(k)
+                )
+                if key_name != "_key":  # Skip internal key property
+                    if isinstance(v, bytes):
+                        value_bytes = v
+                    elif isinstance(v, str):
+                        value_bytes = v.encode("utf-8")
+                    else:
+                        value_bytes = str(v).encode("utf-8")
+                    headers.append((key_name, value_bytes))
 
         # Create transport-agnostic PipelineMessage
         self._message = PipelineMessage(

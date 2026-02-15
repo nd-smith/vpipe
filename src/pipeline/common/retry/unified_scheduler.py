@@ -487,17 +487,37 @@ class UnifiedRetryScheduler:
         """Parse message headers into a dictionary."""
         headers = {}
         if message.headers:
-            for key, value in message.headers:
+            if isinstance(message.headers, dict):
+                header_items = message.headers.items()
+            else:
+                header_items = message.headers
+
+            for entry in header_items:
                 try:
+                    if isinstance(entry, tuple) and len(entry) == 2:
+                        key, value = entry
+                    else:
+                        logger.warning(
+                            "Skipping malformed header entry",
+                            extra={
+                                "entry_type": type(entry).__name__,
+                                "entry_preview": repr(entry)[:200],
+                            },
+                        )
+                        continue
+
+                    decoded_key = (
+                        key.decode("utf-8", errors="replace") if isinstance(key, bytes) else str(key)
+                    )
                     decoded_value = (
                         value.decode("utf-8") if isinstance(value, bytes) else str(value)
                     )
-                    headers[key] = decoded_value
+                    headers[decoded_key] = decoded_value
                 except Exception as e:
                     logger.warning(
                         "Failed to decode header",
                         extra={
-                            "key": key,
+                            "key": key if 'key' in locals() else None,
                             "error": str(e),
                         },
                     )
@@ -509,6 +529,11 @@ class UnifiedRetryScheduler:
                     repr(message.headers[:3]) if len(message.headers) > 0 else "[]",
                 )
         return headers
+
+    @staticmethod
+    def _resolve_send_topic(producer: Any, configured_topic: str) -> str:
+        """Resolve topic/entity name to avoid transport-specific mismatch warnings."""
+        return getattr(producer, "eventhub_name", configured_topic)
 
     async def _send_to_dlq(
         self,
@@ -528,8 +553,9 @@ class UnifiedRetryScheduler:
         )
 
         try:
+            dlq_topic = self._resolve_send_topic(self._dlq_producer, self._dlq_topic)
             await self._dlq_producer.send(
-                topic=self._dlq_topic,
+                topic=dlq_topic,
                 key=message.key,
                 value=message.value,
                 headers={
@@ -544,7 +570,7 @@ class UnifiedRetryScheduler:
 
             logger.info(
                 "Malformed message sent to DLQ",
-                extra={"dlq_topic": self._dlq_topic},
+                extra={"dlq_topic": dlq_topic},
             )
 
         except Exception as e:
@@ -585,7 +611,7 @@ class UnifiedRetryScheduler:
             )
             self._messages_malformed += 1
             await self._dlq_producer.send(
-                topic=self._dlq_topic,
+                topic=self._resolve_send_topic(self._dlq_producer, self._dlq_topic),
                 key=message_key,
                 value=message_value,
                 headers={
@@ -612,7 +638,7 @@ class UnifiedRetryScheduler:
                     redelivery_headers[header_key] = headers[header_key]
 
             await producer.send(
-                topic=target_topic,
+                topic=self._resolve_send_topic(producer, target_topic),
                 key=message_key,
                 value=message_value,
                 headers=redelivery_headers,
