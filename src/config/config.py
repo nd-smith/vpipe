@@ -417,6 +417,7 @@ def load_config(
         onelake_domain_paths=storage.get("onelake_domain_paths", {}),
         cache_dir=storage.get("cache_dir") or str(Path(tempfile.gettempdir()) / "pipeline_cache"),
         temp_dir=storage.get("temp_dir") or str(Path(tempfile.gettempdir()) / "pipeline_temp"),
+        retry_persistence_dir=storage.get("retry_persistence_dir") or tempfile.gettempdir(),
         claimx_api_url=get_config_value("CLAIMX_API_URL", claimx_api.get("base_url", "")),
         claimx_api_token=claimx_api_token,
         claimx_api_timeout_seconds=int(
