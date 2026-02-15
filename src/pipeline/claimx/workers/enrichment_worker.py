@@ -232,6 +232,25 @@ class ClaimXEnrichmentWorker:
 
         initialize_worker_telemetry(self.domain, "enrichment-worker")
 
+        # Close resources from a previous failed start attempt to prevent leak.
+        # _start_with_retry() may call start() multiple times; without cleanup,
+        # each attempt overwrites self.api_client and orphans the old session.
+        if self._stats_logger:
+            await self._stats_logger.stop()
+            self._stats_logger = None
+        if self.api_client and not self._injected_api_client:
+            await self.api_client.close()
+            self.api_client = None
+        if self.producer:
+            await self.producer.stop()
+            self.producer = None
+        if self.download_producer:
+            await self.download_producer.stop()
+            self.download_producer = None
+        if self.retry_handler:
+            await self.retry_handler.stop()
+            self.retry_handler = None
+
         self._stats_logger = PeriodicStatsLogger(
             interval_seconds=CYCLE_LOG_INTERVAL_SECONDS,
             get_stats=self._get_cycle_stats,
@@ -329,21 +348,27 @@ class ClaimXEnrichmentWorker:
 
         if self._stats_logger:
             await self._stats_logger.stop()
+            self._stats_logger = None
 
         if self.consumer:
             await self.consumer.stop()
+            self.consumer = None
 
         if self.retry_handler:
             await self.retry_handler.stop()
+            self.retry_handler = None
 
         if self.producer:
             await self.producer.stop()
+            self.producer = None
 
         if self.download_producer:
             await self.download_producer.stop()
+            self.download_producer = None
 
         if self.api_client:
             await self.api_client.close()
+            self.api_client = None
 
         await self.health_server.stop()
 
