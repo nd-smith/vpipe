@@ -236,7 +236,8 @@ class TestClaimXEventMessageFromRawEvent:
 
         event = ClaimXEventMessage.from_raw_event(row)
 
-        assert event.trace_id == "evt_12345"
+        # trace_id is now a SHA-256 hash of composite key
+        assert len(event.trace_id) == 64
         assert event.event_type == "PROJECT_FILE_ADDED"
         assert event.project_id == "proj_67890"
         assert event.ingested_at == now
@@ -257,7 +258,7 @@ class TestClaimXEventMessageFromRawEvent:
 
         event = ClaimXEventMessage.from_raw_event(row)
 
-        assert event.trace_id == "evt_12345"
+        assert len(event.trace_id) == 64
         assert event.event_type == "PROJECT_CREATED"
         assert event.project_id == "proj_67890"
         assert event.ingested_at == now
@@ -277,7 +278,7 @@ class TestClaimXEventMessageFromRawEvent:
 
         event = ClaimXEventMessage.from_raw_event(row)
 
-        assert event.trace_id == "evt_001"
+        assert len(event.trace_id) == 64
         assert event.event_type == "CUSTOM_TASK_ASSIGNED"
         assert event.project_id == "proj_001"
         assert event.task_assignment_id == "task_222"

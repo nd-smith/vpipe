@@ -60,12 +60,15 @@ async def resolve_claimx_project_id(
                     task_data={...}
                 )
     """
-    response = await connection_manager.request(
-        connection_name=connection_name,
-        method="GET",
-        path="/export/project/projectId",
-        params={"projectNumber": claim_number},
-    )
+    try:
+        response = await connection_manager.request(
+            connection_name=connection_name,
+            method="GET",
+            path="/export/project/projectId",
+            params={"projectNumber": claim_number},
+        )
+    except Exception:
+        return None
 
     if response.status == 404:
         return None

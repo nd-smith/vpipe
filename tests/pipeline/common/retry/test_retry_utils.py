@@ -265,8 +265,8 @@ class TestAddErrorMetadataToDict:
 class TestLogRetryDecision:
     """Test log_retry_decision for different actions."""
 
-    def test_logs_dlq_permanent_as_warning(self):
-        """dlq_permanent action logs a warning."""
+    def test_logs_dlq_permanent_as_debug(self):
+        """dlq_permanent action logs at debug level."""
         with patch("pipeline.common.retry.retry_utils.logger") as mock_logger:
             log_retry_decision(
                 action="dlq_permanent",
@@ -275,12 +275,12 @@ class TestLogRetryDecision:
                 error_category=ErrorCategory.PERMANENT,
                 error=Exception("Bad data"),
             )
-            mock_logger.warning.assert_called_once()
-            call_extra = mock_logger.warning.call_args[1]["extra"]
+            mock_logger.debug.assert_called_once()
+            call_extra = mock_logger.debug.call_args[1]["extra"]
             assert call_extra["task_id"] == "task-1"
 
-    def test_logs_dlq_exhausted_as_warning(self):
-        """dlq_exhausted action logs a warning."""
+    def test_logs_dlq_exhausted_as_debug(self):
+        """dlq_exhausted action logs at debug level."""
         with patch("pipeline.common.retry.retry_utils.logger") as mock_logger:
             log_retry_decision(
                 action="dlq_exhausted",
@@ -289,7 +289,7 @@ class TestLogRetryDecision:
                 error_category=ErrorCategory.TRANSIENT,
                 error=Exception("Timeout"),
             )
-            mock_logger.warning.assert_called_once()
+            mock_logger.debug.assert_called_once()
 
     def test_logs_retry_as_info(self):
         """retry action logs at info level."""

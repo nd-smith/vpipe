@@ -307,8 +307,8 @@ def _build_file_handler(
         archive_dir = log_file.parent / "archive"
 
     upload_enabled = os.getenv("LOG_UPLOAD_ENABLED", "false").lower() == "true"
-    max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "50"))
-    rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "15"))
+    max_size_mb = int(os.getenv("LOG_MAX_SIZE_MB", "5"))
+    rotation_minutes = int(os.getenv("LOG_ROTATION_MINUTES", "5"))
     retention_hours = int(os.getenv("LOG_RETENTION_HOURS", "2"))
 
     onelake_client = None

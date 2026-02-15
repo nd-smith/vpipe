@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Partitions - {{ hub.eventhub_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Overview</a> / {{ hub.eventhub_name }}
+</div>
+
+<h1>{{ hub.eventhub_name }} <span class="text-muted" style="font-size: 0.9rem; font-weight: normal;">{{ eh_props.partition_count }} partitions</span></h1>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Partition</th>
+                <th class="text-right">Begin Seq</th>
+                <th class="text-right">Last Seq</th>
+                <th>Last Offset</th>
+                <th>Last Enqueued</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in partitions %}
+            <tr>
+                <td class="mono">{{ p.partition_id }}</td>
+                <td class="mono text-right">{{ p.beginning_sequence_number }}</td>
+                <td class="mono text-right">{{ p.last_enqueued_sequence_number }}</td>
+                <td class="mono">{{ p.last_enqueued_offset }}</td>
+                <td class="mono">{{ p.last_enqueued_time_utc.strftime('%Y-%m-%d %H:%M:%S') if p.last_enqueued_time_utc else '-' }}</td>
+                <td>
+                    {% if p.is_empty %}
+                    <span class="badge badge-muted">empty</span>
+                    {% else %}
+                    <span class="badge badge-green">active</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not p.is_empty %}
+                    <a href="/sampler/{{ hub.eventhub_name }}/{{ p.partition_id }}" class="btn">Sample</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

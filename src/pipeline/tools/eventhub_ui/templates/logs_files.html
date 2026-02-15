@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Logs - {{ domain }} / {{ date }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/logs">Logs</a> / <a href="/logs/{{ domain }}">{{ domain }}</a> / {{ date }}
+</div>
+
+<h1>{{ domain }} / {{ date }}</h1>
+<p class="text-muted mb-1">{{ files | length }} log file(s)</p>
+
+{% if files %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Filename</th>
+                <th class="text-right">Size</th>
+                <th>Last Modified</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in files %}
+            <tr>
+                <td class="mono" style="font-size: 0.8rem;">{{ f.name }}</td>
+                <td class="mono text-right">
+                    {% if f.size > 1048576 %}
+                    {{ "%.1f"|format(f.size / 1048576) }} MB
+                    {% elif f.size > 1024 %}
+                    {{ "%.1f"|format(f.size / 1024) }} KB
+                    {% else %}
+                    {{ f.size }} B
+                    {% endif %}
+                </td>
+                <td class="mono text-muted" style="font-size: 0.8rem;">{{ f.last_modified[:19] if f.last_modified else '-' }}</td>
+                <td><a href="/logs/view?path={{ f.path | urlencode }}" class="btn">View</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <p class="text-muted">No log files found for {{ domain }}/{{ date }}.</p>
+</div>
+{% endif %}
+{% endblock %}

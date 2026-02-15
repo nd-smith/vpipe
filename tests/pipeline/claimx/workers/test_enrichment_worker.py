@@ -282,15 +282,19 @@ class TestEnrichmentWorkerLifecycle:
         """Worker stop cleans up all resources."""
         worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
 
-        # Setup mocked components
-        worker.consumer = AsyncMock()
-        worker.consumer.stop = AsyncMock()
-        worker.producer = AsyncMock()
-        worker.producer.stop = AsyncMock()
-        worker.download_producer = AsyncMock()
-        worker.download_producer.stop = AsyncMock()
-        worker.retry_handler = AsyncMock()
-        worker.retry_handler.stop = AsyncMock()
+        # Setup mocked components (save refs since stop() sets them to None)
+        mock_consumer = AsyncMock()
+        mock_consumer.stop = AsyncMock()
+        worker.consumer = mock_consumer
+        mock_producer = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        worker.producer = mock_producer
+        mock_download_producer = AsyncMock()
+        mock_download_producer.stop = AsyncMock()
+        worker.download_producer = mock_download_producer
+        mock_retry_handler = AsyncMock()
+        mock_retry_handler.stop = AsyncMock()
+        worker.retry_handler = mock_retry_handler
         worker.health_server = AsyncMock()
         worker.health_server.stop = AsyncMock()
 
@@ -304,10 +308,10 @@ class TestEnrichmentWorkerLifecycle:
 
         # Verify cleanup
         assert worker._running is False
-        worker.consumer.stop.assert_called_once()
-        worker.producer.stop.assert_called_once()
-        worker.download_producer.stop.assert_called_once()
-        worker.retry_handler.stop.assert_called_once()
+        mock_consumer.stop.assert_called_once()
+        mock_producer.stop.assert_called_once()
+        mock_download_producer.stop.assert_called_once()
+        mock_retry_handler.stop.assert_called_once()
         mock_api_client.close.assert_called_once()
         worker.health_server.stop.assert_called_once()
 
@@ -668,6 +672,7 @@ class TestEnrichmentWorkerProjectCache:
             return_value={"data": {"project": {"projectId": 456}, "teamMembers": []}}
         )
         worker = ClaimXEnrichmentWorker(config=mock_config, api_client=mock_api_client)
+        worker.api_client = mock_api_client
 
         rows = await worker._ensure_project_exists("456")
 

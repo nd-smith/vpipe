@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}EventHub Overview{% endblock %}
+{% block content %}
+<h1>EventHub Overview <span class="text-muted" style="font-size: 0.9rem; font-weight: normal;">({{ hub_count }} hubs)</span></h1>
+
+{% for domain, hubs in domains.items() %}
+<h2>{{ domain }}</h2>
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>EventHub Name</th>
+                <th>Topic Key</th>
+                <th>Consumer Groups</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for hub in hubs %}
+            <tr>
+                <td class="mono">{{ hub.eventhub_name }}</td>
+                <td class="text-muted">{{ hub.topic_key }}</td>
+                <td>
+                    {% if hub.consumer_groups %}
+                        {% for worker, cg in hub.consumer_groups.items() %}
+                        <div>
+                            <span class="text-muted">{{ worker }}:</span>
+                            <span class="mono">{{ cg }}</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <span class="text-muted">producer only</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="/partitions/{{ hub.eventhub_name }}" class="btn">Partitions</a>
+                    {% for worker, cg in hub.consumer_groups.items() %}
+                    <a href="/lag/{{ hub.eventhub_name }}/{{ cg }}" class="btn">Lag</a>
+                    <a href="/checkpoints/{{ hub.eventhub_name }}/{{ cg }}" class="btn">Checkpoints</a>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endfor %}
+{% endblock %}

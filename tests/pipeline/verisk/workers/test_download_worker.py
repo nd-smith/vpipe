@@ -437,6 +437,8 @@ class TestDownloadWorkerFailureHandling:
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
             worker.producer = AsyncMock()
+            worker.results_producer = AsyncMock()
+            worker.results_producer.send = AsyncMock()
             worker.retry_handler = AsyncMock()
             worker.retry_handler.handle_failure = AsyncMock()
             worker._consumer_group = "verisk-download-worker"
@@ -458,8 +460,8 @@ class TestDownloadWorkerFailureHandling:
                 assert call_args.kwargs["error_category"] == ErrorCategory.TRANSIENT
 
                 # Verify result message was produced
-                assert worker.producer.send.called
-                call_args = worker.producer.send.call_args
+                assert worker.results_producer.send.called
+                call_args = worker.results_producer.send.call_args
                 result_msg = call_args.kwargs["value"]
                 assert isinstance(result_msg, DownloadResultMessage)
                 assert result_msg.status == "failed"

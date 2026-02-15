@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Checkpoints - {{ hub.eventhub_name }} / {{ consumer_group }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Overview</a> / <a href="/partitions/{{ hub.eventhub_name }}">{{ hub.eventhub_name }}</a> / {{ consumer_group }}
+</div>
+
+<h1>Checkpoints</h1>
+<p class="text-muted mb-1">{{ hub.eventhub_name }} / {{ consumer_group }}</p>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Partition</th>
+                <th>Offset</th>
+                <th class="text-right">Sequence Number</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if entries %}
+            {% for e in entries %}
+            <tr>
+                <td class="mono">{{ e.partition_id }}</td>
+                <td class="mono">{{ e.offset or '-' }}</td>
+                <td class="mono text-right">{{ e.sequence_number if e.sequence_number is not none else '-' }}</td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr><td colspan="3" class="text-muted">No checkpoints found</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<h2>Checkpoint Operations</h2>
+<div class="grid-2">
+    <div class="card">
+        <h3 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Advance to Latest</h3>
+        <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.75rem;">
+            Move all checkpoints to the current end of each partition.
+            The consumer will skip all pending messages.
+        </p>
+        <form method="post" action="/checkpoints/{{ hub.eventhub_name }}/{{ consumer_group }}/advance"
+              onsubmit="return confirm('Advance all checkpoints to latest? The consumer will skip pending messages.');">
+            <button type="submit" class="btn btn-danger">Advance to Latest</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Reset to Time</h3>
+        <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.75rem;">
+            Reset checkpoints to a specific UTC datetime. The consumer
+            will reprocess messages from that point forward.
+        </p>
+        <form method="post" action="/checkpoints/{{ hub.eventhub_name }}/{{ consumer_group }}/reset-to-time"
+              onsubmit="return confirm('Reset checkpoints to the specified time? The consumer will reprocess messages.');">
+            <input type="datetime-local" name="target_datetime" required style="margin-right: 0.5rem;">
+            <button type="submit" class="btn btn-danger">Reset to Time</button>
+        </form>
+    </div>
+</div>
+
+<div class="mt-1">
+    <a href="/lag/{{ hub.eventhub_name }}/{{ consumer_group }}" class="btn">View Lag</a>
+</div>
+{% endblock %}

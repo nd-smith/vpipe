@@ -77,13 +77,10 @@ class TestRunClaimxEventIngester:
 
 
 class TestRunClaimxEnrichmentWorker:
-    async def test_creates_worker_with_pipeline_config(self):
+    async def test_creates_worker_with_config(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
-        pipeline_config = Mock()
-        pipeline_config.enable_delta_writes = True
-        pipeline_config.claimx_projects_table_path = "/delta/projects"
 
         with (
             patch("pipeline.claimx.workers.enrichment_worker.ClaimXEnrichmentWorker") as MockWorker,
@@ -93,7 +90,11 @@ class TestRunClaimxEnrichmentWorker:
             ) as mock_exec,
         ):
             await run_claimx_enrichment_worker(
-                kafka_config, pipeline_config, shutdown, instance_id=2
+                kafka_config,
+                shutdown,
+                enable_delta_writes=True,
+                claimx_projects_table_path="/delta/projects",
+                instance_id=2,
             )
 
         MockWorker.assert_called_once_with(
@@ -113,9 +114,6 @@ class TestRunClaimxEnrichmentWorker:
     async def test_passes_delta_disabled(self):
         shutdown = asyncio.Event()
         shutdown.set()
-        pipeline_config = Mock()
-        pipeline_config.enable_delta_writes = False
-        pipeline_config.claimx_projects_table_path = ""
 
         with (
             patch("pipeline.claimx.workers.enrichment_worker.ClaimXEnrichmentWorker") as MockWorker,
@@ -124,7 +122,9 @@ class TestRunClaimxEnrichmentWorker:
                 new_callable=AsyncMock,
             ),
         ):
-            await run_claimx_enrichment_worker(Mock(), pipeline_config, shutdown)
+            await run_claimx_enrichment_worker(
+                Mock(), shutdown, enable_delta_writes=False
+            )
 
         assert MockWorker.call_args[1]["enable_delta_writes"] is False
 
@@ -258,7 +258,7 @@ class TestRunClaimxResultProcessor:
         pipeline_config = Mock()
         pipeline_config.claimx_inventory_table_path = "/delta/inventory"
 
-        mock_processor = AsyncMock()
+        mock_processor = AsyncMock(spec=["start", "stop"])
         mock_processor.start = AsyncMock(side_effect=RuntimeError("start failed"))
         mock_processor.stop = AsyncMock()
 
@@ -268,6 +268,7 @@ class TestRunClaimxResultProcessor:
                 "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
                 return_value=mock_processor,
             ),
+            patch("pipeline.runners.common._start_with_retry", side_effect=RuntimeError("start failed")),
             pytest.raises(RuntimeError, match="start failed"),
         ):
             await run_claimx_result_processor(Mock(), pipeline_config, shutdown)
@@ -315,7 +316,7 @@ class TestRunClaimxResultProcessor:
         mock_processor.stop = AsyncMock()
 
         with (
-            patch("core.logging.context.set_log_context") as mock_ctx,
+            patch("pipeline.runners.common.set_log_context") as mock_ctx,
             patch(
                 "pipeline.claimx.workers.result_processor.ClaimXResultProcessor",
                 return_value=mock_processor,
@@ -386,29 +387,30 @@ class TestRunClaimxDeltaEventsWorker:
 
 
 class TestRunClaimxRetryScheduler:
-    async def test_delegates_to_execute_worker_with_producer(self):
+    async def test_delegates_to_execute_worker_with_shutdown(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
         with (
             patch("pipeline.common.retry.unified_scheduler.UnifiedRetryScheduler") as MockScheduler,
-            patch("pipeline.common.producer.MessageProducer") as MockProducer,
             patch(
-                "pipeline.runners.claimx_runners.execute_worker_with_producer",
+                "pipeline.runners.claimx_runners.execute_worker_with_shutdown",
                 new_callable=AsyncMock,
             ) as mock_exec,
         ):
             await run_claimx_retry_scheduler(kafka_config, shutdown, instance_id=1)
 
-        mock_exec.assert_awaited_once_with(
-            worker_class=MockScheduler,
-            producer_class=MockProducer,
-            kafka_config=kafka_config,
+        MockScheduler.assert_called_once_with(
+            config=kafka_config,
             domain="claimx",
+            target_topic_keys=["downloads_pending", "enrichment_pending", "downloads_results"],
+            persistence_dir=kafka_config.retry_persistence_dir,
+        )
+        mock_exec.assert_awaited_once_with(
+            MockScheduler.return_value,
             stage_name="claimx-retry-scheduler",
             shutdown_event=shutdown,
-            producer_worker_name="unified_retry_scheduler",
             instance_id=1,
         )
 
@@ -486,7 +488,7 @@ class TestRunClaimxEntityDeltaWorker:
 
     async def test_stops_worker_on_start_exception(self):
         shutdown = asyncio.Event()
-        mock_worker = AsyncMock()
+        mock_worker = AsyncMock(spec=["start", "stop"])
         mock_worker.start = AsyncMock(side_effect=RuntimeError("boom"))
         mock_worker.stop = AsyncMock()
 
@@ -496,6 +498,7 @@ class TestRunClaimxEntityDeltaWorker:
                 "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
                 return_value=mock_worker,
             ),
+            patch("pipeline.runners.common._start_with_retry", side_effect=RuntimeError("boom")),
             pytest.raises(RuntimeError, match="boom"),
         ):
             await run_claimx_entity_delta_worker(
@@ -539,7 +542,7 @@ class TestRunClaimxEntityDeltaWorker:
         mock_worker.stop = AsyncMock()
 
         with (
-            patch("core.logging.context.set_log_context") as mock_ctx,
+            patch("pipeline.runners.common.set_log_context") as mock_ctx,
             patch(
                 "pipeline.claimx.workers.entity_delta_worker.ClaimXEntityDeltaWorker",
                 return_value=mock_worker,

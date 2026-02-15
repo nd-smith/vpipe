@@ -493,7 +493,7 @@ class TestReplayMessages:
         mock_producer_cls.return_value = producer
 
         count = await manager.replay_messages(
-            "download", event_ids=["media_match"], replay_all=False
+            "download", trace_ids=["media_match"], replay_all=False
         )
 
         assert count == 1
@@ -826,12 +826,12 @@ class TestCmdReplay:
         mock_manager.replay_messages.return_value = 5
         mock_manager_cls.return_value = mock_manager
 
-        args = argparse.Namespace(dlq_type="enrichment", all=True, event_ids=None)
+        args = argparse.Namespace(dlq_type="enrichment", all=True, trace_ids=None)
         exit_code = await cmd_replay(args)
 
         assert exit_code == 0
         mock_manager.replay_messages.assert_called_once_with(
-            dlq_type="enrichment", event_ids=None, replay_all=True
+            dlq_type="enrichment", trace_ids=None, replay_all=True
         )
         output = capsys.readouterr().out
         assert "5 message(s)" in output
@@ -844,13 +844,13 @@ class TestCmdReplay:
         mock_manager.replay_messages.return_value = 2
         mock_manager_cls.return_value = mock_manager
 
-        args = argparse.Namespace(dlq_type="download", all=False, event_ids="media_1,media_2")
+        args = argparse.Namespace(dlq_type="download", all=False, trace_ids="media_1,media_2")
         exit_code = await cmd_replay(args)
 
         assert exit_code == 0
         mock_manager.replay_messages.assert_called_once_with(
             dlq_type="download",
-            event_ids=["media_1", "media_2"],
+            trace_ids=["media_1", "media_2"],
             replay_all=False,
         )
 
@@ -862,12 +862,12 @@ class TestCmdReplay:
         mock_config_cls.from_env.return_value = Mock()
         mock_manager_cls.return_value = AsyncMock()
 
-        args = argparse.Namespace(dlq_type="enrichment", all=False, event_ids=None)
+        args = argparse.Namespace(dlq_type="enrichment", all=False, trace_ids=None)
         exit_code = await cmd_replay(args)
 
         assert exit_code == 1
         output = capsys.readouterr().out
-        assert "Must specify either --all or --event-ids" in output
+        assert "Must specify either --all or --trace-ids" in output
 
 
 class TestCmdPurge:
@@ -955,7 +955,7 @@ class TestMain:
     def test_main_replay_with_ids_command(self, mock_asyncio_run, mock_dotenv):
         mock_asyncio_run.return_value = 0
 
-        with patch("sys.argv", ["cli.py", "replay", "enrichment", "--event-ids", "a,b,c"]):
+        with patch("sys.argv", ["cli.py", "replay", "enrichment", "--trace-ids", "a,b,c"]):
             exit_code = main()
 
         assert exit_code == 0

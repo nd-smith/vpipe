@@ -533,7 +533,8 @@ class UnifiedRetryScheduler:
     @staticmethod
     def _resolve_send_topic(producer: Any, configured_topic: str) -> str:
         """Resolve topic/entity name to avoid transport-specific mismatch warnings."""
-        return getattr(producer, "eventhub_name", configured_topic)
+        name = getattr(producer, "eventhub_name", None)
+        return name if isinstance(name, str) else configured_topic
 
     async def _send_to_dlq(
         self,

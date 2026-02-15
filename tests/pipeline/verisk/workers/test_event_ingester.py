@@ -174,11 +174,16 @@ class TestEventIngesterWorkerLifecycle:
         """Worker stop cleans up all resources."""
         worker = EventIngesterWorker(config=mock_config)
 
-        # Setup mocked components
-        worker.consumer = AsyncMock()
-        worker.consumer.stop = AsyncMock()
-        worker.producer = AsyncMock()
-        worker.producer.stop = AsyncMock()
+        # Setup mocked components — keep refs to verify .stop() was called,
+        # since the real stop() sets consumer/producer to None in finally blocks.
+        mock_consumer = AsyncMock()
+        mock_consumer.stop = AsyncMock()
+        worker.consumer = mock_consumer
+
+        mock_producer = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        worker.producer = mock_producer
+
         worker._stats_logger = AsyncMock()
         worker._stats_logger.stop = AsyncMock()
         worker.health_server = AsyncMock()
@@ -191,10 +196,13 @@ class TestEventIngesterWorkerLifecycle:
 
         # Verify cleanup
         assert worker._running is False
-        worker.consumer.stop.assert_called_once()
-        worker.producer.stop.assert_called_once()
+        mock_consumer.stop.assert_called_once()
+        mock_producer.stop.assert_called_once()
         worker._stats_logger.stop.assert_called_once()
         worker.health_server.stop.assert_called_once()
+        # stop() sets consumer/producer to None after stopping
+        assert worker.consumer is None
+        assert worker.producer is None
 
     @pytest.mark.asyncio
     async def test_stop_handles_none_components(self, mock_config):
@@ -276,32 +284,31 @@ class TestEventIngesterWorkerDeduplication:
     """Test event deduplication logic."""
 
     @pytest.mark.asyncio
-    async def test_is_duplicate_returns_false_for_new_event(self, mock_config):
-        """First occurrence of trace_id is not a duplicate."""
+    async def test_new_event_not_deduplicated(self, mock_config, sample_message):
+        """First occurrence of trace_id passes through dedup."""
         worker = EventIngesterWorker(config=mock_config)
 
-        is_dup, cached_id = await worker._is_duplicate("trace-123")
+        parsed, dedup_counts = await worker._parse_and_dedup_events([sample_message])
 
-        assert is_dup is False
-        assert cached_id is None
+        assert len(parsed) == 1
+        assert parsed[0][0].trace_id == "trace-123"
 
     @pytest.mark.asyncio
-    async def test_is_duplicate_returns_true_for_cached_event(self, mock_config):
-        """Cached trace_id within TTL is a duplicate."""
+    async def test_cached_event_deduplicated(self, mock_config, sample_message):
+        """Cached trace_id within TTL is filtered as a duplicate."""
         worker = EventIngesterWorker(config=mock_config)
 
-        # Mark as processed
+        # Mark as processed so memory cache has the entry
         worker._mark_processed("trace-123", "evt-456")
 
-        # Check for duplicate
-        is_dup, cached_id = await worker._is_duplicate("trace-123")
+        parsed, dedup_counts = await worker._parse_and_dedup_events([sample_message])
 
-        assert is_dup is True
-        assert cached_id == "evt-456"
+        assert len(parsed) == 0
+        assert dedup_counts["memory"] == ["trace-123"]
 
     @pytest.mark.asyncio
-    async def test_is_duplicate_returns_false_for_expired_entry(self, mock_config):
-        """Expired cache entry is not a duplicate."""
+    async def test_expired_entry_not_deduplicated(self, mock_config, sample_message):
+        """Expired cache entry is not treated as a duplicate."""
         worker = EventIngesterWorker(config=mock_config)
         worker._dedup_cache_ttl_seconds = 1  # 1 second TTL
 
@@ -311,11 +318,9 @@ class TestEventIngesterWorkerDeduplication:
         # Wait for expiry
         time.sleep(1.1)
 
-        # Check for duplicate - should be expired
-        is_dup, cached_id = await worker._is_duplicate("trace-123")
+        parsed, dedup_counts = await worker._parse_and_dedup_events([sample_message])
 
-        assert is_dup is False
-        assert cached_id is None
+        assert len(parsed) == 1
         # Verify expired entry was removed
         assert "trace-123" not in worker._dedup_cache
 
@@ -524,18 +529,18 @@ class TestEventIngesterWorkerDedupSourceTracking:
     """Test dedup source analysis counters."""
 
     @pytest.mark.asyncio
-    async def test_memory_hit_increments_counter(self, mock_config):
+    async def test_memory_hit_increments_counter(self, mock_config, sample_message):
         """Memory cache hit increments _dedup_memory_hits."""
         worker = EventIngesterWorker(config=mock_config)
-        worker._mark_processed("trace-1", "evt-1")
+        worker._mark_processed("trace-123", "evt-1")
 
-        is_dup, _ = await worker._is_duplicate("trace-1")
-        assert is_dup is True
+        parsed, _ = await worker._parse_and_dedup_events([sample_message])
+        assert len(parsed) == 0
         assert worker._dedup_memory_hits == 1
         assert worker._dedup_blob_hits == 0
 
     @pytest.mark.asyncio
-    async def test_blob_hit_increments_counter(self, mock_config):
+    async def test_blob_hit_increments_counter(self, mock_config, sample_message):
         """Blob storage hit increments _dedup_blob_hits."""
         worker = EventIngesterWorker(config=mock_config)
 
@@ -545,18 +550,18 @@ class TestEventIngesterWorkerDedupSourceTracking:
         )
         worker._dedup_store = mock_store
 
-        is_dup, _ = await worker._is_duplicate("trace-1")
-        assert is_dup is True
+        parsed, _ = await worker._parse_and_dedup_events([sample_message])
+        assert len(parsed) == 0
         assert worker._dedup_blob_hits == 1
         assert worker._dedup_memory_hits == 0
 
     @pytest.mark.asyncio
-    async def test_no_hit_increments_nothing(self, mock_config):
+    async def test_no_hit_increments_nothing(self, mock_config, sample_message):
         """Cache miss does not increment either counter."""
         worker = EventIngesterWorker(config=mock_config)
 
-        is_dup, _ = await worker._is_duplicate("trace-new")
-        assert is_dup is False
+        parsed, _ = await worker._parse_and_dedup_events([sample_message])
+        assert len(parsed) == 1
         assert worker._dedup_memory_hits == 0
         assert worker._dedup_blob_hits == 0
 

@@ -15,6 +15,7 @@ No infrastructure required - all dependencies mocked.
 """
 
 import contextlib
+import hashlib
 import json
 import time
 from collections import OrderedDict
@@ -27,6 +28,30 @@ from config.config import MessageConfig
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.claimx.workers.event_ingester import ClaimXEventIngesterWorker
 from pipeline.common.types import PipelineMessage
+
+
+def _compute_trace_id(raw_event: dict) -> str:
+    """Compute the SHA-256 trace_id the same way the source does."""
+    project_id = str(raw_event.get("project_id") or "")
+    event_type = raw_event.get("event_type") or ""
+    ingested_at = raw_event.get("ingested_at") or raw_event.get("event_timestamp") or ""
+
+    composite_parts = [project_id, event_type]
+    if ingested_at:
+        composite_parts.append(str(ingested_at))
+
+    for field, prefix in [
+        ("media_id", "media"),
+        ("task_assignment_id", "task"),
+        ("video_collaboration_id", "video"),
+        ("master_file_name", "file"),
+    ]:
+        val = raw_event.get(field)
+        if val:
+            composite_parts.append(f"{prefix}:{val}")
+
+    composite_key = "|".join(composite_parts)
+    return hashlib.sha256(composite_key.encode()).hexdigest()
 
 
 @pytest.fixture
@@ -54,6 +79,7 @@ def sample_raw_event():
         "video_collaboration_id": None,
         "master_file_name": None,
         "event_timestamp": datetime.now(UTC).isoformat(),
+        "ingested_at": "2026-01-15T12:00:00+00:00",
     }
 
 
@@ -127,7 +153,6 @@ class TestEventIngesterInitialization:
         assert worker._records_processed == 0
         assert worker._records_succeeded == 0
         assert worker._records_deduplicated == 0
-        assert worker._cycle_count == 0
 
 
 class TestEventIngesterLifecycle:
@@ -169,22 +194,25 @@ class TestEventIngesterLifecycle:
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
         # Setup mocked components
-        worker.consumer = AsyncMock()
-        worker.consumer.stop = AsyncMock()
-        worker.producer = AsyncMock()
-        worker.producer.stop = AsyncMock()
-        worker.health_server = AsyncMock()
-        worker.health_server.stop = AsyncMock()
+        mock_consumer = AsyncMock()
+        mock_consumer.stop = AsyncMock()
+        mock_producer = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        mock_health = AsyncMock()
+        mock_health.stop = AsyncMock()
 
+        worker.consumer = mock_consumer
+        worker.producer = mock_producer
+        worker.health_server = mock_health
         worker._running = True
 
         # Stop worker
         await worker.stop()
 
-        # Verify cleanup
-        worker.consumer.stop.assert_called_once()
-        worker.producer.stop.assert_called_once()
-        worker.health_server.stop.assert_called_once()
+        # Verify cleanup (stop() sets consumer/producer to None after stopping)
+        mock_consumer.stop.assert_called_once()
+        mock_producer.stop.assert_called_once()
+        mock_health.stop.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_stop_handles_none_components(self, mock_config):
@@ -200,7 +228,7 @@ class TestEventIngesterLifecycle:
 
     @pytest.mark.asyncio
     async def test_stop_cancels_periodic_cycle_task(self, mock_config):
-        """Worker stop cancels periodic cycle output task."""
+        """Worker stop cancels dedup cleanup task."""
         import asyncio
 
         worker = ClaimXEventIngesterWorker(config=mock_config)
@@ -210,15 +238,15 @@ class TestEventIngesterLifecycle:
         async def dummy_task():
             await asyncio.sleep(100)  # Long sleep
 
-        worker._cycle_task = asyncio.create_task(dummy_task())
+        worker._dedup_cleanup_task = asyncio.create_task(dummy_task())
 
         # Ensure task is running
-        assert not worker._cycle_task.done()
+        assert not worker._dedup_cleanup_task.done()
 
         await worker.stop()
 
-        # Verify cycle task was cancelled
-        assert worker._cycle_task.cancelled()
+        # Verify dedup cleanup task was cancelled
+        assert worker._dedup_cleanup_task.cancelled()
 
 
 class TestEventIngesterBatchProcessing:
@@ -321,7 +349,7 @@ class TestEventIngesterDeduplication:
         assert worker._records_deduplicated == 0
 
     @pytest.mark.asyncio
-    async def test_processed_event_marked_in_dedup_cache(self, mock_config, sample_message):
+    async def test_processed_event_marked_in_dedup_cache(self, mock_config, sample_raw_event, sample_message):
         """Worker marks processed events in deduplication cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
@@ -329,24 +357,29 @@ class TestEventIngesterDeduplication:
 
         await worker._handle_event_batch([sample_message])
 
-        assert "evt-123" in worker._dedup_cache
+        trace_id = _compute_trace_id(sample_raw_event)
+        assert trace_id in worker._dedup_cache
 
     @pytest.mark.asyncio
-    async def test_is_duplicate_returns_true_for_seen_event(self, mock_config):
-        """_is_duplicate returns True for seen events."""
+    async def test_seen_trace_id_detected_as_duplicate(self, mock_config, sample_message):
+        """Memory cache hit causes event to be deduplicated."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        import time
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        worker._dedup_cache["evt-123"] = time.time()
+        # Process once to populate dedup cache
+        await worker._handle_event_batch([sample_message])
+        assert worker._records_deduplicated == 0
 
-        assert await worker._is_duplicate("evt-123") is True
+        # Process again — should be deduplicated via memory cache
+        await worker._handle_event_batch([sample_message])
+        assert worker._records_deduplicated == 1
 
-    @pytest.mark.asyncio
-    async def test_is_duplicate_returns_false_for_new_event(self, mock_config):
-        """_is_duplicate returns False for new events."""
+    def test_unseen_trace_id_not_in_dedup_cache(self, mock_config):
+        """New trace_id is not in dedup cache."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
 
-        assert await worker._is_duplicate("evt-456") is False
+        assert "evt-456" not in worker._dedup_cache
 
     @pytest.mark.asyncio
     async def test_mark_processed_adds_to_dedup_set(self, mock_config):
@@ -362,7 +395,7 @@ class TestEventIngesterEnrichmentTaskCreation:
     """Test enrichment task creation via batch handler."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_task_created_from_event(self, mock_config, sample_message):
+    async def test_enrichment_task_created_from_event(self, mock_config, sample_raw_event, sample_message):
         """Worker creates enrichment task from event in batch."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
         worker.producer = AsyncMock()
@@ -377,7 +410,8 @@ class TestEventIngesterEnrichmentTaskCreation:
         assert len(messages) == 1
         key, task = messages[0]
         assert isinstance(task, ClaimXEnrichmentTask)
-        assert task.trace_id == "evt-123"
+        expected_trace_id = _compute_trace_id(sample_raw_event)
+        assert task.trace_id == expected_trace_id
         assert task.event_type == "PROJECT_CREATED"
         assert task.project_id == "proj-456"
         assert task.retry_count == 0
@@ -474,20 +508,27 @@ class TestEventIngesterDedupSourceTracking:
     """Test dedup source analysis counters."""
 
     @pytest.mark.asyncio
-    async def test_memory_hit_increments_counter(self, mock_config):
+    async def test_memory_hit_increments_counter(self, mock_config, sample_message):
         """Memory cache hit increments _dedup_memory_hits."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
-        worker._mark_processed("evt-1")
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        is_dup = await worker._is_duplicate("evt-1")
-        assert is_dup is True
+        # First pass populates memory cache
+        await worker._handle_event_batch([sample_message])
+        assert worker._dedup_memory_hits == 0
+
+        # Second pass hits memory cache
+        await worker._handle_event_batch([sample_message])
         assert worker._dedup_memory_hits == 1
         assert worker._dedup_blob_hits == 0
 
     @pytest.mark.asyncio
-    async def test_blob_hit_increments_counter(self, mock_config):
+    async def test_blob_hit_increments_counter(self, mock_config, sample_raw_event, sample_message):
         """Blob storage hit increments _dedup_blob_hits."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
         mock_store = AsyncMock()
         mock_store.check_duplicate = AsyncMock(
@@ -495,18 +536,21 @@ class TestEventIngesterDedupSourceTracking:
         )
         worker._dedup_store = mock_store
 
-        is_dup = await worker._is_duplicate("evt-1")
-        assert is_dup is True
+        # Event not in memory cache, but blob store returns duplicate
+        await worker._handle_event_batch([sample_message])
+
         assert worker._dedup_blob_hits == 1
         assert worker._dedup_memory_hits == 0
 
     @pytest.mark.asyncio
-    async def test_no_hit_increments_nothing(self, mock_config):
+    async def test_no_hit_increments_nothing(self, mock_config, sample_message):
         """Cache miss does not increment either counter."""
         worker = ClaimXEventIngesterWorker(config=mock_config)
+        worker.producer = AsyncMock()
+        worker.producer.send_batch = AsyncMock(return_value=[Mock()])
 
-        is_dup = await worker._is_duplicate("evt-new")
-        assert is_dup is False
+        await worker._handle_event_batch([sample_message])
+
         assert worker._dedup_memory_hits == 0
         assert worker._dedup_blob_hits == 0
 

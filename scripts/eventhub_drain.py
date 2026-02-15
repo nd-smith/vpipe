@@ -25,7 +25,7 @@ from azure.eventhub.aio import EventHubConsumerClient
 # ---------------------------------------------------------------------------
 
 DRY_RUN = True                  # True = report only, don't modify anything
-MODE = "drain"                  # "drain" to consume/count, "advance" to move checkpoints
+MODE = "advance"                  # "drain" to consume/count, "advance" to move checkpoints
 
 NAMESPACE_CONNECTION_STRING = ""    # Event Hub namespace connection string
 BLOB_CONNECTION_STRING = ""         # Blob storage connection string (advance mode only)

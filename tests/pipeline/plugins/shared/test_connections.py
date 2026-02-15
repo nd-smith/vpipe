@@ -266,7 +266,7 @@ class TestConnectionManager:
                 # Verify the session was called with correct URL
                 call_kwargs = mock_session.request.call_args.kwargs
                 assert call_kwargs["url"] == "https://api.example.com/v1/items"
-                assert "Bearer secret-token" in call_kwargs["headers"]["Authorization"]
+                assert "Bearer test-tok" in call_kwargs["headers"]["Authorization"]
 
             mock_session.close = AsyncMock()
             await mgr.close()

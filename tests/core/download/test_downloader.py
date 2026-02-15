@@ -225,7 +225,7 @@ class TestAttachmentDownloaderValidation:
 
             assert outcome.success is False
             assert "Content-Type validation failed" in outcome.error_message
-            assert outcome.error_category == ErrorCategory.PERMANENT
+            assert outcome.error_category == ErrorCategory.TRANSIENT
 
             # File should be deleted after validation failure
             assert not sample_task.destination.exists()
@@ -729,9 +729,13 @@ class TestAttachmentDownloaderSessionManagement:
         with (
             patch("core.download.downloader.download_url") as mock_download,
             patch("core.download.downloader.create_session") as mock_create,
+            patch.object(
+                AttachmentDownloader, "_get_content_length", return_value=1000
+            ),
         ):
             mock_download.side_effect = Exception("Unexpected error")
             mock_session = AsyncMock(spec=aiohttp.ClientSession)
+            mock_session.close = AsyncMock()
             mock_create.return_value = mock_session
 
             downloader = AttachmentDownloader()

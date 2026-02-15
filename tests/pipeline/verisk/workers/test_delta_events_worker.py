@@ -185,6 +185,7 @@ class TestDeltaEventsWorkerLifecycle:
                 patch.object(worker.health_server, "start", new_callable=AsyncMock),
                 patch.object(worker.retry_handler, "start", new_callable=AsyncMock),
                 patch("pipeline.verisk.workers.delta_events_worker.PeriodicStatsLogger"),
+                patch("pipeline.verisk.workers.delta_events_worker.get_source_connection_string", return_value="fake-conn"),
             ):
                 # Setup mock consumer
                 mock_consumer = AsyncMock()

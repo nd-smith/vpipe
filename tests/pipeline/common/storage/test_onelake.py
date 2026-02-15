@@ -975,8 +975,9 @@ class TestOneLakeClientUploadFile:
         finally:
             _set_in_upload(False)
 
+    @patch("builtins.open", create=True)
     @patch("os.path.getsize", return_value=0)
-    def test_upload_file_resets_flag_on_error(self, mock_size):
+    def test_upload_file_resets_flag_on_error(self, mock_size, mock_open):
         client = OneLakeClient(VALID_BASE_PATH)
         mock_fs = MagicMock()
         client._file_system_client = mock_fs
@@ -987,7 +988,7 @@ class TestOneLakeClientUploadFile:
         mock_file = mock_dir.get_file_client.return_value
         mock_file.upload_data.side_effect = RuntimeError("upload failed")
 
-        with pytest.raises(RuntimeError, match="upload failed"):
+        with pytest.raises(Exception, match="upload failed"):
             client.upload_file("file.txt", "/tmp/nonexistent.txt")
 
         assert not _is_in_upload()

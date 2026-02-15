@@ -15,7 +15,7 @@ from pipeline.common.eventhub.diagnostics import (
     log_connection_diagnostics,
     mask_connection_string,
     parse_connection_string,
-    test_dns_resolution,
+    test_dns_resolution as dns_resolution_check,
 )
 
 # =============================================================================
@@ -133,7 +133,7 @@ class TestDnsResolution:
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.2", 443)),
         ]
 
-        result = test_dns_resolution("myhub.servicebus.windows.net")
+        result = dns_resolution_check("myhub.servicebus.windows.net")
 
         assert result["resolved"] is True
         assert "10.0.0.1" in result["ip_addresses"]
@@ -143,7 +143,7 @@ class TestDnsResolution:
     def test_dns_resolution_failure(self, mock_getaddrinfo):
         mock_getaddrinfo.side_effect = socket.gaierror("Name or service not known")
 
-        result = test_dns_resolution("nonexistent.host.example.com")
+        result = dns_resolution_check("nonexistent.host.example.com")
 
         assert result["resolved"] is False
         assert result["ip_addresses"] == []
@@ -153,7 +153,7 @@ class TestDnsResolution:
     def test_dns_resolution_generic_exception(self, mock_getaddrinfo):
         mock_getaddrinfo.side_effect = RuntimeError("unexpected")
 
-        result = test_dns_resolution("host.example.com")
+        result = dns_resolution_check("host.example.com")
 
         assert result["resolved"] is False
         assert "DNS resolution error" in result["error"]
@@ -166,7 +166,7 @@ class TestDnsResolution:
             (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 443, 0, 0)),
         ]
 
-        result = test_dns_resolution("myhub.servicebus.windows.net")
+        result = dns_resolution_check("myhub.servicebus.windows.net")
 
         assert result["resolved"] is True
         assert len(result["ip_addresses"]) == 1

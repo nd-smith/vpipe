@@ -168,13 +168,16 @@ class TestXACTEnrichmentWorkerLifecycle:
         """Worker stop cleans up all resources."""
         worker = XACTEnrichmentWorker(config=mock_config)
 
-        # Setup mocked components
-        worker.consumer = AsyncMock()
-        worker.consumer.stop = AsyncMock()
-        worker.producer = AsyncMock()
-        worker.producer.stop = AsyncMock()
-        worker.retry_handler = AsyncMock()
-        worker.retry_handler.stop = AsyncMock()
+        # Setup mocked components (save refs since stop() sets them to None)
+        mock_consumer = AsyncMock()
+        mock_consumer.stop = AsyncMock()
+        worker.consumer = mock_consumer
+        mock_producer = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        worker.producer = mock_producer
+        mock_retry_handler = AsyncMock()
+        mock_retry_handler.stop = AsyncMock()
+        worker.retry_handler = mock_retry_handler
         worker._stats_logger = AsyncMock()
         worker._stats_logger.stop = AsyncMock()
         worker.health_server = AsyncMock()
@@ -187,9 +190,9 @@ class TestXACTEnrichmentWorkerLifecycle:
 
         # Verify cleanup
         assert worker._running is False
-        worker.consumer.stop.assert_called_once()
-        worker.producer.stop.assert_called_once()
-        worker.retry_handler.stop.assert_called_once()
+        mock_consumer.stop.assert_called_once()
+        mock_producer.stop.assert_called_once()
+        mock_retry_handler.stop.assert_called_once()
         worker._stats_logger.stop.assert_called_once()
         worker.health_server.stop.assert_called_once()
 

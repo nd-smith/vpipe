@@ -185,24 +185,13 @@ class TestEntityDeltaWorkerLifecycle:
             patch(
                 "pipeline.claimx.workers.entity_delta_worker.create_consumer"
             ) as mock_create_consumer,
-            patch(
-                "pipeline.claimx.workers.entity_delta_worker.create_producer"
-            ) as mock_create_producer,
             patch("pipeline.common.telemetry.initialize_worker_telemetry"),
             patch.object(worker.health_server, "start", new_callable=AsyncMock),
+            patch("pipeline.claimx.workers.entity_delta_worker.DeltaRetryHandler"),
         ):
-            # Setup mocks
-            mock_producer = AsyncMock()
-            mock_producer.start = AsyncMock()
-            mock_create_producer.return_value = mock_producer
-
             mock_consumer = AsyncMock()
             mock_consumer.start = AsyncMock(side_effect=Exception("Stop"))
             mock_create_consumer.return_value = mock_consumer
-
-            # Mock retry handler start (created in start())
-            worker.retry_handler = AsyncMock()
-            worker.retry_handler.start = AsyncMock()
 
             with contextlib.suppress(Exception):
                 await worker.start()
@@ -382,15 +371,15 @@ class TestEntityDeltaWorkerBatching:
             video_collab_table_path="abfss://test/video_collab",
         )
 
-        # Mock flush method
-        worker._flush_batch = AsyncMock()
+        # Mock _trigger_flush (called when batch reaches threshold)
+        worker._trigger_flush = Mock()
 
         # Process messages up to threshold
         await worker._handle_message(sample_message)
         await worker._handle_message(sample_message)
 
         # Verify flush was triggered
-        worker._flush_batch.assert_called()
+        worker._trigger_flush.assert_called()
 
 
 class TestEntityDeltaWorkerDeltaWrites:

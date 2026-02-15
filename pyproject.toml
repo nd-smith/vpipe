@@ -69,8 +69,10 @@ module = [
     "aiokafka.*",
     "azure.*",
     "deltalake.*",
+    "fastapi.*",
     "polars.*",
     "prometheus_client.*",
+    "uvicorn.*",
 ]
 ignore_missing_imports = true
 

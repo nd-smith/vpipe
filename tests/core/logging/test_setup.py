@@ -25,7 +25,7 @@ from core.logging.setup import (
 
 
 class TestGetLogFilePath:
-    @patch("core.logging.setup._get_next_instance_id", return_value="happy-tiger")
+    @patch("core.logging.setup._generate_instance_id", return_value="happy-tiger")
     def test_builds_path_with_domain_and_stage(self, _):
         path = get_log_file_path(Path("logs"), domain="claimx", stage="download")
 
@@ -33,20 +33,20 @@ class TestGetLogFilePath:
         assert "claimx_download_" in path.name
         assert path.suffix == ".log"
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="calm-ocean")
+    @patch("core.logging.setup._generate_instance_id", return_value="calm-ocean")
     def test_builds_path_with_domain_only(self, _):
         path = get_log_file_path(Path("logs"), domain="xact")
 
         assert "xact" in str(path)
         assert path.name.startswith("xact_")
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="big-fish")
+    @patch("core.logging.setup._generate_instance_id", return_value="big-fish")
     def test_builds_path_with_stage_only(self, _):
         path = get_log_file_path(Path("logs"), stage="ingest")
 
         assert path.name.startswith("ingest_")
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="red-fox")
+    @patch("core.logging.setup._generate_instance_id", return_value="red-fox")
     def test_builds_path_without_domain_or_stage(self, _):
         path = get_log_file_path(Path("logs"))
 
@@ -62,13 +62,13 @@ class TestGetLogFilePath:
 
         assert "worker-0" in path.name
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="blue-bird")
+    @patch("core.logging.setup._generate_instance_id", return_value="blue-bird")
     def test_generates_instance_id_when_not_provided(self, _):
         path = get_log_file_path(Path("logs"), domain="claimx", stage="download")
 
         assert "blue-bird" in path.name
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_includes_date_subfolder(self, _):
         path = get_log_file_path(Path("logs"), domain="claimx")
 
@@ -77,13 +77,13 @@ class TestGetLogFilePath:
         date_part = [p for p in parts if len(p) == 10 and p[4] == "-"]
         assert len(date_part) == 1
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_domain_in_subfolder(self, _):
         path = get_log_file_path(Path("logs"), domain="claimx")
 
         assert "claimx" in path.parts
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_no_domain_subfolder_without_domain(self, _):
         path = get_log_file_path(Path("logs"))
 
@@ -135,7 +135,7 @@ class TestLogArchiver:
 
 
 class TestOneLakeLogUploader:
-    def test_uploads_and_deletes_rotated_files(self, tmp_path):
+    def test_uploads_rotated_files(self, tmp_path):
         archive_dir = tmp_path / "archive"
         archive_dir.mkdir()
         log_dir = tmp_path / "logs"
@@ -145,10 +145,9 @@ class TestOneLakeLogUploader:
 
         mock_client = MagicMock()
         uploader = OneLakeLogUploader(mock_client, log_retention_hours=24)
-        uploader.upload_and_cleanup(archive_dir, "app.log", log_dir)
+        uploader.upload_archived(archive_dir, "app.log", log_dir)
 
         mock_client.upload_file.assert_called_once()
-        assert not (archive_dir / "app.log.2026-01-01").exists()
 
     def test_handles_upload_failure(self, tmp_path, capsys):
         archive_dir = tmp_path / "archive"
@@ -161,7 +160,7 @@ class TestOneLakeLogUploader:
         mock_client = MagicMock()
         mock_client.upload_file.side_effect = Exception("network error")
         uploader = OneLakeLogUploader(mock_client, log_retention_hours=24)
-        uploader.upload_and_cleanup(archive_dir, "app.log", log_dir)
+        uploader.upload_archived(archive_dir, "app.log", log_dir)
 
         captured = capsys.readouterr()
         assert "Warning" in captured.err
@@ -362,7 +361,7 @@ class TestSetupLogging:
         # Clean up root logger handlers
         logging.getLogger().handlers.clear()
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_stdout_mode_returns_logger(self, _, tmp_path):
         logger = setup_logging(
             name="test",
@@ -373,7 +372,7 @@ class TestSetupLogging:
         assert isinstance(logger, logging.Logger)
         assert logger.name == "test"
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_stdout_mode_has_single_stream_handler(self, _, tmp_path):
         setup_logging(
             name="test",
@@ -389,7 +388,7 @@ class TestSetupLogging:
         ]
         assert len(stream_handlers) == 1
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_sets_log_context_from_params(self, _, tmp_path):
         setup_logging(
             name="test",
@@ -405,7 +404,7 @@ class TestSetupLogging:
         assert ctx["domain"] == "claimx"
         assert ctx["worker_id"] == "w-0"
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_suppresses_noisy_loggers(self, _, tmp_path):
         setup_logging(
             name="test",
@@ -417,7 +416,7 @@ class TestSetupLogging:
         for logger_name in NOISY_LOGGERS:
             assert logging.getLogger(logger_name).level == logging.ERROR
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_does_not_suppress_noisy_loggers_when_disabled(self, _, tmp_path):
         # Reset noisy loggers first
         for logger_name in NOISY_LOGGERS:
@@ -433,7 +432,7 @@ class TestSetupLogging:
         for logger_name in NOISY_LOGGERS:
             assert logging.getLogger(logger_name).level != logging.ERROR
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     @patch.dict(os.environ, {"LOG_UPLOAD_ENABLED": "false"}, clear=False)
     def test_file_mode_creates_file_handler(self, _, tmp_path):
         setup_logging(
@@ -448,7 +447,7 @@ class TestSetupLogging:
         file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) >= 1
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_root_logger_level_set_to_debug(self, _, tmp_path):
         setup_logging(
             name="test",
@@ -458,7 +457,7 @@ class TestSetupLogging:
 
         assert logging.getLogger().level == logging.DEBUG
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_clears_existing_handlers(self, _, tmp_path):
         root = logging.getLogger()
         root.addHandler(logging.StreamHandler())
@@ -475,7 +474,7 @@ class TestSetupLogging:
         assert len(root.handlers) < existing_count + 2
 
     @patch("core.logging.setup._create_eventhub_handler")
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_adds_eventhub_handler_when_configured(self, _, mock_create_eh, tmp_path):
         mock_eh_handler = MagicMock(spec=logging.Handler)
         mock_eh_handler.level = logging.WARNING
@@ -504,7 +503,7 @@ class TestSetupLogging:
         assert mock_eh_handler in root.handlers
 
     @patch("core.logging.setup._create_eventhub_handler")
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_skips_eventhub_when_disabled(self, _, mock_create_eh, tmp_path):
         eh_config = {
             "connection_string": "Endpoint=sb://test",
@@ -535,7 +534,7 @@ class TestSetupMultiWorkerLogging:
         clear_log_context()
         logging.getLogger().handlers.clear()
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     @patch.dict(os.environ, {"LOG_UPLOAD_ENABLED": "false"}, clear=False)
     def test_creates_per_worker_file_handlers(self, _, tmp_path):
         setup_multi_worker_logging(
@@ -549,8 +548,8 @@ class TestSetupMultiWorkerLogging:
         # 2 worker handlers + 1 combined handler
         assert len(file_handlers) == 3
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
-    def test_stdout_mode_skips_file_handlers(self, _, tmp_path):
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
+    def test_stdout_mode_sets_console_to_verbose(self, _, tmp_path):
         setup_multi_worker_logging(
             workers=["download", "upload"],
             domain="kafka",
@@ -559,10 +558,16 @@ class TestSetupMultiWorkerLogging:
         )
 
         root = logging.getLogger()
-        file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
-        assert len(file_handlers) == 0
+        stream_handlers = [
+            h
+            for h in root.handlers
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+        ]
+        assert len(stream_handlers) == 1
+        # log_to_stdout makes console handler use file_level (DEBUG)
+        assert stream_handlers[0].level == logging.DEBUG
 
-    @patch("core.logging.setup._get_next_instance_id", return_value="test-id")
+    @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_returns_pipeline_logger(self, _, tmp_path):
         logger = setup_multi_worker_logging(
             workers=["download"],

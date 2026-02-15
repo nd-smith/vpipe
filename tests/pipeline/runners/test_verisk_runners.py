@@ -151,29 +151,30 @@ class TestRunDeltaEventsWorker:
 
 
 class TestRunXactRetryScheduler:
-    async def test_delegates_to_execute_worker_with_producer(self):
+    async def test_delegates_to_execute_worker_with_shutdown(self):
         shutdown = asyncio.Event()
         shutdown.set()
         kafka_config = Mock()
 
         with (
             patch("pipeline.common.retry.unified_scheduler.UnifiedRetryScheduler") as MockScheduler,
-            patch("pipeline.common.producer.MessageProducer") as MockProducer,
             patch(
-                "pipeline.runners.verisk_runners.execute_worker_with_producer",
+                "pipeline.runners.verisk_runners.execute_worker_with_shutdown",
                 new_callable=AsyncMock,
             ) as mock_exec,
         ):
             await run_xact_retry_scheduler(kafka_config, shutdown, instance_id=1)
 
-        mock_exec.assert_awaited_once_with(
-            worker_class=MockScheduler,
-            producer_class=MockProducer,
-            kafka_config=kafka_config,
+        MockScheduler.assert_called_once_with(
+            config=kafka_config,
             domain="verisk",
+            target_topic_keys=["downloads_pending", "enrichment_pending", "downloads_results"],
+            persistence_dir=kafka_config.retry_persistence_dir,
+        )
+        mock_exec.assert_awaited_once_with(
+            MockScheduler.return_value,
             stage_name="xact-retry-scheduler",
             shutdown_event=shutdown,
-            producer_worker_name="unified_retry_scheduler",
             instance_id=1,
         )
 

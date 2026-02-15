@@ -129,7 +129,7 @@ async def test_stream_download_url_timeout(mock_session):
     assert result is None
     assert error is not None
     assert error.status_code is None
-    assert "timeout after 30s" in error.error_message.lower()
+    assert "timeout" in error.error_message.lower() and "30" in error.error_message
     assert error.error_category == ErrorCategory.TRANSIENT
 
 

@@ -112,7 +112,7 @@ class TestDeltaEventsWriter:
 
     @pytest.mark.asyncio
     async def test_write_raw_events_failure(self, delta_writer, sample_raw_event):
-        """Test write failure handling."""
+        """Test write failure raises the underlying error."""
         mock_df = pl.DataFrame(
             {
                 "trace_id": ["test-trace-123"],
@@ -127,9 +127,8 @@ class TestDeltaEventsWriter:
                 side_effect=Exception("Delta write failed")
             )
 
-            result = await delta_writer.write_raw_events([sample_raw_event])
-
-        assert result is False
+            with pytest.raises(Exception, match="Delta write failed"):
+                await delta_writer.write_raw_events([sample_raw_event])
 
     @pytest.mark.asyncio
     async def test_write_raw_events_async_execution(self, delta_writer, sample_raw_event):

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Lag - {{ hub.eventhub_name }} / {{ consumer_group }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Overview</a> / <a href="/partitions/{{ hub.eventhub_name }}">{{ hub.eventhub_name }}</a> / {{ consumer_group }}
+</div>
+
+<h1>Consumer Lag</h1>
+<p class="text-muted mb-1">{{ hub.eventhub_name }} / {{ consumer_group }}</p>
+
+{% if lag.total_lag is not none %}
+<p style="font-size: 1.5rem; margin-bottom: 1rem;">
+    Total lag:
+    <strong>
+        {% if lag.total_lag == 0 %}
+        <span style="color: var(--green);">0</span>
+        {% elif lag.total_lag < 100 %}
+        <span style="color: var(--yellow);">{{ lag.total_lag }}</span>
+        {% else %}
+        <span style="color: var(--red);">{{ "{:,}".format(lag.total_lag) }}</span>
+        {% endif %}
+    </strong>
+</p>
+{% else %}
+<p class="text-muted mb-1">Total lag: unknown (some partitions have no checkpoint)</p>
+{% endif %}
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Partition</th>
+                <th class="text-right">Latest Seq</th>
+                <th class="text-right">Checkpointed Seq</th>
+                <th>Checkpointed Offset</th>
+                <th class="text-right">Lag</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in lag.partitions %}
+            <tr>
+                <td class="mono">{{ p.partition_id }}</td>
+                <td class="mono text-right">{{ p.last_enqueued_sequence }}</td>
+                <td class="mono text-right">{{ p.checkpointed_sequence if p.checkpointed_sequence is not none else '-' }}</td>
+                <td class="mono">{{ p.checkpointed_offset or '-' }}</td>
+                <td class="text-right">
+                    {% if p.lag is none %}
+                    <span class="badge badge-muted">no checkpoint</span>
+                    {% elif p.lag == 0 %}
+                    <span class="badge badge-green">0</span>
+                    {% elif p.lag < 100 %}
+                    <span class="badge badge-yellow">{{ p.lag }}</span>
+                    {% else %}
+                    <span class="badge badge-red">{{ "{:,}".format(p.lag) }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<a href="/checkpoints/{{ hub.eventhub_name }}/{{ consumer_group }}" class="btn">View Checkpoints</a>
+{% endblock %}

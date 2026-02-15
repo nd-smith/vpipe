@@ -22,7 +22,6 @@ class TestBlobDedupStoreInitialize:
 
         mock_client = MagicMock()
         mock_container = MagicMock()
-        mock_container.create_container = AsyncMock()
         MockBlobService.from_connection_string.return_value = mock_client
         mock_client.get_container_client.return_value = mock_container
 
@@ -31,7 +30,7 @@ class TestBlobDedupStoreInitialize:
 
         assert store._client is mock_client
         assert store._container is mock_container
-        mock_container.create_container.assert_awaited_once()
+        mock_client.get_container_client.assert_called_once_with("dedup-cache")
 
     @patch("pipeline.common.eventhub.blob_dedup_store.BlobServiceClient")
     async def test_initialize_handles_container_already_exists(self, MockBlobService):
@@ -53,10 +52,8 @@ class TestBlobDedupStoreInitialize:
         from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore
 
         mock_client = MagicMock()
-        mock_container = MagicMock()
-        mock_container.create_container = AsyncMock(side_effect=Exception("PermissionDenied"))
         MockBlobService.from_connection_string.return_value = mock_client
-        mock_client.get_container_client.return_value = mock_container
+        mock_client.get_container_client.side_effect = Exception("PermissionDenied")
 
         store = BlobDedupStore(connection_string="conn", container_name="dedup-cache")
 

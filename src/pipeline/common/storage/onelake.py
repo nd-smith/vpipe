@@ -841,6 +841,49 @@ class OneLakeClient:
                 return None
             raise
 
+    @with_retry(config=ONELAKE_RETRY_CONFIG, on_auth_error=_refresh_all_credentials)
+    def list_directory(self, relative_path: str, recursive: bool = False) -> list[dict]:
+        """List files and subdirectories under a path.
+
+        Returns a list of dicts with keys: name, is_directory, size, last_modified.
+        Paths are relative to base_path.
+        """
+        self._ensure_client()
+
+        full_path = self._full_path(relative_path)
+
+        entries = []
+        try:
+            for path_item in self._file_system_client.get_paths(  # type: ignore
+                path=full_path, recursive=recursive,
+            ):
+                # Strip base_directory prefix to get relative path
+                item_name = path_item.name
+                if self.base_directory and item_name.startswith(self.base_directory + "/"):
+                    item_name = item_name[len(self.base_directory) + 1:]
+
+                entries.append({
+                    "name": item_name,
+                    "is_directory": path_item.is_directory,
+                    "size": path_item.content_length or 0,
+                    "last_modified": path_item.last_modified,
+                })
+        except Exception as e:
+            error_str = str(e).lower()
+            if "404" in error_str or "not found" in error_str or "pathnotfound" in error_str:
+                return []
+            raise
+
+        return entries
+
+    async def async_list_directory(
+        self, relative_path: str, recursive: bool = False,
+    ) -> list[dict]:
+        """List directory contents (async, non-blocking)."""
+        import asyncio
+
+        return await asyncio.to_thread(self.list_directory, relative_path, recursive)
+
     def track_request(self, success: bool = True) -> None:
         with self._pool_stats_lock:
             self._pool_stats["requests_processed"] += 1

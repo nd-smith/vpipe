@@ -159,6 +159,7 @@ class TestDeltaEventsWorkerLifecycle:
                 patch("pipeline.common.telemetry.initialize_worker_telemetry"),
                 patch.object(worker.health_server, "start", new_callable=AsyncMock),
                 patch.object(worker.retry_handler, "start", new_callable=AsyncMock),
+                patch("pipeline.claimx.workers.delta_events_worker.get_source_connection_string", return_value="fake-conn"),
             ):
                 # Setup mock consumer
                 mock_consumer = AsyncMock()
@@ -245,7 +246,8 @@ class TestDeltaEventsWorkerMessageProcessing:
 
             # Verify batch contains normalized snake_case fields
             batch_event = worker._batch[0]
-            assert batch_event["trace_id"] == "evt-123"
+            # trace_id is a deterministic SHA-256 hash generated from composite key
+            assert len(batch_event["trace_id"]) == 64  # SHA-256 hex digest
             assert batch_event["event_type"] == "PROJECT_CREATED"
             assert batch_event["project_id"] == "proj-456"
             assert "raw_data" not in batch_event

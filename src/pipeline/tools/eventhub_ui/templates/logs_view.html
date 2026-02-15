@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Log Viewer - {{ filename }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/logs">Logs</a> / {{ filename }}
+</div>
+
+<h1>Log Viewer</h1>
+<p class="mono text-muted mb-1" style="font-size: 0.8rem;">{{ path }}</p>
+
+<div class="card" style="margin-bottom: 1rem;">
+    <form method="get" action="/logs/view" style="display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap;">
+        <input type="hidden" name="path" value="{{ path }}">
+        <div>
+            <label style="font-size: 0.75rem; color: var(--text-muted); display: block;">Level</label>
+            <select name="level" style="background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; color: var(--text); font-size: 0.85rem;">
+                <option value="">All</option>
+                <option value="DEBUG" {% if level == "DEBUG" %}selected{% endif %}>DEBUG</option>
+                <option value="INFO" {% if level == "INFO" %}selected{% endif %}>INFO</option>
+                <option value="WARNING" {% if level == "WARNING" %}selected{% endif %}>WARNING</option>
+                <option value="ERROR" {% if level == "ERROR" %}selected{% endif %}>ERROR</option>
+                <option value="CRITICAL" {% if level == "CRITICAL" %}selected{% endif %}>CRITICAL</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size: 0.75rem; color: var(--text-muted); display: block;">Search message</label>
+            <input type="text" name="search" value="{{ search }}" placeholder="free text..." style="width: 200px;">
+        </div>
+        <div>
+            <label style="font-size: 0.75rem; color: var(--text-muted); display: block;">Trace ID</label>
+            <input type="text" name="trace_id" value="{{ trace_id }}" placeholder="trace_id..." style="width: 180px;">
+        </div>
+        <div>
+            <label style="font-size: 0.75rem; color: var(--text-muted); display: block;">Tail (lines)</label>
+            <input type="number" name="tail" value="{{ tail }}" min="1" max="5000" style="width: 80px;">
+        </div>
+        <button type="submit" class="btn">Filter</button>
+    </form>
+</div>
+
+<p class="text-muted mb-1" style="font-size: 0.8rem;">{{ entries | length }} entries</p>
+
+{% if entries %}
+<div class="card" style="padding: 0; overflow-x: auto;">
+    <table style="font-size: 0.8rem;">
+        <thead>
+            <tr>
+                <th style="white-space: nowrap;">Timestamp</th>
+                <th>Level</th>
+                <th>Stage</th>
+                <th>Message</th>
+                <th>Trace ID</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr>
+                <td class="mono" style="white-space: nowrap;">{{ e.ts[:19] if e.ts else '-' }}</td>
+                <td>
+                    {% if e.level == "ERROR" or e.level == "CRITICAL" %}
+                    <span class="badge badge-red">{{ e.level }}</span>
+                    {% elif e.level == "WARNING" %}
+                    <span class="badge badge-yellow">{{ e.level }}</span>
+                    {% elif e.level == "DEBUG" %}
+                    <span class="badge badge-muted">{{ e.level }}</span>
+                    {% else %}
+                    <span class="badge badge-green">{{ e.level }}</span>
+                    {% endif %}
+                </td>
+                <td class="text-muted">{{ e.stage }}</td>
+                <td style="max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ e.message }}</td>
+                <td class="mono text-muted" style="font-size: 0.75rem;">{{ e.trace_id[:12] if e.trace_id else '' }}</td>
+                <td>
+                    <details>
+                        <summary class="btn" style="font-size: 0.7rem;">JSON</summary>
+                        <div style="position: absolute; z-index: 10; right: 1rem; max-width: 600px; max-height: 400px; overflow: auto; margin-top: 0.25rem;">
+                            <pre style="margin: 0;">{{ e.raw | tojson(indent=2) }}</pre>
+                        </div>
+                    </details>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <p class="text-muted">No log entries match the current filters.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Sampler - {{ hub.eventhub_name }} / {{ partition_id }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Overview</a> / <a href="/partitions/{{ hub.eventhub_name }}">{{ hub.eventhub_name }}</a> / partition {{ partition_id }}
+</div>
+
+<h1>Message Sampler</h1>
+<p class="text-muted mb-1">{{ hub.eventhub_name }} partition {{ partition_id }} (last {{ count }} messages)</p>
+
+{% if messages %}
+{% for msg in messages %}
+<div class="card">
+    <div style="display: flex; gap: 1.5rem; margin-bottom: 0.5rem; font-size: 0.8rem;">
+        <span><strong>Seq:</strong> <span class="mono">{{ msg.sequence_number }}</span></span>
+        <span><strong>Offset:</strong> <span class="mono">{{ msg.offset }}</span></span>
+        <span><strong>Enqueued:</strong> <span class="mono">{{ msg.enqueued_time.strftime('%Y-%m-%d %H:%M:%S') }}</span></span>
+        {% if msg.partition_key %}
+        <span><strong>Key:</strong> <span class="mono">{{ msg.partition_key }}</span></span>
+        {% endif %}
+    </div>
+    <pre>{{ msg.body }}</pre>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">
+    <p class="text-muted">No messages found in this partition.</p>
+</div>
+{% endif %}
+
+<a href="/sampler/{{ hub.eventhub_name }}/{{ partition_id }}?count={{ count }}" class="btn">Refresh</a>
+{% endblock %}

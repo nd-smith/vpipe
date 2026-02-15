@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Checkpoint Result{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Overview</a> / <a href="/checkpoints/{{ hub.eventhub_name }}/{{ consumer_group }}">{{ hub.eventhub_name }} / {{ consumer_group }}</a>
+</div>
+
+<h1>Checkpoints {{ action }}</h1>
+<p class="text-muted mb-1">{{ hub.eventhub_name }} / {{ consumer_group }}</p>
+
+{% if changes %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Partition</th>
+                <th>Old Offset</th>
+                <th>New Offset</th>
+                <th class="text-right">Old Seq</th>
+                <th class="text-right">New Seq</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pid, c in changes.items() %}
+            <tr>
+                <td class="mono">{{ pid }}</td>
+                <td class="mono">{{ c.old_offset }}</td>
+                <td class="mono">{{ c.new_offset }}</td>
+                <td class="mono text-right">{{ c.old_sequence }}</td>
+                <td class="mono text-right">{{ c.new_sequence }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p style="color: var(--yellow); font-size: 0.85rem;">
+    Restart the consumer for it to pick up the new checkpoints.
+</p>
+{% else %}
+<div class="card">
+    <p class="text-muted">No partitions were updated (all empty or no data at target time).</p>
+</div>
+{% endif %}
+
+<div class="mt-1">
+    <a href="/checkpoints/{{ hub.eventhub_name }}/{{ consumer_group }}" class="btn">Back to Checkpoints</a>
+</div>
+{% endblock %}

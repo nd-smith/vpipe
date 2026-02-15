@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Error{% endblock %}
+{% block content %}
+<div class="error-box">
+    <strong>Error</strong>
+    <p style="margin-top: 0.5rem;">{{ message }}</p>
+</div>
+<div class="mt-1">
+    <a href="/" class="btn">Back to Overview</a>
+</div>
+{% endblock %}
