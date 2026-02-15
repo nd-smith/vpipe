@@ -43,6 +43,7 @@ pipeline:
       claimx: "abfss://7729c159-0674-42ba-abf7-a6756723c62f@onelake.dfs.fabric.microsoft.com/153b8535-fdd8-48c3-a792-a8a9f5539e2c/Files/pcesdopodapp/claimx/attachments"
     cache_dir: ${CACHE_DIR:-/mnt/pcesdopodapp/cache}
     temp_dir: ${TEMP_DIR:-/mnt/pcesdopodapp/tmp}
+    retry_persistence_dir: ${RETRY_PERSISTENCE_DIR:-/mnt/pcesdopodapp/retry}
 
 # =============================================================================
 # AZURE AUTHENTICATION
