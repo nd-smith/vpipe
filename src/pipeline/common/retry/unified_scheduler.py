@@ -337,7 +337,12 @@ class UnifiedRetryScheduler:
 
         if missing_headers:
             logger.error(
-                "Message missing required headers, routing to DLQ",
+                "Message missing required headers, routing to DLQ | "
+                "missing=%s available=%s raw_type=%s raw_len=%s",
+                missing_headers,
+                list(headers.keys()),
+                type(message.headers).__name__,
+                len(message.headers) if message.headers else 0,
                 extra={
                     "topic": message.topic,
                     "partition": message.partition,
@@ -496,6 +501,13 @@ class UnifiedRetryScheduler:
                             "error": str(e),
                         },
                     )
+            if not headers:
+                logger.warning(
+                    "Headers empty after parsing | raw_type=%s raw_len=%s raw_sample=%s",
+                    type(message.headers).__name__,
+                    len(message.headers),
+                    repr(message.headers[:3]) if len(message.headers) > 0 else "[]",
+                )
         return headers
 
     async def _send_to_dlq(
