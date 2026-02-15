@@ -474,6 +474,16 @@ class EventIngesterWorker:
 
             enrichment_tasks.append((event.trace_id, enrichment_task))
             processed_trace_ids.append((event.trace_id, event_id))
+
+            logger.info(
+                "Event ingested",
+                extra={
+                    "trace_id": event.trace_id,
+                    "assignment_id": assignment_id,
+                    "event_type": event.type,
+                    "status_subtype": event.status_subtype,
+                },
+            )
             if self._dedup_enabled:
                 self._mark_processed(event.trace_id, event_id)
 

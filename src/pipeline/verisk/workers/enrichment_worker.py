@@ -316,6 +316,10 @@ class XACTEnrichmentWorker:
             )
             raise
 
+        from core.logging.context import set_log_context
+
+        set_log_context(trace_id=task.trace_id)
+
         self._records_processed += 1
         ts = message.timestamp
         if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
@@ -323,7 +327,7 @@ class XACTEnrichmentWorker:
         if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
             self._cycle_offset_end_ts = ts
 
-        logger.debug(
+        logger.info(
             "Processing enrichment task",
             extra={
                 "trace_id": task.trace_id,
@@ -512,7 +516,10 @@ class XACTEnrichmentWorker:
         """Produce download tasks to downloads.pending topic."""
         logger.info(
             "Producing download tasks",
-            extra={"task_count": len(download_tasks)},
+            extra={
+                "trace_id": download_tasks[0].trace_id if download_tasks else None,
+                "task_count": len(download_tasks),
+            },
         )
 
         for task in download_tasks:
@@ -523,7 +530,7 @@ class XACTEnrichmentWorker:
                     headers={"trace_id": task.trace_id, "media_id": task.media_id},
                 )
 
-                logger.debug(
+                logger.info(
                     "Produced download task",
                     extra={
                         "media_id": task.media_id,
