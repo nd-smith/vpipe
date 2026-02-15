@@ -489,19 +489,22 @@ class EventHubConsumer:
                 },
             )
 
+        # NOTE: Do not use `async with self._consumer:` here. The stop() method
+        # handles closing the consumer with a grace period for aiohttp session
+        # cleanup. Using the context manager causes a double-close race where
+        # __aexit__ closes after the grace period, leaking an aiohttp session.
         try:
-            async with self._consumer:
-                await self._consumer.receive(
-                    on_event=on_event,
-                    on_partition_initialize=on_partition_initialize,
-                    on_partition_close=on_partition_close,
-                    on_error=on_error,
-                    starting_position=self.starting_position,
-                    starting_position_inclusive=self.starting_position_inclusive,
-                    max_wait_time=5,
-                    prefetch=self.prefetch,
-                    owner_level=self._owner_level,
-                )
+            await self._consumer.receive(
+                on_event=on_event,
+                on_partition_initialize=on_partition_initialize,
+                on_partition_close=on_partition_close,
+                on_error=on_error,
+                starting_position=self.starting_position,
+                starting_position_inclusive=self.starting_position_inclusive,
+                max_wait_time=5,
+                prefetch=self.prefetch,
+                owner_level=self._owner_level,
+            )
         except Exception:
             logger.error("Error in Event Hub receive loop", exc_info=True)
             raise
