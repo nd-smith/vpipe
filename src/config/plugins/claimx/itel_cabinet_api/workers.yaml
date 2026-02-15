@@ -51,11 +51,11 @@ workers:
   # ===========================================================================
   # Consumes completed tasks from tracking worker and sends to iTel API.
   #
-  # Startup:
+  # Startup (dev mode by default, writes to files):
   #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
   #
-  # Dev Mode (writes to files instead of API):
-  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
+  # Production Mode (sends to iTel API):
+  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --prod
   # ===========================================================================
   itel_cabinet_api:
     # Processing settings
@@ -78,9 +78,8 @@ workers:
       carrier_id: ${ITEL_CABINET_API_CARRIER_ID}
       subscription_id: ${ITEL_CABINET_API_SUBSCRIPTION_ID}
 
-      # Test mode - write to files instead of calling API
-      test_mode: true
-      test_output_dir: config/plugins/claimx/itel_cabinet_api/test
+      # Test mode - controlled by --prod flag (dev mode is default)
+      test_mode: false
 
 # =============================================================================
 # Environment Variables Required

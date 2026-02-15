@@ -4,11 +4,14 @@ iTel Cabinet API Worker
 Consumes completed task payloads from tracking worker and sends to iTel API.
 Simple, focused worker - no enrichment, just transformation and API call.
 
-Usage:
+Runs in dev/test mode by default (writes JSON files instead of calling API).
+Pass --prod to enable production mode (sends to iTel API).
+
+Usage (dev mode, default):
     python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
 
-Dev Mode (writes to files):
-    python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
+Production Mode:
+    python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --prod
 
 Configuration:
     config/plugins/claimx/itel_cabinet_api/workers.yaml
@@ -35,7 +38,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from config.config import MessageConfig
-from core.logging import setup_logging
+from core.logging import log_worker_startup, setup_logging
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.common.health import HealthCheckServer
@@ -163,6 +166,12 @@ class ItelCabinetApiWorker:
             },
         )
 
+    def _update_cycle_offsets(self, timestamp):
+        if self._cycle_offset_start_ts is None or timestamp < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = timestamp
+        if self._cycle_offset_end_ts is None or timestamp > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = timestamp
+
     async def _handle_message(self, record: PipelineMessage) -> None:
         """Process a single message from the transport layer."""
         start_time = time.perf_counter()
@@ -186,11 +195,7 @@ class ItelCabinetApiWorker:
 
             self._records_processed += 1
             self._records_succeeded += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
             record_message_consumed(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -209,11 +214,7 @@ class ItelCabinetApiWorker:
         except Exception as e:
             self._records_processed += 1
             self._records_failed += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
             record_processing_error(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -679,11 +680,11 @@ def load_worker_config() -> dict:
     return workers["itel_cabinet_api"]
 
 
-async def build_api_worker(dev_mode: bool = False) -> tuple:
+async def build_api_worker(dev_mode: bool = True) -> tuple:
     """Build a configured API worker and its resources.
 
     Args:
-        dev_mode: If True, enable test mode (write to files instead of API)
+        dev_mode: If True (default), enable test mode (write to files instead of API)
 
     Returns:
         Tuple of (worker, connection_manager) for lifecycle management.
@@ -693,6 +694,16 @@ async def build_api_worker(dev_mode: bool = False) -> tuple:
 
     if dev_mode:
         worker_config["api"]["test_mode"] = True
+
+        # Use temp_dir from main config for persistent test output
+        main_config_path = CONFIG_DIR / "config.yaml"
+        main_config = load_yaml_config(main_config_path)
+        storage = main_config.get("pipeline", {}).get("storage", {})
+        raw_temp_dir = storage.get("temp_dir", "/tmp")
+        temp_dir = expand_env_var_string(raw_temp_dir)
+        worker_config["api"]["test_output_dir"] = str(
+            Path(temp_dir) / "itel_cabinet_api" / "test"
+        )
 
     # Expand environment variables in API config
     api_config = worker_config["api"]
@@ -749,9 +760,9 @@ async def main():
         description="iTel Cabinet API Worker - Sends completed tasks to iTel Cabinet API"
     )
     parser.add_argument(
-        "--dev",
+        "--prod",
         action="store_true",
-        help="Enable dev mode (writes API payloads to test directory instead of sending)",
+        help="Enable production mode (sends to iTel API instead of writing files)",
     )
     args = parser.parse_args()
 
@@ -766,19 +777,22 @@ async def main():
     )
 
     logger.info("Starting iTel Cabinet API Worker")
-    if args.dev:
+    if not args.prod:
         logger.info("DEV MODE: Payloads will be written to test directory")
 
     try:
-        worker, connection_manager = await build_api_worker(dev_mode=args.dev)
+        worker, connection_manager = await build_api_worker(dev_mode=not args.prod)
     except (FileNotFoundError, ValueError) as e:
         logger.error("Configuration error: %s", e)
         sys.exit(1)
 
-    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
-    logger.info("Bootstrap servers: %s", bootstrap_servers)
-    logger.info("Input topic: %s", worker.transport_config["input_topic"])
-    logger.info("Consumer group: %s", worker.transport_config["consumer_group"])
+    log_worker_startup(
+        logger=logger,
+        worker_name="iTel Cabinet API Worker",
+        kafka_bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094"),
+        input_topic=worker.transport_config["input_topic"],
+        consumer_group=worker.transport_config["consumer_group"],
+    )
 
     shutdown_event = asyncio.Event()
     setup_shutdown_signal_handlers(shutdown_event.set)

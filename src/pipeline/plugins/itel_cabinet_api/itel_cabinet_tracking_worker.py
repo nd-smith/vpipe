@@ -108,6 +108,12 @@ class ItelCabinetTrackingWorker:
         self._cycle_offset_start_ts = None
         self._cycle_offset_end_ts = None
 
+    def _update_cycle_offsets(self, timestamp):
+        if self._cycle_offset_start_ts is None or timestamp < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = timestamp
+        if self._cycle_offset_end_ts is None or timestamp > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = timestamp
+
     async def _handle_message(self, record: PipelineMessage) -> None:
         """Process a single message from the transport layer."""
         start_time = time.perf_counter()
@@ -122,11 +128,7 @@ class ItelCabinetTrackingWorker:
 
             self._records_processed += 1
             self._records_succeeded += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
             record_message_consumed(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -145,11 +147,7 @@ class ItelCabinetTrackingWorker:
         except ValueError as e:
             self._records_processed += 1
             self._records_failed += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
             record_processing_error(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
@@ -164,11 +162,7 @@ class ItelCabinetTrackingWorker:
         except Exception as e:
             self._records_processed += 1
             self._records_failed += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
             record_processing_error(
                 topic=topic,
                 consumer_group=CONSUMER_GROUP,
