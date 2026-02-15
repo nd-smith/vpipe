@@ -29,7 +29,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from config.config import MessageConfig
+from config.config import MessageConfig, expand_env_var_string
 from core.logging import log_worker_startup, setup_logging
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
@@ -80,6 +80,7 @@ class ItelCabinetTrackingWorker:
         transport_config: dict,
         connection_manager: ConnectionManager,
         pipeline: ItelCabinetPipeline,
+        health_server: HealthCheckServer | None = None,
         health_port: int = 8096,
         health_enabled: bool = True,
     ):
@@ -91,7 +92,7 @@ class ItelCabinetTrackingWorker:
         self.running = False
 
         # Health server for Kubernetes liveness/readiness probes
-        self.health_server = HealthCheckServer(
+        self.health_server = health_server or HealthCheckServer(
             port=health_port,
             worker_name="itel-cabinet-tracking",
             enabled=health_enabled,
@@ -283,13 +284,22 @@ def load_worker_config() -> dict:
     return workers["itel_cabinet_tracking"]
 
 
-async def build_tracking_worker() -> tuple:
+async def build_tracking_worker(
+    worker_config: dict,
+    health_server: HealthCheckServer,
+) -> tuple:
     """Build a configured tracking worker and its resources.
+
+    Args:
+        worker_config: Parsed worker configuration from workers.yaml.
+        health_server: Pre-started health server for the worker to use.
 
     Returns:
         Tuple of (worker, connection_manager, producer) for lifecycle management.
+
+    Raises:
+        ValueError: If required delta table paths are missing from config and env vars.
     """
-    worker_config = load_worker_config()
     connections_list = load_connections(CONNECTIONS_CONFIG_PATH)
 
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
@@ -312,15 +322,17 @@ async def build_tracking_worker() -> tuple:
     )
     await producer.start()
 
-    submissions_path = os.environ.get("ITEL_DELTA_FORMS_TABLE")
-    attachments_path = os.environ.get("ITEL_DELTA_ATTACHMENTS_TABLE")
+    delta_config = worker_config.get("delta_tables", {})
+    submissions_path = expand_env_var_string(delta_config.get("submissions_path", ""))
+    attachments_path = expand_env_var_string(delta_config.get("attachments_path", ""))
 
     if not submissions_path or not attachments_path:
-        logger.error(
-            "Missing required delta table environment variables. "
-            "Please set ITEL_DELTA_FORMS_TABLE and ITEL_DELTA_ATTACHMENTS_TABLE"
+        raise ValueError(
+            "Missing required delta table paths. "
+            "Set delta_tables.submissions_path and delta_tables.attachments_path "
+            "in workers.yaml or ITEL_DELTA_FORMS_TABLE and ITEL_DELTA_ATTACHMENTS_TABLE "
+            "environment variables"
         )
-        sys.exit(1)
 
     logger.info("Delta submissions table: %s", submissions_path)
     logger.info("Delta attachments table: %s", attachments_path)
@@ -336,13 +348,11 @@ async def build_tracking_worker() -> tuple:
         config=worker_config.get("pipeline", {}),
     )
 
-    processing_config = worker_config.get("processing", {})
     worker = ItelCabinetTrackingWorker(
         transport_config=transport_config,
         connection_manager=connection_manager,
         pipeline=pipeline,
-        health_port=processing_config.get("health_port", 8096),
-        health_enabled=processing_config.get("health_enabled", True),
+        health_server=health_server,
     )
 
     return worker, connection_manager, producer
@@ -362,11 +372,41 @@ async def main():
         file_level=logging.DEBUG,
     )
 
+    # Load worker config early to get health port
     try:
-        worker, connection_manager, producer = await build_tracking_worker()
+        worker_config = load_worker_config()
     except (FileNotFoundError, ValueError) as e:
         logger.error("Configuration error: %s", e)
         sys.exit(1)
+
+    processing_config = worker_config.get("processing", {})
+    health_port = processing_config.get("health_port", 8096)
+    health_enabled = processing_config.get("health_enabled", True)
+
+    # Start health server before building the worker so it survives build failures
+    health_server = HealthCheckServer(
+        port=health_port,
+        worker_name="itel-cabinet-tracking",
+        enabled=health_enabled,
+    )
+    await health_server.start()
+
+    shutdown_event = asyncio.Event()
+    setup_shutdown_signal_handlers(shutdown_event.set)
+
+    try:
+        worker, connection_manager, producer = await build_tracking_worker(
+            worker_config=worker_config,
+            health_server=health_server,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        logger.error("Configuration error: %s", e)
+        health_server.set_error(f"Configuration error: {e}")
+        logger.warning("Entering error mode - health server will remain active")
+        await shutdown_event.wait()
+        await health_server.stop()
+        logger.info("Pipeline shutdown complete")
+        return
 
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
     log_worker_startup(
@@ -378,9 +418,6 @@ async def main():
         consumer_group=worker.transport_config["consumer_group"],
     )
 
-    shutdown_event = asyncio.Event()
-    setup_shutdown_signal_handlers(shutdown_event.set)
-
     try:
         await connection_manager.start()
 
@@ -391,7 +428,6 @@ async def main():
         logger.info("Received keyboard interrupt")
     except Exception as e:
         logger.exception("Worker failed: %s", e)
-        sys.exit(1)
     finally:
         await worker.stop()
         await connection_manager.close()

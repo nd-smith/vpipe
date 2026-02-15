@@ -36,10 +36,10 @@ workers:
       input_topic: pcesdopodappv1-itel-cabinet-pending
       consumer_group: itel_cabinet_tracking_group
 
-    # Delta tables (table names, full paths constructed by worker)
+    # Delta table paths (supports ${VAR} and ${VAR:-default} env var syntax)
     delta_tables:
-      submissions: claimx_itel_forms
-      attachments: claimx_itel_attachments
+      submissions_path: ${ITEL_DELTA_FORMS_TABLE:-}
+      attachments_path: ${ITEL_DELTA_ATTACHMENTS_TABLE:-}
 
     # Pipeline configuration
     pipeline:
@@ -100,7 +100,7 @@ workers:
 # Kafka connection
 # export KAFKA_BOOTSTRAP_SERVERS="localhost:9094"
 #
-# Delta tables (tracking worker)
+# Delta tables (tracking worker) - can also be set directly in delta_tables config above
 # export ITEL_DELTA_FORMS_TABLE="abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/claimx_itel_forms"
 # export ITEL_DELTA_ATTACHMENTS_TABLE="abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/claimx_itel_attachments"
 # =============================================================================

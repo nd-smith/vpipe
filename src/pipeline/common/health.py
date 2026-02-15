@@ -419,6 +419,10 @@ class HealthCheckServer:
             )
             return
 
+        # Already running - no-op for idempotent calls
+        if self._thread is not None and self._thread.is_alive():
+            return
+
         try:
             # Start health server in dedicated thread
             self._thread = threading.Thread(
