@@ -7,6 +7,7 @@ execute_worker_with_shutdown() lifecycle (startup retry, health server, shutdown
 import asyncio
 import logging
 
+from pipeline.common.health import HealthCheckServer
 from pipeline.runners.common import execute_worker_with_shutdown
 
 logger = logging.getLogger(__name__)
@@ -16,9 +17,26 @@ async def run_itel_cabinet_tracking(shutdown_event: asyncio.Event, **kwargs):
     """Run the iTel Cabinet tracking worker with standard lifecycle management."""
     from pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker import (
         build_tracking_worker,
+        load_worker_config,
     )
 
-    worker, connection_manager, producer = await build_tracking_worker()
+    worker_config = load_worker_config()
+
+    processing_config = worker_config.get("processing", {})
+    health_port = processing_config.get("health_port", 8096)
+    health_enabled = processing_config.get("health_enabled", True)
+
+    health_server = HealthCheckServer(
+        port=health_port,
+        worker_name="itel-cabinet-tracking",
+        enabled=health_enabled,
+    )
+    await health_server.start()
+
+    worker, connection_manager, producer = await build_tracking_worker(
+        worker_config=worker_config,
+        health_server=health_server,
+    )
     await connection_manager.start()
 
     try:
@@ -26,6 +44,7 @@ async def run_itel_cabinet_tracking(shutdown_event: asyncio.Event, **kwargs):
     finally:
         await connection_manager.close()
         await producer.stop()
+        await health_server.stop()
 
 
 async def run_itel_cabinet_api(shutdown_event: asyncio.Event, **kwargs):
