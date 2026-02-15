@@ -300,6 +300,19 @@ async def build_tracking_worker(
     Raises:
         ValueError: If required delta table paths are missing from config and env vars.
     """
+    # Validate delta table paths before starting any resources
+    delta_config = worker_config.get("delta_tables", {})
+    submissions_path = expand_env_var_string(delta_config.get("submissions_path", ""))
+    attachments_path = expand_env_var_string(delta_config.get("attachments_path", ""))
+
+    if not submissions_path or not attachments_path:
+        raise ValueError(
+            "Missing required delta table paths. "
+            "Set delta_tables.submissions_path and delta_tables.attachments_path "
+            "in workers.yaml or ITEL_DELTA_FORMS_TABLE and ITEL_DELTA_ATTACHMENTS_TABLE "
+            "environment variables"
+        )
+
     connections_list = load_connections(CONNECTIONS_CONFIG_PATH)
 
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
@@ -321,18 +334,6 @@ async def build_tracking_worker(
         topic_key="itel_cabinet_completed",
     )
     await producer.start()
-
-    delta_config = worker_config.get("delta_tables", {})
-    submissions_path = expand_env_var_string(delta_config.get("submissions_path", ""))
-    attachments_path = expand_env_var_string(delta_config.get("attachments_path", ""))
-
-    if not submissions_path or not attachments_path:
-        raise ValueError(
-            "Missing required delta table paths. "
-            "Set delta_tables.submissions_path and delta_tables.attachments_path "
-            "in workers.yaml or ITEL_DELTA_FORMS_TABLE and ITEL_DELTA_ATTACHMENTS_TABLE "
-            "environment variables"
-        )
 
     logger.info("Delta submissions table: %s", submissions_path)
     logger.info("Delta attachments table: %s", attachments_path)
@@ -428,6 +429,7 @@ async def main():
         logger.info("Received keyboard interrupt")
     except Exception as e:
         logger.exception("Worker failed: %s", e)
+        sys.exit(1)
     finally:
         await worker.stop()
         await connection_manager.close()
