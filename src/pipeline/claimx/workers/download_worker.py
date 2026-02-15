@@ -210,18 +210,31 @@ class ClaimXDownloadWorker:
         self._shutdown_event = asyncio.Event()
         self._in_flight_tasks = set()
 
-        # Close resources from a previous failed start attempt to prevent leak
+        # Close resources from a previous failed start attempt to prevent leak.
+        # Each cleanup is independent so one failure must not skip the others.
         if self._http_session and not self._http_session.closed:
-            await self._http_session.close()
-            self._http_session = None
+            try:
+                await self._http_session.close()
+            except Exception as e:
+                logger.warning("Error closing stale HTTP session", extra={"error": str(e)})
+            finally:
+                self._http_session = None
 
         if self.api_client:
-            await self.api_client.close()
-            self.api_client = None
+            try:
+                await self.api_client.close()
+            except Exception as e:
+                logger.warning("Error closing stale API client", extra={"error": str(e)})
+            finally:
+                self.api_client = None
 
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except Exception as e:
+                logger.warning("Error stopping stale retry handler", extra={"error": str(e)})
+            finally:
+                self.retry_handler = None
 
         connector = aiohttp.TCPConnector(
             limit=self.concurrency,
@@ -332,17 +345,23 @@ class ClaimXDownloadWorker:
 
     async def stop(self) -> None:
         """Gracefully stop worker, wait for in-flight downloads, commit offsets, clean up resources."""
-        if self._consumer is None and self._http_session is None:
+        if self._consumer is None and self._http_session is None and self.api_client is None:
             logger.debug("Worker already stopped")
             return
 
         logger.info("Stopping ClaimX download worker, waiting for in-flight downloads")
         self._running = False
 
-        if self._stats_logger:
-            await self._stats_logger.stop()
+        try:
+            if self._stats_logger:
+                await self._stats_logger.stop()
+        except Exception as e:
+            logger.error("Error stopping stats logger", extra={"error": str(e)})
 
-        await self._stale_cleaner.stop()
+        try:
+            await self._stale_cleaner.stop()
+        except Exception as e:
+            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -363,8 +382,12 @@ class ClaimXDownloadWorker:
                 self._consumer = None
 
         if self._http_session:
-            await self._http_session.close()
-            self._http_session = None
+            try:
+                await self._http_session.close()
+            except Exception as e:
+                logger.error("Error closing HTTP session", extra={"error": str(e)})
+            finally:
+                self._http_session = None
 
         try:
             await self.producer.stop()
@@ -399,7 +422,10 @@ class ClaimXDownloadWorker:
             finally:
                 self.retry_handler = None
 
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(self._consumer_group, 0)
@@ -557,18 +583,6 @@ class ClaimXDownloadWorker:
             )
 
             download_task = self._convert_to_download_task(task_message)
-
-            # Debug: log HTTP session state before download
-            session = self._http_session
-            sess_closed = session.closed if session else "no_session"
-            conn_closed = (
-                session.connector.closed if session and session.connector else "no_connector"
-            )
-            logger.info(
-                f"HTTP session state: session_closed={sess_closed}, "
-                f"connector_closed={conn_closed}",
-                extra={"media_id": task_message.media_id, "trace_id": task_message.trace_id},
-            )
 
             t0 = time.perf_counter()
             outcome = await self.downloader.download(download_task)

@@ -131,6 +131,7 @@ class ClaimXApiClient:
 
         self._session: aiohttp.ClientSession | None = None
         self._semaphore: asyncio.Semaphore | None = None
+        self._closed = False
         self._circuit = get_circuit_breaker("claimx_api", CLAIMX_API_CIRCUIT_CONFIG)
         self._rate_limiter = get_rate_limiter("claimx_api", CLAIMX_API_RATE_CONFIG)
 
@@ -152,6 +153,8 @@ class ClaimXApiClient:
         await self.close()
 
     async def _ensure_session(self) -> None:
+        if self._closed:
+            raise RuntimeError("ClaimXApiClient is closed, cannot create new session")
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(
                 limit=self.max_concurrent,
@@ -167,6 +170,7 @@ class ClaimXApiClient:
             self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
     async def close(self) -> None:
+        self._closed = True
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
