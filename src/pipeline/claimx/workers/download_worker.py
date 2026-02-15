@@ -215,6 +215,7 @@ class ClaimXDownloadWorker:
         if self._http_session and not self._http_session.closed:
             try:
                 await self._http_session.close()
+                await asyncio.sleep(0)
             except Exception as e:
                 logger.warning("Error closing stale HTTP session", extra={"error": str(e)})
             finally:
@@ -389,6 +390,7 @@ class ClaimXDownloadWorker:
         if self._http_session:
             try:
                 await self._http_session.close()
+                await asyncio.sleep(0)
             except asyncio.CancelledError:
                 logger.warning("Cancelled while closing HTTP session")
             except Exception as e:

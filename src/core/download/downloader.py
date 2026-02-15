@@ -189,6 +189,7 @@ class AttachmentDownloader:
             # Clean up session if we created it
             if should_close_session and session:
                 await session.close()
+                await asyncio.sleep(0)
 
     async def _get_content_length(
         self, url: str, session: aiohttp.ClientSession, timeout: int

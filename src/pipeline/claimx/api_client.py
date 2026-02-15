@@ -173,6 +173,7 @@ class ClaimXApiClient:
         self._closed = True
         if self._session and not self._session.closed:
             await self._session.close()
+            await asyncio.sleep(0)
             self._session = None
 
     async def _request(

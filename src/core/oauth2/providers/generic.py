@@ -1,5 +1,6 @@
 """Generic OAuth2 provider for standard OAuth2 servers."""
 
+import asyncio
 import logging
 
 import aiohttp
@@ -170,6 +171,7 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
         """Close HTTP client session."""
         if self._session and not self._session.closed:
             await self._session.close()
+            await asyncio.sleep(0)
 
 
 __all__ = ["GenericOAuth2Provider"]

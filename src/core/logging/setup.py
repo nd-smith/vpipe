@@ -480,10 +480,6 @@ def setup_logging(
     if suppress_noisy:
         for logger_name in NOISY_LOGGERS:
             logging.getLogger(logger_name).setLevel(logging.ERROR)
-        # aiohttp.client emits "Unclosed client session" at ERROR during shutdown
-        # when Azure SDK's internal sessions aren't fully cleaned up. These are
-        # not actionable and clutter the output.
-        logging.getLogger("aiohttp.client").setLevel(logging.CRITICAL)
 
     logger = logging.getLogger(name)
     logger.debug(
@@ -626,10 +622,6 @@ def setup_multi_worker_logging(
     if suppress_noisy:
         for logger_name in NOISY_LOGGERS:
             logging.getLogger(logger_name).setLevel(logging.ERROR)
-        # aiohttp.client emits "Unclosed client session" at ERROR during shutdown
-        # when Azure SDK's internal sessions aren't fully cleaned up. These are
-        # not actionable and clutter the output.
-        logging.getLogger("aiohttp.client").setLevel(logging.CRITICAL)
 
     logger = logging.getLogger("pipeline")
     logger.debug(

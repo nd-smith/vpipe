@@ -127,6 +127,7 @@ class PrometheusClient:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
+            await asyncio.sleep(0)
 
 
 class MonitoringService:

@@ -249,6 +249,7 @@ class DownloadWorker:
         # Close session from a previous failed start attempt to prevent leak
         if self._http_session and not self._http_session.closed:
             await self._http_session.close()
+            await asyncio.sleep(0)
             self._http_session = None
 
         # Shared HTTP session with comprehensive timeout (Issue #41)
@@ -396,6 +397,7 @@ class DownloadWorker:
         if self._http_session:
             try:
                 await self._http_session.close()
+                await asyncio.sleep(0)
             except asyncio.CancelledError:
                 logger.warning("Cancelled while closing HTTP session")
             except Exception as e:

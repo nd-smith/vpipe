@@ -472,6 +472,7 @@ class MonitoringServer:
         """Stop the monitoring server."""
         if self._session and not self._session.closed:
             await self._session.close()
+            await asyncio.sleep(0)
         if self._runner:
             await self._runner.cleanup()
             logger.info("Monitoring server stopped")
