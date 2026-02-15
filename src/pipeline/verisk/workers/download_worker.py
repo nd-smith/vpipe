@@ -557,6 +557,7 @@ class DownloadWorker:
         try:
             task_message = DownloadTaskMessage.model_validate_json(message.value)
         except Exception as e:
+            raw_preview = message.value[:1000].decode("utf-8", errors="replace") if message.value else ""
             logger.error(
                 "Failed to parse DownloadTaskMessage",
                 extra={
@@ -564,6 +565,8 @@ class DownloadWorker:
                     "partition": message.partition,
                     "offset": message.offset,
                     "error": str(e),
+                    "raw_payload_preview": raw_preview,
+                    "raw_payload_bytes": len(message.value) if message.value else 0,
                 },
                 exc_info=True,
             )

@@ -169,8 +169,18 @@ class MessageBatchConsumer:
         self._running = True
 
         update_connection_status("consumer", connected=True)
-        partition_count = len(self._consumer.assignment())
+        assignment = self._consumer.assignment()
+        partition_count = len(assignment)
         update_assigned_partitions(self.group_id, partition_count)
+
+        # Log starting offsets so crash recovery gaps are visible
+        partition_offsets = {}
+        for tp in assignment:
+            try:
+                pos = await self._consumer.position(tp)
+                partition_offsets[f"{tp.topic}:{tp.partition}"] = pos
+            except Exception:
+                partition_offsets[f"{tp.topic}:{tp.partition}"] = "unknown"
 
         logger.info(
             "Message batch consumer started successfully",
@@ -178,6 +188,7 @@ class MessageBatchConsumer:
                 "topics": self.topics,
                 "group_id": self.group_id,
                 "partitions": partition_count,
+                "resuming_from_offsets": partition_offsets,
             },
         )
 
@@ -256,7 +267,7 @@ class MessageBatchConsumer:
 
             if should_commit and self._enable_message_commit:
                 await self._consumer.commit()
-                logger.debug(
+                logger.info(
                     "Batch committed",
                     extra={
                         "batch_size": len(messages),

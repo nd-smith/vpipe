@@ -171,6 +171,7 @@ class CircuitBreaker:
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time: float | None = None
+        self._last_failure_message: str = ""
         self._half_open_calls = 0
 
         self._stats = CircuitStats()
@@ -283,9 +284,12 @@ class CircuitBreaker:
         elif new_state == CircuitState.OPEN:
             self._success_count = 0
             logger.warning(
-                "Circuit open: circuit_name=%s, circuit_state=open, timeout_seconds=%.2f",
+                "Circuit open: circuit_name=%s, circuit_state=open, "
+                "timeout_seconds=%.2f, failure_count=%d, last_error=%s",
                 self.name,
                 self.config.timeout_seconds,
+                self._failure_count,
+                self._last_failure_message,
             )
 
         if self.on_state_change:
@@ -330,6 +334,7 @@ class CircuitBreaker:
             return
 
         self._last_failure_time = time.time()
+        self._last_failure_message = str(exc)[:200]
 
         if self._state == CircuitState.HALF_OPEN:
             # Any counted failure in half-open goes back to open

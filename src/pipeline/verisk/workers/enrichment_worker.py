@@ -328,6 +328,7 @@ class XACTEnrichmentWorker:
             message_data = json.loads(message.value.decode("utf-8"))
             task = XACTEnrichmentTask.model_validate(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
+            raw_preview = message.value[:1000].decode("utf-8", errors="replace") if message.value else ""
             logger.error(
                 "Failed to parse XACTEnrichmentTask",
                 extra={
@@ -335,6 +336,8 @@ class XACTEnrichmentWorker:
                     "partition": message.partition,
                     "offset": message.offset,
                     "error": str(e),
+                    "raw_payload_preview": raw_preview,
+                    "raw_payload_bytes": len(message.value) if message.value else 0,
                 },
                 exc_info=True,
             )
@@ -431,12 +434,14 @@ class XACTEnrichmentWorker:
             self._records_succeeded += 1
 
             elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
-            logger.debug(
+            logger.info(
                 "Enrichment task complete",
                 extra={
                     "trace_id": task.trace_id,
+                    "assignment_id": task.assignment_id,
                     "status_subtype": task.status_subtype,
-                    "download_tasks": len(download_tasks),
+                    "download_tasks_produced": len(download_tasks),
+                    "attachments_received": len(task.attachments),
                     "duration_ms": round(elapsed_ms, 2),
                 },
             )

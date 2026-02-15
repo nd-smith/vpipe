@@ -438,6 +438,7 @@ class ClaimXEnrichmentWorker:
             message_data = json.loads(record.value.decode("utf-8"))
             task = ClaimXEnrichmentTask.model_validate(message_data)
         except (json.JSONDecodeError, ValidationError) as e:
+            raw_preview = record.value[:1000].decode("utf-8", errors="replace") if record.value else ""
             logger.error(
                 "Failed to parse ClaimXEnrichmentTask",
                 extra={
@@ -445,6 +446,8 @@ class ClaimXEnrichmentWorker:
                     "partition": record.partition,
                     "offset": record.offset,
                     "error": str(e),
+                    "raw_payload_preview": raw_preview,
+                    "raw_payload_bytes": len(record.value) if record.value else 0,
                 },
                 exc_info=True,
             )
@@ -495,19 +498,23 @@ class ClaimXEnrichmentWorker:
     async def _dispatch_download_tasks(
         self,
         entity_rows: EntityRowsMessage,
-    ) -> None:
+    ) -> int:
         """
         Create and dispatch download tasks for media files.
 
         Args:
             entity_rows: Entity rows containing media metadata
+
+        Returns:
+            Number of download tasks produced.
         """
         if not entity_rows.media:
-            return
+            return 0
 
         download_tasks = DownloadTaskFactory.create_download_tasks_from_media(entity_rows.media)
         if download_tasks:
             await self._produce_download_tasks(download_tasks)
+        return len(download_tasks)
 
     async def _process_single_task(self, task: ClaimXEnrichmentTask) -> None:
         """
@@ -609,7 +616,7 @@ class ClaimXEnrichmentWorker:
             await self._dispatch_entity_rows(task, entity_rows)
 
             # Step 6: Dispatch download tasks for media files
-            await self._dispatch_download_tasks(entity_rows)
+            download_task_count = await self._dispatch_download_tasks(entity_rows)
 
             # Log completion
             elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
@@ -618,8 +625,10 @@ class ClaimXEnrichmentWorker:
                 extra={
                     "trace_id": task.trace_id,
                     "event_type": task.event_type,
+                    "project_id": task.project_id,
                     "handler": handler_class.__name__,
                     "entity_rows": entity_rows.row_count(),
+                    "download_tasks_produced": download_task_count,
                     "api_calls": handler_result.api_calls,
                     "duration_ms": round(elapsed_ms, 2),
                 },

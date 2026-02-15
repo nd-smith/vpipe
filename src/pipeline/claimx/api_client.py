@@ -274,15 +274,26 @@ class ClaimXApiClient:
 
                     data = await response.json()
 
-                    logger.debug(
-                        "API request succeeded",
-                        extra={
-                            "api_endpoint": endpoint,
-                            "api_method": method,
-                            "http_status": response.status,
-                            "duration_seconds": round(duration, 3),
-                        },
-                    )
+                    if duration > 2.0:
+                        logger.info(
+                            "Slow API request",
+                            extra={
+                                "api_endpoint": endpoint,
+                                "api_method": method,
+                                "http_status": response.status,
+                                "duration_seconds": round(duration, 3),
+                            },
+                        )
+                    else:
+                        logger.debug(
+                            "API request succeeded",
+                            extra={
+                                "api_endpoint": endpoint,
+                                "api_method": method,
+                                "http_status": response.status,
+                                "duration_seconds": round(duration, 3),
+                            },
+                        )
 
                     return data
 
