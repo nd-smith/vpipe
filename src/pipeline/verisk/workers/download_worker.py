@@ -368,9 +368,15 @@ class DownloadWorker:
         self._running = False
 
         if self._stats_logger:
-            await self._stats_logger.stop()
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
 
-        await self._stale_cleaner.stop()
+        try:
+            await self._stale_cleaner.stop()
+        except Exception as e:
+            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
 
         if self._shutdown_event:
             self._shutdown_event.set()

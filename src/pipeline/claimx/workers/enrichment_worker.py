@@ -236,20 +236,40 @@ class ClaimXEnrichmentWorker:
         # _start_with_retry() may call start() multiple times; without cleanup,
         # each attempt overwrites self.api_client and orphans the old session.
         if self._stats_logger:
-            await self._stats_logger.stop()
-            self._stats_logger = None
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale stats logger", extra={"error": str(e)})
+            finally:
+                self._stats_logger = None
         if self.api_client and not self._injected_api_client:
-            await self.api_client.close()
-            self.api_client = None
+            try:
+                await self.api_client.close()
+            except Exception as e:
+                logger.warning("Error cleaning up stale API client", extra={"error": str(e)})
+            finally:
+                self.api_client = None
         if self.producer:
-            await self.producer.stop()
-            self.producer = None
+            try:
+                await self.producer.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale producer", extra={"error": str(e)})
+            finally:
+                self.producer = None
         if self.download_producer:
-            await self.download_producer.stop()
-            self.download_producer = None
+            try:
+                await self.download_producer.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale download producer", extra={"error": str(e)})
+            finally:
+                self.download_producer = None
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale retry handler", extra={"error": str(e)})
+            finally:
+                self.retry_handler = None
 
         self._stats_logger = PeriodicStatsLogger(
             interval_seconds=CYCLE_LOG_INTERVAL_SECONDS,
@@ -347,28 +367,62 @@ class ClaimXEnrichmentWorker:
         self._running = False
 
         if self._stats_logger:
-            await self._stats_logger.stop()
-            self._stats_logger = None
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
+            finally:
+                self._stats_logger = None
 
         if self.consumer:
-            await self.consumer.stop()
-            self.consumer = None
+            try:
+                await self.consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
+            except Exception as e:
+                logger.error("Error stopping consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
 
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping retry handler")
+            except Exception as e:
+                logger.error("Error stopping retry handler", extra={"error": str(e)})
+            finally:
+                self.retry_handler = None
 
         if self.producer:
-            await self.producer.stop()
-            self.producer = None
+            try:
+                await self.producer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping producer")
+            except Exception as e:
+                logger.error("Error stopping producer", extra={"error": str(e)})
+            finally:
+                self.producer = None
 
         if self.download_producer:
-            await self.download_producer.stop()
-            self.download_producer = None
+            try:
+                await self.download_producer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping download producer")
+            except Exception as e:
+                logger.error("Error stopping download producer", extra={"error": str(e)})
+            finally:
+                self.download_producer = None
 
         if self.api_client:
-            await self.api_client.close()
-            self.api_client = None
+            try:
+                await self.api_client.close()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while closing API client")
+            except Exception as e:
+                logger.error("Error closing API client", extra={"error": str(e)})
+            finally:
+                self.api_client = None
 
         await self.health_server.stop()
 

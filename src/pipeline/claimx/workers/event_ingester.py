@@ -137,14 +137,26 @@ class ClaimXEventIngesterWorker:
 
         # Clean up resources from a previous failed start attempt (retry safety)
         if self._stats_logger:
-            await self._stats_logger.stop()
-            self._stats_logger = None
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale stats logger", extra={"error": str(e)})
+            finally:
+                self._stats_logger = None
         if self.consumer:
-            await self.consumer.stop()
-            self.consumer = None
+            try:
+                await self.consumer.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
         if self.producer:
-            await self.producer.stop()
-            self.producer = None
+            try:
+                await self.producer.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale producer", extra={"error": str(e)})
+            finally:
+                self.producer = None
 
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
@@ -212,11 +224,14 @@ class ClaimXEventIngesterWorker:
             self._running = False
 
     async def stop(self) -> None:
-        if not self._running:
-            return
         logger.info("Stopping ClaimXEventIngesterWorker")
+        self._running = False
+
         if self._stats_logger:
-            await self._stats_logger.stop()
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
 
         # Cancel dedup cleanup task
         if self._dedup_cleanup_task and not self._dedup_cleanup_task.done():
@@ -225,13 +240,32 @@ class ClaimXEventIngesterWorker:
                 await self._dedup_cleanup_task
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
+
         if self.consumer:
-            await self.consumer.stop()
+            try:
+                await self.consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
+            except Exception as e:
+                logger.error("Error stopping consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
+
         if self.producer:
-            await self.producer.stop()
+            try:
+                await self.producer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping producer")
+            except Exception as e:
+                logger.error("Error stopping producer", extra={"error": str(e)})
+            finally:
+                self.producer = None
 
         # Close persistent dedup store
-        await close_dedup_store()
+        try:
+            await close_dedup_store()
+        except Exception as e:
+            logger.error("Error closing dedup store", extra={"error": str(e)})
 
         await self.health_server.stop()
 

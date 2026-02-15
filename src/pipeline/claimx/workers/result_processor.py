@@ -220,14 +220,14 @@ class ClaimXResultProcessor:
         Gracefully shuts down the consumer, flushes pending batches,
         and logs final statistics.
         """
-        if not self._running:
-            return
         logger.info("Stopping ClaimXResultProcessor")
         self._running = False
 
-        # Stop background tasks
         if self._stats_logger:
-            await self._stats_logger.stop()
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
 
         if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
@@ -235,19 +235,27 @@ class ClaimXResultProcessor:
                 await self._flush_task
 
         # Flush any pending batch
-        async with self._batch_lock:
-            if self._batch:
-                logger.info(
-                    "Flushing pending batch on shutdown",
-                    extra={"batch_size": len(self._batch)},
-                )
-                await self._flush_batch()
+        try:
+            async with self._batch_lock:
+                if self._batch:
+                    logger.info(
+                        "Flushing pending batch on shutdown",
+                        extra={"batch_size": len(self._batch)},
+                    )
+                    await self._flush_batch()
+        except Exception as e:
+            logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
 
-        # Stop consumer
         if self.consumer:
-            await self.consumer.stop()
+            try:
+                await self.consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
+            except Exception as e:
+                logger.error("Error stopping consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
 
-        # Stop health check server
         await self.health_server.stop()
 
         logger.info(

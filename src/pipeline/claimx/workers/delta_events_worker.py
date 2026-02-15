@@ -183,11 +183,19 @@ class ClaimXDeltaEventsWorker:
 
         # Close resources from a previous failed start attempt to prevent leak.
         if self.consumer:
-            await self.consumer.stop()
-            self.consumer = None
+            try:
+                await self.consumer.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
         if self._stats_logger:
-            await self._stats_logger.stop()
-            self._stats_logger = None
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.warning("Error cleaning up stale stats logger", extra={"error": str(e)})
+            finally:
+                self._stats_logger = None
 
         # Start retry handler producers
         await self.retry_handler.start()
@@ -236,25 +244,44 @@ class ClaimXDeltaEventsWorker:
         self._running = False
 
         if self._stats_logger:
-            await self._stats_logger.stop()
-            self._stats_logger = None
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
+            finally:
+                self._stats_logger = None
 
         if self._batch_timer:
             self._batch_timer.cancel()
             self._batch_timer = None
 
-        async with self._batch_lock:
-            if self._batch:
-                logger.info("Flushing remaining batch on shutdown")
-                await self._flush_batch()
+        try:
+            async with self._batch_lock:
+                if self._batch:
+                    logger.info("Flushing remaining batch on shutdown")
+                    await self._flush_batch()
+        except Exception as e:
+            logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
 
         if self.consumer:
-            await self.consumer.stop()
-            self.consumer = None
+            try:
+                await self.consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
+            except Exception as e:
+                logger.error("Error stopping consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
 
         if self.retry_handler:
-            await self.retry_handler.stop()
-            self.retry_handler = None
+            try:
+                await self.retry_handler.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping retry handler")
+            except Exception as e:
+                logger.error("Error stopping retry handler", extra={"error": str(e)})
+            finally:
+                self.retry_handler = None
 
         await self.health_server.stop()
 

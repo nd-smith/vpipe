@@ -279,16 +279,40 @@ class XACTEnrichmentWorker:
         self._running = False
 
         if self._stats_logger:
-            await self._stats_logger.stop()
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
 
         if self.consumer:
-            await self.consumer.stop()
+            try:
+                await self.consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
+            except Exception as e:
+                logger.error("Error stopping consumer", extra={"error": str(e)})
+            finally:
+                self.consumer = None
 
         if self.retry_handler:
-            await self.retry_handler.stop()
+            try:
+                await self.retry_handler.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping retry handler")
+            except Exception as e:
+                logger.error("Error stopping retry handler", extra={"error": str(e)})
+            finally:
+                self.retry_handler = None
 
         if self.producer:
-            await self.producer.stop()
+            try:
+                await self.producer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping producer")
+            except Exception as e:
+                logger.error("Error stopping producer", extra={"error": str(e)})
+            finally:
+                self.producer = None
 
         await self.health_server.stop()
 

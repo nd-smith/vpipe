@@ -361,31 +361,43 @@ class ClaimXUploadWorker:
         self._running = False
 
         if self._stats_logger:
-            await self._stats_logger.stop()
+            try:
+                await self._stats_logger.stop()
+            except Exception as e:
+                logger.error("Error stopping stats logger", extra={"error": str(e)})
 
-        await self._stale_cleaner.stop()
+        try:
+            await self._stale_cleaner.stop()
+        except Exception as e:
+            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
 
         # Signal shutdown
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        await self._wait_for_in_flight(timeout=30.0)
+        try:
+            await self._wait_for_in_flight(timeout=30.0)
+        except asyncio.CancelledError:
+            logger.warning("Interrupted while waiting for in-flight uploads")
 
         # Stop consumer
         if self._consumer is not None:
             try:
                 await self._consumer.stop()
+            except asyncio.CancelledError:
+                logger.warning("Cancelled while stopping consumer")
             except Exception as e:
-                logger.error(
-                    "Error stopping consumer",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
+                logger.error("Error stopping consumer", extra={"error": str(e)})
             finally:
                 self._consumer = None
 
         # Stop producer
-        await self.producer.stop()
+        try:
+            await self.producer.stop()
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while stopping producer")
+        except Exception as e:
+            logger.error("Error stopping producer", extra={"error": str(e)})
 
         # Stop health check server
         await self.health_server.stop()
