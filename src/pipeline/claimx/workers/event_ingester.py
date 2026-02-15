@@ -516,6 +516,15 @@ class ClaimXEventIngesterWorker:
         for event in events:
             self._records_processed += 1
 
+            logger.info(
+                "Event ingested",
+                extra={
+                    "trace_id": event.trace_id,
+                    "project_id": event.project_id,
+                    "event_type": event.event_type,
+                },
+            )
+
             enrichment_task = ClaimXEnrichmentTask(
                 trace_id=event.trace_id,
                 event_type=event.event_type,
