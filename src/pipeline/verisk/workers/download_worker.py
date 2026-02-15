@@ -39,7 +39,6 @@ from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from core.types import ErrorCategory
 from pipeline.common.decorators import set_log_context_from_message
-from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_message_consumed,
@@ -48,6 +47,7 @@ from pipeline.common.metrics import (
     update_connection_status,
     update_disk_usage,
 )
+from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
@@ -55,7 +55,11 @@ from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
-from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS, CONCURRENCY, BATCH_SIZE
+from pipeline.verisk.workers.worker_defaults import (
+    BATCH_SIZE,
+    CONCURRENCY,
+    CYCLE_LOG_INTERVAL_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 

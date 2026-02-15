@@ -388,7 +388,6 @@ class TestMessageConsumerErrorRouting:
 
     def _classify_as(self, category):
         """Return a patch context manager that makes TransportErrorClassifier return the given category."""
-        from core.types import ErrorCategory
 
         mock_classified = Mock()
         mock_classified.category = category
@@ -491,7 +490,6 @@ class TestMessageConsumerErrorRouting:
         with patch.object(
             consumer, "_handle_processing_error", new_callable=AsyncMock, side_effect=RuntimeError("classifier crash")
         ):
-            record = _make_consumer_record()
             # _process_message should NOT raise — the outer except catches it
             # Actually, looking at _process_message: the except calls _handle_processing_error.
             # If _handle_processing_error itself raises, it propagates out of _process_message.

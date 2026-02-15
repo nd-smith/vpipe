@@ -1,7 +1,7 @@
 """Logging utility functions."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # Reserved LogRecord attribute names that cannot be used in extra dict
@@ -150,8 +150,8 @@ def format_cycle_output(
     # Build offset suffix if both timestamps are provided
     offset_suffix = ""
     if offset_start_ts is not None and offset_end_ts is not None:
-        start = datetime.fromtimestamp(offset_start_ts / 1000, tz=timezone.utc)
-        end = datetime.fromtimestamp(offset_end_ts / 1000, tz=timezone.utc)
+        start = datetime.fromtimestamp(offset_start_ts / 1000, tz=UTC)
+        end = datetime.fromtimestamp(offset_end_ts / 1000, tz=UTC)
         offset_suffix = f" | offsets: {start:%Y-%m-%d %H:%M:%SZ} .. {end:%Y-%m-%d %H:%M:%SZ}"
 
     # If deltas are provided, format with delta and rate

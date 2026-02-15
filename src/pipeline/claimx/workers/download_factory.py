@@ -63,6 +63,7 @@ class DownloadTaskFactory:
             extra={
                 "media_rows": len(media_rows),
                 "download_tasks": len(download_tasks),
+                "media_ids": [task.media_id for task in download_tasks],
             },
         )
 

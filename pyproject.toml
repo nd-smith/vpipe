@@ -75,7 +75,6 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-# pytest configuration (migrated from pytest.ini)
 minversion = "7.0"
 pythonpath = ["src"]
 testpaths = ["tests"]
@@ -88,6 +87,10 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
+    "--junitxml=test-results/junit.xml",
+    "--cov=src",
+    "--cov-report=xml:test-results/coverage.xml",
+    "--cov-report=term",
 ]
 markers = [
     "asyncio: Async tests using pytest-asyncio",

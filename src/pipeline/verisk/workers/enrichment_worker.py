@@ -434,6 +434,7 @@ class XACTEnrichmentWorker:
         download_tasks = []
 
         for attachment_url in task.attachments:
+            media_id = str(uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}"))
             try:
                 # Validate attachment URL
                 try:
@@ -445,6 +446,7 @@ class XACTEnrichmentWorker:
                     logger.warning(
                         "Invalid attachment URL, skipping",
                         extra={
+                            "media_id": media_id,
                             "trace_id": task.trace_id,
                             "url": sanitize_url(attachment_url),
                             "validation_error": str(e),
@@ -459,11 +461,6 @@ class XACTEnrichmentWorker:
                     assignment_id=task.assignment_id,
                     download_url=attachment_url,
                     estimate_version=task.estimate_version,
-                )
-
-                # Generate deterministic media_id
-                media_id = str(
-                    uuid.uuid5(self.MEDIA_ID_NAMESPACE, f"{task.trace_id}:{attachment_url}")
                 )
 
                 # Create download task
@@ -487,6 +484,7 @@ class XACTEnrichmentWorker:
                 logger.error(
                     "Failed to create download task for attachment",
                     extra={
+                        "media_id": media_id,
                         "trace_id": task.trace_id,
                         "url": sanitize_url(attachment_url),
                         "error": str(e),
@@ -499,6 +497,7 @@ class XACTEnrichmentWorker:
             "Created download tasks from attachments",
             extra={
                 "trace_id": task.trace_id,
+                "media_ids": [download_task.media_id for download_task in download_tasks],
                 "attachments": len(task.attachments),
                 "download_tasks": len(download_tasks),
             },

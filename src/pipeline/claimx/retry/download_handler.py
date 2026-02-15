@@ -13,7 +13,6 @@ from config.config import MessageConfig
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.handlers.utils import (
-    LOG_ERROR_TRUNCATE_LONG,
     LOG_ERROR_TRUNCATE_SHORT,
     LOG_VALUE_TRUNCATE,
 )

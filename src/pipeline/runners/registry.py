@@ -11,7 +11,6 @@ from typing import Any
 
 from pipeline.runners import claimx_runners, plugin_runners, verisk_runners
 
-
 # Worker registry mapping worker names to their runner functions and config builders
 WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     # XACT workers

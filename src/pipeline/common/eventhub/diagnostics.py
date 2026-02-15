@@ -13,7 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def mask_connection_string(conn_str: str) -> str:    
+def mask_connection_string(conn_str: str) -> str:
     if not conn_str:
         return ""
 

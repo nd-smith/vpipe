@@ -28,12 +28,11 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from config.config import MessageConfig
+from config.config import MessageConfig, expand_env_var_string
 from core.logging import log_worker_startup, setup_logging
 from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
-from config.config import expand_env_var_string
 from pipeline.plugins.shared.connections import (
     AuthType,
     ConnectionConfig,

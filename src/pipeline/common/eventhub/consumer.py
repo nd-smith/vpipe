@@ -28,9 +28,9 @@ from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
 from core.errors.exceptions import ErrorCategory
-from core.security.ssl_utils import get_ca_bundle_kwargs
 from core.errors.transport_classifier import TransportErrorClassifier
 from core.logging import MessageLogContext
+from core.security.ssl_utils import get_ca_bundle_kwargs
 from core.utils import generate_worker_id
 from pipeline.common.eventhub.diagnostics import (
     log_connection_attempt_details,

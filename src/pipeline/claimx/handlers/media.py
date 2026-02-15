@@ -151,6 +151,7 @@ class MediaHandler(EventHandler):
                     "handler_name": MediaHandler.HANDLER_NAME,
                     "project_id": project_id,
                     "media_count": len(media_ids),
+                    "media_ids": media_ids,
                     "fetch_strategy": fetch_strategy,
                     "threshold": BATCH_THRESHOLD,
                 },
@@ -221,6 +222,7 @@ class MediaHandler(EventHandler):
                 extra={
                     "handler_name": MediaHandler.HANDLER_NAME,
                     "project_id": project_id,
+                    "media_ids": media_ids,
                     "events_count": len(events),
                     "media_count": total_media_rows,
                     "succeeded": sum(1 for r in results if r.success),
@@ -238,6 +240,7 @@ class MediaHandler(EventHandler):
                 extra={
                     "handler_name": MediaHandler.HANDLER_NAME,
                     "project_id": project_id,
+                    "media_ids": media_ids,
                     "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
                     "error_category": e.category.value if e.category else None,
                     "http_status": e.status_code,
@@ -264,6 +267,7 @@ class MediaHandler(EventHandler):
                 extra={
                     "handler_name": MediaHandler.HANDLER_NAME,
                     "project_id": project_id,
+                    "media_ids": media_ids,
                 },
                 exc_info=True,
             )

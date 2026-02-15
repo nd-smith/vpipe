@@ -24,7 +24,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from config.config import MessageConfig
-from pipeline.claimx.schemas.events import ClaimXEventMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.claimx.workers.event_ingester import ClaimXEventIngesterWorker
 from pipeline.common.types import PipelineMessage

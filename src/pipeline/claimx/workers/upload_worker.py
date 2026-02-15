@@ -22,7 +22,6 @@ from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.claimx.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 from pipeline.common.decorators import set_log_context_from_message
-from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -32,6 +31,7 @@ from pipeline.common.metrics import (
     update_connection_status,
     update_disk_usage,
 )
+from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.storage import OneLakeClient
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_batch_consumer, create_producer

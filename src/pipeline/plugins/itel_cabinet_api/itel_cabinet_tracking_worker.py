@@ -34,12 +34,12 @@ from core.logging import log_worker_startup, setup_logging
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.common.health import HealthCheckServer
-from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_message_consumed,
     record_processing_error,
 )
+from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.config import load_connections, load_yaml_config

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 
 @dataclass
-class OAuth2Token:    
+class OAuth2Token:
     access_token: str
     token_type: str
     expires_at: datetime
@@ -13,7 +13,7 @@ class OAuth2Token:
     refresh_token: str | None = None
 
     @classmethod
-    def from_response(cls, response: dict, expires_in: int | None = None) -> "OAuth2Token":        
+    def from_response(cls, response: dict, expires_in: int | None = None) -> "OAuth2Token":
         expires_in = expires_in or response.get("expires_in", 3600)
         expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
 

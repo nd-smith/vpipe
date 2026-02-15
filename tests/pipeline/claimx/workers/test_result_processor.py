@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from pydantic import ValidationError
 
 from config.config import MessageConfig

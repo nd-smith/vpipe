@@ -27,7 +27,6 @@ from pipeline.runners.claimx_runners import (
     run_claimx_upload_worker,
 )
 
-
 # ---------------------------------------------------------------------------
 # run_claimx_event_ingester
 # ---------------------------------------------------------------------------

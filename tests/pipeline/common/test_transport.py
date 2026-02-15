@@ -1,7 +1,6 @@
 """Tests for transport layer abstraction."""
 
 import datetime
-
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest

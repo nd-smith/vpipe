@@ -26,7 +26,10 @@ from requests.adapters import HTTPAdapter
 
 from core.security.ssl_utils import get_ca_bundle_kwargs
 from pipeline.common.auth import clear_token_cache, get_auth
-from pipeline.common.metrics import onelake_bytes_transferred_counter, onelake_operation_duration_seconds
+from pipeline.common.metrics import (
+    onelake_bytes_transferred_counter,
+    onelake_operation_duration_seconds,
+)
 from pipeline.common.retry import RetryConfig, with_retry
 
 logger = logging.getLogger(__name__)

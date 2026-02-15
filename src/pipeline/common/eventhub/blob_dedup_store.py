@@ -10,7 +10,6 @@ Example:
     eventhub-dedup-cache/verisk-event-ingester/trace_abc123.json
 """
 
-import asyncio
 import json
 import logging
 import time

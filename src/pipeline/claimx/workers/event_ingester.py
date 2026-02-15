@@ -29,7 +29,11 @@ from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
 )
-from pipeline.common.transport import create_batch_consumer, create_producer, get_source_connection_string
+from pipeline.common.transport import (
+    create_batch_consumer,
+    create_producer,
+    get_source_connection_string,
+)
 from pipeline.common.types import PipelineMessage
 
 logger = logging.getLogger(__name__)
@@ -497,7 +501,7 @@ class ClaimXEventIngesterWorker:
         )
         duplicates = {eid for eid, is_dup in results if is_dup}
 
-        for eid in duplicates:
+        for _eid in duplicates:
             self._records_deduplicated += 1
 
         return duplicates

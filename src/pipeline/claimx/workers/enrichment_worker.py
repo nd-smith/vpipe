@@ -14,8 +14,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from config.config import MessageConfig
-from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.context import set_log_context
+from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import (
     detect_log_output_mode,
     log_startup_banner,

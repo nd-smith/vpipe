@@ -41,7 +41,11 @@ from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_processing_error,
 )
-from pipeline.common.transport import create_batch_consumer, create_producer, get_source_connection_string
+from pipeline.common.transport import (
+    create_batch_consumer,
+    create_producer,
+    get_source_connection_string,
+)
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask

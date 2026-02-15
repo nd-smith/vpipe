@@ -29,7 +29,6 @@ from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.common.decorators import set_log_context_from_message
-from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
@@ -39,13 +38,18 @@ from pipeline.common.metrics import (
     update_connection_status,
     update_disk_usage,
 )
+from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.storage import OneLakeClient
 from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS, CONCURRENCY, BATCH_SIZE
+from pipeline.verisk.workers.worker_defaults import (
+    BATCH_SIZE,
+    CONCURRENCY,
+    CYCLE_LOG_INTERVAL_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 

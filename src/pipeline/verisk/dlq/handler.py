@@ -147,6 +147,7 @@ class DLQHandler:
                 "DLQ message received for review",
                 extra={
                     "trace_id": dlq_msg.trace_id,
+                    "media_id": dlq_msg.original_task.media_id,
                     "attachment_url": dlq_msg.attachment_url,
                     "retry_count": dlq_msg.retry_count,
                     "error_category": dlq_msg.error_category,
@@ -237,6 +238,7 @@ class DLQHandler:
             "Replaying DLQ message to pending topic",
             extra={
                 "trace_id": dlq_msg.trace_id,
+                "media_id": dlq_msg.original_task.media_id,
                 "attachment_url": dlq_msg.attachment_url,
                 "original_retry_count": dlq_msg.retry_count,
                 "pending_topic": self._pending_topic,
@@ -259,6 +261,7 @@ class DLQHandler:
             "DLQ message replayed successfully",
             extra={
                 "trace_id": dlq_msg.trace_id,
+                "media_id": dlq_msg.original_task.media_id,
                 "attachment_url": dlq_msg.attachment_url,
                 "pending_topic": self._pending_topic,
             },
@@ -287,6 +290,7 @@ class DLQHandler:
             "Acknowledging DLQ message",
             extra={
                 "trace_id": dlq_msg.trace_id,
+                "media_id": dlq_msg.original_task.media_id,
                 "attachment_url": dlq_msg.attachment_url,
                 "topic": record.topic,
                 "partition": record.partition,
@@ -301,6 +305,7 @@ class DLQHandler:
             "DLQ message acknowledged",
             extra={
                 "trace_id": dlq_msg.trace_id,
+                "media_id": dlq_msg.original_task.media_id,
                 "topic": record.topic,
                 "partition": record.partition,
                 "offset": record.offset,

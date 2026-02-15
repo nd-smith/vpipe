@@ -37,20 +37,19 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from config.config import MessageConfig
+from config.config import MessageConfig, expand_env_var_string
 from core.logging import log_worker_startup, setup_logging
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from pipeline.common.health import HealthCheckServer
-from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_message_consumed,
     record_processing_error,
 )
+from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
-from config.config import expand_env_var_string
 from pipeline.plugins.shared.config import load_connections, load_yaml_config
 from pipeline.plugins.shared.connections import (
     ConnectionManager,
@@ -600,7 +599,7 @@ class ItelCabinetApiWorker:
         # Verify OAuth2 credentials by fetching a token
         connection_name = self.api_config.get("connection")
         if connection_name and self.connections._oauth2_manager:
-            token = await self.connections._oauth2_manager.get_token(connection_name)
+            await self.connections._oauth2_manager.get_token(connection_name)
             token_info = self.connections._oauth2_manager.get_cached_token_info(connection_name)
             token_path = output_dir / f"token_{assignment_id}_{timestamp}.json"
             with open(token_path, "w") as f:

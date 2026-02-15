@@ -10,10 +10,6 @@ from datetime import UTC, datetime, timedelta
 
 from config.config import MessageConfig
 from core.types import ErrorCategory
-from pipeline.claimx.handlers.utils import (
-    LOG_ERROR_TRUNCATE_LONG,
-    LOG_ERROR_TRUNCATE_SHORT,
-)
 from pipeline.claimx.schemas.results import FailedEnrichmentMessage
 from pipeline.claimx.schemas.tasks import ClaimXEnrichmentTask
 from pipeline.common.retry.retry_utils import (

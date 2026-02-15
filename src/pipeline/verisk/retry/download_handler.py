@@ -149,6 +149,7 @@ class RetryHandler:
         logger.debug(
             "Handling task failure",
             extra={
+                "media_id": task.media_id,
                 "trace_id": task.trace_id,
                 "retry_count": retry_count,
                 "error_category": error_category.value,
@@ -160,12 +161,26 @@ class RetryHandler:
 
         if send_to_dlq:
             action = "dlq_permanent" if dlq_reason == "permanent" else "dlq_exhausted"
-            log_retry_decision(action, task.trace_id, retry_count, error_category, error)
+            log_retry_decision(
+                action,
+                task.media_id,
+                retry_count,
+                error_category,
+                error,
+                extra_context={"trace_id": task.trace_id},
+            )
             record_dlq_message(domain=self.domain, reason=dlq_reason)
             await self._send_to_dlq(task, error, error_category)
             return
 
-        log_retry_decision("retry", task.trace_id, retry_count, error_category, error)
+        log_retry_decision(
+            "retry",
+            task.media_id,
+            retry_count,
+            error_category,
+            error,
+            extra_context={"trace_id": task.trace_id},
+        )
         await self._send_to_retry_topic(task, error, error_category)
 
     async def _send_to_retry_topic(
@@ -196,6 +211,7 @@ class RetryHandler:
         logger.info(
             "Sending task to retry topic",
             extra={
+                "media_id": task.media_id,
                 "trace_id": task.trace_id,
                 "retry_topic": retry_topic,
                 "retry_count": updated_task.retry_count,
@@ -223,6 +239,7 @@ class RetryHandler:
         logger.debug(
             "Task sent to retry topic successfully",
             extra={
+                "media_id": task.media_id,
                 "trace_id": task.trace_id,
                 "retry_topic": retry_topic,
                 "target_topic": target_topic,
@@ -249,6 +266,7 @@ class RetryHandler:
         logger.warning(
             "Sending task to DLQ",
             extra={
+                "media_id": task.media_id,
                 "trace_id": task.trace_id,
                 "error_category": error_category.value,
                 "retry_count": task.retry_count,
@@ -265,6 +283,7 @@ class RetryHandler:
         logger.debug(
             "Task sent to DLQ successfully",
             extra={
+                "media_id": task.media_id,
                 "trace_id": task.trace_id,
                 "dlq_topic": self._dlq_topic,
             },
