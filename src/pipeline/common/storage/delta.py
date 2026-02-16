@@ -558,23 +558,21 @@ class DeltaTableWriter:
 
     def _prepare_dataframe_for_append(
         self, df: pl.DataFrame, opts: dict[str, str]
-    ) -> tuple[pl.DataFrame, list[str] | None, int | None]:
-        """Align schema, resolve partitions, and capture version before append.
+    ) -> tuple[pl.DataFrame, list[str] | None]:
+        """Align schema, resolve partitions for append.
 
         Uses a single cached DeltaTable instance for all metadata reads.
 
-        Returns (prepared_df, partition_by, version_before).
+        Returns (prepared_df, partition_by).
         """
         dt = self._load_table(opts)
 
         if dt is not None:
-            # Table exists — align schema and read partitions/version
+            # Table exists — align schema and read partitions
             df = self._align_schema_with_target(df, opts, dt=dt)
 
             partition_by = None
-            version_before = None
             try:
-                version_before = dt.version()
                 existing_partitions = dt.metadata().partition_columns
                 partition_by = existing_partitions if existing_partitions else None
             except Exception:
@@ -583,74 +581,8 @@ class DeltaTableWriter:
             # New table — cast nulls and use configured partitioning
             df = self._cast_null_columns(df)
             partition_by = [self.partition_column] if self.partition_column else None
-            version_before = None
 
-        return df, partition_by, version_before
-
-    def _verify_append_version(
-        self,
-        opts: dict[str, str],
-        version_before: int | None,
-        batch_id: str | None,
-    ) -> None:
-        """Check that the table version incremented after an append write."""
-        try:
-            # Invalidate cache so we read fresh metadata post-write
-            self._invalidate_cached_table()
-            dt = self._load_table(opts)
-            if dt is None:
-                logger.error(
-                    "Table not found during post-write verification",
-                    extra={"batch_id": batch_id, "table_path": self.table_path},
-                )
-                return
-            version_after = dt.version()
-            metadata = dt.metadata()
-
-            # Count data files added by the latest commit
-            files_added = 0
-            try:
-                last_action = dt.history(limit=1)
-                if last_action:
-                    op_metrics = last_action[0].get("operationMetrics", {})
-                    files_added = int(op_metrics.get("numFiles", 0) or op_metrics.get("numAddedFiles", 0))
-            except Exception:
-                pass
-
-            version_incremented = version_before is None or version_after > version_before
-            logger.info(
-                "Delta table verified after write",
-                extra={
-                    "batch_id": batch_id,
-                    "table_path": self.table_path,
-                    "version_before": version_before,
-                    "version_after": version_after,
-                    "version_incremented": version_incremented,
-                    "files_added": files_added,
-                    "partition_columns": metadata.partition_columns,
-                },
-            )
-
-            if not version_incremented:
-                logger.error(
-                    "Delta write did NOT increment table version — commit may have been lost",
-                    extra={
-                        "batch_id": batch_id,
-                        "table_path": self.table_path,
-                        "version_before": version_before,
-                        "version_after": version_after,
-                    },
-                )
-        except Exception as e:
-            logger.error(
-                "Failed to verify Delta table after write",
-                extra={
-                    "batch_id": batch_id,
-                    "table_path": self.table_path,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
+        return df, partition_by
 
     @with_retry(config=DELTA_RETRY_CONFIG, on_auth_error=_on_auth_error)
     def append(
@@ -691,14 +623,13 @@ class DeltaTableWriter:
 
         # Invalidate cached table so we read fresh metadata for this write
         self._invalidate_cached_table()
-        df, partition_by, version_before = self._prepare_dataframe_for_append(df, opts)
+        df, partition_by = self._prepare_dataframe_for_append(df, opts)
 
         logger.info(
             "Delta write details",
             extra={
                 "batch_id": batch_id,
                 "table_path": self.table_path,
-                "table_existed_before": version_before is not None,
                 "partition_by": partition_by,
                 "partition_column_config": self.partition_column,
                 "df_columns": df.columns,
@@ -726,18 +657,6 @@ class DeltaTableWriter:
                 "rows_written": len(df),
             },
         )
-
-        # Fire-and-forget version verification in a background thread.
-        # write_deltalake raises on failure, so verification is a safety net —
-        # no need to block the write path waiting for it.
-        import threading
-
-        threading.Thread(
-            target=self._verify_append_version,
-            args=(opts, version_before, batch_id),
-            daemon=True,
-            name=f"delta-verify-{batch_id or 'unknown'}",
-        ).start()
 
         return len(df)
 
