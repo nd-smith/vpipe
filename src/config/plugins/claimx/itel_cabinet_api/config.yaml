@@ -45,7 +45,7 @@ config:
     #   We need complete lifecycle tracking, so we capture every status change
     #   rather than just specific events like assignment or completion.
     # ==========================================================================
-    27019:
+    32513:
       name: iTel Cabinet Repair Form Task
       description: Track complete lifecycle of iTel cabinet repair tasks for operational visibility and analysis
 
