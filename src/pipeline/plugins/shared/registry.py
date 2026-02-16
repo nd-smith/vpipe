@@ -6,7 +6,7 @@ Manages plugin registration, lookup, and execution.
 
 import logging
 from collections import defaultdict
-from typing import Optional
+from typing import Callable, Optional
 
 from pipeline.plugins.shared.base import (
     ActionType,
@@ -275,18 +275,31 @@ class ActionExecutor:
     Override or extend to add custom action implementations.
     """
 
-    def __init__(self, producer=None, http_client=None, connection_manager=None):
+    def __init__(
+        self,
+        producer=None,
+        http_client=None,
+        connection_manager=None,
+        producer_factory: Callable[[str], object] | None = None,
+    ):
         """
         Initialize action executor.
 
         Args:
-            producer: Kafka producer for publish actions (optional)
+            producer: Default producer for publish actions (used when no factory provided,
+                      or as fallback for Kafka where a single producer handles all topics)
             http_client: HTTP client for webhook actions (optional, legacy)
             connection_manager: ConnectionManager for named connection webhooks (optional)
+            producer_factory: Callable that creates a producer for a given topic name.
+                              Required for Event Hub where each topic needs its own connection.
+                              Producers are cached and reused for subsequent publishes to the
+                              same topic.
         """
         self.producer = producer
         self.http_client = http_client
         self.connection_manager = connection_manager
+        self._producer_factory = producer_factory
+        self._producer_cache: dict[str, object] = {}
 
     async def execute(self, action: PluginAction, context: PluginContext) -> None:
         """
@@ -313,12 +326,43 @@ class ActionExecutor:
         elif action.action_type == ActionType.FILTER:
             pass  # Handled by orchestrator via terminate_pipeline
 
+    async def _get_producer_for_topic(self, topic: str):
+        """Get or create a producer for the given topic.
+
+        When a producer_factory is configured, producers are created per-topic
+        and cached (required for Event Hub where each entity needs its own connection).
+        Falls back to the default producer (sufficient for Kafka).
+        """
+        if self._producer_factory:
+            if topic not in self._producer_cache:
+                producer = self._producer_factory(topic)
+                await producer.start()
+                self._producer_cache[topic] = producer
+                logger.info(
+                    "Created plugin producer for topic",
+                    extra={"topic": topic},
+                )
+            return self._producer_cache[topic]
+        return self.producer
+
+    async def close(self) -> None:
+        """Stop all cached producers. Call during worker shutdown."""
+        for topic, producer in self._producer_cache.items():
+            try:
+                await producer.stop()
+            except Exception as e:
+                logger.error(
+                    "Error stopping plugin producer",
+                    extra={"topic": topic, "error": str(e)},
+                )
+        self._producer_cache.clear()
+
     async def _publish_to_topic(
         self,
         params: dict,
         context: PluginContext,
     ) -> None:
-        """Publish message to Kafka topic."""
+        """Publish message to a Kafka/Event Hub topic."""
         topic = params["topic"]
         payload = params.get("payload", {})
         headers = {**context.headers, **params.get("headers", {})}
@@ -335,8 +379,9 @@ class ActionExecutor:
             },
         )
 
-        if self.producer:
-            await self.producer.send(
+        producer = await self._get_producer_for_topic(topic)
+        if producer:
+            await producer.send(
                 value=payload,
                 key=key,
                 headers=headers,

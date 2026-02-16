@@ -370,7 +370,14 @@ class ClaimXEnrichmentWorker:
                 exc_info=True,
             )
 
-        self.action_executor = ActionExecutor(producer=self.producer)
+        self.action_executor = ActionExecutor(
+            producer_factory=lambda topic: create_producer(
+                config=self.producer_config,
+                domain=self.domain,
+                worker_name="enrichment_worker",
+                topic=topic,
+            ),
+        )
         self.plugin_orchestrator = PluginOrchestrator(
             registry=self.plugin_registry,
             action_executor=self.action_executor,
@@ -462,6 +469,12 @@ class ClaimXEnrichmentWorker:
                 logger.error("Error stopping download producer", extra={"error": str(e)})
             finally:
                 self.download_producer = None
+
+        if self.action_executor:
+            try:
+                await self.action_executor.close()
+            except Exception as e:
+                logger.error("Error closing action executor", extra={"error": str(e)})
 
         if self.api_client:
             try:

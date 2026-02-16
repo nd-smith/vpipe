@@ -375,6 +375,82 @@ class TestActionExecutor:
         # Should not raise
         await executor.execute(action, ctx)
 
+    async def test_publish_to_topic_with_factory_creates_producer_per_topic(self):
+        producer_a = AsyncMock()
+        producer_b = AsyncMock()
+        producers = {"topic-a": producer_a, "topic-b": producer_b}
+        factory = MagicMock(side_effect=lambda topic: producers[topic])
+
+        executor = ActionExecutor(producer_factory=factory)
+
+        action_a = PluginAction(
+            action_type=ActionType.PUBLISH_TO_TOPIC,
+            params={"topic": "topic-a", "payload": {"a": 1}},
+        )
+        action_b = PluginAction(
+            action_type=ActionType.PUBLISH_TO_TOPIC,
+            params={"topic": "topic-b", "payload": {"b": 2}},
+        )
+        ctx = _make_context()
+
+        await executor.execute(action_a, ctx)
+        await executor.execute(action_b, ctx)
+
+        # Factory called once per unique topic
+        assert factory.call_count == 2
+        factory.assert_any_call("topic-a")
+        factory.assert_any_call("topic-b")
+
+        # Each producer started and sent to
+        producer_a.start.assert_awaited_once()
+        producer_a.send.assert_awaited_once()
+        assert producer_a.send.call_args.kwargs["value"] == {"a": 1}
+
+        producer_b.start.assert_awaited_once()
+        producer_b.send.assert_awaited_once()
+        assert producer_b.send.call_args.kwargs["value"] == {"b": 2}
+
+    async def test_publish_to_topic_factory_caches_producers(self):
+        producer = AsyncMock()
+        factory = MagicMock(return_value=producer)
+
+        executor = ActionExecutor(producer_factory=factory)
+        action = PluginAction(
+            action_type=ActionType.PUBLISH_TO_TOPIC,
+            params={"topic": "same-topic", "payload": {}},
+        )
+        ctx = _make_context()
+
+        await executor.execute(action, ctx)
+        await executor.execute(action, ctx)
+
+        # Factory called only once, producer reused
+        factory.assert_called_once_with("same-topic")
+        producer.start.assert_awaited_once()
+        assert producer.send.await_count == 2
+
+    async def test_close_stops_cached_producers(self):
+        producer_a = AsyncMock()
+        producer_b = AsyncMock()
+        producers = {"a": producer_a, "b": producer_b}
+        factory = MagicMock(side_effect=lambda t: producers[t])
+
+        executor = ActionExecutor(producer_factory=factory)
+        ctx = _make_context()
+
+        for topic in ("a", "b"):
+            action = PluginAction(
+                action_type=ActionType.PUBLISH_TO_TOPIC,
+                params={"topic": topic, "payload": {}},
+            )
+            await executor.execute(action, ctx)
+
+        await executor.close()
+
+        producer_a.stop.assert_awaited_once()
+        producer_b.stop.assert_awaited_once()
+        assert executor._producer_cache == {}
+
     async def test_http_webhook_named_connection(self):
         conn_mgr = AsyncMock()
         response = AsyncMock()

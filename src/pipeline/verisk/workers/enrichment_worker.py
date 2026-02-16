@@ -221,8 +221,12 @@ class XACTEnrichmentWorker:
             )
 
         self.action_executor = ActionExecutor(
-            producer=self.producer,
-            http_client=None,
+            producer_factory=lambda topic: create_producer(
+                config=self.producer_config,
+                domain=self.domain,
+                worker_name="enrichment_worker",
+                topic=topic,
+            ),
         )
         self.plugin_orchestrator = PluginOrchestrator(
             registry=self.plugin_registry,
@@ -313,6 +317,12 @@ class XACTEnrichmentWorker:
                 logger.error("Error stopping producer", extra={"error": str(e)})
             finally:
                 self.producer = None
+
+        if self.action_executor:
+            try:
+                await self.action_executor.close()
+            except Exception as e:
+                logger.error("Error closing action executor", extra={"error": str(e)})
 
         try:
             await self.health_server.stop()
