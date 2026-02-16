@@ -8,6 +8,7 @@ Integrated from parse.py with improved column mapping and value extraction.
 import json
 import logging
 import re
+import types
 from collections import defaultdict
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import UTC, datetime
@@ -59,7 +60,10 @@ def from_dict(data_class, data):
                 if origin is list:
                     item_type = args[0]
                     kwargs[snake_key] = [from_dict(item_type, item) for item in value]
-                elif origin is Union and type(None) in args:
+                elif (
+                    origin is Union
+                    or isinstance(field_type, types.UnionType)
+                ) and type(None) in args:
                     non_none_type = next(t for t in args if t is not type(None))
                     kwargs[snake_key] = from_dict(non_none_type, value)
                 else:
