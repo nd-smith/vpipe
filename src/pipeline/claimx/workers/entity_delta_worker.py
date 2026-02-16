@@ -264,7 +264,10 @@ class ClaimXEntityDeltaWorker:
             finally:
                 self.retry_handler = None
 
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
     async def commit(self) -> None:
         """Commit consumer offsets after successful batch processing."""

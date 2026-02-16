@@ -256,38 +256,55 @@ class DeltaEventsWorker:
         Flushes any pending batch, then gracefully shuts down consumer,
         committing any pending offsets.
         """
-        if not self._running:
-            return
         logger.info("Stopping DeltaEventsWorker")
         self._running = False
 
-        if self._stats_logger:
-            await self._stats_logger.stop()
+        try:
+            if self._stats_logger:
+                await self._stats_logger.stop()
+        except Exception as e:
+            logger.error("Error stopping stats logger", extra={"error": str(e)})
 
         # Cancel batch timer
-        if self._batch_timer and not self._batch_timer.done():
-            self._batch_timer.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._batch_timer
+        try:
+            if self._batch_timer and not self._batch_timer.done():
+                self._batch_timer.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._batch_timer
+        except Exception as e:
+            logger.error("Error cancelling batch timer", extra={"error": str(e)})
 
         # Flush any remaining events in the batch
-        if self._batch:
-            logger.info(
-                "Flushing remaining batch on shutdown",
-                extra={"batch_size": len(self._batch)},
-            )
-            await self._flush_batch()
+        try:
+            if self._batch:
+                logger.info(
+                    "Flushing remaining batch on shutdown",
+                    extra={"batch_size": len(self._batch)},
+                )
+                await self._flush_batch()
+        except Exception as e:
+            logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
 
         # Stop consumer
-        if self.consumer:
-            await self.consumer.stop()
+        try:
+            if self.consumer:
+                await self.consumer.stop()
+                self.consumer = None
+        except Exception as e:
+            logger.error("Error stopping consumer", extra={"error": str(e)})
 
         # Stop retry handler producers
-        if self.retry_handler:
-            await self.retry_handler.stop()
+        try:
+            if self.retry_handler:
+                await self.retry_handler.stop()
+        except Exception as e:
+            logger.error("Error stopping retry handler", extra={"error": str(e)})
 
         # Stop health check server
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         logger.info(
             "DeltaEventsWorker stopped successfully",

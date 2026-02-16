@@ -397,16 +397,25 @@ class PluginActionWorker:
         self.running = False
 
         # Flush any remaining batches
-        logger.info("Flushing remaining batches...")
-        await self._flush_batching_handlers()
+        try:
+            logger.info("Flushing remaining batches...")
+            await self._flush_batching_handlers()
+        except Exception as e:
+            logger.error("Error flushing batching handlers", extra={"error": str(e)})
 
         # Cleanup enrichment pipeline
-        if self.enrichment_pipeline:
-            await self.enrichment_pipeline.cleanup()
+        try:
+            if self.enrichment_pipeline:
+                await self.enrichment_pipeline.cleanup()
+        except Exception as e:
+            logger.error("Error cleaning up enrichment pipeline", extra={"error": str(e)})
 
         # Close consumer
-        if self.consumer:
-            await self.consumer.stop()
+        try:
+            if self.consumer:
+                await self.consumer.stop()
+        except Exception as e:
+            logger.error("Error stopping consumer", extra={"error": str(e)})
 
         logger.info(
             f"Worker '{self.config.name}' stopped. "

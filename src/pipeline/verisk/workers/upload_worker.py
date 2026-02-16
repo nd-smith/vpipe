@@ -362,24 +362,39 @@ class UploadWorker:
         self._running = False
 
         # Stop periodic stats logger
-        if self._stats_logger:
-            await self._stats_logger.stop()
+        try:
+            if self._stats_logger:
+                await self._stats_logger.stop()
+        except Exception as e:
+            logger.error("Error stopping stats logger", extra={"error": str(e)})
 
-        await self._stale_cleaner.stop()
+        try:
+            await self._stale_cleaner.stop()
+        except Exception as e:
+            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
 
         # Signal shutdown
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        await self._wait_for_in_flight(timeout=30.0)
+        try:
+            await self._wait_for_in_flight(timeout=30.0)
+        except Exception as e:
+            logger.error("Error waiting for in-flight uploads", extra={"error": str(e)})
 
         # Stop consumer
-        if self._consumer is not None:
-            await self._consumer.stop()
-            self._consumer = None
+        try:
+            if self._consumer is not None:
+                await self._consumer.stop()
+                self._consumer = None
+        except Exception as e:
+            logger.error("Error stopping consumer", extra={"error": str(e)})
 
         # Stop producer
-        await self.producer.stop()
+        try:
+            await self.producer.stop()
+        except Exception as e:
+            logger.error("Error stopping producer", extra={"error": str(e)})
 
         # Close all OneLake clients
         for domain, client in self.onelake_clients.items():
@@ -394,7 +409,10 @@ class UploadWorker:
         self.onelake_clients.clear()
 
         # Stop health check server
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         # Update metrics
         update_connection_status("consumer", connected=False)

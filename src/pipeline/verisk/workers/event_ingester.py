@@ -289,7 +289,10 @@ class EventIngesterWorker:
         except Exception as e:
             logger.error("Error closing dedup store", extra={"error": str(e)})
 
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         logger.info("EventIngesterWorker stopped successfully")
 

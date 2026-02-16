@@ -261,10 +261,6 @@ class UnifiedRetryScheduler:
 
     async def stop(self) -> None:
         """Stop the unified retry scheduler gracefully."""
-        if not self._running:
-            logger.debug("Scheduler not running or already stopped")
-            return
-
         logger.info(
             "Stopping UnifiedRetryScheduler",
             extra={
@@ -279,39 +275,63 @@ class UnifiedRetryScheduler:
         self._running = False
 
         # Stop stats logger
-        if self._stats_logger:
-            await self._stats_logger.stop()
-            self._stats_logger = None
+        try:
+            if self._stats_logger:
+                await self._stats_logger.stop()
+                self._stats_logger = None
+        except Exception as e:
+            logger.error("Error stopping stats logger", extra={"error": str(e)})
 
         # Stop background tasks
-        if self._processor_task:
-            self._processor_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._processor_task
+        try:
+            if self._processor_task:
+                self._processor_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._processor_task
+        except Exception as e:
+            logger.error("Error cancelling processor task", extra={"error": str(e)})
 
-        if self._persistence_task:
-            self._persistence_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._persistence_task
+        try:
+            if self._persistence_task:
+                self._persistence_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._persistence_task
+        except Exception as e:
+            logger.error("Error cancelling persistence task", extra={"error": str(e)})
 
         # Persist delayed queue before shutdown
-        self._delay_queue.persist_to_disk()
+        try:
+            self._delay_queue.persist_to_disk()
+        except Exception as e:
+            logger.error("Error persisting delay queue", extra={"error": str(e)})
 
-        if self._consumer:
-            await self._consumer.stop()
-            self._consumer = None
+        try:
+            if self._consumer:
+                await self._consumer.stop()
+                self._consumer = None
+        except Exception as e:
+            logger.error("Error stopping consumer", extra={"error": str(e)})
 
         # Stop all producers in the pool
-        for producer in self._producer_pool.values():
-            await producer.stop()
+        for topic, producer in list(self._producer_pool.items()):
+            try:
+                await producer.stop()
+            except Exception as e:
+                logger.error("Error stopping producer", extra={"error": str(e), "topic": topic})
         self._producer_pool.clear()
 
         # Stop DLQ producer
-        if self._dlq_producer:
-            await self._dlq_producer.stop()
-            self._dlq_producer = None
+        try:
+            if self._dlq_producer:
+                await self._dlq_producer.stop()
+                self._dlq_producer = None
+        except Exception as e:
+            logger.error("Error stopping DLQ producer", extra={"error": str(e)})
 
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         logger.info("UnifiedRetryScheduler stopped successfully")
 

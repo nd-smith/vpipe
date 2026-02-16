@@ -273,24 +273,26 @@ class ResultProcessor:
         Flushes any pending batch before stopping consumer.
         Safe to call multiple times.
         """
-        if not self._running:
-            logger.debug("Result processor not running or already stopped")
-            return
-
         logger.info("Stopping result processor")
         self._running = False
 
+        # Stop background tasks
         try:
-            # Stop background tasks
             if self._stats_logger:
                 await self._stats_logger.stop()
+        except Exception as e:
+            logger.error("Error stopping stats logger", extra={"error": str(e)})
 
+        try:
             if self._flush_task and not self._flush_task.done():
                 self._flush_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._flush_task
+        except Exception as e:
+            logger.error("Error cancelling flush task", extra={"error": str(e)})
 
-            # Flush any pending batches
+        # Flush any pending batches
+        try:
             async with self._batch_lock:
                 if self._batch:
                     logger.info(
@@ -304,34 +306,38 @@ class ResultProcessor:
                         extra={"batch_size": len(self._failed_batch)},
                     )
                     await self._flush_failed_batch()
+        except Exception as e:
+            logger.error("Error flushing batches on shutdown", extra={"error": str(e)})
 
-            # Stop consumer
+        # Stop consumer
+        try:
             if self._consumer:
                 await self._consumer.stop()
+                self._consumer = None
+        except Exception as e:
+            logger.error("Error stopping consumer", extra={"error": str(e)})
 
-            # Stop retry handler producers
+        # Stop retry handler producers
+        try:
             if self._retry_handler:
                 await self._retry_handler.stop()
-
-            # Stop health check server
-            await self.health_server.stop()
-
-            logger.info(
-                "Result processor stopped successfully",
-                extra={
-                    "batches_written": self._batches_written,
-                    "failed_batches_written": self._failed_batches_written,
-                    "total_records_written": self._total_records_written,
-                },
-            )
-
         except Exception as e:
-            logger.error(
-                "Error stopping result processor",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
-            raise
+            logger.error("Error stopping retry handler", extra={"error": str(e)})
+
+        # Stop health check server
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
+
+        logger.info(
+            "Result processor stopped successfully",
+            extra={
+                "batches_written": self._batches_written,
+                "failed_batches_written": self._failed_batches_written,
+                "total_records_written": self._total_records_written,
+            },
+        )
 
     async def _handle_result(self, message: PipelineMessage) -> None:
         """

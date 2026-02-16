@@ -314,7 +314,10 @@ class XACTEnrichmentWorker:
             finally:
                 self.producer = None
 
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         logger.info("XACTEnrichmentWorker stopped successfully")
 

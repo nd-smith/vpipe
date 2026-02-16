@@ -672,14 +672,23 @@ class ItelCabinetApiWorker:
         self.running = False
         self._shutdown_event.set()
 
-        if self._stats_logger:
-            await self._stats_logger.stop()
+        try:
+            if self._stats_logger:
+                await self._stats_logger.stop()
+        except Exception as e:
+            logger.error("Error stopping stats logger", extra={"error": str(e)})
 
-        if self.consumer:
-            await self.consumer.stop()
-            logger.info("Consumer stopped")
+        try:
+            if self.consumer:
+                await self.consumer.stop()
+                logger.info("Consumer stopped")
+        except Exception as e:
+            logger.error("Error stopping consumer", extra={"error": str(e)})
 
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
 
 def load_worker_config() -> dict:

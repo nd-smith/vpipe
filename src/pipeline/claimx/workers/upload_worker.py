@@ -400,7 +400,10 @@ class ClaimXUploadWorker:
             logger.error("Error stopping producer", extra={"error": str(e)})
 
         # Stop health check server
-        await self.health_server.stop()
+        try:
+            await self.health_server.stop()
+        except Exception as e:
+            logger.error("Error stopping health server", extra={"error": str(e)})
 
         # Close OneLake client
         if self.onelake_client is not None:

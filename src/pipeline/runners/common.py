@@ -108,7 +108,9 @@ async def _enter_worker_error_mode(
     health_server.set_error(error_msg)
 
     # Upload crash logs in background (non-blocking)
-    asyncio.create_task(asyncio.to_thread(upload_crash_logs, error_msg))
+    # Track the task so it doesn't produce "Task was destroyed" warnings on shutdown
+    crash_log_task = asyncio.create_task(asyncio.to_thread(upload_crash_logs, error_msg))
+    crash_log_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     logger.info(
         "Health server running in error mode",
@@ -173,14 +175,16 @@ async def execute_worker_with_shutdown(
                 f"Fatal error: {e}",
                 shutdown_event,
             )
-            # After shutdown signal, stop worker normally
-            await worker_instance.stop()
+            # Fall through to finally for cleanup
         else:
             # No health server - re-raise for top-level error mode
             raise
     finally:
         await _cleanup_watcher_task(watcher_task)
-        await worker_instance.stop()
+        try:
+            await worker_instance.stop()
+        except Exception as e:
+            logger.error("Error stopping worker", extra={"error": str(e), "stage": stage_name})
 
 
 async def execute_worker_with_producer(
@@ -272,15 +276,19 @@ async def execute_worker_with_producer(
                 f"Fatal error: {e}",
                 shutdown_event,
             )
-            # After shutdown signal, stop worker and producer normally
-            await worker.stop()
-            await producer.stop()
+            # Fall through to finally for cleanup
         else:
             # No health server - re-raise for top-level error mode
             raise
     finally:
         await _cleanup_watcher_task(watcher_task)
-        await worker.stop()
-        await producer.stop()
+        try:
+            await worker.stop()
+        except Exception as e:
+            logger.error("Error stopping worker", extra={"error": str(e), "stage": stage_name})
+        try:
+            await producer.stop()
+        except Exception as e:
+            logger.error("Error stopping producer", extra={"error": str(e), "stage": stage_name})
 
 
