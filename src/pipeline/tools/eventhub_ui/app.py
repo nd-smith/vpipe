@@ -1,5 +1,19 @@
 """FastAPI app for EventHub utility dashboard."""
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
+    from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
+    apply_ssl_dev_bypass()
+except ImportError:
+    pass
+
 import logging
 import traceback
 from datetime import datetime, timezone

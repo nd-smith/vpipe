@@ -3,6 +3,14 @@
 import argparse
 import sys
 
+# Must run before any Azure SDK imports create SSL contexts
+try:
+    from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
+    apply_ssl_dev_bypass()
+except ImportError:
+    pass
+
 
 def main():
     parser = argparse.ArgumentParser(description="EventHub Utility Dashboard")
