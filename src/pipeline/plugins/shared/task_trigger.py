@@ -34,7 +34,6 @@ Usage:
     }))
 """
 
-import logging
 from typing import Any
 
 from pipeline.plugins.shared.base import (
@@ -187,19 +186,20 @@ class TaskTriggerPlugin(Plugin):
         actions = self._build_actions(action_config, task, context, trigger_config)
 
         trigger_name = trigger_config.get("name", f"task_{task_id}")
-        self._log(
-            logging.INFO,
+        self.logger.info(
             "Task trigger matched",
-            plugin_name=self.name,
-            trigger_name=trigger_name,
-            task_id=task_id,
-            assignment_id=task.get("assignment_id"),
-            task_name=task.get("task_name"),
-            task_status=task.get("status"),
-            event_id=context.event_id,
-            event_type=event_type,
-            project_id=context.project_id,
-            action_count=len(actions),
+            extra={
+                "plugin_name": self.name,
+                "trigger_name": trigger_name,
+                "task_id": task_id,
+                "assignment_id": task.get("assignment_id"),
+                "task_name": task.get("task_name"),
+                "task_status": task.get("status"),
+                "event_id": context.event_id,
+                "event_type": event_type,
+                "project_id": context.project_id,
+                "action_count": len(actions),
+            },
         )
 
         return PluginResult(
