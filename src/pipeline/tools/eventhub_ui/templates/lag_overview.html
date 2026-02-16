@@ -1,59 +1,268 @@
 {% extends "base.html" %}
 {% block title %}Consumer Lag Overview{% endblock %}
 {% block content %}
-<h1>Consumer Lag Overview</h1>
+<style>
+    .sparkline-wrap {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+    }
+    .sparkline-wrap svg.spark {
+        display: block;
+    }
+    .spark-popup {
+        display: none;
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 10px 4px;
+        z-index: 100;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        white-space: nowrap;
+    }
+    .spark-popup .spark-label {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        text-align: center;
+        margin-top: 2px;
+    }
+    .sparkline-wrap:hover .spark-popup {
+        display: block;
+    }
+</style>
 
-{% if errors %}
-<div class="error-box mb-1">
-    <strong>Errors:</strong>
-    {% for err in errors %}
-    <div>{{ err }}</div>
-    {% endfor %}
-</div>
-{% endif %}
+<h1 style="display: flex; align-items: center; gap: 1rem;">
+    Consumer Lag Overview
+    <span id="poll-indicator" class="badge badge-green" style="font-size: 0.7rem;">AUTO</span>
+</h1>
 
-{% if results %}
-<div class="card">
-    <table>
-        <thead>
-            <tr>
-                <th>Domain</th>
-                <th>EventHub</th>
-                <th>Worker</th>
-                <th>Consumer Group</th>
-                <th class="text-right">Total Lag</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in results %}
-            <tr>
-                <td class="text-muted">{{ r.hub.domain }}</td>
-                <td class="mono">{{ r.lag.eventhub_name }}</td>
-                <td>{{ r.worker_name }}</td>
-                <td class="mono">{{ r.lag.consumer_group }}</td>
-                <td class="text-right">
-                    {% if r.lag.total_lag is none %}
-                    <span class="badge badge-muted">partial</span>
-                    {% elif r.lag.total_lag == 0 %}
-                    <span class="badge badge-green">0</span>
-                    {% elif r.lag.total_lag < 100 %}
-                    <span class="badge badge-yellow">{{ r.lag.total_lag }}</span>
-                    {% elif r.lag.total_lag < 1000 %}
-                    <span class="badge badge-orange" style="background: rgba(219, 109, 40, 0.15); color: var(--orange);">{{ "{:,}".format(r.lag.total_lag) }}</span>
-                    {% else %}
-                    <span class="badge badge-red">{{ "{:,}".format(r.lag.total_lag) }}</span>
-                    {% endif %}
-                </td>
-                <td>
-                    <a href="/lag/{{ r.lag.eventhub_name }}/{{ r.lag.consumer_group }}" class="btn">Details</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; font-size: 0.85rem;">
+    <button class="btn" onclick="togglePolling()" id="poll-toggle">Pause</button>
+    <select id="poll-interval" class="btn" onchange="changeInterval()" style="padding: 0.35rem 0.5rem;">
+        <option value="15">15s</option>
+        <option value="30" selected>30s</option>
+        <option value="60">60s</option>
+        <option value="120">2m</option>
+    </select>
+    <a href="/lag/history.csv" class="btn">Download CSV</a>
+    <span id="poll-status" class="text-muted"></span>
 </div>
-{% else %}
-<p class="text-muted">No consumer groups found.</p>
-{% endif %}
+
+<div id="lag-data"
+     hx-get="/lag/data"
+     hx-trigger="load, every 30s"
+     hx-swap="innerHTML"
+     hx-indicator="#loading-spinner">
+
+    <span id="loading-spinner" class="htmx-indicator text-muted">Loading...</span>
+
+    {% if errors %}
+    <div class="error-box mb-1">
+        <strong>Errors:</strong>
+        {% for err in errors %}
+        <div>{{ err }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if results %}
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Domain</th>
+                    <th>EventHub</th>
+                    <th>Worker</th>
+                    <th>Consumer Group</th>
+                    <th class="text-right">Total Lag</th>
+                    <th>Trend</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td class="text-muted">{{ r.hub.domain }}</td>
+                    <td class="mono">{{ r.lag.eventhub_name }}</td>
+                    <td>{{ r.worker_name }}</td>
+                    <td class="mono">{{ r.lag.consumer_group }}</td>
+                    <td class="text-right">
+                        {% if r.lag.total_lag is none %}
+                        <span class="badge badge-muted">partial</span>
+                        {% elif r.lag.total_lag == 0 %}
+                        <span class="badge badge-green">0</span>
+                        {% elif r.lag.total_lag < 100 %}
+                        <span class="badge badge-yellow">{{ r.lag.total_lag }}</span>
+                        {% elif r.lag.total_lag < 1000 %}
+                        <span class="badge badge-orange" style="background: rgba(219, 109, 40, 0.15); color: var(--orange);">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                        {% else %}
+                        <span class="badge badge-red">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="text-muted" style="font-size: 0.75rem;">--</span></td>
+                    <td>
+                        <a href="/lag/{{ r.lag.eventhub_name }}/{{ r.lag.consumer_group }}" class="btn">Details</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted">No consumer groups found.</p>
+    {% endif %}
+</div>
+
+<script>
+    // --- Sparkline renderer ---
+    function buildSvg(values, w, h) {
+        var nums = values.filter(function(v) { return v !== null; });
+        if (nums.length < 2) return null;
+
+        var maxVal = Math.max.apply(null, nums);
+        var minVal = Math.min.apply(null, nums);
+        // Avoid division by zero when all values are equal
+        var range = maxVal - minVal || 1;
+        var pad = 1;
+
+        var points = [];
+        var step = (w - 2 * pad) / (values.length - 1);
+        for (var i = 0; i < values.length; i++) {
+            var v = values[i];
+            if (v === null) continue;
+            var x = pad + i * step;
+            var y = h - pad - ((v - minVal) / range) * (h - 2 * pad);
+            points.push(x.toFixed(1) + ',' + y.toFixed(1));
+        }
+
+        // Color: green if trending down or flat, red if trending up
+        var recent = nums.slice(-3);
+        var first = nums.slice(0, 3);
+        var avgRecent = recent.reduce(function(a, b) { return a + b; }, 0) / recent.length;
+        var avgFirst = first.reduce(function(a, b) { return a + b; }, 0) / first.length;
+        var color;
+        if (maxVal === 0) {
+            color = 'var(--green)';
+        } else if (avgRecent > avgFirst * 1.1) {
+            color = 'var(--red)';
+        } else if (avgRecent < avgFirst * 0.9) {
+            color = 'var(--green)';
+        } else {
+            color = 'var(--yellow)';
+        }
+
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        svg.classList.add('spark');
+
+        var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        polyline.setAttribute('points', points.join(' '));
+        polyline.setAttribute('fill', 'none');
+        polyline.setAttribute('stroke', color);
+        polyline.setAttribute('stroke-width', w > 100 ? '2' : '1.5');
+        polyline.setAttribute('stroke-linejoin', 'round');
+        polyline.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(polyline);
+
+        // Dot on the last point
+        var lastPt = points[points.length - 1].split(',');
+        var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', lastPt[0]);
+        dot.setAttribute('cy', lastPt[1]);
+        dot.setAttribute('r', w > 100 ? '3' : '2');
+        dot.setAttribute('fill', color);
+        svg.appendChild(dot);
+
+        return svg;
+    }
+
+    function renderSparklines() {
+        document.querySelectorAll('.sparkline-wrap[data-sparkline]').forEach(function(el) {
+            var values = JSON.parse(el.getAttribute('data-sparkline'));
+            el.innerHTML = '';
+
+            // Small inline sparkline
+            var small = buildSvg(values, 80, 24);
+            if (!small) { el.textContent = '--'; return; }
+            el.appendChild(small);
+
+            // Hover popup with larger version
+            var popup = document.createElement('div');
+            popup.className = 'spark-popup';
+            var big = buildSvg(values, 280, 80);
+            popup.appendChild(big);
+
+            // Min/max label
+            var nums = values.filter(function(v) { return v !== null; });
+            var label = document.createElement('div');
+            label.className = 'spark-label';
+            label.textContent = 'min ' + Math.min.apply(null, nums).toLocaleString() +
+                                '  max ' + Math.max.apply(null, nums).toLocaleString() +
+                                '  (' + nums.length + ' pts)';
+            popup.appendChild(label);
+
+            el.appendChild(popup);
+        });
+    }
+
+    // Render on initial load and after every HTMX swap
+    document.body.addEventListener('htmx:afterSwap', function(e) {
+        if (e.detail.target.id === 'lag-data') {
+            renderSparklines();
+        }
+    });
+    renderSparklines();
+
+    // --- Polling controls ---
+    let polling = true;
+    const lagDiv = document.getElementById('lag-data');
+    const indicator = document.getElementById('poll-indicator');
+    const toggleBtn = document.getElementById('poll-toggle');
+    const statusEl = document.getElementById('poll-status');
+
+    function togglePolling() {
+        polling = !polling;
+        if (polling) {
+            const secs = document.getElementById('poll-interval').value;
+            lagDiv.setAttribute('hx-trigger', 'every ' + secs + 's');
+            indicator.textContent = 'AUTO';
+            indicator.className = 'badge badge-green';
+            toggleBtn.textContent = 'Pause';
+        } else {
+            lagDiv.setAttribute('hx-trigger', 'none');
+            indicator.textContent = 'PAUSED';
+            indicator.className = 'badge badge-muted';
+            toggleBtn.textContent = 'Resume';
+        }
+        htmx.process(lagDiv);
+    }
+
+    function changeInterval() {
+        if (!polling) return;
+        const secs = document.getElementById('poll-interval').value;
+        lagDiv.setAttribute('hx-trigger', 'every ' + secs + 's');
+        htmx.process(lagDiv);
+    }
+
+    // Show countdown to next refresh
+    let lastRefresh = Date.now();
+    document.body.addEventListener('htmx:afterRequest', function(e) {
+        if (e.detail.elt === lagDiv) {
+            lastRefresh = Date.now();
+        }
+    });
+    setInterval(function() {
+        if (!polling) { statusEl.textContent = ''; return; }
+        const secs = parseInt(document.getElementById('poll-interval').value);
+        const elapsed = Math.floor((Date.now() - lastRefresh) / 1000);
+        const remaining = Math.max(0, secs - elapsed);
+        statusEl.textContent = 'next refresh in ' + remaining + 's';
+    }, 1000);
+</script>
 {% endblock %}

@@ -113,6 +113,138 @@ async def partitions(request: Request, eventhub_name: str):
     })
 
 
+async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
+    """Fetch lag for every consumer group. Returns (results, errors)."""
+    from pipeline.tools.eventhub_ui.lag import calculate_lag
+
+    config_errors = []
+    try:
+        internal_conn = get_namespace_connection_string()
+        internal_fqdn = extract_fqdn(internal_conn)
+    except Exception as e:
+        internal_conn = None
+        internal_fqdn = None
+        config_errors.append(str(e))
+
+    try:
+        source_conn = get_source_connection_string()
+        source_fqdn = extract_fqdn(source_conn)
+    except Exception as e:
+        source_conn = None
+        source_fqdn = None
+        config_errors.append(str(e))
+
+    try:
+        blob_conn = get_blob_connection_string()
+    except Exception as e:
+        blob_conn = None
+        config_errors.append(str(e))
+
+    if config_errors:
+        return [], config_errors
+
+    hubs = list_eventhubs()
+    ssl_kwargs = get_ssl_kwargs()
+    container_name = get_checkpoint_container_name()
+
+    tasks = []
+    for hub in hubs:
+        if not hub.consumer_groups:
+            continue
+
+        conn_str = source_conn if hub.is_source else internal_conn
+        fqdn = source_fqdn if hub.is_source else internal_fqdn
+
+        for worker_name, cg_name in hub.consumer_groups.items():
+            tasks.append((hub, worker_name, cg_name, calculate_lag(
+                conn_str=conn_str,
+                eventhub_name=hub.eventhub_name,
+                consumer_group=cg_name,
+                fqdn=fqdn,
+                blob_conn_str=blob_conn,
+                container_name=container_name,
+                ssl_kwargs=ssl_kwargs,
+            )))
+
+    gathered = await asyncio.gather(
+        *(coro for _, _, _, coro in tasks),
+        return_exceptions=True,
+    )
+
+    results = []
+    errors = []
+    for (hub, worker_name, cg_name, _), outcome in zip(tasks, gathered):
+        if isinstance(outcome, Exception):
+            errors.append(f"{hub.eventhub_name}/{cg_name}: {outcome}")
+        else:
+            results.append({
+                "hub": hub,
+                "worker_name": worker_name,
+                "lag": outcome,
+            })
+
+    return results, errors
+
+
+@app.get("/lag", response_class=HTMLResponse)
+async def lag_overview(request: Request):
+    """Show lag for all consumer groups across all EventHubs."""
+    results, errors = await _fetch_all_lag()
+
+    return templates.TemplateResponse("lag_overview.html", {
+        "request": request,
+        "results": results,
+        "errors": errors,
+    })
+
+
+@app.get("/lag/data", response_class=HTMLResponse)
+async def lag_overview_data(request: Request):
+    """HTMX partial: return just the lag table for polling updates."""
+    from pipeline.tools.eventhub_ui.lag_history import get_trends, record_snapshot
+
+    results, errors = await _fetch_all_lag()
+
+    # Record snapshot to CSV for trend analysis
+    if results:
+        try:
+            await asyncio.to_thread(record_snapshot, results)
+        except Exception:
+            logger.exception("Failed to record lag snapshot to CSV")
+
+    # Load trend data for sparklines
+    try:
+        trends = await asyncio.to_thread(get_trends)
+    except Exception:
+        logger.exception("Failed to load lag trends")
+        trends = {}
+
+    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+
+    return templates.TemplateResponse("lag_overview_partial.html", {
+        "request": request,
+        "results": results,
+        "errors": errors,
+        "updated_at": now,
+        "trends": trends,
+    })
+
+
+@app.get("/lag/history.csv")
+async def lag_history_csv():
+    """Download the lag history CSV."""
+    from fastapi.responses import PlainTextResponse
+
+    from pipeline.tools.eventhub_ui.lag_history import read_csv
+
+    content = await asyncio.to_thread(read_csv)
+    return PlainTextResponse(
+        content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=consumer_lag_history.csv"},
+    )
+
+
 @app.get("/lag/{eventhub_name}/{consumer_group}", response_class=HTMLResponse)
 async def lag(request: Request, eventhub_name: str, consumer_group: str):
     """Show consumer lag for a specific consumer group."""
@@ -149,91 +281,6 @@ async def lag(request: Request, eventhub_name: str, consumer_group: str):
         "hub": hub,
         "consumer_group": consumer_group,
         "lag": lag_result,
-    })
-
-
-@app.get("/lag", response_class=HTMLResponse)
-async def lag_overview(request: Request):
-    """Show lag for all consumer groups across all EventHubs."""
-    from pipeline.tools.eventhub_ui.lag import calculate_lag
-
-    # Check connection strings upfront to avoid repeating the same error N times
-    config_errors = []
-    try:
-        internal_conn = get_namespace_connection_string()
-        internal_fqdn = extract_fqdn(internal_conn)
-    except Exception as e:
-        internal_conn = None
-        internal_fqdn = None
-        config_errors.append(str(e))
-
-    try:
-        source_conn = get_source_connection_string()
-        source_fqdn = extract_fqdn(source_conn)
-    except Exception as e:
-        source_conn = None
-        source_fqdn = None
-        config_errors.append(str(e))
-
-    try:
-        blob_conn = get_blob_connection_string()
-    except Exception as e:
-        blob_conn = None
-        config_errors.append(str(e))
-
-    if config_errors:
-        return templates.TemplateResponse("lag_overview.html", {
-            "request": request,
-            "results": [],
-            "errors": config_errors,
-        })
-
-    hubs = list_eventhubs()
-    ssl_kwargs = get_ssl_kwargs()
-    container_name = get_checkpoint_container_name()
-
-    # Build all lag tasks upfront so they can run concurrently
-    tasks = []  # list of (hub, worker_name, coroutine)
-    for hub in hubs:
-        if not hub.consumer_groups:
-            continue
-
-        conn_str = source_conn if hub.is_source else internal_conn
-        fqdn = source_fqdn if hub.is_source else internal_fqdn
-
-        for worker_name, cg_name in hub.consumer_groups.items():
-            tasks.append((hub, worker_name, cg_name, calculate_lag(
-                conn_str=conn_str,
-                eventhub_name=hub.eventhub_name,
-                consumer_group=cg_name,
-                fqdn=fqdn,
-                blob_conn_str=blob_conn,
-                container_name=container_name,
-                ssl_kwargs=ssl_kwargs,
-            )))
-
-    # Run all lag calculations concurrently
-    gathered = await asyncio.gather(
-        *(coro for _, _, _, coro in tasks),
-        return_exceptions=True,
-    )
-
-    results = []
-    errors = []
-    for (hub, worker_name, cg_name, _), outcome in zip(tasks, gathered):
-        if isinstance(outcome, Exception):
-            errors.append(f"{hub.eventhub_name}/{cg_name}: {outcome}")
-        else:
-            results.append({
-                "hub": hub,
-                "worker_name": worker_name,
-                "lag": outcome,
-            })
-
-    return templates.TemplateResponse("lag_overview.html", {
-        "request": request,
-        "results": results,
-        "errors": errors,
     })
 
 
@@ -421,7 +468,7 @@ async def logs_browse(request: Request):
     from pipeline.tools.eventhub_ui.logs import list_log_domains
 
     try:
-        domains = list_log_domains()
+        domains = await asyncio.to_thread(list_log_domains)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
             "request": request,
@@ -447,7 +494,8 @@ async def logs_view(
     from pipeline.tools.eventhub_ui.logs import read_log_file
 
     try:
-        entries = read_log_file(
+        entries = await asyncio.to_thread(
+            read_log_file,
             path=path,
             level=level or None,
             search=search or None,
@@ -480,7 +528,7 @@ async def logs_dates(request: Request, domain: str):
     from pipeline.tools.eventhub_ui.logs import list_log_dates
 
     try:
-        dates = list_log_dates(domain)
+        dates = await asyncio.to_thread(list_log_dates, domain)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
             "request": request,
@@ -500,7 +548,7 @@ async def logs_files(request: Request, domain: str, date: str):
     from pipeline.tools.eventhub_ui.logs import list_log_files
 
     try:
-        files = list_log_files(domain, date)
+        files = await asyncio.to_thread(list_log_files, domain, date)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
             "request": request,
