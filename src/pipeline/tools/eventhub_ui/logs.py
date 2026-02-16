@@ -75,15 +75,30 @@ class LogFileInfo:
 
 def list_log_files(domain: str, date: str) -> list[LogFileInfo]:
     """List log files for a domain/date."""
+    from concurrent.futures import ThreadPoolExecutor
+
     client = _get_client()
     prefix = f"logs/{domain}/{date}"
     entries = client.list_directory(prefix)
 
     files = []
+    subdirs = []
     for e in entries:
         if e["is_directory"]:
-            # Check archive subdirectory too
-            archive_entries = client.list_directory(e["name"])
+            subdirs.append(e["name"])
+        else:
+            files.append(LogFileInfo(
+                name=e["name"].split("/")[-1],
+                path=e["name"],
+                size=e["size"],
+                last_modified=str(e["last_modified"] or ""),
+            ))
+
+    # Fetch archive subdirectories in parallel
+    if subdirs:
+        with ThreadPoolExecutor(max_workers=min(len(subdirs), 4)) as pool:
+            results = pool.map(client.list_directory, subdirs)
+        for archive_entries in results:
             for ae in archive_entries:
                 if not ae["is_directory"]:
                     files.append(LogFileInfo(
@@ -92,13 +107,6 @@ def list_log_files(domain: str, date: str) -> list[LogFileInfo]:
                         size=ae["size"],
                         last_modified=str(ae["last_modified"] or ""),
                     ))
-        else:
-            files.append(LogFileInfo(
-                name=e["name"].split("/")[-1],
-                path=e["name"],
-                size=e["size"],
-                last_modified=str(e["last_modified"] or ""),
-            ))
 
     return sorted(files, key=lambda f: f.name, reverse=True)
 

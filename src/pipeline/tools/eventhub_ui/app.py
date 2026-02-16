@@ -421,7 +421,7 @@ async def logs_browse(request: Request):
     from pipeline.tools.eventhub_ui.logs import list_log_domains
 
     try:
-        domains = list_log_domains()
+        domains = await asyncio.to_thread(list_log_domains)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
             "request": request,
@@ -447,7 +447,8 @@ async def logs_view(
     from pipeline.tools.eventhub_ui.logs import read_log_file
 
     try:
-        entries = read_log_file(
+        entries = await asyncio.to_thread(
+            read_log_file,
             path=path,
             level=level or None,
             search=search or None,
@@ -480,7 +481,7 @@ async def logs_dates(request: Request, domain: str):
     from pipeline.tools.eventhub_ui.logs import list_log_dates
 
     try:
-        dates = list_log_dates(domain)
+        dates = await asyncio.to_thread(list_log_dates, domain)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
             "request": request,
@@ -500,7 +501,7 @@ async def logs_files(request: Request, domain: str, date: str):
     from pipeline.tools.eventhub_ui.logs import list_log_files
 
     try:
-        files = list_log_files(domain, date)
+        files = await asyncio.to_thread(list_log_files, domain, date)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
             "request": request,
