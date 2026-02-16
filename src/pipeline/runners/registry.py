@@ -61,6 +61,9 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
         "runner": claimx_runners.run_claimx_entity_delta_worker,
     },
     # Plugin workers
+    "claimx-mitigation-tracking": {
+        "runner": plugin_runners.run_claimx_mitigation_tracking,
+    },
     "itel-cabinet-tracking": {
         "runner": plugin_runners.run_itel_cabinet_tracking,
     },
