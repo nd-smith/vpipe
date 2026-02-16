@@ -14,6 +14,7 @@ try:
 except ImportError:
     pass
 
+import asyncio
 import logging
 import traceback
 from datetime import datetime, timezone
@@ -188,9 +189,11 @@ async def lag_overview(request: Request):
         })
 
     hubs = list_eventhubs()
-    results = []
-    errors = []
+    ssl_kwargs = get_ssl_kwargs()
+    container_name = get_checkpoint_container_name()
 
+    # Build all lag tasks upfront so they can run concurrently
+    tasks = []  # list of (hub, worker_name, coroutine)
     for hub in hubs:
         if not hub.consumer_groups:
             continue
@@ -199,23 +202,33 @@ async def lag_overview(request: Request):
         fqdn = source_fqdn if hub.is_source else internal_fqdn
 
         for worker_name, cg_name in hub.consumer_groups.items():
-            try:
-                lag_result = await calculate_lag(
-                    conn_str=conn_str,
-                    eventhub_name=hub.eventhub_name,
-                    consumer_group=cg_name,
-                    fqdn=fqdn,
-                    blob_conn_str=blob_conn,
-                    container_name=get_checkpoint_container_name(),
-                    ssl_kwargs=get_ssl_kwargs(),
-                )
-                results.append({
-                    "hub": hub,
-                    "worker_name": worker_name,
-                    "lag": lag_result,
-                })
-            except Exception as e:
-                errors.append(f"{hub.eventhub_name}/{cg_name}: {e}")
+            tasks.append((hub, worker_name, cg_name, calculate_lag(
+                conn_str=conn_str,
+                eventhub_name=hub.eventhub_name,
+                consumer_group=cg_name,
+                fqdn=fqdn,
+                blob_conn_str=blob_conn,
+                container_name=container_name,
+                ssl_kwargs=ssl_kwargs,
+            )))
+
+    # Run all lag calculations concurrently
+    gathered = await asyncio.gather(
+        *(coro for _, _, _, coro in tasks),
+        return_exceptions=True,
+    )
+
+    results = []
+    errors = []
+    for (hub, worker_name, cg_name, _), outcome in zip(tasks, gathered):
+        if isinstance(outcome, Exception):
+            errors.append(f"{hub.eventhub_name}/{cg_name}: {outcome}")
+        else:
+            results.append({
+                "hub": hub,
+                "worker_name": worker_name,
+                "lag": outcome,
+            })
 
     return templates.TemplateResponse("lag_overview.html", {
         "request": request,
