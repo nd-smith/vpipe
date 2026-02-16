@@ -1,30 +1,26 @@
 """
 iTel Cabinet API Worker
 
-Consumes completed task payloads from tracking worker and sends to iTel API.
-Simple, focused worker - no enrichment, just transformation and API call.
+Consumes completed task payloads from tracking worker, transforms to iTel API
+format, sends to the iTel endpoint, and records results (success/error topics
++ OneLake upload).
 
-Runs in dev/test mode by default (writes JSON files instead of calling API).
-Pass --prod to enable production mode (sends to iTel API).
-
-Usage (dev mode, default):
+Usage:
     python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
-
-Production Mode:
-    python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --prod
 
 Configuration:
     config/plugins/claimx/itel_cabinet_api/workers.yaml
+    config/plugins/shared/connections/app.itel.yaml
 
 Environment Variables:
     ITEL_CABINET_API_BASE_URL: iTel API base URL
+    ITEL_CABINET_API_ENDPOINT: iTel API endpoint path
     ITEL_CABINET_API_CLIENT_ID: OAuth2 client ID
     ITEL_CABINET_API_CLIENT_CREDENTIAL: OAuth2 client credential
     ITEL_CABINET_API_TOKEN_URL: OAuth2 token endpoint URL
     KAFKA_BOOTSTRAP_SERVERS: Kafka broker addresses (default: localhost:9094)
 """
 
-import argparse
 import asyncio
 import json
 import logging
@@ -167,9 +163,8 @@ class ItelCabinetApiWorker:
         logger.info(
             "ItelCabinetApiWorker initialized",
             extra={
-                "test_mode": api_config.get("test_mode", False),
                 "simulation_mode": bool(self.simulation_config),
-                "endpoint": api_config.get("endpoint"),
+                "connection": api_config.get("connection"),
             },
         )
 
@@ -195,8 +190,6 @@ class ItelCabinetApiWorker:
             # Send to API or write to file
             if self.simulation_config:
                 await self._write_simulation_payload(api_payload, payload)
-            elif self.api_config.get("test_mode", False):
-                await self._write_test_payload(api_payload, payload)
             else:
                 status, response_body = await self._send_to_api(api_payload)
                 await self._handle_api_result(status, response_body, api_payload, payload)
@@ -215,7 +208,6 @@ class ItelCabinetApiWorker:
                 extra={
                     "assignment_id": payload.get("assignment_id"),
                     "simulation_mode": bool(self.simulation_config),
-                    "test_mode": self.api_config.get("test_mode", False),
                 },
             )
 
@@ -578,19 +570,22 @@ class ItelCabinetApiWorker:
             Tuple of (http_status, response_body). Caller decides how to handle.
         """
         assignment_id = api_payload.get("integration_test_id", "unknown")
+        connection_name = self.api_config["connection"]
+        conn_config = self.connections.get_connection(connection_name)
 
         logger.info(
             "Sending to iTel API",
             extra={
-                "endpoint": self.api_config["endpoint"],
+                "endpoint": conn_config.endpoint,
+                "method": conn_config.method,
                 "assignment_id": assignment_id,
             },
         )
 
         status, response = await self.connections.request_json(
-            connection_name=self.api_config["connection"],
-            method=self.api_config.get("method", "POST"),
-            path=self.api_config["endpoint"],
+            connection_name=connection_name,
+            method=conn_config.method,
+            path=conn_config.endpoint,
             json=api_payload,
         )
 
@@ -700,54 +695,6 @@ class ItelCabinetApiWorker:
         now = datetime.now(UTC)
         ts = now.strftime("%Y%m%dT%H%M%S")
         return f"{result_type}/{now.year}/{now.month:02d}/{now.day:02d}/{assignment_id}_{ts}.json"
-
-    async def _write_test_payload(self, api_payload: dict, original_payload: dict):
-        """Write payload to file instead of sending to API (test mode)."""
-        output_dir = Path(self.api_config.get("test_output_dir", "test_output"))
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        assignment_id = api_payload.get("integration_test_id", "unknown")
-        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-
-        # Write the transformed API payload
-        api_filename = f"payload_{assignment_id}_{timestamp}.json"
-        api_output_path = output_dir / api_filename
-
-        with open(api_output_path, "w") as f:
-            json.dump(api_payload, f, indent=2, default=str)
-
-        # Also write the original payload for debugging
-        original_filename = f"original_{assignment_id}_{timestamp}.json"
-        original_output_path = output_dir / original_filename
-
-        with open(original_output_path, "w") as f:
-            json.dump(original_payload, f, indent=2, default=str)
-
-        # Log details about images for debugging
-        images = api_payload.get("images", [])
-        logger.info(
-            "[TEST MODE] Vendor schema payload written",
-            extra={
-                "assignment_id": assignment_id,
-                "api_payload_file": str(api_output_path),
-                "original_payload_file": str(original_output_path),
-                "image_count": len(images),
-                "image_types": [img.get("image_type") for img in images],
-            },
-        )
-
-        # Verify OAuth2 credentials by fetching a token
-        connection_name = self.api_config.get("connection")
-        if connection_name and self.connections._oauth2_manager:
-            await self.connections._oauth2_manager.get_token(connection_name)
-            token_info = self.connections._oauth2_manager.get_cached_token_info(connection_name)
-            token_path = output_dir / f"token_{assignment_id}_{timestamp}.json"
-            with open(token_path, "w") as f:
-                json.dump(token_info, f, indent=2, default=str)
-            logger.info(
-                "[TEST MODE] OAuth2 token verified and saved",
-                extra={"token_file": str(token_path), "assignment_id": assignment_id},
-            )
 
     async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to simulation directory (simulation mode).
@@ -859,30 +806,14 @@ def load_worker_config() -> dict:
     return workers["itel_cabinet_api"]
 
 
-async def build_api_worker(dev_mode: bool = True) -> tuple:
+async def build_api_worker() -> tuple:
     """Build a configured API worker and its resources.
-
-    Args:
-        dev_mode: If True (default), enable test mode (write to files instead of API)
 
     Returns:
         Tuple of (worker, connection_manager) for lifecycle management.
     """
     worker_config = load_worker_config()
     connections_list = load_connections(CONNECTIONS_CONFIG_PATH)
-
-    if dev_mode:
-        worker_config["api"]["test_mode"] = True
-
-        # Use temp_dir from main config for persistent test output
-        main_config_path = CONFIG_DIR / "config.yaml"
-        main_config = load_yaml_config(main_config_path)
-        storage = main_config.get("pipeline", {}).get("storage", {})
-        raw_temp_dir = storage.get("temp_dir", "/tmp")
-        temp_dir = expand_env_var_string(raw_temp_dir)
-        worker_config["api"]["test_output_dir"] = str(
-            Path(temp_dir) / "itel_cabinet_api" / "test"
-        )
 
     # Expand environment variables in API config
     api_config = worker_config["api"]
@@ -946,16 +877,6 @@ async def main():
     """Main entry point for standalone execution."""
     load_dotenv(PROJECT_ROOT / ".env")
 
-    parser = argparse.ArgumentParser(
-        description="iTel Cabinet API Worker - Sends completed tasks to iTel Cabinet API"
-    )
-    parser.add_argument(
-        "--prod",
-        action="store_true",
-        help="Enable production mode (sends to iTel API instead of writing files)",
-    )
-    args = parser.parse_args()
-
     from config import load_config
 
     try:
@@ -984,11 +905,9 @@ async def main():
     )
 
     logger.info("Starting iTel Cabinet API Worker")
-    if not args.prod:
-        logger.info("DEV MODE: Payloads will be written to test directory")
 
     try:
-        worker, connection_manager = await build_api_worker(dev_mode=not args.prod)
+        worker, connection_manager = await build_api_worker()
     except (FileNotFoundError, ValueError) as e:
         logger.error("Configuration error: %s", e)
         sys.exit(1)

@@ -117,6 +117,8 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
             oauth2_client_credential=oauth2_client_credential,
             oauth2_token_url=oauth2_token_url,
             oauth2_scope=oauth2_scope,
+            endpoint=conn_data.get("endpoint", ""),
+            method=conn_data.get("method", "POST"),
         )
         connections.append(conn)
         logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)

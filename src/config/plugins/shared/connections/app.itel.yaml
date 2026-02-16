@@ -20,6 +20,8 @@ connections:
   itel_cabinet_api:
     name: itel_cabinet_api
     base_url: ${ITEL_CABINET_API_BASE_URL}
+    endpoint: ${ITEL_CABINET_API_ENDPOINT:-}
+    method: ${ITEL_CABINET_API_METHOD:-POST}
     auth_type: oauth2
     oauth2:
       grant_type: client_credentials

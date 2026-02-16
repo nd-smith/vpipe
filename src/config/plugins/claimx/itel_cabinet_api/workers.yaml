@@ -51,11 +51,8 @@ workers:
   # ===========================================================================
   # Consumes completed tasks from tracking worker and sends to iTel API.
   #
-  # Startup (dev mode by default, writes to files):
+  # Startup:
   #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker
-  #
-  # Production Mode (sends to iTel API):
-  #   python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --prod
   # ===========================================================================
   itel_cabinet_api:
     # Processing settings
@@ -71,15 +68,10 @@ workers:
     # iTel API settings
     api:
       connection: itel_cabinet_api
-      endpoint: /api/v1/cabinet/repairs
-      method: POST
 
       # Vendor-required identity fields (injected into API payload)
       carrier_id: ${ITEL_CABINET_API_CARRIER_ID}
       subscription_id: ${ITEL_CABINET_API_SUBSCRIPTION_ID}
-
-      # Test mode - controlled by --prod flag (dev mode is default)
-      test_mode: false
 
     # OneLake path for API result uploads
     # Files land at: {base}/success/{YYYY}/{MM}/{DD}/{assignment_id}_{ts}.json

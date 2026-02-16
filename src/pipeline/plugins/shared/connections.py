@@ -73,6 +73,8 @@ class ConnectionConfig:
     oauth2_client_credential: str | None = None
     oauth2_token_url: str | None = None
     oauth2_scope: str | None = None
+    endpoint: str = ""
+    method: str = "POST"
 
     def __post_init__(self):
         """Validate and normalize configuration."""
