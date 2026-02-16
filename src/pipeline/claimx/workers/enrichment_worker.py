@@ -42,6 +42,9 @@ from pipeline.common.metrics import (
 from pipeline.common.storage.delta import DeltaTableReader
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
+from pipeline.plugins.shared.base import Domain, PipelineStage, PluginContext
+from pipeline.plugins.shared.loader import load_plugins_from_directory
+from pipeline.plugins.shared.registry import ActionExecutor, PluginOrchestrator, PluginRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +116,10 @@ class ClaimXEnrichmentWorker:
         self.retry_handler: EnrichmentRetryHandler | None = None
 
         self.handler_registry: HandlerRegistry = get_handler_registry()
+
+        self.plugin_registry = PluginRegistry()
+        self.plugin_orchestrator: PluginOrchestrator | None = None
+        self.action_executor: ActionExecutor | None = None
 
         # Project cache prevents redundant API calls for in-flight verification
         cache_config = self.processing_config.get("project_cache", {})
@@ -330,6 +337,48 @@ class ClaimXEnrichmentWorker:
             extra={
                 "retry_topics": [t for t in self.topics if "retry" in t],
                 "dlq_topic": self.retry_handler.dlq_topic,
+            },
+        )
+
+        # Load plugins
+        plugins_dir = self.processing_config.get("plugins_dir", "config/plugins/claimx")
+        try:
+            import os
+
+            if os.path.exists(plugins_dir):
+                loaded_plugins = load_plugins_from_directory(plugins_dir, self.plugin_registry)
+                logger.info(
+                    "Loaded plugins from directory",
+                    extra={
+                        "plugins_dir": plugins_dir,
+                        "plugins_loaded": len(loaded_plugins),
+                        "plugin_names": [p.name for p in loaded_plugins],
+                    },
+                )
+            else:
+                logger.info(
+                    "Plugin directory not found, continuing without plugins",
+                    extra={"plugins_dir": plugins_dir},
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to load plugins, continuing without plugins",
+                extra={
+                    "plugins_dir": plugins_dir,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+
+        self.action_executor = ActionExecutor(producer=self.producer)
+        self.plugin_orchestrator = PluginOrchestrator(
+            registry=self.plugin_registry,
+            action_executor=self.action_executor,
+        )
+        logger.info(
+            "Plugin orchestrator initialized",
+            extra={
+                "registered_plugins": len(self.plugin_registry.list_plugins()),
             },
         )
 
@@ -611,6 +660,42 @@ class ClaimXEnrichmentWorker:
 
             entity_rows = handler_result.rows
             self._records_succeeded += 1
+
+            # Execute plugins at ENRICHMENT_COMPLETE stage
+            if self.plugin_orchestrator:
+                plugin_context = PluginContext(
+                    domain=Domain.CLAIMX,
+                    stage=PipelineStage.ENRICHMENT_COMPLETE,
+                    message=event,
+                    event_id=task.trace_id,
+                    event_type=task.event_type,
+                    project_id=task.project_id,
+                    data={"entities": entity_rows, "handler_result": handler_result},
+                    headers={},
+                )
+
+                try:
+                    orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
+
+                    if orchestrator_result.actions_executed > 0:
+                        logger.debug(
+                            "Plugin actions executed",
+                            extra={
+                                "trace_id": task.trace_id,
+                                "actions": orchestrator_result.actions_executed,
+                                "plugins": orchestrator_result.success_count,
+                            },
+                        )
+                except Exception as e:
+                    logger.error(
+                        "Plugin execution failed",
+                        extra={
+                            "trace_id": task.trace_id,
+                            "error": str(e),
+                        },
+                        exc_info=True,
+                    )
+                    # Continue processing — don't fail the enrichment task due to plugin error
 
             # Step 5: Dispatch entity rows to Kafka
             await self._dispatch_entity_rows(task, entity_rows)
