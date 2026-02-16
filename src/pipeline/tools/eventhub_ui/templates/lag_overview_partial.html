@@ -17,11 +17,13 @@
                 <th>Worker</th>
                 <th>Consumer Group</th>
                 <th class="text-right">Total Lag</th>
+                <th>Trend</th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for r in results %}
+            {% set key = (r.lag.eventhub_name, r.lag.consumer_group) %}
             <tr>
                 <td class="text-muted">{{ r.hub.domain }}</td>
                 <td class="mono">{{ r.lag.eventhub_name }}</td>
@@ -38,6 +40,13 @@
                     <span class="badge badge-orange" style="background: rgba(219, 109, 40, 0.15); color: var(--orange);">{{ "{:,}".format(r.lag.total_lag) }}</span>
                     {% else %}
                     <span class="badge badge-red">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if trends is defined and key in trends and trends[key]|length > 1 %}
+                    <div class="sparkline-wrap" data-sparkline="{{ trends[key] | tojson }}"></div>
+                    {% else %}
+                    <span class="text-muted" style="font-size: 0.75rem;">--</span>
                     {% endif %}
                 </td>
                 <td>

@@ -201,7 +201,7 @@ async def lag_overview(request: Request):
 @app.get("/lag/data", response_class=HTMLResponse)
 async def lag_overview_data(request: Request):
     """HTMX partial: return just the lag table for polling updates."""
-    from pipeline.tools.eventhub_ui.lag_history import record_snapshot
+    from pipeline.tools.eventhub_ui.lag_history import get_trends, record_snapshot
 
     results, errors = await _fetch_all_lag()
 
@@ -212,6 +212,13 @@ async def lag_overview_data(request: Request):
         except Exception:
             logger.exception("Failed to record lag snapshot to CSV")
 
+    # Load trend data for sparklines
+    try:
+        trends = await asyncio.to_thread(get_trends)
+    except Exception:
+        logger.exception("Failed to load lag trends")
+        trends = {}
+
     now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
     return templates.TemplateResponse("lag_overview_partial.html", {
@@ -219,6 +226,7 @@ async def lag_overview_data(request: Request):
         "results": results,
         "errors": errors,
         "updated_at": now,
+        "trends": trends,
     })
 
 

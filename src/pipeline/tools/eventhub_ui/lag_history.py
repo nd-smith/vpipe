@@ -57,6 +57,39 @@ def record_snapshot(
                 ])
 
 
+def get_trends(
+    max_points: int = 30,
+    path: Path = DEFAULT_CSV_PATH,
+) -> dict[tuple[str, str], list[int | None]]:
+    """Return recent lag values per (eventhub_name, consumer_group).
+
+    Reads the CSV tail and returns the last `max_points` values for each group.
+    Values are ints or None (for partial/missing data).
+    """
+    if not path.exists():
+        return {}
+
+    # Read all rows (CSV is append-only, so order = chronological)
+    with _lock:
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+    # Group by (eventhub, consumer_group), keep last N
+    from collections import defaultdict
+
+    series: dict[tuple[str, str], list[int | None]] = defaultdict(list)
+    for row in rows:
+        eh = row.get("eventhub_name", "")
+        cg = row.get("consumer_group", "")
+        raw_lag = row.get("total_lag", "")
+        lag_val = int(raw_lag) if raw_lag not in ("", None) else None
+        series[(eh, cg)].append(lag_val)
+
+    # Trim to last max_points
+    return {k: v[-max_points:] for k, v in series.items()}
+
+
 def read_csv(path: Path = DEFAULT_CSV_PATH) -> str:
     """Return the full CSV contents as a string (for download)."""
     if not path.exists():
