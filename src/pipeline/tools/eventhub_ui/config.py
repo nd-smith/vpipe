@@ -92,6 +92,12 @@ def extract_fqdn(conn_str: str) -> str:
 
 def get_ssl_kwargs() -> dict:
     """SSL kwargs for Azure SDK clients. Always disables verification for this tool."""
+    try:
+        from core.security.ssl_dev_bypass import apply_ssl_dev_bypass
+
+        apply_ssl_dev_bypass()
+    except ImportError:
+        pass
     return {"connection_verify": False}
 
 
