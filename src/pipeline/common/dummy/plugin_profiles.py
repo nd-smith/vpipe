@@ -77,7 +77,7 @@ class ItelCabinetDataGenerator:
     """Generates realistic itel Cabinet Repair Form data."""
 
     # itel Cabinet specific task_id
-    ITEL_TASK_ID = 32513
+    ITEL_TASK_ID = 27019
     ITEL_TASK_NAME = "iTel Cabinet Repair Form"
 
     # Cabinet types for damage scenarios

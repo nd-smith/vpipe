@@ -10,7 +10,7 @@ Plugin profiles allow you to generate dummy data that's specifically tailored to
 
 ### 1. itel Cabinet API (`itel_cabinet_api`)
 
-Generates ClaimX events for itel Cabinet Repair Form tasks (task_id=32513).
+Generates ClaimX events for itel Cabinet Repair Form tasks (task_id=27019).
 
 **What it generates:**
 - `CUSTOM_TASK_ASSIGNED` events (30%)
@@ -137,7 +137,7 @@ async with DummyDataSource(dummy_config) as source:
   "task_assignment_id": "CLM-12345",
   "ingested_at": "2026-01-11T10:30:00Z",
   "raw_data": {
-    "taskId": 32513,
+    "taskId": 27019,
     "taskName": "iTel Cabinet Repair Form",
     "taskAssignmentId": "CLM-12345",
     "projectId": "proj_XYZ789",
@@ -146,7 +146,7 @@ async with DummyDataSource(dummy_config) as source:
 
     "claimx_task_details": {
       "id": "CLM-12345",
-      "task_id": 32513,
+      "task_id": 27019,
       "status": "completed",
       "form_response": {
         "responses": [

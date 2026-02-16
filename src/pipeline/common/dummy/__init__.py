@@ -6,7 +6,7 @@ allowing pipeline testing without access to production data sources.
 
 Plugin Profiles:
     Use plugin profiles to generate data tailored for specific plugin workflows:
-    - itel_cabinet_api: Generate itel Cabinet Repair Form events (task_id=32513)
+    - itel_cabinet_api: Generate itel Cabinet Repair Form events (task_id=27019)
     - standard_claimx: Generate standard ClaimX events
     - standard_xact: Generate standard XACT events
 

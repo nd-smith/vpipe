@@ -303,7 +303,7 @@ class DummyDataSource:
                 event_data = self._generator.generate_claimx_event_mixed()
                 # Log if this is an itel-triggering event
                 task_id = event_data.get("raw_data", {}).get("taskId")
-                if task_id == 32513:
+                if task_id == 27019:
                     logger.debug(
                         f"Generated itel Cabinet trigger event | "
                         f"event_type={event_data['event_type']} | "

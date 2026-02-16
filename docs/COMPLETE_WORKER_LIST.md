@@ -154,7 +154,7 @@ Writers  Writers
 ### itel-cabinet-tracking
 **Launch**: `python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker`
 **Purpose**: Tracks iTel Cabinet task lifecycle
-**Triggered By**: `claimx-enricher` (when task_id=32513 events occur)
+**Triggered By**: `claimx-enricher` (when task_id=27019 events occur)
 **Input**: Kafka topic `itel.cabinet.task.tracking`
 **Actions**:
 1. Enriches task data via ClaimX API
@@ -178,10 +178,10 @@ Writers  Writers
 
 ## Plugin Execution Flow
 
-### Example: iTel Cabinet Task 32513
+### Example: iTel Cabinet Task 27019
 
 ```
-1. ClaimX Event arrives (task_id=32513)
+1. ClaimX Event arrives (task_id=27019)
    ↓
 2. claimx-ingester reads from source EventHub
    ↓
@@ -189,7 +189,7 @@ Writers  Writers
    ↓
 4. claimx-enricher processes event
    - Loads itel_cabinet_api plugin
-   - Plugin condition matches (task_id=32513)
+   - Plugin condition matches (task_id=27019)
    - Plugin publishes to itel.cabinet.task.tracking
    ↓
 5. itel-cabinet-tracking worker consumes

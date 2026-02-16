@@ -3,7 +3,7 @@
 # =============================================================================
 # This configuration generates dummy data for both XACT and ClaimX domains,
 # with a configurable percentage of ClaimX events that trigger the itel
-# Cabinet API plugin (task_id 32513).
+# Cabinet API plugin (task_id 27019).
 #
 # Usage:
 #   python scripts/run_dual_domain_producer.py
@@ -17,7 +17,7 @@
 #
 #   2. ClaimX Events:
 #      - Standard ClaimX events (PROJECT_CREATED, PROJECT_FILE_ADDED, etc.)
-#      - 30% of task events trigger itel Cabinet plugin (task_id=32513)
+#      - 30% of task events trigger itel Cabinet plugin (task_id=27019)
 #
 # Related Files:
 #   - config/plugins/claimx/itel_cabinet_api/config.yaml - Plugin configuration
@@ -106,8 +106,8 @@ max_events:
 #     - VIDEO_COLLABORATION_COMPLETED
 #
 #   itel Cabinet Events (~30% of task events):
-#     - CUSTOM_TASK_ASSIGNED with task_id=32513
-#     - CUSTOM_TASK_COMPLETED with task_id=32513
+#     - CUSTOM_TASK_ASSIGNED with task_id=27019
+#     - CUSTOM_TASK_COMPLETED with task_id=27019
 #     - Includes full form data (customer info, cabinet details)
 #     - Will trigger the itel Cabinet API plugin
 #

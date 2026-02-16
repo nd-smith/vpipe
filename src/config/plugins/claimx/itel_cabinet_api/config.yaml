@@ -1,12 +1,12 @@
 # =============================================================================
 # iTel Cabinet Task Tracking Plugin Configuration
 # =============================================================================
-# Tracks the complete lifecycle of iTel Cabinet Repair Form tasks (task_id 32513)
+# Tracks the complete lifecycle of iTel Cabinet Repair Form tasks (task_id 27019)
 # from creation through completion. All status changes are captured and published
 # to a Kafka topic for asynchronous processing and enrichment.
 #
 # Architecture:
-#   ClaimX Event → Plugin (filter task_id=32513) → Event Hub Topic → Worker → Delta Table
+#   ClaimX Event → Plugin (filter task_id=27019) → Event Hub Topic → Worker → Delta Table
 #
 # Related Files:
 #   - plugins/config/connections.yaml - ClaimX API connection config
@@ -33,9 +33,9 @@ config:
   # Map of task_id (ClaimX task template ID) to trigger actions
   triggers:
     # ==========================================================================
-    # iTel Cabinet Repair Form Task (Task Template ID: 32513)
+    # iTel Cabinet Repair Form Task (Task Template ID: 27019)
     # ==========================================================================
-    # This trigger captures ALL status changes for task 32513, including:
+    # This trigger captures ALL status changes for task 27019, including:
     #   - Task creation/assignment
     #   - Status transitions (assigned → in_progress → completed)
     #   - Task completion
@@ -65,7 +65,7 @@ config:
 # =============================================================================
 #
 # Task ID:
-#   - 32513 is the ClaimX task template ID for iTel Cabinet Repair Forms
+#   - 27019 is the ClaimX task template ID for iTel Cabinet Repair Forms
 #   - This is the only task being tracked by this plugin
 #
 # Event Tracking:
@@ -73,7 +73,7 @@ config:
 #   - Alternative: Use on_assigned and on_completed for specific events only
 #
 # Event Hub Topic:
-#   - pcesdopodappv1-itel-cabinet-pending: Single topic for all task 32513 events
+#   - pcesdopodappv1-itel-cabinet-pending: Single topic for all task 27019 events
 #   - Worker consumes from this topic for processing
 #   - Retention: 7 days (configured in Event Hub)
 #
@@ -84,7 +84,7 @@ config:
 #     "event_id": "unique-event-id",
 #     "event_type": "CUSTOM_TASK_ASSIGNED|CUSTOM_TASK_COMPLETED|etc",
 #     "project_id": "12345",
-#     "task_id": 32513,
+#     "task_id": 27019,
 #     "assignment_id": 789,
 #     "task_name": "iTel Cabinet Repair Form",
 #     "task_status": "assigned|in_progress|completed|etc",
@@ -101,12 +101,12 @@ config:
 # Testing:
 #   1. Set enabled: true
 #   2. Start enrichment worker
-#   3. Create/update task 32513 in ClaimX
+#   3. Create/update task 27019 in ClaimX
 #   4. Verify events published to pcesdopodappv1-itel-cabinet-pending topic
 #   5. Check logs for "iTel Cabinet task event tracked" messages
 #
 # Troubleshooting:
-#   - No events triggered: Verify task_id in ClaimX matches 32513 exactly
+#   - No events triggered: Verify task_id in ClaimX matches 27019 exactly
 #   - Plugin not running: Check enrichment worker is running with plugins enabled
 #   - No Event Hub messages: Check Event Hub connectivity and topic creation
 #

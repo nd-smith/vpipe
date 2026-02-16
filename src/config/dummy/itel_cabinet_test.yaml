@@ -10,7 +10,7 @@
 #   METHOD 2: Use this as a reference and set env vars (see below)
 #
 # What this does:
-#   1. Generates ClaimX events with task_id=32513 (itel Cabinet Repair Form)
+#   1. Generates ClaimX events with task_id=27019 (itel Cabinet Repair Form)
 #   2. Events include realistic form data and attachments
 #   3. Plugin triggers and publishes to com.allstate.pcesdopodappv1.itel.cabinet.task.tracking topic
 #   4. Worker consumes and processes through enrichment pipeline
@@ -24,7 +24,7 @@
 # Generator configuration
 generator:
   # Use itel Cabinet API plugin profile
-  # This ensures all generated events have task_id=32513 and include form data
+  # This ensures all generated events have task_id=27019 and include form data
   plugin_profile: "itel_cabinet_api"
 
   # Optional: Use seed for reproducible test data
@@ -79,7 +79,7 @@ max_events: 100
 # Plugin Profile:
 #   When plugin_profile is set to "itel_cabinet_api", the dummy data generator
 #   will create ClaimX events specifically for itel Cabinet Repair Forms:
-#   - task_id: 32513
+#   - task_id: 27019
 #   - event_type: CUSTOM_TASK_ASSIGNED or CUSTOM_TASK_COMPLETED
 #   - Includes complete form data (customer info, cabinet details, photos)
 #   - Includes mock ClaimX API response structure

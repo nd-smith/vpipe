@@ -14,9 +14,6 @@ from .parsers import get_readable_report, parse_cabinet_attachments, parse_cabin
 
 logger = logging.getLogger(__name__)
 
-# iTel Cabinet Repair Form task ID (ClaimX custom task type)
-ITEL_CABINET_REPAIR_FORM_TASK_ID = 32513
-
 
 class ItelCabinetPipeline:
     """Processing pipeline for iTel Cabinet task events.
@@ -91,16 +88,7 @@ class ItelCabinetPipeline:
         )
 
     def _validate_event(self, event: TaskEvent) -> None:
-        """Validate business rules:
-        - task_id matches iTel Cabinet Repair Form
-        - Valid task_status
-        """
-        if event.task_id != ITEL_CABINET_REPAIR_FORM_TASK_ID:
-            raise ValueError(
-                f"Invalid task_id: {event.task_id}. "
-                f"Expected {ITEL_CABINET_REPAIR_FORM_TASK_ID} (iTel Cabinet Repair Form)"
-            )
-
+        """Validate task_status is a known value."""
         valid_statuses = ["ASSIGNED", "IN_PROGRESS", "COMPLETED"]
         if event.task_status not in valid_statuses:
             raise ValueError(
