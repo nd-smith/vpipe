@@ -1,9 +1,10 @@
 """Tests for pipeline.common.eventhub.consumer module.
 
 Covers EventHubConsumerRecord and EventHubConsumer, including message conversion,
-start/stop lifecycle, DLQ routing, and error handling.
+start/stop lifecycle, DLQ routing, error handling, and WebSocket reconnection.
 """
 
+import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -666,3 +667,217 @@ class TestHandleProcessingError:
 
         # Should not raise for transient errors
         await consumer._handle_processing_error(msg, RuntimeError("timeout"), 0.1)
+
+
+# =============================================================================
+# _create_consumer_client
+# =============================================================================
+
+
+class TestCreateConsumerClient:
+    def _make_consumer(self):
+        from pipeline.common.eventhub.consumer import EventHubConsumer
+
+        with patch("pipeline.common.eventhub.consumer.generate_worker_id", return_value="test-id"):
+            return EventHubConsumer(
+                connection_string="Endpoint=sb://test.net/;SharedAccessKeyName=P;SharedAccessKey=k",
+                domain="verisk",
+                worker_name="test",
+                eventhub_name="verisk_events",
+                consumer_group="$Default",
+                message_handler=AsyncMock(),
+            )
+
+    @patch("pipeline.common.eventhub.consumer.get_ca_bundle_kwargs", return_value={})
+    @patch("pipeline.common.eventhub.consumer.EventHubConsumerClient")
+    def test_creates_client_with_correct_params(self, MockClient, mock_ssl):
+        consumer = self._make_consumer()
+        mock_instance = MagicMock()
+        MockClient.from_connection_string.return_value = mock_instance
+
+        result = consumer._create_consumer_client()
+
+        assert result is mock_instance
+        MockClient.from_connection_string.assert_called_once()
+        call_kwargs = MockClient.from_connection_string.call_args[1]
+        assert call_kwargs["consumer_group"] == "$Default"
+        assert call_kwargs["eventhub_name"] == "verisk_events"
+
+
+# =============================================================================
+# _consume_loop reconnection
+# =============================================================================
+
+
+class TestConsumeLoopReconnection:
+    def _make_consumer(self, **overrides):
+        from pipeline.common.eventhub.consumer import EventHubConsumer
+
+        defaults = {
+            "connection_string": "Endpoint=sb://test.net/;SharedAccessKeyName=P;SharedAccessKey=k",
+            "domain": "verisk",
+            "worker_name": "test",
+            "eventhub_name": "verisk_events",
+            "consumer_group": "$Default",
+            "message_handler": AsyncMock(),
+        }
+        defaults.update(overrides)
+
+        with patch("pipeline.common.eventhub.consumer.generate_worker_id", return_value="test-id"):
+            return EventHubConsumer(**defaults)
+
+    @patch("pipeline.common.eventhub.consumer.update_connection_status")
+    @patch("pipeline.common.eventhub.consumer.update_assigned_partitions")
+    async def test_reconnects_on_transient_connect_error(
+        self, mock_partitions, mock_connection
+    ):
+        """Consumer reconnects when receive() raises a transient error (WebSocket disconnect)."""
+        consumer = self._make_consumer()
+        consumer._running = True
+
+        # First call raises, second call succeeds (returns normally)
+        mock_client_1 = AsyncMock()
+        mock_client_1.receive = AsyncMock(side_effect=RuntimeError("connection lost"))
+        mock_client_1.close = AsyncMock()
+
+        mock_client_2 = AsyncMock()
+        mock_client_2.receive = AsyncMock(return_value=None)
+
+        consumer._consumer = mock_client_1
+
+        with (
+            patch.object(consumer, "_create_consumer_client", return_value=mock_client_2),
+            patch("pipeline.common.eventhub.consumer.asyncio.sleep", new_callable=AsyncMock),
+            patch("pipeline.common.eventhub.consumer.TransportErrorClassifier") as MockClassifier,
+        ):
+            from core.errors.exceptions import TransientError
+
+            MockClassifier.classify_consumer_error.return_value = TransientError("connection lost")
+
+            await consumer._consume_loop()
+
+        # Old client should have been closed
+        mock_client_1.close.assert_awaited_once()
+
+        # New client should have been used
+        mock_client_2.receive.assert_awaited_once()
+
+    @patch("pipeline.common.eventhub.consumer.update_connection_status")
+    @patch("pipeline.common.eventhub.consumer.update_assigned_partitions")
+    async def test_does_not_reconnect_on_permanent_error(
+        self, mock_partitions, mock_connection
+    ):
+        """Consumer does NOT reconnect on permanent errors — raises immediately."""
+        consumer = self._make_consumer()
+        consumer._running = True
+
+        mock_client = AsyncMock()
+        mock_client.receive = AsyncMock(side_effect=RuntimeError("topic does not exist"))
+        consumer._consumer = mock_client
+
+        with (
+            patch("pipeline.common.eventhub.consumer.TransportErrorClassifier") as MockClassifier,
+        ):
+            from core.errors.exceptions import PermanentError
+
+            MockClassifier.classify_consumer_error.return_value = PermanentError(
+                "topic does not exist"
+            )
+
+            with pytest.raises(RuntimeError, match="topic does not exist"):
+                await consumer._consume_loop()
+
+    @patch("pipeline.common.eventhub.consumer.update_connection_status")
+    @patch("pipeline.common.eventhub.consumer.update_assigned_partitions")
+    async def test_gives_up_after_max_consecutive_errors(
+        self, mock_partitions, mock_connection
+    ):
+        """Consumer gives up after max consecutive transient errors."""
+        consumer = self._make_consumer()
+        consumer._running = True
+
+        mock_client = AsyncMock()
+        mock_client.receive = AsyncMock(side_effect=RuntimeError("connection lost"))
+        mock_client.close = AsyncMock()
+        consumer._consumer = mock_client
+
+        with (
+            patch.object(consumer, "_create_consumer_client", return_value=mock_client),
+            patch("pipeline.common.eventhub.consumer.asyncio.sleep", new_callable=AsyncMock),
+            patch("pipeline.common.eventhub.consumer.TransportErrorClassifier") as MockClassifier,
+        ):
+            from core.errors.exceptions import TransientError
+
+            MockClassifier.classify_consumer_error.return_value = TransientError("connection lost")
+
+            with pytest.raises(RuntimeError, match="connection lost"):
+                await consumer._consume_loop()
+
+        # Should have attempted 5 reconnections (max_consecutive_errors) before giving up.
+        # receive() is called 6 times: initial + 5 retries
+        assert mock_client.receive.await_count == 6
+
+    @patch("pipeline.common.eventhub.consumer.update_connection_status")
+    @patch("pipeline.common.eventhub.consumer.update_assigned_partitions")
+    async def test_resets_error_count_after_stable_period(
+        self, mock_partitions, mock_connection
+    ):
+        """Consecutive error count resets if receive() ran for >60s (stable_threshold)."""
+        consumer = self._make_consumer()
+        consumer._running = True
+
+        call_count = 0
+
+        async def receive_side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise RuntimeError("connection lost")
+            # Third call succeeds
+            return None
+
+        mock_client = AsyncMock()
+        mock_client.receive = AsyncMock(side_effect=receive_side_effect)
+        mock_client.close = AsyncMock()
+        consumer._consumer = mock_client
+
+        with (
+            patch.object(consumer, "_create_consumer_client", return_value=mock_client),
+            patch("pipeline.common.eventhub.consumer.asyncio.sleep", new_callable=AsyncMock),
+            patch("pipeline.common.eventhub.consumer.TransportErrorClassifier") as MockClassifier,
+            patch("pipeline.common.eventhub.consumer.time") as mock_time,
+        ):
+            from core.errors.exceptions import TransientError
+
+            MockClassifier.classify_consumer_error.return_value = TransientError("connection lost")
+
+            # Simulate: first call runs 0s (immediate error), second call runs 120s (stable)
+            # monotonic() is called once per loop iteration (receive_start)
+            mock_time.monotonic.side_effect = [
+                0.0,    # receive_start for attempt 1
+                0.1,    # receive_duration check — ran 0.1s (not stable)
+                100.0,  # receive_start for attempt 2
+                220.0,  # receive_duration check — ran 120s (stable, resets counter)
+                220.0,  # receive_start for attempt 3
+            ]
+
+            await consumer._consume_loop()
+
+        assert call_count == 3
+
+    async def test_exits_loop_when_running_set_to_false(self):
+        """Consumer exits reconnection loop when _running is set to False."""
+        consumer = self._make_consumer()
+        consumer._running = True
+
+        mock_client = AsyncMock()
+
+        async def stop_running(**kwargs):
+            consumer._running = False
+            raise RuntimeError("connection lost")
+
+        mock_client.receive = AsyncMock(side_effect=stop_running)
+        consumer._consumer = mock_client
+
+        # Should exit cleanly without raising
+        await consumer._consume_loop()
