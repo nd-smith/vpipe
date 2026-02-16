@@ -1,59 +1,130 @@
 {% extends "base.html" %}
 {% block title %}Consumer Lag Overview{% endblock %}
 {% block content %}
-<h1>Consumer Lag Overview</h1>
+<h1 style="display: flex; align-items: center; gap: 1rem;">
+    Consumer Lag Overview
+    <span id="poll-indicator" class="badge badge-green" style="font-size: 0.7rem;">AUTO</span>
+</h1>
 
-{% if errors %}
-<div class="error-box mb-1">
-    <strong>Errors:</strong>
-    {% for err in errors %}
-    <div>{{ err }}</div>
-    {% endfor %}
+<div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; font-size: 0.85rem;">
+    <button class="btn" onclick="togglePolling()" id="poll-toggle">Pause</button>
+    <select id="poll-interval" class="btn" onchange="changeInterval()" style="padding: 0.35rem 0.5rem;">
+        <option value="15">15s</option>
+        <option value="30" selected>30s</option>
+        <option value="60">60s</option>
+        <option value="120">2m</option>
+    </select>
+    <a href="/lag/history.csv" class="btn">Download CSV</a>
+    <span id="poll-status" class="text-muted"></span>
 </div>
-{% endif %}
 
-{% if results %}
-<div class="card">
-    <table>
-        <thead>
-            <tr>
-                <th>Domain</th>
-                <th>EventHub</th>
-                <th>Worker</th>
-                <th>Consumer Group</th>
-                <th class="text-right">Total Lag</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in results %}
-            <tr>
-                <td class="text-muted">{{ r.hub.domain }}</td>
-                <td class="mono">{{ r.lag.eventhub_name }}</td>
-                <td>{{ r.worker_name }}</td>
-                <td class="mono">{{ r.lag.consumer_group }}</td>
-                <td class="text-right">
-                    {% if r.lag.total_lag is none %}
-                    <span class="badge badge-muted">partial</span>
-                    {% elif r.lag.total_lag == 0 %}
-                    <span class="badge badge-green">0</span>
-                    {% elif r.lag.total_lag < 100 %}
-                    <span class="badge badge-yellow">{{ r.lag.total_lag }}</span>
-                    {% elif r.lag.total_lag < 1000 %}
-                    <span class="badge badge-orange" style="background: rgba(219, 109, 40, 0.15); color: var(--orange);">{{ "{:,}".format(r.lag.total_lag) }}</span>
-                    {% else %}
-                    <span class="badge badge-red">{{ "{:,}".format(r.lag.total_lag) }}</span>
-                    {% endif %}
-                </td>
-                <td>
-                    <a href="/lag/{{ r.lag.eventhub_name }}/{{ r.lag.consumer_group }}" class="btn">Details</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div id="lag-data"
+     hx-get="/lag/data"
+     hx-trigger="load, every 30s"
+     hx-swap="innerHTML"
+     hx-indicator="#loading-spinner">
+
+    <span id="loading-spinner" class="htmx-indicator text-muted">Loading...</span>
+
+    {% if errors %}
+    <div class="error-box mb-1">
+        <strong>Errors:</strong>
+        {% for err in errors %}
+        <div>{{ err }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if results %}
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Domain</th>
+                    <th>EventHub</th>
+                    <th>Worker</th>
+                    <th>Consumer Group</th>
+                    <th class="text-right">Total Lag</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td class="text-muted">{{ r.hub.domain }}</td>
+                    <td class="mono">{{ r.lag.eventhub_name }}</td>
+                    <td>{{ r.worker_name }}</td>
+                    <td class="mono">{{ r.lag.consumer_group }}</td>
+                    <td class="text-right">
+                        {% if r.lag.total_lag is none %}
+                        <span class="badge badge-muted">partial</span>
+                        {% elif r.lag.total_lag == 0 %}
+                        <span class="badge badge-green">0</span>
+                        {% elif r.lag.total_lag < 100 %}
+                        <span class="badge badge-yellow">{{ r.lag.total_lag }}</span>
+                        {% elif r.lag.total_lag < 1000 %}
+                        <span class="badge badge-orange" style="background: rgba(219, 109, 40, 0.15); color: var(--orange);">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                        {% else %}
+                        <span class="badge badge-red">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/lag/{{ r.lag.eventhub_name }}/{{ r.lag.consumer_group }}" class="btn">Details</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted">No consumer groups found.</p>
+    {% endif %}
 </div>
-{% else %}
-<p class="text-muted">No consumer groups found.</p>
-{% endif %}
+
+<script>
+    let polling = true;
+    const lagDiv = document.getElementById('lag-data');
+    const indicator = document.getElementById('poll-indicator');
+    const toggleBtn = document.getElementById('poll-toggle');
+    const statusEl = document.getElementById('poll-status');
+
+    function togglePolling() {
+        polling = !polling;
+        if (polling) {
+            const secs = document.getElementById('poll-interval').value;
+            lagDiv.setAttribute('hx-trigger', 'every ' + secs + 's');
+            indicator.textContent = 'AUTO';
+            indicator.className = 'badge badge-green';
+            toggleBtn.textContent = 'Pause';
+        } else {
+            lagDiv.setAttribute('hx-trigger', 'none');
+            indicator.textContent = 'PAUSED';
+            indicator.className = 'badge badge-muted';
+            toggleBtn.textContent = 'Resume';
+        }
+        htmx.process(lagDiv);
+    }
+
+    function changeInterval() {
+        if (!polling) return;
+        const secs = document.getElementById('poll-interval').value;
+        lagDiv.setAttribute('hx-trigger', 'every ' + secs + 's');
+        htmx.process(lagDiv);
+    }
+
+    // Show countdown to next refresh
+    let lastRefresh = Date.now();
+    document.body.addEventListener('htmx:afterRequest', function(e) {
+        if (e.detail.elt === lagDiv) {
+            lastRefresh = Date.now();
+        }
+    });
+    setInterval(function() {
+        if (!polling) { statusEl.textContent = ''; return; }
+        const secs = parseInt(document.getElementById('poll-interval').value);
+        const elapsed = Math.floor((Date.now() - lastRefresh) / 1000);
+        const remaining = Math.max(0, secs - elapsed);
+        statusEl.textContent = 'next refresh in ' + remaining + 's';
+    }, 1000);
+</script>
 {% endblock %}

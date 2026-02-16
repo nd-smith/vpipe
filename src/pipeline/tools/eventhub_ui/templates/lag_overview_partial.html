@@ -1,0 +1,57 @@
+{% if errors %}
+<div class="error-box mb-1">
+    <strong>Errors:</strong>
+    {% for err in errors %}
+    <div>{{ err }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if results %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Domain</th>
+                <th>EventHub</th>
+                <th>Worker</th>
+                <th>Consumer Group</th>
+                <th class="text-right">Total Lag</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in results %}
+            <tr>
+                <td class="text-muted">{{ r.hub.domain }}</td>
+                <td class="mono">{{ r.lag.eventhub_name }}</td>
+                <td>{{ r.worker_name }}</td>
+                <td class="mono">{{ r.lag.consumer_group }}</td>
+                <td class="text-right">
+                    {% if r.lag.total_lag is none %}
+                    <span class="badge badge-muted">partial</span>
+                    {% elif r.lag.total_lag == 0 %}
+                    <span class="badge badge-green">0</span>
+                    {% elif r.lag.total_lag < 100 %}
+                    <span class="badge badge-yellow">{{ r.lag.total_lag }}</span>
+                    {% elif r.lag.total_lag < 1000 %}
+                    <span class="badge badge-orange" style="background: rgba(219, 109, 40, 0.15); color: var(--orange);">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                    {% else %}
+                    <span class="badge badge-red">{{ "{:,}".format(r.lag.total_lag) }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="/lag/{{ r.lag.eventhub_name }}/{{ r.lag.consumer_group }}" class="btn">Details</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-muted">No consumer groups found.</p>
+{% endif %}
+
+<div class="text-muted" style="font-size: 0.8rem;">
+    Updated {{ updated_at }}
+</div>
