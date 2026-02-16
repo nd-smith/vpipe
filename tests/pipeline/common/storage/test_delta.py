@@ -827,7 +827,7 @@ class TestDeltaTableWriterAppend:
 
         writer = DeltaTableWriter("abfss://ws@acct/table", partition_column="event_date")
         with (
-            patch.object(writer, "_table_exists", return_value=False),
+            patch.object(writer, "_load_table", return_value=None),
             patch.object(writer, "_cast_null_columns", return_value=mock_df) as mock_cast,
         ):
             writer.append(mock_df)
@@ -904,7 +904,7 @@ class TestDeltaTableWriterMerge:
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
         with (
-            patch.object(writer, "_table_exists", return_value=False),
+            patch.object(writer, "_load_table", return_value=None),
             patch.object(writer, "_cast_null_columns", return_value=mock_df),
             patch("pipeline.common.storage.delta.pl.DataFrame", return_value=mock_df),
         ):

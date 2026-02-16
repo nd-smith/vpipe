@@ -327,12 +327,26 @@ class DeltaTableWriter:
                 stacklevel=2,
             )
 
-    def _table_exists(self, opts: dict[str, str]) -> bool:
+    def _load_table(self, opts: dict[str, str]) -> DeltaTable | None:
+        """Load a DeltaTable instance, returning None if it doesn't exist.
+
+        Caches the instance for reuse across operations within a single
+        append/merge call.  Call _invalidate_cached_table() on errors.
+        """
+        if self._delta_table is not None:
+            return self._delta_table
         try:
-            DeltaTable(self.table_path, storage_options=opts)
-            return True
+            self._delta_table = DeltaTable(self.table_path, storage_options=opts)
+            return self._delta_table
         except Exception:
-            return False
+            return None
+
+    def _invalidate_cached_table(self) -> None:
+        """Drop the cached DeltaTable so the next call re-reads metadata."""
+        self._delta_table = None
+
+    def _table_exists(self, opts: dict[str, str]) -> bool:
+        return self._load_table(opts) is not None
 
     def _cast_null_columns(
         self, df: pl.DataFrame, target_type: pl.DataType = pl.Utf8
@@ -343,10 +357,18 @@ class DeltaTableWriter:
                 df = df.with_columns(pl.col(col).cast(target_type, strict=False).alias(col))
         return df
 
-    def _align_schema_with_target(self, df: pl.DataFrame, opts: dict[str, str]) -> pl.DataFrame:
+    def _align_schema_with_target(
+        self,
+        df: pl.DataFrame,
+        opts: dict[str, str],
+        dt: DeltaTable | None = None,
+    ) -> pl.DataFrame:
         """Aligns DataFrame schema with target table to prevent type coercion errors during merge."""
         try:
-            dt = DeltaTable(self.table_path, storage_options=opts)
+            if dt is None:
+                dt = self._load_table(opts)
+                if dt is None:
+                    return df
             target_schema = dt.schema()
 
             # Build ordered list of target column names and mapping to Arrow types
@@ -539,32 +561,29 @@ class DeltaTableWriter:
     ) -> tuple[pl.DataFrame, list[str] | None, int | None]:
         """Align schema, resolve partitions, and capture version before append.
 
+        Uses a single cached DeltaTable instance for all metadata reads.
+
         Returns (prepared_df, partition_by, version_before).
         """
-        table_existed_before = self._table_exists(opts)
+        dt = self._load_table(opts)
 
-        # Align source schema with target to ensure column order matches
-        # (alignment also handles null-typed columns)
-        if table_existed_before:
-            df = self._align_schema_with_target(df, opts)
-        else:
-            df = self._cast_null_columns(df)
+        if dt is not None:
+            # Table exists — align schema and read partitions/version
+            df = self._align_schema_with_target(df, opts, dt=dt)
 
-        # Determine partition columns - use existing table's partitions if table exists,
-        # otherwise use configured partition column. This prevents partition mismatch
-        # errors when appending to tables with different/no partitioning.
-        partition_by = None
-        version_before = None
-        if table_existed_before:
+            partition_by = None
+            version_before = None
             try:
-                dt = DeltaTable(self.table_path, storage_options=opts)
                 version_before = dt.version()
                 existing_partitions = dt.metadata().partition_columns
                 partition_by = existing_partitions if existing_partitions else None
             except Exception:
                 partition_by = [self.partition_column] if self.partition_column else None
         else:
+            # New table — cast nulls and use configured partitioning
+            df = self._cast_null_columns(df)
             partition_by = [self.partition_column] if self.partition_column else None
+            version_before = None
 
         return df, partition_by, version_before
 
@@ -576,7 +595,15 @@ class DeltaTableWriter:
     ) -> None:
         """Check that the table version incremented after an append write."""
         try:
-            dt = DeltaTable(self.table_path, storage_options=opts)
+            # Invalidate cache so we read fresh metadata post-write
+            self._invalidate_cached_table()
+            dt = self._load_table(opts)
+            if dt is None:
+                logger.error(
+                    "Table not found during post-write verification",
+                    extra={"batch_id": batch_id, "table_path": self.table_path},
+                )
+                return
             version_after = dt.version()
             metadata = dt.metadata()
 
@@ -662,6 +689,8 @@ class DeltaTableWriter:
         )
         opts = get_storage_options()
 
+        # Invalidate cached table so we read fresh metadata for this write
+        self._invalidate_cached_table()
         df, partition_by, version_before = self._prepare_dataframe_for_append(df, opts)
 
         logger.info(
@@ -669,7 +698,7 @@ class DeltaTableWriter:
             extra={
                 "batch_id": batch_id,
                 "table_path": self.table_path,
-                "table_existed_before": version_before is not None or self._table_exists(opts),
+                "table_existed_before": version_before is not None,
                 "partition_by": partition_by,
                 "partition_column_config": self.partition_column,
                 "df_columns": df.columns,
@@ -691,14 +720,24 @@ class DeltaTableWriter:
         )  # type: ignore[call-overload]
 
         logger.info(
-            "Delta write completed, verifying",
+            "Delta write completed",
             extra={
                 "batch_id": batch_id,
                 "rows_written": len(df),
             },
         )
 
-        self._verify_append_version(opts, version_before, batch_id)
+        # Fire-and-forget version verification in a background thread.
+        # write_deltalake raises on failure, so verification is a safety net —
+        # no need to block the write path waiting for it.
+        import threading
+
+        threading.Thread(
+            target=self._verify_append_version,
+            args=(opts, version_before, batch_id),
+            daemon=True,
+            name=f"delta-verify-{batch_id or 'unknown'}",
+        ).start()
 
         return len(df)
 
@@ -801,16 +840,19 @@ class DeltaTableWriter:
 
         opts = get_storage_options()
 
-        # Align source schema with target to prevent type coercion errors in CASE WHEN
-        # This also handles NULL-typed columns by casting to correct target type
-        if self._table_exists(opts):
-            df = self._align_schema_with_target(df, opts)
+        # Single DeltaTable load for existence check, schema alignment, and merge
+        self._invalidate_cached_table()
+        dt = self._load_table(opts)
+
+        if dt is not None:
+            # Align source schema with target to prevent type coercion errors in CASE WHEN
+            # This also handles NULL-typed columns by casting to correct target type
+            df = self._align_schema_with_target(df, opts, dt=dt)
         else:
             # Table doesn't exist yet - cast NULL columns to Utf8 as default
             df = self._cast_null_columns(df)
 
-        # Create table if doesn't exist
-        if not self._table_exists(opts):
+            # Create table
             arrow_table = df.to_arrow()
             write_deltalake(
                 self.table_path,
@@ -821,6 +863,7 @@ class DeltaTableWriter:
                 partition_by=[self.partition_column] if self.partition_column else None,
             )
             del arrow_table
+            self._invalidate_cached_table()
             logger.info(
                 "Created table",
                 extra={"rows_written": len(df)},
@@ -833,8 +876,6 @@ class DeltaTableWriter:
 
         pa_df = df.to_arrow()
         del df
-
-        dt = DeltaTable(self.table_path, storage_options=opts)
 
         merge_builder = dt.merge(
             source=pa_df,
@@ -853,7 +894,8 @@ class DeltaTableWriter:
 
         result = merge_builder.when_not_matched_insert(insert_dict).execute()
 
-        del pa_df, dt
+        del pa_df
+        self._invalidate_cached_table()
 
         rows_updated = result.get("num_target_rows_updated", 0) or 0
         rows_inserted = result.get("num_target_rows_inserted", 0) or 0

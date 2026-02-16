@@ -7,123 +7,59 @@ Migrated from verisk_pipeline.verisk.stages.transform.
 
 import json
 import logging
-from typing import Any
 
 import polars as pl
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_get(d: dict | None, *keys: str, default: Any = None) -> Any:
+# JSONPath → output column mappings for scalar fields extracted from the data column.
+# All are extracted as Utf8 via json_path_match (returns null for missing paths).
+_SCALAR_FIELD_MAPPINGS: list[tuple[str, str]] = [
+    # (json_path, output_column_name)
+    ("$.description", "description"),
+    ("$.assignmentId", "assignment_id"),
+    ("$.originalAssignmentId", "original_assignment_id"),
+    ("$.xnAddress", "xn_address"),
+    ("$.carrierId", "carrier_id"),
+    ("$.estimateVersion", "estimate_version"),
+    ("$.note", "note"),
+    ("$.author", "author"),
+    ("$.senderReviewerName", "sender_reviewer_name"),
+    ("$.senderReviewerEmail", "sender_reviewer_email"),
+    ("$.carrierReviewerName", "carrier_reviewer_name"),
+    ("$.carrierReviewerEmail", "carrier_reviewer_email"),
+    ("$.dateTime", "event_datetime_mdt"),
+    # Nested fields
+    ("$.adm.coverageLoss.claimNumber", "claim_number"),
+    ("$.contact.type", "contact_type"),
+    ("$.contact.name", "contact_name"),
+    ("$.contact.contactMethods.phone.type", "contact_phone_type"),
+    ("$.contact.contactMethods.phone.number", "contact_phone_number"),
+    ("$.contact.contactMethods.phone.extension", "contact_phone_extension"),
+    ("$.contact.contactMethods.email.address", "contact_email_address"),
+]
+
+# Struct dtype used for extracting the attachments list from JSON
+_ATTACHMENTS_DTYPE = pl.Struct({"attachments": pl.List(pl.Utf8)})
+
+
+def _normalize_data_column(df: pl.DataFrame) -> pl.DataFrame:
+    """Ensure the ``data`` column is Utf8 (JSON strings).
+
+    When raw events arrive with ``data`` already parsed as dicts, Polars
+    creates a Struct column.  We serialize those back to JSON strings so
+    the rest of the pipeline can use ``json_path_match`` uniformly.
     """
-    Safely navigate nested dict keys.
-
-    Args:
-        d: Dictionary to navigate (can be None)
-        *keys: Keys to traverse
-        default: Default value if any key is missing
-
-    Returns:
-        Value at the nested key path, or default
-    """
-    if d is None:
-        return default
-    current = d
-    for key in keys:
-        if not isinstance(current, dict):
-            return default
-        current = current.get(key)
-        if current is None:
-            return default
-    return current
-
-
-def _parse_data_column(data: Any | None) -> dict | None:
-    """Parse data to dict, handling dict, JSON string, None, and errors."""
-    if data is None:
-        return None
-    # If already a dict, return as-is
-    if isinstance(data, dict):
-        return data
-    # Otherwise try to parse as JSON string
-    try:
-        return json.loads(data)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-
-def _extract_row_fields(data_dict: dict | None) -> dict[str, Any]:
-    """
-    Extract all fields from a parsed data dict.
-
-    Args:
-        data_dict: Parsed JSON data dict (can be None)
-
-    Returns:
-        Dict with all extracted fields
-    """
-    if data_dict is None:
-        return {
-            "description": None,
-            "assignment_id": None,
-            "original_assignment_id": None,
-            "xn_address": None,
-            "carrier_id": None,
-            "estimate_version": None,
-            "note": None,
-            "author": None,
-            "sender_reviewer_name": None,
-            "sender_reviewer_email": None,
-            "carrier_reviewer_name": None,
-            "carrier_reviewer_email": None,
-            "event_datetime_mdt": None,
-            "attachments": None,
-            "claim_number": None,
-            "contact_type": None,
-            "contact_name": None,
-            "contact_phone_type": None,
-            "contact_phone_number": None,
-            "contact_phone_extension": None,
-            "contact_email_address": None,
-        }
-
-    # Extract attachments - join list to comma-separated string
-    attachments_list = data_dict.get("attachments")
-    attachments_str = None
-    if attachments_list and isinstance(attachments_list, list):
-        attachments_str = ",".join(str(a) for a in attachments_list if a)
-
-    return {
-        # Simple fields
-        "description": data_dict.get("description"),
-        "assignment_id": data_dict.get("assignmentId"),
-        "original_assignment_id": data_dict.get("originalAssignmentId"),
-        "xn_address": data_dict.get("xnAddress"),
-        "carrier_id": data_dict.get("carrierId"),
-        "estimate_version": data_dict.get("estimateVersion"),
-        "note": data_dict.get("note"),
-        "author": data_dict.get("author"),
-        "sender_reviewer_name": data_dict.get("senderReviewerName"),
-        "sender_reviewer_email": data_dict.get("senderReviewerEmail"),
-        "carrier_reviewer_name": data_dict.get("carrierReviewerName"),
-        "carrier_reviewer_email": data_dict.get("carrierReviewerEmail"),
-        "event_datetime_mdt": data_dict.get("dateTime"),
-        "attachments": attachments_str,
-        # Nested fields
-        "claim_number": _safe_get(data_dict, "adm", "coverageLoss", "claimNumber"),
-        "contact_type": _safe_get(data_dict, "contact", "type"),
-        "contact_name": _safe_get(data_dict, "contact", "name"),
-        "contact_phone_type": _safe_get(data_dict, "contact", "contactMethods", "phone", "type"),
-        "contact_phone_number": _safe_get(
-            data_dict, "contact", "contactMethods", "phone", "number"
-        ),
-        "contact_phone_extension": _safe_get(
-            data_dict, "contact", "contactMethods", "phone", "extension"
-        ),
-        "contact_email_address": _safe_get(
-            data_dict, "contact", "contactMethods", "email", "address"
-        ),
-    }
+    if df.schema["data"] == pl.Utf8:
+        return df
+    # Struct / other → serialize to JSON strings (uncommon path)
+    return df.with_columns(
+        pl.Series(
+            "data",
+            [json.dumps(v) if v is not None else None for v in df["data"].to_list()],
+        )
+    )
 
 
 def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
@@ -133,54 +69,76 @@ def flatten_events(df: pl.DataFrame) -> pl.DataFrame:
     elif "eventId" in df.columns:
         event_id_expr = pl.col("eventId").alias("event_id")
     else:
-        # Initialize as Utf8 nulls if it doesn't exist in source yet
         event_id_expr = pl.lit(None).cast(pl.Utf8).alias("event_id")
 
-    # 2. Build base columns including the resolved event_id_expr
-    base_df = df.select(
-        [
-            pl.col("type"),
-            pl.col("type").str.split(".").list.last().alias("status_subtype"),
-            pl.col("version"),
-            pl.col("utcDateTime")
-            .str.replace("Z$", "")
-            .str.to_datetime("%Y-%m-%dT%H:%M:%S")
-            .dt.replace_time_zone("UTC")
-            .alias("ingested_at"),
-            pl.col("utcDateTime")
-            .str.replace("Z$", "")
-            .str.to_datetime("%Y-%m-%dT%H:%M:%S")
-            .dt.replace_time_zone("UTC")
-            .dt.date()
-            .alias("event_date"),
-            pl.col("traceId").alias("trace_id"),
-            event_id_expr,  # Successfully added to the schema here
-        ]
+    # 2. Normalize data column to Utf8 (handles dict-valued data)
+    df = _normalize_data_column(df)
+
+    # 3. Build base columns
+    base_exprs = [
+        pl.col("type"),
+        pl.col("type").str.split(".").list.last().alias("status_subtype"),
+        pl.col("version"),
+        pl.col("utcDateTime")
+        .str.replace("Z$", "")
+        .str.to_datetime("%Y-%m-%dT%H:%M:%S")
+        .dt.replace_time_zone("UTC")
+        .alias("ingested_at"),
+        pl.col("utcDateTime")
+        .str.replace("Z$", "")
+        .str.to_datetime("%Y-%m-%dT%H:%M:%S")
+        .dt.replace_time_zone("UTC")
+        .dt.date()
+        .alias("event_date"),
+        pl.col("traceId").alias("trace_id"),
+        event_id_expr,
+    ]
+
+    # 4. Extract scalar fields from JSON via json_path_match (no Python loop)
+    data_col = pl.col("data")
+
+    # Fields before attachments (matches FLATTENED_SCHEMA order)
+    pre_attach_exprs = [
+        data_col.str.json_path_match(path).alias(alias)
+        for path, alias in _SCALAR_FIELD_MAPPINGS
+        if alias != "claim_number"
+        and not alias.startswith("contact_")
+    ]
+
+    # 5. Extract attachments: parse as list, filter nulls/empties, join with comma
+    attachments_raw = (
+        data_col.str.json_decode(_ATTACHMENTS_DTYPE)
+        .struct.field("attachments")
+        .list.eval(pl.element().drop_nulls().replace("", None).drop_nulls())
+        .list.join(",")
+    )
+    attachments_expr = (
+        pl.when(attachments_raw == "")
+        .then(None)
+        .otherwise(attachments_raw)
+        .cast(pl.Utf8)
+        .alias("attachments")
     )
 
-    # Parse data column and extract fields row by row
-    data_json_list = df["data"].to_list()
+    # Fields after attachments (nested fields)
+    post_attach_exprs = [
+        data_col.str.json_path_match(path).alias(alias)
+        for path, alias in _SCALAR_FIELD_MAPPINGS
+        if alias == "claim_number"
+        or alias.startswith("contact_")
+    ]
 
-    # Parse all rows
-    parsed_rows = [_extract_row_fields(_parse_data_column(d)) for d in data_json_list]
+    # 6. Raw JSON column (full original row serialized from source columns)
+    raw_json_col = df.select(pl.struct(pl.all()).struct.json_encode().alias("raw_json"))
 
-    # Build columns from parsed data
-    extracted_columns = (
-        {field: [row[field] for row in parsed_rows] for field in parsed_rows[0]}
-        if parsed_rows
-        else {}
+    # 7. Build extracted columns, then combine with raw_json
+    extracted = df.select(
+        base_exprs
+        + pre_attach_exprs
+        + [attachments_expr]
+        + post_attach_exprs
     )
-
-    # Create DataFrame from extracted fields with explicit schema to prevent Null types
-    # All extracted fields are strings - Delta Lake doesn't support Null type columns
-    extracted_schema = dict.fromkeys(extracted_columns.keys(), pl.Utf8)
-    extracted_df = pl.DataFrame(extracted_columns, schema=extracted_schema)
-
-    # Add raw_json column (the original data column)
-    raw_json_col = df.select([pl.struct(pl.all()).cast(pl.Utf8).alias("raw_json")])
-
-    # Combine all columns
-    result = pl.concat([base_df, extracted_df, raw_json_col], how="horizontal")
+    result = pl.concat([extracted, raw_json_col], how="horizontal")
 
     logger.info("Events flattened: %s rows, %s columns", len(result), len(result.columns))
     return result
