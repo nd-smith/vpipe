@@ -81,6 +81,17 @@ workers:
       # Test mode - controlled by --prod flag (dev mode is default)
       test_mode: false
 
+    # OneLake path for API result uploads
+    # Files land at: {base}/success/{YYYY}/{MM}/{DD}/{assignment_id}_{ts}.json
+    #            or: {base}/error/{YYYY}/{MM}/{DD}/{assignment_id}_{ts}.json
+    onelake:
+      results_path: ${ITEL_API_ONELAKE_RESULTS_PATH:-abfss://7729c159-4f93-4465-8cc0-48afb1764e51@onelake.dfs.fabric.microsoft.com/e56dab41-56dc-4a0a-9bac-ab3402cfcf3a/Files/pcesdopodapp/plugins/itel_cabinet_api/results}
+
+    # Output topics (topic_key references from config.yaml eventhub.plugins section)
+    output:
+      success_topic_key: itel_api_success
+      error_topic_key: itel_api_errors
+
 # =============================================================================
 # Environment Variables Required
 # =============================================================================

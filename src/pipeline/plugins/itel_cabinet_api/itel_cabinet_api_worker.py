@@ -49,7 +49,7 @@ from pipeline.common.metrics import (
     record_processing_error,
 )
 from pipeline.common.signals import setup_shutdown_signal_handlers
-from pipeline.common.transport import create_consumer
+from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.config import load_connections, load_yaml_config
 from pipeline.plugins.shared.connections import (
@@ -117,13 +117,20 @@ class ItelCabinetApiWorker:
         simulation_config: Any | None = None,
         health_port: int = 8097,
         health_enabled: bool = True,
+        onelake_results_path: str | None = None,
+        output_config: dict | None = None,
     ):
         self.transport_config = transport_config
         self.api_config = api_config
         self.connections = connection_manager
         self.simulation_config = simulation_config
+        self.onelake_results_path = onelake_results_path
+        self.output_config = output_config or {}
 
         self.consumer = None
+        self._success_producer = None
+        self._error_producer = None
+        self.onelake_client = None
         self.running = False
         self._shutdown_event = asyncio.Event()
 
@@ -191,7 +198,8 @@ class ItelCabinetApiWorker:
             elif self.api_config.get("test_mode", False):
                 await self._write_test_payload(api_payload, payload)
             else:
-                await self._send_to_api(api_payload)
+                status, response_body = await self._send_to_api(api_payload)
+                await self._handle_api_result(status, response_body, api_payload, payload)
 
             self._records_processed += 1
             self._records_succeeded += 1
@@ -255,6 +263,37 @@ class ItelCabinetApiWorker:
             enable_message_commit=True,
             topic_key=TOPIC_KEY,
         )
+
+        # Create output producers for result publishing
+        success_topic_key = self.output_config.get("success_topic_key", "itel_api_success")
+        error_topic_key = self.output_config.get("error_topic_key", "itel_api_errors")
+
+        self._success_producer = create_producer(
+            config=config,
+            domain="plugins",
+            worker_name="itel_cabinet_api_worker",
+            topic_key=success_topic_key,
+        )
+        await self._success_producer.start()
+
+        self._error_producer = create_producer(
+            config=config,
+            domain="plugins",
+            worker_name="itel_cabinet_api_worker",
+            topic_key=error_topic_key,
+        )
+        await self._error_producer.start()
+
+        # Initialize OneLake client for result uploads
+        if self.onelake_results_path:
+            from pipeline.common.storage import OneLakeClient
+
+            self.onelake_client = OneLakeClient(self.onelake_results_path)
+            await self.onelake_client.__aenter__()
+            logger.info(
+                "OneLake client initialized for result uploads",
+                extra={"results_path": self.onelake_results_path},
+            )
 
         await self.health_server.start()
         self._stats_logger = PeriodicStatsLogger(
@@ -532,8 +571,12 @@ class ItelCabinetApiWorker:
             return "no"
         return "No"
 
-    async def _send_to_api(self, api_payload: dict):
-        """Send payload to iTel Cabinet API."""
+    async def _send_to_api(self, api_payload: dict) -> tuple[int, dict]:
+        """Send payload to iTel Cabinet API.
+
+        Returns:
+            Tuple of (http_status, response_body). Caller decides how to handle.
+        """
         assignment_id = api_payload.get("integration_test_id", "unknown")
 
         logger.info(
@@ -551,16 +594,112 @@ class ItelCabinetApiWorker:
             json=api_payload,
         )
 
-        if is_http_error(status):
-            raise RuntimeError(f"iTel API returned error status {status}: {response}")
-
         logger.info(
-            "iTel API request successful",
+            "iTel API responded",
             extra={
                 "status": status,
                 "assignment_id": assignment_id,
+                "is_error": is_http_error(status),
             },
         )
+
+        return status, response
+
+    async def _handle_api_result(
+        self,
+        status: int,
+        response: dict,
+        api_payload: dict,
+        original_payload: dict,
+    ) -> None:
+        """Record API result to output topic and OneLake.
+
+        Publishes a result message to the success or error topic, uploads the
+        result JSON to OneLake, and re-raises on error so the transport layer
+        retries the message.
+
+        Args:
+            status: HTTP status code from the API
+            response: Response body from the API
+            api_payload: The transformed payload that was sent
+            original_payload: The original message payload
+        """
+        assignment_id = api_payload.get("integration_test_id", "unknown")
+        event_id = original_payload.get("event_id", "")
+        is_error = is_http_error(status)
+        result_type = "error" if is_error else "success"
+
+        result_message = {
+            "assignment_id": assignment_id,
+            "event_id": event_id,
+            "status": result_type,
+            "api_status": status,
+            "api_response": response,
+            "api_payload": api_payload,
+            "original_payload": original_payload,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        # Publish to appropriate topic (producer is already bound to the correct
+        # Event Hub entity via topic_key; Kafka topic follows the naming convention)
+        producer = self._error_producer if is_error else self._success_producer
+        topic = f"pcesdopodappv1-itel-api-{result_type}"
+
+        try:
+            await producer.send(
+                topic=topic,
+                key=event_id.encode("utf-8") if event_id else None,
+                value=result_message,
+            )
+            logger.info(
+                "Published API result to %s topic",
+                result_type,
+                extra={"assignment_id": assignment_id, "api_status": status},
+            )
+        except Exception:
+            logger.exception(
+                "Failed to publish API result to %s topic",
+                result_type,
+                extra={"assignment_id": assignment_id},
+            )
+
+        # Upload result JSON to OneLake (non-fatal)
+        if self.onelake_client:
+            try:
+                onelake_path = self._build_onelake_path(assignment_id, result_type)
+                data = json.dumps(result_message, default=str).encode("utf-8")
+                await self.onelake_client.async_upload_bytes(
+                    relative_path=onelake_path,
+                    data=data,
+                    overwrite=True,
+                )
+                logger.info(
+                    "Uploaded API result to OneLake",
+                    extra={
+                        "assignment_id": assignment_id,
+                        "onelake_path": onelake_path,
+                        "result_type": result_type,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to upload API result to OneLake (non-fatal)",
+                    extra={"assignment_id": assignment_id},
+                )
+
+        # Re-raise on API error so transport layer retries the message
+        if is_error:
+            raise RuntimeError(f"iTel API returned error status {status}: {response}")
+
+    def _build_onelake_path(self, assignment_id: str, result_type: str) -> str:
+        """Build date-partitioned OneLake path for a result file.
+
+        Returns:
+            Path like "success/2026/02/16/12345_20260216T143000.json"
+        """
+        now = datetime.now(UTC)
+        ts = now.strftime("%Y%m%dT%H%M%S")
+        return f"{result_type}/{now.year}/{now.month:02d}/{now.day:02d}/{assignment_id}_{ts}.json"
 
     async def _write_test_payload(self, api_payload: dict, original_payload: dict):
         """Write payload to file instead of sending to API (test mode)."""
@@ -678,6 +817,24 @@ class ItelCabinetApiWorker:
         except Exception as e:
             logger.error("Error stopping stats logger", extra={"error": str(e)})
 
+        for name, producer in [
+            ("success", self._success_producer),
+            ("error", self._error_producer),
+        ]:
+            try:
+                if producer:
+                    await producer.stop()
+                    logger.info("%s producer stopped", name)
+            except Exception as e:
+                logger.error("Error stopping %s producer", name, extra={"error": str(e)})
+
+        try:
+            if self.onelake_client:
+                await self.onelake_client.__aexit__(None, None, None)
+                logger.info("OneLake client closed")
+        except Exception as e:
+            logger.error("Error closing OneLake client", extra={"error": str(e)})
+
         try:
             if self.consumer:
                 await self.consumer.stop()
@@ -761,6 +918,15 @@ async def build_api_worker(dev_mode: bool = True) -> tuple:
     except ImportError:
         pass
 
+    # Load OneLake results path (expand env vars)
+    onelake_config = worker_config.get("onelake", {})
+    onelake_results_path = None
+    raw_path = onelake_config.get("results_path")
+    if raw_path:
+        onelake_results_path = expand_env_var_string(raw_path)
+
+    output_config = worker_config.get("output", {})
+
     processing_config = worker_config.get("processing", {})
     worker = ItelCabinetApiWorker(
         transport_config=transport_config,
@@ -769,6 +935,8 @@ async def build_api_worker(dev_mode: bool = True) -> tuple:
         simulation_config=simulation_config,
         health_port=processing_config.get("health_port", 8097),
         health_enabled=processing_config.get("health_enabled", True),
+        onelake_results_path=onelake_results_path,
+        output_config=output_config,
     )
 
     return worker, connection_manager
