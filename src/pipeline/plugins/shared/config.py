@@ -86,13 +86,14 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
             oauth2_client_id = expand_env_var_string(oauth2_data.get("client_id", "")) or None
             oauth2_client_credential = expand_env_var_string(oauth2_data.get("client_credential", "")) or None
             oauth2_token_url = expand_env_var_string(oauth2_data.get("token_url", "")) or None
-            oauth2_scope = oauth2_data.get("scope")
+            oauth2_scope = expand_env_var_string(oauth2_data.get("scope", "")) or None
 
             # Validate env var expansion for OAuth2 fields
             for field_name, field_value in [
                 ("client_id", oauth2_client_id),
                 ("client_credential", oauth2_client_credential),
                 ("token_url", oauth2_token_url),
+                ("scope", oauth2_scope),
             ]:
                 if field_value and "${" in field_value:
                     raise ValueError(
