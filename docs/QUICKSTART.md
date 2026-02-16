@@ -170,7 +170,7 @@ Plugins are independent modules with their own workers. They are launched separa
 
 ### Plugin 1: iTEL Cabinet API
 
-**Purpose**: Track iTEL Cabinet Repair Form tasks (task_id 32513) from creation to completion, enrich with ClaimX data, and send to iTEL API.
+**Purpose**: Track iTEL Cabinet Repair Form tasks (task_id 27019) from creation to completion, enrich with ClaimX data, and send to iTEL API.
 
 #### Worker 1: iTEL Cabinet Tracking Worker
 

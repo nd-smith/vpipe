@@ -15,7 +15,7 @@ from .parsers import get_readable_report, parse_cabinet_attachments, parse_cabin
 logger = logging.getLogger(__name__)
 
 # iTel Cabinet Repair Form task ID (ClaimX custom task type)
-ITEL_CABINET_REPAIR_FORM_TASK_ID = 32513
+ITEL_CABINET_REPAIR_FORM_TASK_ID = 27019
 
 
 class ItelCabinetPipeline:

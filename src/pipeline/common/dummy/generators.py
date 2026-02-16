@@ -686,7 +686,7 @@ class RealisticDataGenerator:
         event_type: str | None = None,
     ) -> dict[str, Any]:
         """
-        Generate a ClaimX event for itel Cabinet Repair Form (task_id 32513).
+        Generate a ClaimX event for itel Cabinet Repair Form (task_id 27019).
 
         This generates events that will trigger the itel Cabinet API plugin workflow.
         The event includes realistic form data that mimics what ClaimX API returns.
@@ -780,7 +780,7 @@ class RealisticDataGenerator:
         Generate a ClaimX event with configurable itel plugin trigger rate.
 
         In mixed mode, a percentage of task events (CUSTOM_TASK_ASSIGNED,
-        CUSTOM_TASK_COMPLETED) will be itel Cabinet triggers (task_id=32513).
+        CUSTOM_TASK_COMPLETED) will be itel Cabinet triggers (task_id=27019).
 
         Args:
             event_type: Optional specific event type
