@@ -1,5 +1,6 @@
 """Consumer lag calculation: checkpoint offsets vs partition end offsets."""
 
+import asyncio
 from dataclasses import dataclass
 
 from azure.storage.blob import ContainerClient
@@ -34,11 +35,11 @@ async def calculate_lag(
     ssl_kwargs: dict | None = None,
 ) -> ConsumerGroupLag:
     """Calculate consumer lag by comparing checkpoints to partition end offsets."""
-    # Get current partition end offsets
-    partition_infos = await get_partition_properties(conn_str, eventhub_name, ssl_kwargs)
-
-    # Read checkpoints from blob storage
-    checkpoints = _read_checkpoints(blob_conn_str, container_name, fqdn, eventhub_name, consumer_group)
+    # Fetch partition end offsets and blob checkpoints concurrently
+    partition_infos, checkpoints = await asyncio.gather(
+        get_partition_properties(conn_str, eventhub_name, ssl_kwargs),
+        asyncio.to_thread(_read_checkpoints, blob_conn_str, container_name, fqdn, eventhub_name, consumer_group),
+    )
 
     partition_lags = []
     total_lag = 0
