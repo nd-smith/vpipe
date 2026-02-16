@@ -101,13 +101,8 @@ class TestFromDict:
         assert result.task_id == 456
         assert result.task_name == "Test"
 
-    def test_nested_dataclass_stays_as_dict_on_optional_union(self):
-        """On Python 3.12+, from_dict does not resolve X | None optional fields.
-
-        The `from_dict` function checks `origin is Union` (typing.Union), but
-        Python 3.12+ uses types.UnionType for `X | None` syntax. As a result,
-        optional nested dataclass fields remain as raw dicts.
-        """
+    def test_nested_dataclass_resolved_on_optional_union(self):
+        """from_dict resolves X | None optional fields (types.UnionType on 3.10+)."""
         data = {
             "assignmentId": 1,
             "taskId": 1,
@@ -122,10 +117,11 @@ class TestFromDict:
             },
         }
         result = from_dict(ApiResponse, data)
-        # external_link_data stays as a dict because X | None is not resolved
         assert result.external_link_data is not None
-        assert isinstance(result.external_link_data, dict)
-        assert result.external_link_data["url"] == "https://example.com"
+        assert isinstance(result.external_link_data, ExternalLinkData)
+        assert result.external_link_data.url == "https://example.com"
+        assert result.external_link_data.first_name == "John"
+        assert result.external_link_data.last_name == "Doe"
 
     def test_list_of_dataclasses(self):
         data = {
@@ -150,12 +146,8 @@ class TestFromDict:
         assert len(result.groups[0].question_and_answers) == 1
         assert result.groups[0].question_and_answers[0].question_text == "Q1"
 
-    def test_datetime_optional_stays_as_string(self):
-        """On Python 3.12+, datetime | None fields stay as raw strings.
-
-        Same limitation as nested dataclass -- from_dict doesn't resolve
-        types.UnionType optional fields.
-        """
+    def test_datetime_optional_resolved(self):
+        """from_dict resolves datetime | None optional fields."""
         data = {
             "assignmentId": 1,
             "taskId": 1,
@@ -167,9 +159,10 @@ class TestFromDict:
         }
         result = from_dict(ApiResponse, data)
         assert result.date_assigned is not None
-        # Stays as string because datetime | None is not resolved
-        assert isinstance(result.date_assigned, str)
-        assert "2024-06-15" in result.date_assigned
+        assert isinstance(result.date_assigned, datetime)
+        assert result.date_assigned.year == 2024
+        assert result.date_assigned.month == 6
+        assert result.date_assigned.day == 15
 
     def test_non_dataclass_passthrough(self):
         assert from_dict(str, "hello") == "hello"
@@ -732,17 +725,7 @@ class TestDataBuilderBuildReadableReport:
 
 
 class TestParseCabinetForm:
-    """Tests for parse_cabinet_form.
-
-    Note: from_dict does not resolve X | None union types on Python 3.10+
-    (types.UnionType). The `response` and `externalLinkData` optional fields
-    stay as raw dicts instead of being converted to dataclasses. This causes
-    build_form_row to fail when accessing .groups or .url attributes.
-
-    All public API tests that pass a `response` dict are marked xfail.
-    The underlying parsing logic is tested thoroughly in TestDataBuilder*
-    tests which use properly-constructed dataclass objects directly.
-    """
+    """Tests for parse_cabinet_form."""
 
     def _make_task_data(self, **overrides):
         base = {
@@ -759,10 +742,6 @@ class TestParseCabinetForm:
         base.update(overrides)
         return base
 
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_basic_parsing(self):
         task_data = self._make_task_data()
         result = parse_cabinet_form(task_data, "evt-1")
@@ -776,10 +755,6 @@ class TestParseCabinetForm:
         assert result.task_name == "Cabinet Repair"
         assert result.assignor_email == "admin@example.com"
 
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_with_form_answers(self):
         task_data = self._make_task_data(
             response={
@@ -806,10 +781,6 @@ class TestParseCabinetForm:
 
         assert result.countertops_lf == 25.0
 
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_raw_data_populated(self):
         task_data = self._make_task_data(
             response={
@@ -835,10 +806,6 @@ class TestParseCabinetForm:
         raw = json.loads(result.raw_data)
         assert "TestGroup" in raw
 
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_no_external_link_data(self):
         task_data = self._make_task_data()
         result = parse_cabinet_form(task_data, "evt-1")
@@ -846,10 +813,6 @@ class TestParseCabinetForm:
         assert result.customer_first_name is None
         assert result.external_link_url is None
 
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_to_dict_roundtrip(self):
         task_data = self._make_task_data()
         result = parse_cabinet_form(task_data, "evt-1")
@@ -860,18 +823,8 @@ class TestParseCabinetForm:
 
 
 class TestParseCabinetAttachments:
-    """Tests for parse_cabinet_attachments.
+    """Tests for parse_cabinet_attachments."""
 
-    Note: from_dict does not resolve X | None union types on Python 3.10+.
-    The `response` field stays as a dict, so extract_attachments won't iterate
-    groups. We test the public API with the limitation, and test attachments
-    extraction directly via DataBuilder in TestDataBuilderExtractAttachments.
-    """
-
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_empty_when_no_images(self):
         task_data = {
             "assignmentId": 1001,
@@ -1031,10 +984,6 @@ class TestGetReadableReport:
         items = report["topics"]["General"]
         assert items[0]["answer"][0]["url"] == "https://cdn.example.com/101.jpg"
 
-    @pytest.mark.xfail(
-        reason="from_dict does not resolve X | None union types on Python 3.10+",
-        raises=AttributeError,
-    )
     def test_public_api_empty_groups(self):
         """Test get_readable_report public API with empty groups."""
         task_data = {
