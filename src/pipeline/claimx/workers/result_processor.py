@@ -59,7 +59,7 @@ class ClaimXResultProcessor:
     WORKER_NAME = "result_processor"
 
     # Batching configuration
-    BATCH_SIZE = 2000
+    BATCH_SIZE = 500
     BATCH_TIMEOUT_SECONDS = 5
 
     def __init__(
@@ -78,7 +78,7 @@ class ClaimXResultProcessor:
             config: Message broker configuration for consumer
             results_topic: Topic name for upload results (e.g., "claimx-downloads-results")
             inventory_table_path: Full abfss:// path to claimx_attachments table (optional)
-            batch_size: Optional custom batch size (default: 100)
+            batch_size: Optional custom batch size (default: 500)
             batch_timeout_seconds: Optional custom timeout (default: 5.0)
             instance_id: Optional instance ID for multiple workers (default: None)
         """
