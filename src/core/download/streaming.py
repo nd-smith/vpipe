@@ -14,7 +14,7 @@ from pathlib import Path
 
 import aiohttp
 
-from core.download.http_client import RETRYABLE_STATUSES
+from core.download.http_client import DownloadError, RETRYABLE_STATUSES
 from core.errors.exceptions import (
     ErrorCategory,
     classify_http_status,
@@ -27,6 +27,9 @@ CHUNK_SIZE = 8 * 1024 * 1024
 # 50MB threshold: files larger than this use streaming to avoid memory issues
 STREAM_THRESHOLD = 50 * 1024 * 1024
 
+# Unified with DownloadError — structurally identical
+StreamDownloadError = DownloadError
+
 
 @dataclass
 class StreamDownloadResponse:
@@ -36,15 +39,6 @@ class StreamDownloadResponse:
     content_length: int | None
     content_type: str | None
     chunk_iterator: AsyncIterator[bytes]
-
-
-@dataclass
-class StreamDownloadError:
-    """Error result from failed streaming download with retry classification."""
-
-    status_code: int | None
-    error_message: str
-    error_category: ErrorCategory
 
 
 async def stream_download_url(
