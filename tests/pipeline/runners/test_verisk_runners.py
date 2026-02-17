@@ -19,7 +19,6 @@ import pytest
 from pipeline.runners.verisk_runners import (
     run_delta_events_worker,
     run_download_worker,
-    run_dummy_source,
     run_event_ingester,
     run_result_processor,
     run_upload_worker,
@@ -449,89 +448,3 @@ class TestRunResultProcessor:
         worker_kwargs = mock_exec.call_args[1]["worker_kwargs"]
         assert worker_kwargs["inventory_table_path"] == "/delta/inventory"
         assert worker_kwargs["failed_table_path"] is None
-
-
-# ---------------------------------------------------------------------------
-# run_dummy_source
-# ---------------------------------------------------------------------------
-
-
-class TestRunDummySource:
-    async def test_loads_config_and_starts_source(self):
-        shutdown = asyncio.Event()
-        kafka_config = Mock()
-        dummy_config = {"rate": 10}
-
-        mock_source = AsyncMock()
-        mock_source.start = AsyncMock()
-        mock_source.stop = AsyncMock()
-        mock_source.run = AsyncMock()
-        mock_source.stats = {"sent": 100}
-
-        with (
-            patch("core.logging.context.set_log_context"),
-            patch("pipeline.common.dummy.source.load_dummy_source_config") as mock_load,
-            patch(
-                "pipeline.common.dummy.source.DummyDataSource",
-                return_value=mock_source,
-            ) as MockSource,
-        ):
-            await run_dummy_source(kafka_config, dummy_config, shutdown)
-
-        mock_load.assert_called_once_with(kafka_config, dummy_config)
-        MockSource.assert_called_once_with(mock_load.return_value)
-        mock_source.start.assert_awaited_once()
-        mock_source.run.assert_awaited_once()
-        mock_source.stop.assert_awaited()
-
-    async def test_stops_source_on_run_exception(self):
-        shutdown = asyncio.Event()
-        mock_source = AsyncMock()
-        mock_source.start = AsyncMock()
-        mock_source.run = AsyncMock(side_effect=RuntimeError("boom"))
-        mock_source.stop = AsyncMock()
-        mock_source.stats = {}
-
-        with (
-            patch("core.logging.context.set_log_context"),
-            patch("pipeline.common.dummy.source.load_dummy_source_config"),
-            patch(
-                "pipeline.common.dummy.source.DummyDataSource",
-                return_value=mock_source,
-            ),
-            pytest.raises(RuntimeError, match="boom"),
-        ):
-            await run_dummy_source(Mock(), {}, shutdown)
-
-        mock_source.stop.assert_awaited()
-
-    async def test_shutdown_event_triggers_stop(self):
-        shutdown = asyncio.Event()
-        mock_source = AsyncMock()
-        mock_source.start = AsyncMock()
-        mock_source.stop = AsyncMock()
-        mock_source.stats = {}
-
-        async def slow_run():
-            await asyncio.sleep(0.1)
-
-        mock_source.run = AsyncMock(side_effect=slow_run)
-
-        async def trigger_shutdown():
-            await asyncio.sleep(0.02)
-            shutdown.set()
-
-        with (
-            patch("core.logging.context.set_log_context"),
-            patch("pipeline.common.dummy.source.load_dummy_source_config"),
-            patch(
-                "pipeline.common.dummy.source.DummyDataSource",
-                return_value=mock_source,
-            ),
-        ):
-            await asyncio.gather(
-                run_dummy_source(Mock(), {}, shutdown),
-                trigger_shutdown(),
-            )
-
-        mock_source.stop.assert_awaited()

@@ -710,7 +710,6 @@ python -m pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker --dev
 | Retry mechanism | `src/pipeline/common/retry/README.md` |
 | iTEL Cabinet plugin | `src/pipeline/plugins/itel_cabinet_api/README.md` |
 | Status Trigger plugin | `src/config/plugins/verisk/status_trigger/README.md` |
-| Plugin testing | `src/pipeline/common/dummy/PLUGIN_TESTING.md` |
 
 ---
 
