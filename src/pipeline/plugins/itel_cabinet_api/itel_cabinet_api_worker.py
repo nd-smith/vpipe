@@ -48,6 +48,7 @@ from pipeline.common.signals import setup_shutdown_signal_handlers
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.config import load_connections, load_yaml_config
+from core.errors.exceptions import PipelineError
 from pipeline.plugins.shared.connections import (
     ConnectionManager,
     is_http_error,
@@ -191,7 +192,13 @@ class ItelCabinetApiWorker:
             if self.simulation_config:
                 await self._write_simulation_payload(api_payload, payload)
             else:
-                status, response_body = await self._send_to_api(api_payload)
+                try:
+                    status, response_body = await self._send_to_api(api_payload)
+                except Exception as send_err:
+                    # Request failed (e.g. retries exhausted) — still record to
+                    # OneLake / error topic so the payload is never silently lost.
+                    await self._record_send_failure(send_err, api_payload, payload)
+                    raise
                 await self._handle_api_result(status, response_body, api_payload, payload)
 
             self._records_processed += 1
@@ -600,24 +607,67 @@ class ItelCabinetApiWorker:
 
         return status, response
 
+    async def _record_send_failure(
+        self,
+        error: Exception,
+        api_payload: dict,
+        original_payload: dict,
+    ) -> None:
+        """Best-effort recording of a failed send to OneLake / error topic.
+
+        Called when ``_send_to_api`` raises (e.g. retries exhausted) so the
+        payload and error details are persisted even though no HTTP response
+        was successfully received.  Any exception from the recording itself
+        is logged and swallowed — the caller will re-raise the original error.
+        """
+        # Try to pull the last HTTP status from the exception context
+        status = 0
+        if isinstance(error, PipelineError):
+            status = error.context.get("status_code", 0)
+
+        error_body = {
+            "error": str(error),
+            "error_type": type(error).__name__,
+        }
+
+        try:
+            await self._handle_api_result(
+                status,
+                error_body,
+                api_payload,
+                original_payload,
+                raise_on_error=False,
+            )
+        except Exception:
+            assignment_id = api_payload.get("integration_test_id", "unknown")
+            logger.exception(
+                "Failed to record send failure (non-fatal)",
+                extra={"assignment_id": assignment_id},
+            )
+
     async def _handle_api_result(
         self,
         status: int,
         response: dict,
         api_payload: dict,
         original_payload: dict,
+        *,
+        raise_on_error: bool = True,
     ) -> None:
         """Record API result to output topic and OneLake.
 
         Publishes a result message to the success or error topic, uploads the
-        result JSON to OneLake, and re-raises on error so the transport layer
-        retries the message.
+        result JSON to OneLake, and optionally re-raises on error so the
+        transport layer retries the message.
 
         Args:
             status: HTTP status code from the API
             response: Response body from the API
             api_payload: The transformed payload that was sent
             original_payload: The original message payload
+            raise_on_error: If True (default), raise RuntimeError on HTTP error
+                status.  Set to False when recording a send failure that the
+                caller will re-raise itself.
         """
         assignment_id = api_payload.get("integration_test_id", "unknown")
         event_id = original_payload.get("event_id", "")
@@ -683,7 +733,7 @@ class ItelCabinetApiWorker:
                 )
 
         # Re-raise on API error so transport layer retries the message
-        if is_error:
+        if is_error and raise_on_error:
             raise RuntimeError(f"iTel API returned error status {status}: {response}")
 
     def _build_onelake_path(self, assignment_id: str, result_type: str) -> str:
