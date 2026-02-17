@@ -2,6 +2,8 @@
 Tests for transport error classification (Kafka and EventHub).
 """
 
+import json
+
 import pytest
 
 from core.errors.exceptions import (
@@ -295,6 +297,35 @@ class TestConsumerErrorClassification:
         assert isinstance(result, ConnectionError)
         assert result.category.value == "transient"
 
+    # -- Data deserialization errors (permanent) --
+
+    def test_json_decode_error_is_permanent(self):
+        try:
+            json.loads("invalid json{")
+        except json.JSONDecodeError as e:
+            error = e
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, PermanentError)
+        assert "deserialization failed" in result.message.lower()
+
+    def test_unicode_decode_error_is_permanent(self):
+        error = UnicodeDecodeError("utf-8", b"\xff\xfe", 0, 1, "invalid start byte")
+        result = TransportErrorClassifier.classify_consumer_error(error)
+        assert isinstance(result, PermanentError)
+        assert "deserialization failed" in result.message.lower()
+
+    def test_json_decode_error_preserves_context(self):
+        try:
+            json.loads("{bad")
+        except json.JSONDecodeError as e:
+            error = e
+        result = TransportErrorClassifier.classify_consumer_error(
+            error, context={"topic": "events"}
+        )
+        assert isinstance(result, PermanentError)
+        assert result.context["topic"] == "events"
+        assert result.context["service"] == "message_consumer"
+
     # -- Default --
 
     def test_unrecognized_error_becomes_kafka_error(self):
@@ -409,6 +440,23 @@ class TestProducerErrorClassification:
         error = error_cls("bad event data")
         result = TransportErrorClassifier.classify_producer_error(error)
         assert isinstance(result, PermanentError)
+
+    # -- Data serialization errors (permanent) --
+
+    def test_json_decode_error_is_permanent(self):
+        try:
+            json.loads("invalid json{")
+        except json.JSONDecodeError as e:
+            error = e
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, PermanentError)
+        assert "serialization failed" in result.message.lower()
+
+    def test_unicode_decode_error_is_permanent(self):
+        error = UnicodeDecodeError("utf-8", b"\xff\xfe", 0, 1, "invalid start byte")
+        result = TransportErrorClassifier.classify_producer_error(error)
+        assert isinstance(result, PermanentError)
+        assert "serialization failed" in result.message.lower()
 
     # -- Transient category --
 

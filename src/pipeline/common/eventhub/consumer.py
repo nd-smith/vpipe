@@ -823,10 +823,25 @@ class EventHubConsumer:
         else:
             logger.error(
                 f"Unhandled error category '{error_category.value}' - "
-                f"applying conservative retry: {type(error).__name__}: {error}",
+                f"routing to DLQ: {type(error).__name__}: {error}",
                 extra=common_context,
                 exc_info=True,
             )
+
+            # Route unknown errors to DLQ to prevent silent data loss
+            dlq_success = await self._send_to_dlq(message, error, error_category)
+
+            if not dlq_success:
+                logger.error(
+                    "DLQ write failed for unknown error - preventing checkpoint",
+                    extra={
+                        "original_topic": message.topic,
+                        "original_partition": message.partition,
+                        "original_offset": message.offset,
+                        "error_category": error_category.value,
+                    },
+                )
+                raise error
 
     @property
     def is_running(self) -> bool:

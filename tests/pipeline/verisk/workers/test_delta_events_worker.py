@@ -19,6 +19,8 @@ import contextlib
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
+from core.errors.exceptions import PermanentError
+
 import pytest
 
 from config.config import MessageConfig
@@ -293,12 +295,14 @@ class TestDeltaEventsWorkerMessageProcessing:
                 headers=None,
             )
 
-            # Should raise error
+            # Should raise PermanentError wrapping the JSONDecodeError
             with (
                 patch("pipeline.verisk.workers.delta_events_worker.log_worker_error"),
-                pytest.raises(json.JSONDecodeError),
+                pytest.raises(PermanentError, match="Failed to parse message JSON") as exc_info,
             ):
                 await worker._handle_event_message(invalid_message)
+
+            assert isinstance(exc_info.value.cause, json.JSONDecodeError)
 
 
 class TestDeltaEventsWorkerBatching:
