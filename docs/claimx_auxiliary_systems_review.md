@@ -55,7 +55,7 @@ Provides Kubernetes-compatible health check endpoints:
 - /health/ready - Readiness probe (is the worker ready to process work?)
 
 Usage:
-    from pipeline.claimx.monitoring import HealthCheckServer
+    from pipeline.common.health import HealthCheckServer
     [... 14 more lines of usage examples]
 """
 
