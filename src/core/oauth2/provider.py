@@ -1,7 +1,8 @@
-"""Generic OAuth2 provider for standard OAuth2 servers."""
+"""OAuth2 provider: base interface and generic implementation."""
 
 import asyncio
 import logging
+from abc import ABC, abstractmethod
 
 import aiohttp
 
@@ -10,9 +11,29 @@ from core.oauth2.exceptions import (
     TokenAcquisitionError,
 )
 from core.oauth2.models import OAuth2Config, OAuth2Token
-from core.oauth2.providers.base import BaseOAuth2Provider
 
 logger = logging.getLogger(__name__)
+
+
+class BaseOAuth2Provider(ABC):
+    """
+    Abstract base class for OAuth2 token providers.
+
+    Used by OAuth2TokenManager to manage tokens from multiple providers.
+    """
+
+    def __init__(self, provider_name: str):
+        self.provider_name = provider_name
+
+    @abstractmethod
+    async def acquire_token(self) -> OAuth2Token:
+        """Acquire a new OAuth2 token."""
+        pass
+
+    @abstractmethod
+    async def refresh_token(self, token: OAuth2Token) -> OAuth2Token:
+        """Refresh an existing token."""
+        pass
 
 
 class GenericOAuth2Provider(BaseOAuth2Provider):
@@ -24,15 +45,6 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
     """
 
     def __init__(self, config: OAuth2Config):
-        """
-        Initialize generic OAuth2 provider.
-
-        Args:
-            config: OAuth2 configuration
-
-        Raises:
-            InvalidConfigurationError: If required parameters are missing
-        """
         super().__init__(config.provider_name)
 
         if not all([config.client_id, config.client_secret, config.token_url]):
@@ -116,18 +128,8 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
 
         If current token has a refresh_token, uses that. Otherwise, acquires
         a new token using client credentials.
-
-        Args:
-            token: Current token to refresh
-
-        Returns:
-            New OAuth2Token
-
-        Raises:
-            TokenRefreshError: If refresh fails
         """
         if not token.refresh_token:
-            # No refresh token, acquire new token
             return await self.acquire_token()
 
         session = await self._ensure_session()
@@ -151,7 +153,6 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
                         f"Token refresh failed for '{self.provider_name}', "
                         f"will acquire new token: HTTP {response.status}"
                     )
-                    # Fall back to acquiring new token
                     return await self.acquire_token()
 
                 response_data = await response.json()
@@ -164,7 +165,6 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
             logger.warning(
                 f"Token refresh failed for '{self.provider_name}', will acquire new token: {e}"
             )
-            # Fall back to acquiring new token
             return await self.acquire_token()
 
     async def close(self) -> None:
@@ -174,4 +174,4 @@ class GenericOAuth2Provider(BaseOAuth2Provider):
             await asyncio.sleep(0)
 
 
-__all__ = ["GenericOAuth2Provider"]
+__all__ = ["BaseOAuth2Provider", "GenericOAuth2Provider"]

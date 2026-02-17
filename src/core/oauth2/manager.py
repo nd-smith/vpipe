@@ -5,7 +5,7 @@ import logging
 import threading
 from core.oauth2.exceptions import TokenAcquisitionError
 from core.oauth2.models import OAuth2Token
-from core.oauth2.providers.base import BaseOAuth2Provider
+from core.oauth2.provider import BaseOAuth2Provider
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +21,18 @@ class OAuth2TokenManager:
     Tokens are cached and automatically refreshed when they approach expiration.
 
     Usage:
-        manager = OAuth2TokenManager()
+        from core.oauth2 import GenericOAuth2Provider, OAuth2Config
 
-        # Add provider
-        azure_provider = AzureADProvider(
-            provider_name="azure_storage",
+        manager = OAuth2TokenManager()
+        provider = GenericOAuth2Provider(OAuth2Config(
+            provider_name="my_api",
             client_id="...",
             client_secret="...",
-            tenant_id="...",
-            scopes=["https://storage.azure.com/.default"]
-        )
-        manager.add_provider(azure_provider)
+            token_url="https://auth.example.com/token",
+        ))
+        manager.add_provider(provider)
 
-        # Get token (cached, auto-refreshes when needed)
-        token = await manager.get_token("azure_storage")
-
-        # Use token
+        token = await manager.get_token("my_api")
         headers = {"Authorization": f"Bearer {token}"}
     """
 

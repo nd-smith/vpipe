@@ -9,7 +9,7 @@ import pytest
 from core.oauth2.exceptions import TokenAcquisitionError
 from core.oauth2.manager import OAuth2TokenManager
 from core.oauth2.models import OAuth2Token
-from core.oauth2.providers.base import BaseOAuth2Provider
+from core.oauth2.provider import BaseOAuth2Provider
 
 
 class MockOAuth2Provider(BaseOAuth2Provider):

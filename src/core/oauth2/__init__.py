@@ -35,7 +35,7 @@ from core.oauth2.manager import (
     OAuth2TokenManager,
 )
 from core.oauth2.models import OAuth2Config, OAuth2Token
-from core.oauth2.providers import BaseOAuth2Provider, GenericOAuth2Provider
+from core.oauth2.provider import BaseOAuth2Provider, GenericOAuth2Provider
 
 __all__ = [
     # Manager

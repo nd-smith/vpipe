@@ -7,7 +7,7 @@ import pytest
 
 from core.oauth2.exceptions import InvalidConfigurationError, TokenAcquisitionError
 from core.oauth2.models import OAuth2Config, OAuth2Token
-from core.oauth2.providers.generic import GenericOAuth2Provider
+from core.oauth2.provider import GenericOAuth2Provider
 
 
 def _make_config(**overrides):
