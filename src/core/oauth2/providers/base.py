@@ -13,7 +13,6 @@ class BaseOAuth2Provider(ABC):
     Abstract base class for OAuth2 token providers.
 
     Implementations:
-        - AzureADProvider: Azure AD client credentials flow (azure-identity SDK)
         - GenericOAuth2Provider: Standard OAuth2 client credentials flow (HTTP-based)
 
     Used by OAuth2TokenManager to manage tokens from multiple providers.

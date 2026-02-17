@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from core.oauth2.exceptions import TokenAcquisitionError
-from core.oauth2.manager import OAuth2TokenManager, get_default_manager
+from core.oauth2.manager import OAuth2TokenManager
 from core.oauth2.models import OAuth2Token
 from core.oauth2.providers.base import BaseOAuth2Provider
 
@@ -68,7 +68,6 @@ class TestOAuth2TokenManagerBasics:
         """Should initialize with default settings."""
         manager = OAuth2TokenManager()
         assert manager.refresh_buffer_seconds == 300
-        assert manager.list_providers() == []
 
     def test_custom_refresh_buffer(self):
         """Should accept custom refresh buffer."""
@@ -79,7 +78,6 @@ class TestOAuth2TokenManagerBasics:
         """Should register provider."""
         manager.add_provider(mock_provider)
 
-        assert "test_provider" in manager.list_providers()
         assert manager.get_provider("test_provider") == mock_provider
 
     def test_add_duplicate_provider(self, manager, mock_provider):
@@ -93,18 +91,6 @@ class TestOAuth2TokenManagerBasics:
         """Should raise KeyError for missing provider."""
         with pytest.raises(KeyError, match="not found"):
             manager.get_provider("nonexistent")
-
-    def test_list_providers(self, manager):
-        """Should list all registered providers."""
-        manager.add_provider(MockOAuth2Provider("provider1"))
-        manager.add_provider(MockOAuth2Provider("provider2"))
-        manager.add_provider(MockOAuth2Provider("provider3"))
-
-        providers = manager.list_providers()
-        assert len(providers) == 3
-        assert "provider1" in providers
-        assert "provider2" in providers
-        assert "provider3" in providers
 
 
 class TestOAuth2TokenManagerTokenAcquisition:
@@ -172,29 +158,6 @@ class TestOAuth2TokenManagerTokenAcquisition:
         with pytest.raises(TokenAcquisitionError):
             await manager.get_token("test_provider")
 
-    @pytest.mark.asyncio
-    async def test_get_cached_token_info(self, manager, mock_provider):
-        """Should provide token info for diagnostics."""
-        manager.add_provider(mock_provider)
-        await manager.get_token("test_provider")
-
-        info = manager.get_cached_token_info("test_provider")
-
-        assert info is not None
-        assert info["provider_name"] == "test_provider"
-        assert "expires_at" in info
-        assert "remaining_seconds" in info
-        assert info["token_type"] == "Bearer"
-        assert not info["is_expired"]
-
-    @pytest.mark.asyncio
-    async def test_get_cached_token_info_missing(self, manager, mock_provider):
-        """Should return None for uncached token."""
-        manager.add_provider(mock_provider)
-
-        info = manager.get_cached_token_info("test_provider")
-        assert info is None
-
 
 class TestOAuth2TokenManagerCacheManagement:
     """Tests for cache management operations."""
@@ -212,8 +175,13 @@ class TestOAuth2TokenManagerCacheManagement:
 
         manager.clear_token("provider1")
 
-        assert manager.get_cached_token_info("provider1") is None
-        assert manager.get_cached_token_info("provider2") is not None
+        # provider1 should re-acquire (cache was cleared)
+        token = await manager.get_token("provider1")
+        assert provider1.acquire_count == 2
+
+        # provider2 should still use cache
+        token = await manager.get_token("provider2")
+        assert provider2.acquire_count == 1
 
     @pytest.mark.asyncio
     async def test_clear_all_tokens(self, manager):
@@ -228,53 +196,16 @@ class TestOAuth2TokenManagerCacheManagement:
 
         manager.clear_token()
 
-        assert manager.get_cached_token_info("provider1") is None
-        assert manager.get_cached_token_info("provider2") is None
+        # Both should re-acquire
+        await manager.get_token("provider1")
+        await manager.get_token("provider2")
+        assert provider1.acquire_count == 2
+        assert provider2.acquire_count == 2
 
     @pytest.mark.asyncio
     async def test_clear_nonexistent_token(self, manager):
         """Clearing nonexistent token should not raise error."""
         manager.clear_token("nonexistent")  # Should not raise
-
-    @pytest.mark.asyncio
-    async def test_refresh_all(self, manager):
-        """Should refresh all cached tokens."""
-        provider1 = MockOAuth2Provider("provider1")
-        provider2 = MockOAuth2Provider("provider2")
-        manager.add_provider(provider1)
-        manager.add_provider(provider2)
-
-        await manager.get_token("provider1")
-        await manager.get_token("provider2")
-
-        results = await manager.refresh_all()
-
-        assert results["provider1"] is True
-        assert results["provider2"] is True
-        assert provider1.refresh_count == 1
-        assert provider2.refresh_count == 1
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_with_failure(self, manager):
-        """Should handle failures during refresh_all."""
-        provider1 = MockOAuth2Provider("provider1")
-        provider2 = MockOAuth2Provider("provider2")
-        provider2.should_fail = True
-
-        manager.add_provider(provider1)
-        manager.add_provider(provider2)
-
-        await manager.get_token("provider1")
-
-        # Get initial token for provider2 before it starts failing
-        provider2.should_fail = False
-        await manager.get_token("provider2")
-        provider2.should_fail = True
-
-        results = await manager.refresh_all()
-
-        assert results["provider1"] is True
-        assert results["provider2"] is False
 
 
 class TestOAuth2TokenManagerConcurrency:
@@ -320,26 +251,6 @@ class TestOAuth2TokenManagerConcurrency:
         assert provider.refresh_count == 1
 
 
-class TestOAuth2TokenManagerSingleton:
-    """Tests for singleton pattern."""
-
-    def test_get_default_manager(self):
-        """Should return singleton instance."""
-        manager1 = get_default_manager()
-        manager2 = get_default_manager()
-
-        assert manager1 is manager2
-
-    def test_default_manager_persistent(self):
-        """Default manager should persist across calls."""
-        manager = get_default_manager()
-        provider = MockOAuth2Provider("test_provider")
-        manager.add_provider(provider)
-
-        manager2 = get_default_manager()
-        assert "test_provider" in manager2.list_providers()
-
-
 class TestOAuth2TokenManagerCleanup:
     """Tests for cleanup operations."""
 
@@ -352,8 +263,9 @@ class TestOAuth2TokenManagerCleanup:
 
         await manager.close()
 
-        # Tokens should be cleared
-        assert manager.get_cached_token_info("test_provider") is None
+        # Token cache should be cleared — next get_token will re-acquire
+        token = await manager.get_token("test_provider")
+        assert provider.acquire_count == 2
 
     @pytest.mark.asyncio
     async def test_close_with_provider_cleanup(self, manager):

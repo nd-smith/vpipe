@@ -3,8 +3,6 @@
 import asyncio
 import logging
 import threading
-from typing import Any
-
 from core.oauth2.exceptions import TokenAcquisitionError
 from core.oauth2.models import OAuth2Token
 from core.oauth2.providers.base import BaseOAuth2Provider
@@ -174,28 +172,6 @@ class OAuth2TokenManager:
                     f"Failed to get token for '{provider_name}': {e}"
                 ) from e
 
-    async def refresh_all(self) -> dict[str, bool]:
-        """
-        Force refresh all cached tokens.
-
-        Returns:
-            Dict mapping provider names to success status
-
-        Raises:
-            OAuth2Error: If any refresh fails
-        """
-        results = {}
-
-        for provider_name in list(self._providers.keys()):
-            try:
-                await self.get_token(provider_name, force_refresh=True)
-                results[provider_name] = True
-            except Exception as e:
-                logger.error(f"Failed to refresh token for '{provider_name}': {e}")
-                results[provider_name] = False
-
-        return results
-
     def clear_token(self, provider_name: str | None = None) -> None:
         """
         Clear cached token(s).
@@ -210,35 +186,6 @@ class OAuth2TokenManager:
             else:
                 self._tokens.clear()
                 logger.debug("Cleared all tokens")
-
-    def get_cached_token_info(self, provider_name: str) -> dict[str, Any] | None:
-        """
-        Get information about cached token for diagnostics.
-
-        Args:
-            provider_name: Name of provider
-
-        Returns:
-            Dict with token info, or None if no token cached
-        """
-        with self._lock:
-            token = self._tokens.get(provider_name)
-            if not token:
-                return None
-
-            return {
-                "provider_name": provider_name,
-                "expires_at": token.expires_at.isoformat(),
-                "remaining_seconds": token.remaining_lifetime.total_seconds(),
-                "is_expired": token.is_expired(self.refresh_buffer_seconds),
-                "token_type": token.token_type,
-                "scope": token.scope,
-            }
-
-    def list_providers(self) -> list[str]:
-        """Get list of registered provider names."""
-        with self._lock:
-            return list(self._providers.keys())
 
     async def close(self) -> None:
         """Clean up resources (close provider sessions if needed)."""
@@ -255,30 +202,8 @@ class OAuth2TokenManager:
             logger.info("OAuth2TokenManager closed")
 
 
-# Singleton instance for default usage
-_default_manager: OAuth2TokenManager | None = None
-_manager_lock = threading.Lock()
-
-
-def get_default_manager() -> OAuth2TokenManager:
-    """
-    Get or create the default OAuth2TokenManager singleton.
-
-    Returns:
-        Default OAuth2TokenManager instance
-    """
-    global _default_manager
-
-    if _default_manager is None:
-        with _manager_lock:
-            if _default_manager is None:
-                _default_manager = OAuth2TokenManager()
-
-    return _default_manager
-
 
 __all__ = [
     "OAuth2TokenManager",
-    "get_default_manager",
     "DEFAULT_REFRESH_BUFFER_SECONDS",
 ]
