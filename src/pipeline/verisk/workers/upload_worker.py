@@ -261,7 +261,7 @@ class UploadWorker:
         else:
             # Initialize OneLake clients for each configured domain
             for domain, path in self.config.onelake_domain_paths.items():
-                client = OneLakeClient(path)
+                client = OneLakeClient(path, max_pool_size=self.concurrency)
                 await client.__aenter__()
                 self.onelake_clients[domain] = client
                 logger.info(
@@ -274,13 +274,23 @@ class UploadWorker:
 
             # Initialize fallback client if base_path is configured
             if self.config.onelake_base_path:
-                fallback_client = OneLakeClient(self.config.onelake_base_path)
+                fallback_client = OneLakeClient(self.config.onelake_base_path, max_pool_size=self.concurrency)
                 await fallback_client.__aenter__()
                 self.onelake_clients["_fallback"] = fallback_client
                 logger.info(
                     "Initialized fallback OneLake client",
                     extra={"onelake_base_path": self.config.onelake_base_path},
                 )
+
+        # Size the default thread pool to match upload concurrency so
+        # asyncio.to_thread calls (OneLake uploads, file I/O) aren't bottlenecked
+        # by the default min(32, cpu+4) executor.
+        import concurrent.futures
+
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(max_workers=self.concurrency + 4)
+        )
 
         # Create batch consumer from transport layer
         self._consumer = await create_batch_consumer(

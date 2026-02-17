@@ -683,6 +683,7 @@ class ClaimXDownloadWorker:
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,
+            skip_head=True,
         )
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:

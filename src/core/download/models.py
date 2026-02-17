@@ -31,6 +31,7 @@ class DownloadTask:
     allowed_domains: set[str] | None = None
     allowed_extensions: set[str] | None = None
     max_size: int | None = None
+    skip_head: bool = False
 
 
 @dataclass

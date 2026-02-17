@@ -111,23 +111,28 @@ class AttachmentDownloader:
                 should_close_session = True
 
             # HEAD request to check Content-Length for streaming decision
-            t_head = time.perf_counter()
-            content_length = await self._get_content_length(task.url, session, task.timeout)
-            head_ms = int((time.perf_counter() - t_head) * 1000)
-            logger.debug(
-                f"HEAD request completed in {head_ms}ms: content_length={content_length}",
-                extra={"download_url": task.url[:120]},
-            )
-
-            # Check max size if specified
-            if task.max_size and content_length and content_length > task.max_size:
-                return DownloadOutcome.validation_failure(
-                    validation_error=f"File size {content_length} exceeds maximum {task.max_size}",
-                    error_category=ErrorCategory.PERMANENT,
+            # skip_head bypasses the extra round-trip when max_size isn't set
+            # and the streaming threshold (50MB) is unlikely to trigger.
+            content_length = None
+            if task.skip_head:
+                use_streaming = True
+            else:
+                t_head = time.perf_counter()
+                content_length = await self._get_content_length(task.url, session, task.timeout)
+                head_ms = int((time.perf_counter() - t_head) * 1000)
+                logger.debug(
+                    f"HEAD request completed in {head_ms}ms: content_length={content_length}",
+                    extra={"download_url": task.url[:120]},
                 )
 
-            # Decide on streaming vs in-memory based on size
-            use_streaming = should_stream(content_length)
+                # Check max size if specified
+                if task.max_size and content_length and content_length > task.max_size:
+                    return DownloadOutcome.validation_failure(
+                        validation_error=f"File size {content_length} exceeds maximum {task.max_size}",
+                        error_category=ErrorCategory.PERMANENT,
+                    )
+
+                use_streaming = should_stream(content_length)
 
             t_dl = time.perf_counter()
             if use_streaming:

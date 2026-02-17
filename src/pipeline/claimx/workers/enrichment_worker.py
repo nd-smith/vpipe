@@ -40,8 +40,8 @@ from pipeline.common.metrics import (
     record_processing_error,
 )
 from pipeline.common.storage.delta import DeltaTableReader
-from pipeline.common.transport import create_consumer, create_producer
-from pipeline.common.types import PipelineMessage
+from pipeline.common.transport import create_batch_consumer, create_consumer, create_producer
+from pipeline.common.types import BatchResult, PipelineMessage
 from pipeline.plugins.shared.base import Domain, PipelineStage, PluginContext
 from pipeline.plugins.shared.loader import load_plugins_from_directory
 from pipeline.plugins.shared.registry import ActionExecutor, PluginOrchestrator, PluginRegistry
@@ -106,6 +106,8 @@ class ClaimXEnrichmentWorker:
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
         self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
+        self.batch_size = self.processing_config.get("batch_size", 50)
+        self.batch_timeout_ms = self.processing_config.get("batch_timeout_ms", 1000)
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
@@ -395,14 +397,17 @@ class ClaimXEnrichmentWorker:
             await self._preload_project_cache()
 
         try:
-            self.consumer = await create_consumer(
+            self.consumer = await create_batch_consumer(
                 config=self.consumer_config,
                 domain=self.domain,
                 worker_name="enrichment_worker",
                 topics=[self.enrichment_topic],
-                message_handler=self._handle_enrichment_task,
-                topic_key="enrichment_pending",
+                batch_handler=self._process_batch,
+                batch_size=self.batch_size,
+                batch_timeout_ms=self.batch_timeout_ms,
+                enable_message_commit=True,
                 instance_id=self.instance_id,
+                topic_key="enrichment_pending",
             )
 
             self.health_server.set_ready(
@@ -495,6 +500,116 @@ class ClaimXEnrichmentWorker:
     async def request_shutdown(self) -> None:
         logger.info("Graceful shutdown requested")
         self._running = False
+
+    async def _process_batch(self, messages: list[PipelineMessage]) -> BatchResult:
+        """Process a batch of enrichment messages.
+
+        Groups events by handler so MediaHandler's project-level batching
+        (1 API call per project instead of N) is utilized.
+        """
+        permanent_failures: list[tuple[PipelineMessage, Exception]] = []
+
+        # Step 1: Parse all messages, collect valid tasks
+        parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]] = []
+        for msg in messages:
+            try:
+                data = json.loads(msg.value.decode("utf-8"))
+                task = ClaimXEnrichmentTask.model_validate(data)
+                event = ClaimXEventMessage(
+                    trace_id=task.trace_id,
+                    event_type=task.event_type,
+                    project_id=task.project_id,
+                    media_id=task.media_id,
+                    task_assignment_id=task.task_assignment_id,
+                    video_collaboration_id=task.video_collaboration_id,
+                    master_file_name=task.master_file_name,
+                    ingested_at=task.created_at,
+                )
+                parsed.append((msg, task, event))
+            except (json.JSONDecodeError, ValidationError) as e:
+                permanent_failures.append((msg, PermanentError(str(e))))
+
+        if not parsed:
+            return BatchResult(commit=True, permanent_failures=permanent_failures)
+
+        # Step 2: Pre-flight project verification (deduplicated across batch)
+        project_ids = {task.project_id for _, task, _ in parsed if task.project_id}
+        project_rows_by_id: dict[str, EntityRowsMessage] = {}
+        for pid in project_ids:
+            try:
+                rows = await self._ensure_project_exists(pid)
+                if not rows.is_empty():
+                    project_rows_by_id[pid] = rows
+            except Exception:
+                pass  # handler will retry per-event
+
+        # Dispatch project entity rows (one batch, deduplicated)
+        if project_rows_by_id and self.enable_delta_writes:
+            merged_project_rows = EntityRowsMessage()
+            for rows in project_rows_by_id.values():
+                merged_project_rows.merge(rows)
+            if not merged_project_rows.is_empty():
+                tasks_for_dispatch = [task for _, task, _ in parsed[:1]]
+                await self._produce_entity_rows(merged_project_rows, tasks_for_dispatch)
+
+        # Step 3: Group events by handler, process each group
+        events = [event for _, _, event in parsed]
+        event_to_info: dict[int, tuple[PipelineMessage, ClaimXEnrichmentTask]] = {
+            id(event): (msg, task) for msg, task, event in parsed
+        }
+
+        grouped = self.handler_registry.group_events_by_handler(events)
+
+        all_results: list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]] = []
+
+        for handler_class, handler_events in grouped.items():
+            handler = handler_class(self.api_client, project_cache=self.project_cache)
+            try:
+                results = await handler.handle_batch(handler_events)
+                for result in results:
+                    msg, task = event_to_info[id(result.event)]
+                    all_results.append((result, msg, task))
+            except Exception as e:
+                # Entire handler group failed — route all to retry
+                for evt in handler_events:
+                    msg, task = event_to_info[id(evt)]
+                    await self._handle_enrichment_failure(task, e, ErrorCategory.TRANSIENT)
+
+        # Handle unhandled event types (no handler registered)
+        handled_events = {id(e) for events_list in grouped.values() for e in events_list}
+        for msg, task, event in parsed:
+            if id(event) not in handled_events:
+                self._records_skipped += 1
+
+        # Step 4: Dispatch results
+        all_entity_rows = EntityRowsMessage()
+
+        for result, msg, task in all_results:
+            self._records_processed += 1
+            if result.success:
+                self._records_succeeded += 1
+                if result.rows:
+                    all_entity_rows.merge(result.rows)
+            else:
+                error = Exception(result.error or "Handler returned failure")
+                category = result.error_category or ErrorCategory.TRANSIENT
+                if not result.is_retryable:
+                    permanent_failures.append((msg, error))
+                else:
+                    await self._handle_enrichment_failure(task, error, category)
+
+        # Dispatch entity rows (single produce for entire batch)
+        if self.enable_delta_writes and not all_entity_rows.is_empty():
+            all_tasks = [task for _, task, _ in parsed]
+            await self._produce_entity_rows(all_entity_rows, all_tasks)
+
+        # Dispatch download tasks (single batch)
+        if all_entity_rows.media:
+            download_tasks = DownloadTaskFactory.create_download_tasks_from_media(all_entity_rows.media)
+            if download_tasks:
+                await self._produce_download_tasks(download_tasks)
+
+        return BatchResult(commit=True, permanent_failures=permanent_failures)
 
     async def _handle_enrichment_task(self, record: PipelineMessage) -> None:
         """Process enrichment task. No batching at enricher level - delta writer handles batching."""

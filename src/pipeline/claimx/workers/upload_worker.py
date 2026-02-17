@@ -114,7 +114,7 @@ class ClaimXUploadWorker:
         # Get worker-specific processing config
         processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
         self.concurrency = processing_config.get("concurrency", 10)
-        self.batch_size = processing_config.get("batch_size", 20)
+        self.batch_size = processing_config.get("batch_size", 100)
 
         # Topics to consume from
         self.topics = [config.get_topic(domain, "downloads_cached")]
@@ -244,7 +244,7 @@ class ClaimXUploadWorker:
 
             # Use proper error handling with cleanup on failure
             try:
-                self.onelake_client = OneLakeClient(onelake_path)
+                self.onelake_client = OneLakeClient(onelake_path, max_pool_size=self.concurrency)
                 await self.onelake_client.__aenter__()
                 logger.info(
                     "Initialized OneLake client for claimx domain",
@@ -263,6 +263,16 @@ class ClaimXUploadWorker:
                 await self.producer.stop()
                 await self.health_server.stop()
                 raise
+
+        # Size the default thread pool to match upload concurrency so
+        # asyncio.to_thread calls (OneLake uploads, file I/O) aren't bottlenecked
+        # by the default min(32, cpu+4) executor.
+        import concurrent.futures
+
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(max_workers=self.concurrency + 4)
+        )
 
         # Create batch consumer from transport layer
         try:

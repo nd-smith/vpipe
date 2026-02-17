@@ -673,6 +673,7 @@ class DownloadWorker:
             allowed_domains=None,
             allowed_extensions=None,
             max_size=None,
+            skip_head=True,
         )
 
     async def _handle_success(
