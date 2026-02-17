@@ -20,9 +20,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from pydantic import ValidationError
 
 from config.config import MessageConfig
+from core.errors.exceptions import PermanentError
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
 from pipeline.claimx.workers.result_processor import ClaimXResultProcessor
 from pipeline.common.types import PipelineMessage
@@ -277,7 +277,7 @@ class TestClaimXResultProcessorMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(PermanentError):
             await processor._handle_result_message(invalid_message)
 
 

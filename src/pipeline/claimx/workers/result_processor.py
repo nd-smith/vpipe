@@ -30,6 +30,8 @@ from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.common.writers.base import BaseDeltaWriter
 
+from core.errors.exceptions import PermanentError
+
 logger = logging.getLogger(__name__)
 
 
@@ -298,9 +300,10 @@ class ClaimXResultProcessor:
                 topic=record.topic,
                 partition=record.partition,
                 offset=record.offset,
+                trace_id=record.key.decode("utf-8") if record.key else None,
             )
             record_processing_error(record.topic, self.consumer_group, "parse_error")
-            raise
+            raise PermanentError(str(e)) from e
 
         # Update statistics and logs
         self._records_processed += 1

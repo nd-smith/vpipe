@@ -229,7 +229,7 @@ class TestEventIngesterWorkerBatchProcessing:
 
         result = await worker._handle_event_batch([sample_message])
 
-        assert result is True
+        assert result.commit is True
         assert worker._records_processed == 1
         assert worker._records_succeeded == 1
         assert worker.producer.send_batch.called
@@ -253,8 +253,8 @@ class TestEventIngesterWorkerBatchProcessing:
 
         result = await worker._handle_event_batch([invalid_message])
 
-        # Should return True (commit) — invalid message skipped, not retried
-        assert result is True
+        # Should return commit=True — invalid message skipped, routed to DLQ
+        assert result.commit is True
         assert not worker.producer.send_batch.called
 
     @pytest.mark.asyncio
@@ -276,7 +276,7 @@ class TestEventIngesterWorkerBatchProcessing:
 
         result = await worker._handle_event_batch([invalid_message])
 
-        assert result is True
+        assert result.commit is True
         assert not worker.producer.send_batch.called
 
 
@@ -288,7 +288,7 @@ class TestEventIngesterWorkerDeduplication:
         """First occurrence of trace_id passes through dedup."""
         worker = EventIngesterWorker(config=mock_config)
 
-        parsed, dedup_counts = await worker._parse_and_dedup_events([sample_message])
+        parsed, dedup_counts, _ = await worker._parse_and_dedup_events([sample_message])
 
         assert len(parsed) == 1
         assert parsed[0][0].trace_id == "trace-123"
@@ -301,7 +301,7 @@ class TestEventIngesterWorkerDeduplication:
         # Mark as processed so memory cache has the entry
         worker._mark_processed("trace-123", "evt-456")
 
-        parsed, dedup_counts = await worker._parse_and_dedup_events([sample_message])
+        parsed, dedup_counts, _ = await worker._parse_and_dedup_events([sample_message])
 
         assert len(parsed) == 0
         assert dedup_counts["memory"] == ["trace-123"]
@@ -318,7 +318,7 @@ class TestEventIngesterWorkerDeduplication:
         # Wait for expiry
         time.sleep(1.1)
 
-        parsed, dedup_counts = await worker._parse_and_dedup_events([sample_message])
+        parsed, dedup_counts, _ = await worker._parse_and_dedup_events([sample_message])
 
         assert len(parsed) == 1
         # Verify expired entry was removed
@@ -333,12 +333,12 @@ class TestEventIngesterWorkerDeduplication:
 
         # Process first time
         result = await worker._handle_event_batch([sample_message])
-        assert result is True
+        assert result.commit is True
         assert worker._records_deduplicated == 0
 
         # Process again - should be deduplicated
         result = await worker._handle_event_batch([sample_message])
-        assert result is True
+        assert result.commit is True
 
         # Verify deduplicated
         assert worker._records_deduplicated == 1
@@ -412,7 +412,7 @@ class TestEventIngesterWorkerEnrichmentTask:
 
         result = await worker._handle_event_batch([sample_message])
 
-        assert result is True
+        assert result.commit is True
         assert worker.producer.send_batch.called
         call_args = worker.producer.send_batch.call_args
 
@@ -456,7 +456,7 @@ class TestEventIngesterWorkerEnrichmentTask:
         result = await worker._handle_event_batch([message])
 
         # Verify event was skipped
-        assert result is True
+        assert result.commit is True
         assert worker._records_skipped == 1
         assert not worker.producer.send_batch.called
 
@@ -470,7 +470,7 @@ class TestEventIngesterWorkerEnrichmentTask:
         with patch("pipeline.verisk.workers.event_ingester.record_processing_error"):
             result = await worker._handle_event_batch([sample_message])
 
-        assert result is False
+        assert result.commit is False
 
 
 class TestEventIngesterWorkerStats:
@@ -534,7 +534,7 @@ class TestEventIngesterWorkerDedupSourceTracking:
         worker = EventIngesterWorker(config=mock_config)
         worker._mark_processed("trace-123", "evt-1")
 
-        parsed, _ = await worker._parse_and_dedup_events([sample_message])
+        parsed, _, _ = await worker._parse_and_dedup_events([sample_message])
         assert len(parsed) == 0
         assert worker._dedup_memory_hits == 1
         assert worker._dedup_blob_hits == 0
@@ -550,7 +550,7 @@ class TestEventIngesterWorkerDedupSourceTracking:
         )
         worker._dedup_store = mock_store
 
-        parsed, _ = await worker._parse_and_dedup_events([sample_message])
+        parsed, _, _ = await worker._parse_and_dedup_events([sample_message])
         assert len(parsed) == 0
         assert worker._dedup_blob_hits == 1
         assert worker._dedup_memory_hits == 0
@@ -560,7 +560,7 @@ class TestEventIngesterWorkerDedupSourceTracking:
         """Cache miss does not increment either counter."""
         worker = EventIngesterWorker(config=mock_config)
 
-        parsed, _ = await worker._parse_and_dedup_events([sample_message])
+        parsed, _, _ = await worker._parse_and_dedup_events([sample_message])
         assert len(parsed) == 1
         assert worker._dedup_memory_hits == 0
         assert worker._dedup_blob_hits == 0

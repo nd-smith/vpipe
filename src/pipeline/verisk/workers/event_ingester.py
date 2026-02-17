@@ -46,7 +46,7 @@ from pipeline.common.transport import (
     create_producer,
     get_source_connection_string,
 )
-from pipeline.common.types import PipelineMessage
+from pipeline.common.types import BatchResult, PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
 from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
@@ -296,16 +296,16 @@ class EventIngesterWorker:
 
         logger.info("EventIngesterWorker stopped successfully")
 
-    async def _handle_event_batch(self, records: list[PipelineMessage]) -> bool:
+    async def _handle_event_batch(self, records: list[PipelineMessage]) -> BatchResult:
         """Process a batch of event messages.
 
         Parses, deduplicates, and batch-produces enrichment tasks.
-        Returns True to commit the batch, False to skip (messages redelivered).
+        Returns BatchResult with commit flag and any permanent parse failures for DLQ routing.
         """
         start_time = time.perf_counter()
 
         # Parse, dedup (memory + blob), and collect non-duplicate events
-        parsed_events, dedup_counts = await self._parse_and_dedup_events(records)
+        parsed_events, dedup_counts, permanent_failures = await self._parse_and_dedup_events(records)
 
         # Build enrichment tasks from non-duplicate events
         enrichment_tasks, processed_trace_ids = self._build_enrichment_tasks(parsed_events)
@@ -336,7 +336,7 @@ class EventIngesterWorker:
                     },
                     exc_info=True,
                 )
-                return False
+                return BatchResult(commit=False, permanent_failures=permanent_failures)
 
         # Adjust batch size based on event age (backfill vs realtime)
         if enrichment_tasks:
@@ -358,16 +358,18 @@ class EventIngesterWorker:
             consumer_group=f"{self.domain}-event-ingester",
         ).observe(duration)
 
-        return True
+        return BatchResult(commit=True, permanent_failures=permanent_failures)
 
     async def _parse_and_dedup_events(
         self, records: list[PipelineMessage],
-    ) -> tuple[list[tuple[EventMessage, str]], dict[str, list[str]]]:
+    ) -> tuple[list[tuple[EventMessage, str]], dict[str, list[str]], list[tuple[PipelineMessage, Exception]]]:
         """Parse records, deduplicate via memory cache and blob storage.
 
-        Returns non-duplicate (event, event_id) pairs and dedup diagnostic counts.
+        Returns non-duplicate (event, event_id) pairs, dedup diagnostic counts,
+        and permanent failures (unparseable messages) for DLQ routing.
         """
         parsed_events: list[tuple[EventMessage, str]] = []
+        permanent_failures: list[tuple[PipelineMessage, Exception]] = []
         seen_in_batch: set[str] = set()
         dedup_counts: dict[str, list[str]] = {
             "intra_batch": [], "memory": [], "blob": [],
@@ -382,20 +384,22 @@ class EventIngesterWorker:
             if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
                 self._cycle_offset_end_ts = ts
 
-            # Parse event — skip unparseable messages (would never succeed on retry)
+            # Parse event — unparseable messages are permanent failures (route to DLQ)
             try:
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = EventMessage.from_raw_event(message_data)
             except (json.JSONDecodeError, ValidationError) as e:
                 logger.error(
-                    "Failed to parse EventMessage, skipping",
+                    "Failed to parse EventMessage, routing to DLQ",
                     extra={
+                        "trace_id": record.key.decode("utf-8") if record.key else None,
                         "topic": record.topic,
                         "partition": record.partition,
                         "offset": record.offset,
                         "error": str(e),
                     },
                 )
+                permanent_failures.append((record, e))
                 continue
 
             # Generate deterministic event_id from trace_id (UUID5)
@@ -432,7 +436,7 @@ class EventIngesterWorker:
                 if ev.trace_id not in blob_duplicates
             ]
 
-        return parsed_events, dedup_counts
+        return parsed_events, dedup_counts, permanent_failures
 
     async def _check_blob_duplicates(
         self, events: list[tuple[EventMessage, str]],

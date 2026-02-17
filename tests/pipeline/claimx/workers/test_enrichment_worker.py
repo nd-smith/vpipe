@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from config.config import MessageConfig
+from core.errors.exceptions import PermanentError
 from core.types import ErrorCategory
 from pipeline.claimx.api_client import ClaimXApiClient, ClaimXApiError
 from pipeline.claimx.handlers.base import HandlerResult
@@ -379,7 +380,7 @@ class TestEnrichmentWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(PermanentError):
             await worker._handle_enrichment_task(invalid_message)
 
     @pytest.mark.asyncio
@@ -399,7 +400,7 @@ class TestEnrichmentWorkerMessageProcessing:
             headers=None,
         )
 
-        with pytest.raises(ValueError):  # Pydantic ValidationError is a ValueError subclass
+        with pytest.raises(PermanentError):
             await worker._handle_enrichment_task(invalid_message)
 
 

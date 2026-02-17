@@ -119,6 +119,7 @@ class DLQProducer:
             logger.info(
                 "Message sent to DLQ successfully",
                 extra={
+                    "trace_id": trace_id,
                     "dlq_topic": dlq_topic,
                     "dlq_partition": metadata.partition,
                     "dlq_offset": metadata.offset,
@@ -136,6 +137,7 @@ class DLQProducer:
             logger.error(
                 "Failed to send message to DLQ - message will be retried",
                 extra={
+                    "trace_id": trace_id,
                     "dlq_topic": dlq_topic,
                     "original_topic": pipeline_message.topic,
                     "original_partition": pipeline_message.partition,

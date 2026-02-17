@@ -24,6 +24,7 @@ from core.errors.exceptions import PermanentError
 import pytest
 
 from config.config import MessageConfig
+from core.errors.exceptions import PermanentError
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.workers.delta_events_worker import DeltaEventsWorker
 

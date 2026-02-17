@@ -24,6 +24,8 @@ from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.transport import create_consumer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 
+from core.errors.exceptions import PermanentError
+
 logger = logging.getLogger(__name__)
 
 
@@ -308,16 +310,32 @@ class ClaimXDeltaEventsWorker:
 
         try:
             message_data = json.loads(record.value.decode("utf-8"))
-        except json.JSONDecodeError:
-            logger.exception("Failed to parse message JSON")
-            return
+        except json.JSONDecodeError as e:
+            logger.exception(
+                "Failed to parse message JSON",
+                extra={
+                    "topic": record.topic,
+                    "partition": record.partition,
+                    "offset": record.offset,
+                    "trace_id": record.key.decode("utf-8") if record.key else None,
+                },
+            )
+            raise PermanentError(str(e)) from e
 
         try:
             event = ClaimXEventMessage.from_raw_event(message_data)
             event_data = event.model_dump(exclude={"raw_data"})
-        except ValidationError:
-            logger.exception("Failed to parse ClaimXEventMessage")
-            return
+        except ValidationError as e:
+            logger.exception(
+                "Failed to parse ClaimXEventMessage",
+                extra={
+                    "topic": record.topic,
+                    "partition": record.partition,
+                    "offset": record.offset,
+                    "trace_id": record.key.decode("utf-8") if record.key else None,
+                },
+            )
+            raise PermanentError(str(e)) from e
 
         async with self._batch_lock:
             self._batch.append(event_data)

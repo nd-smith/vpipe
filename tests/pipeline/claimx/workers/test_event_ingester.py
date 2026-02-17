@@ -261,7 +261,7 @@ class TestEventIngesterBatchProcessing:
 
         result = await worker._handle_event_batch([sample_message])
 
-        assert result is True
+        assert result.commit is True
         assert worker._records_processed == 1
         assert worker._records_succeeded == 1
         assert worker.producer.send_batch.called
@@ -285,7 +285,7 @@ class TestEventIngesterBatchProcessing:
 
         result = await worker._handle_event_batch([invalid_message])
 
-        assert result is True
+        assert result.commit is True
         assert not worker.producer.send_batch.called
 
     @pytest.mark.asyncio
@@ -307,7 +307,7 @@ class TestEventIngesterBatchProcessing:
 
         result = await worker._handle_event_batch([invalid_message])
 
-        assert result is True
+        assert result.commit is True
         assert not worker.producer.send_batch.called
 
 
@@ -323,12 +323,12 @@ class TestEventIngesterDeduplication:
 
         # Process first time
         result = await worker._handle_event_batch([sample_message])
-        assert result is True
+        assert result.commit is True
         assert worker._records_deduplicated == 0
 
         # Process again — should be deduplicated
         result = await worker._handle_event_batch([sample_message])
-        assert result is True
+        assert result.commit is True
 
         assert worker._records_deduplicated == 1
         assert worker.producer.send_batch.call_count == 1
@@ -344,7 +344,7 @@ class TestEventIngesterDeduplication:
 
         result = await worker._handle_event_batch([sample_message])
 
-        assert result is True
+        assert result.commit is True
         assert worker._records_processed == 1
         assert worker._records_deduplicated == 0
 
@@ -403,7 +403,7 @@ class TestEventIngesterEnrichmentTaskCreation:
 
         result = await worker._handle_event_batch([sample_message])
 
-        assert result is True
+        assert result.commit is True
         assert worker.producer.send_batch.called
         call_args = worker.producer.send_batch.call_args
         messages = call_args.kwargs["messages"]
@@ -445,7 +445,7 @@ class TestEventIngesterEnrichmentTaskCreation:
 
         result = await worker._handle_event_batch([message])
 
-        assert result is True
+        assert result.commit is True
         messages = worker.producer.send_batch.call_args.kwargs["messages"]
         _, task = messages[0]
         assert task.task_assignment_id == "task-111"
@@ -472,7 +472,7 @@ class TestEventIngesterEnrichmentTaskCreation:
 
         result = await worker._handle_event_batch([sample_message])
 
-        assert result is False
+        assert result.commit is False
 
 
 class TestEventIngesterBackgroundTasks:

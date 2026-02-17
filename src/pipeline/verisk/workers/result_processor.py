@@ -36,6 +36,8 @@ from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+
+from core.errors.exceptions import PermanentError
 from pipeline.verisk.writers.delta_inventory import (
     DeltaFailedAttachmentsWriter,
     DeltaInventoryWriter,
@@ -373,8 +375,9 @@ class ResultProcessor:
                 topic=message.topic,
                 partition=message.partition,
                 offset=message.offset,
+                trace_id=message.key.decode("utf-8") if message.key else None,
             )
-            raise
+            raise PermanentError(str(e)) from e
 
         # Set logging context
         set_log_context(trace_id=result.trace_id)

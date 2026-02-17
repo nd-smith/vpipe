@@ -34,7 +34,7 @@ from pipeline.common.transport import (
     create_producer,
     get_source_connection_string,
 )
-from pipeline.common.types import PipelineMessage
+from pipeline.common.types import BatchResult, PipelineMessage
 
 logger = logging.getLogger(__name__)
 
@@ -393,16 +393,16 @@ class ClaimXEventIngesterWorker:
                 exc_info=True,
             )
 
-    async def _handle_event_batch(self, records: list[PipelineMessage]) -> bool:
+    async def _handle_event_batch(self, records: list[PipelineMessage]) -> BatchResult:
         """Process a batch of event messages.
 
         Parses, deduplicates, and batch-produces enrichment tasks.
-        Returns True to commit the batch, False to skip (messages redelivered).
+        Returns BatchResult with commit flag and any permanent parse failures for DLQ routing.
         """
         start_time = time.perf_counter()
 
         # Parse, dedup (memory + blob), and collect non-duplicate events
-        parsed_events, latest_timestamp = await self._parse_and_dedup_events(records)
+        parsed_events, latest_timestamp, permanent_failures = await self._parse_and_dedup_events(records)
 
         # Build enrichment tasks from non-duplicate events
         enrichment_tasks, processed_trace_ids = self._build_enrichment_tasks(parsed_events)
@@ -425,7 +425,7 @@ class ClaimXEventIngesterWorker:
                     },
                     exc_info=True,
                 )
-                return False
+                return BatchResult(commit=False, permanent_failures=permanent_failures)
 
         # Adjust batch size based on event age (backfill vs realtime)
         if latest_timestamp:
@@ -445,16 +445,18 @@ class ClaimXEventIngesterWorker:
             consumer_group=f"{self.domain}-event-ingester",
         ).observe(duration)
 
-        return True
+        return BatchResult(commit=True, permanent_failures=permanent_failures)
 
     async def _parse_and_dedup_events(
         self, records: list[PipelineMessage],
-    ) -> tuple[list[ClaimXEventMessage], datetime | None]:
+    ) -> tuple[list[ClaimXEventMessage], datetime | None, list[tuple[PipelineMessage, Exception]]]:
         """Parse records, deduplicate via memory cache and blob storage.
 
-        Returns non-duplicate parsed events and the latest ingested_at timestamp.
+        Returns non-duplicate parsed events, the latest ingested_at timestamp,
+        and permanent failures (unparseable messages) for DLQ routing.
         """
         parsed_events: list[ClaimXEventMessage] = []
+        permanent_failures: list[tuple[PipelineMessage, Exception]] = []
         seen_in_batch: set[str] = set()
         latest_timestamp = None
         now = time.time()
@@ -466,20 +468,22 @@ class ClaimXEventIngesterWorker:
             if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
                 self._cycle_offset_end_ts = ts
 
-            # Parse event — skip unparseable messages (would never succeed on retry)
+            # Parse event — unparseable messages are permanent failures (route to DLQ)
             try:
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = ClaimXEventMessage.from_raw_event(message_data)
             except (json.JSONDecodeError, ValidationError) as e:
                 logger.error(
-                    "Failed to parse ClaimXEventMessage, skipping",
+                    "Failed to parse ClaimXEventMessage, routing to DLQ",
                     extra={
+                        "trace_id": record.key.decode("utf-8") if record.key else None,
                         "topic": record.topic,
                         "partition": record.partition,
                         "offset": record.offset,
                         "error": str(e),
                     },
                 )
+                permanent_failures.append((record, e))
                 continue
 
             trace_id = event.trace_id
@@ -509,7 +513,7 @@ class ClaimXEventIngesterWorker:
             blob_duplicates = await self._check_blob_duplicates(parsed_events)
             parsed_events = [ev for ev in parsed_events if ev.trace_id not in blob_duplicates]
 
-        return parsed_events, latest_timestamp
+        return parsed_events, latest_timestamp, permanent_failures
 
     async def _check_blob_duplicates(
         self, events: list[ClaimXEventMessage],

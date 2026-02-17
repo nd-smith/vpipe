@@ -26,12 +26,14 @@ from azure.eventhub import EventData, TransportType
 from azure.eventhub.aio import EventHubConsumerClient
 
 from core.security.ssl_utils import get_ca_bundle_kwargs
+from core.errors.exceptions import ErrorCategory
 from pipeline.common.eventhub.consumer import EventHubConsumerRecord
 from pipeline.common.metrics import (
+    record_dlq_message,
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.types import PipelineMessage
+from pipeline.common.types import BatchResult, PipelineMessage
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,13 @@ class EventHubBatchConsumer:
         self._running = False
         self._enable_message_commit = enable_message_commit
         self._owner_level = owner_level or None  # None means no exclusive ownership
+
+        # DLQ routing for permanent failures
+        self._dlq_producer = None  # Lazy-initialized EventHubProducer
+        self._dlq_entity_map = {
+            "verisk_events": "verisk-dlq",
+            "claimx_events": "claimx-dlq",
+        }
 
         # Per-partition batch buffers
         self._batch_buffers: dict[str, list[BufferedMessage]] = {}
@@ -237,6 +246,16 @@ class EventHubBatchConsumer:
             # Flush all partition buffers
             for partition_id in list(self._batch_buffers.keys()):
                 await self._flush_partition_batch(partition_id)
+
+            # Stop DLQ producer
+            if self._dlq_producer is not None:
+                try:
+                    await self._dlq_producer.flush()
+                    await self._dlq_producer.stop()
+                except Exception:
+                    logger.error("Error stopping DLQ producer", exc_info=True)
+                finally:
+                    self._dlq_producer = None
 
             # Close consumer
             if self._consumer:
@@ -468,9 +487,23 @@ class EventHubBatchConsumer:
 
         try:
             # Call batch handler
-            should_commit = await self.batch_handler(messages)
+            result = await self.batch_handler(messages)
+
+            # Backward compat: bool return = existing behavior
+            if isinstance(result, bool):
+                should_commit = result
+                permanent_failures: list[tuple[PipelineMessage, Exception]] = []
+            else:
+                should_commit = result.commit
+                permanent_failures = result.permanent_failures
 
             duration = time.perf_counter() - start_time
+
+            # Route permanent failures to DLQ
+            for msg, error in permanent_failures:
+                success = await self._route_to_dlq(msg, error)
+                if not success:
+                    should_commit = False  # Don't advance past un-DLQ'd message
 
             if should_commit and self._enable_message_commit:
                 # Checkpoint only the last event — within a partition, offsets are
@@ -537,6 +570,67 @@ class EventHubBatchConsumer:
                 exc_info=True,
             )
             # Don't re-raise - continue processing other partitions
+
+    async def _route_to_dlq(self, msg: PipelineMessage, error: Exception) -> bool:
+        """Route a permanently failed message to the DLQ Event Hub entity.
+
+        Returns True if successfully sent, False otherwise.
+        """
+        import json as _json
+
+        dlq_entity = self._dlq_entity_map.get(msg.topic)
+        if dlq_entity is None:
+            logger.warning(
+                "No DLQ entity mapping for topic",
+                extra={"topic": msg.topic},
+            )
+            return False
+
+        # Lazy-init DLQ producer
+        if self._dlq_producer is None or self._dlq_producer.eventhub_name != dlq_entity:
+            from pipeline.common.eventhub.producer import EventHubProducer
+
+            if self._dlq_producer is not None:
+                await self._dlq_producer.stop()
+            self._dlq_producer = EventHubProducer(
+                connection_string=self.connection_string,
+                domain=self.domain,
+                worker_name=self.worker_name,
+                eventhub_name=dlq_entity,
+            )
+            await self._dlq_producer.start()
+
+        trace_id = msg.key.decode("utf-8") if msg.key else None
+        dlq_value = _json.dumps({
+            "original_topic": msg.topic,
+            "original_partition": msg.partition,
+            "original_offset": msg.offset,
+            "original_key": trace_id,
+            "original_value": msg.value.decode("utf-8") if msg.value else None,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "error_category": ErrorCategory.PERMANENT.value,
+            "consumer_group": self.consumer_group,
+            "domain": self.domain,
+            "worker_name": self.worker_name,
+        }).encode("utf-8")
+
+        try:
+            await self._dlq_producer.send(
+                topic=dlq_entity,
+                key=msg.key or f"dlq-{msg.offset}".encode(),
+                value=dlq_value,
+                headers={
+                    "dlq_source_topic": msg.topic,
+                    "dlq_error_category": ErrorCategory.PERMANENT.value,
+                    "dlq_consumer_group": self.consumer_group,
+                },
+            )
+            record_dlq_message(self.domain, ErrorCategory.PERMANENT.value)
+            return True
+        except Exception:
+            logger.error("DLQ routing failed for message", exc_info=True)
+            return False
 
     def get_batch_stats(self) -> dict[str, int]:
         """Get current batch buffer sizes per partition (for debugging/monitoring).

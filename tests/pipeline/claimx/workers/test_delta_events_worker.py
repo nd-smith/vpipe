@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from config.config import MessageConfig
+from core.errors.exceptions import PermanentError
 from pipeline.claimx.workers.delta_events_worker import ClaimXDeltaEventsWorker
 from pipeline.common.types import PipelineMessage
 
@@ -309,12 +310,13 @@ class TestDeltaEventsWorkerMessageProcessing:
                 headers=None,
             )
 
-            # Should log exception and return without raising
-            await worker._handle_event_message(invalid_message)
+            # Should raise PermanentError wrapping JSONDecodeError
+            with pytest.raises(PermanentError):
+                await worker._handle_event_message(invalid_message)
 
     @pytest.mark.asyncio
     async def test_validation_error_logs_and_skips(self, mock_config, mock_producer):
-        """Worker handles validation errors gracefully."""
+        """Worker raises PermanentError on validation errors."""
         # Event missing all required fields
         event_data = {"some_unknown_field": "value"}
 
@@ -335,12 +337,9 @@ class TestDeltaEventsWorkerMessageProcessing:
                 events_table_path="abfss://test/claimx_events",
             )
 
-            # Should log exception and return without raising
-            await worker._handle_event_message(message)
-
-            # Event was counted but not added to batch
-            assert worker._records_processed == 1
-            assert len(worker._batch) == 0
+            # Should raise PermanentError wrapping ValidationError
+            with pytest.raises(PermanentError):
+                await worker._handle_event_message(message)
 
 
 class TestDeltaEventsWorkerBatching:

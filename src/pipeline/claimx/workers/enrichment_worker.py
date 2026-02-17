@@ -46,6 +46,8 @@ from pipeline.plugins.shared.base import Domain, PipelineStage, PluginContext
 from pipeline.plugins.shared.loader import load_plugins_from_directory
 from pipeline.plugins.shared.registry import ActionExecutor, PluginOrchestrator, PluginRegistry
 
+from core.errors.exceptions import PermanentError
+
 logger = logging.getLogger(__name__)
 
 
@@ -504,6 +506,7 @@ class ClaimXEnrichmentWorker:
             logger.error(
                 "Failed to parse ClaimXEnrichmentTask",
                 extra={
+                    "trace_id": record.key.decode("utf-8") if record.key else None,
                     "topic": record.topic,
                     "partition": record.partition,
                     "offset": record.offset,
@@ -513,7 +516,7 @@ class ClaimXEnrichmentWorker:
                 },
                 exc_info=True,
             )
-            raise
+            raise PermanentError(str(e)) from e
 
         self._records_processed += 1
 

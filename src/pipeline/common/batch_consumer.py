@@ -21,7 +21,7 @@ from pipeline.common.metrics import (
     update_assigned_partitions,
     update_connection_status,
 )
-from pipeline.common.types import PipelineMessage, from_consumer_record
+from pipeline.common.types import BatchResult, PipelineMessage, from_consumer_record
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,23 @@ class MessageBatchConsumer:
         self._consumer: AIOKafkaConsumer | None = None
         self._running = False
         self._enable_message_commit = enable_message_commit
+
+        # DLQ producer for routing permanent failures from batch handlers
+        from core.utils import generate_worker_id
+        from pipeline.common.dlq.producer import DLQProducer
+
+        prefix = f"{domain}-{worker_name}"
+        if instance_id:
+            prefix = f"{prefix}-{instance_id}"
+        self._worker_id = generate_worker_id(prefix)
+
+        self._dlq_producer = DLQProducer(
+            config=config,
+            domain=domain,
+            worker_name=worker_name,
+            group_id=config.get_consumer_group(domain, worker_name),
+            worker_id=self._worker_id,
+        )
 
         self.consumer_config = config.get_worker_config(domain, worker_name, "consumer")
         self.group_id = config.get_consumer_group(domain, worker_name)
@@ -221,6 +238,8 @@ class MessageBatchConsumer:
                 await self._consumer.commit()
                 await self._consumer.stop()
 
+            await self._dlq_producer.stop()
+
             logger.info("Message batch consumer stopped successfully")
         except Exception as e:
             logger.error(
@@ -261,9 +280,27 @@ class MessageBatchConsumer:
         start_time = time.perf_counter()
 
         try:
-            should_commit = await self.batch_handler(messages)
+            result = await self.batch_handler(messages)
+
+            # Backward compat: bool return = existing behavior
+            if isinstance(result, bool):
+                should_commit = result
+                permanent_failures: list[tuple[PipelineMessage, Exception]] = []
+            else:
+                should_commit = result.commit
+                permanent_failures = result.permanent_failures
 
             duration = time.perf_counter() - start_time
+
+            # Route permanent failures to DLQ
+            from core.types import ErrorCategory
+
+            for msg, error in permanent_failures:
+                try:
+                    await self._dlq_producer.send(msg, error, ErrorCategory.PERMANENT)
+                except Exception:
+                    logger.error("DLQ routing failed for message", exc_info=True)
+                    should_commit = False  # Don't advance past un-DLQ'd message
 
             if should_commit and self._enable_message_commit:
                 await self._consumer.commit()
@@ -272,6 +309,7 @@ class MessageBatchConsumer:
                     extra={
                         "batch_size": len(messages),
                         "duration_ms": round(duration * 1000, 2),
+                        "dlq_routed": len(permanent_failures),
                     },
                 )
             else:

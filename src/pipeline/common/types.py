@@ -1,11 +1,12 @@
 """Transport-agnostic message types for Kafka and Event Hub."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 __all__ = [
     "PipelineMessage",
     "ProduceResult",
     "PartitionInfo",
+    "BatchResult",
     "from_consumer_record",
 ]
 
@@ -38,6 +39,14 @@ class PartitionInfo:
 
     topic: str
     partition: int
+
+
+@dataclass
+class BatchResult:
+    """Structured result from a batch handler with per-message failure reporting."""
+
+    commit: bool
+    permanent_failures: list[tuple[PipelineMessage, Exception]] = field(default_factory=list)
 
 
 def from_consumer_record(record) -> PipelineMessage:

@@ -39,6 +39,8 @@ from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.transport import create_consumer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS, MAX_POLL_RECORDS
+
+from core.errors.exceptions import PermanentError
 from pipeline.verisk.writers import DeltaEventsWriter
 
 logger = logging.getLogger(__name__)
@@ -354,6 +356,7 @@ class DeltaEventsWorker:
                 topic=record.topic,
                 partition=record.partition,
                 offset=record.offset,
+                trace_id=record.key.decode("utf-8") if record.key else None,
             )
             raise PermanentError(
                 f"Failed to parse message JSON: {e}",

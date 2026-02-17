@@ -52,6 +52,8 @@ from pipeline.verisk.schemas.tasks import (
 )
 from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 
+from core.errors.exceptions import PermanentError
+
 logger = logging.getLogger(__name__)
 
 
@@ -345,6 +347,7 @@ class XACTEnrichmentWorker:
             logger.error(
                 "Failed to parse XACTEnrichmentTask",
                 extra={
+                    "trace_id": message.key.decode("utf-8") if message.key else None,
                     "topic": message.topic,
                     "partition": message.partition,
                     "offset": message.offset,
@@ -354,7 +357,7 @@ class XACTEnrichmentWorker:
                 },
                 exc_info=True,
             )
-            raise
+            raise PermanentError(str(e)) from e
 
         from core.logging.context import set_log_context
 
