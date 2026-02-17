@@ -65,6 +65,7 @@ class TestConnectionConfig:
         config = ConnectionConfig(name="test", base_url="https://api.example.com")
         assert config.auth_type == AuthType.NONE
         assert config.timeout_seconds == 30
+        assert config.connect_timeout_seconds == 10
         assert config.max_retries == 3
         assert config.headers == {}
         assert config.auth_header is None

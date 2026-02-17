@@ -109,6 +109,7 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
             auth_token=auth_token,
             auth_header=conn_data.get("auth_header"),
             timeout_seconds=conn_data.get("timeout_seconds", 30),
+            connect_timeout_seconds=conn_data.get("connect_timeout_seconds", 10),
             max_retries=conn_data.get("max_retries", 3),
             retry_backoff_base=conn_data.get("retry_backoff_base", 2),
             retry_backoff_max=conn_data.get("retry_backoff_max", 60),

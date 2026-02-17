@@ -65,6 +65,7 @@ class ConnectionConfig:
     auth_token: str | None = None
     auth_header: str | None = None
     timeout_seconds: int = 30
+    connect_timeout_seconds: int = 10
     max_retries: int = 3
     retry_backoff_base: int = 2
     retry_backoff_max: int = 60
@@ -191,6 +192,7 @@ class ConnectionManager:
         url: str,
         request_headers: dict[str, str],
         timeout: int,
+        connect_timeout: int,
         json: dict[str, Any] | None,
         data: Any | None,
         params: dict[str, Any] | None,
@@ -208,7 +210,7 @@ class ConnectionManager:
             data=data,
             params=params,
             headers=request_headers,
-            timeout=aiohttp.ClientTimeout(total=timeout),
+            timeout=aiohttp.ClientTimeout(total=timeout, sock_connect=connect_timeout),
         ) as response:
             logger.debug(f"Response {response.status} from {method} {url}")
 
@@ -351,6 +353,7 @@ class ConnectionManager:
 
         # Determine timeout and retries
         timeout = timeout_override if timeout_override is not None else config.timeout_seconds
+        connect_timeout = config.connect_timeout_seconds
         max_retries = retry_override if retry_override is not None else config.max_retries
 
         # Create retry configuration
@@ -376,6 +379,7 @@ class ConnectionManager:
             url=url,
             request_headers=request_headers,
             timeout=timeout,
+            connect_timeout=connect_timeout,
             json=json,
             data=data,
             params=params,
@@ -453,6 +457,7 @@ class ConnectionManager:
         config = self.get_connection(connection_name)
         request_headers = await self._build_request_headers(config, headers)
         timeout = timeout_override if timeout_override is not None else config.timeout_seconds
+        connect_timeout = config.connect_timeout_seconds
 
         # Direct request (no retry wrapper — caller handles errors)
         logger.debug("Request %s %s (via connection '%s')", method, url, connection_name)
@@ -463,7 +468,7 @@ class ConnectionManager:
             data=data,
             params=params,
             headers=request_headers,
-            timeout=aiohttp.ClientTimeout(total=timeout),
+            timeout=aiohttp.ClientTimeout(total=timeout, sock_connect=connect_timeout),
             allow_redirects=allow_redirects,
         ) as response:
             await response.read()
