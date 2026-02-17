@@ -425,10 +425,32 @@ class MessageConsumer:
         else:
             logger.error(
                 f"Unhandled error category '{error_category.value}' - "
-                f"applying conservative retry: {type(error).__name__}: {error}",
+                f"routing to DLQ: {type(error).__name__}: {error}",
                 extra={**common_context},
                 exc_info=True,
             )
+
+            try:
+                await self._dlq_producer.send(pipeline_message, error, error_category)
+
+                if self._enable_message_commit:
+                    await self._consumer.commit()
+                    logger.info(
+                        "Offset committed after DLQ routing for unknown error",
+                        extra={
+                            "topic": message.topic,
+                            "partition": message.partition,
+                            "offset": message.offset,
+                            "error_category": error_category.value,
+                        },
+                    )
+
+            except Exception:
+                logger.error(
+                    "DLQ routing failed for unknown error - message will be retried",
+                    extra={**common_context},
+                    exc_info=True,
+                )
 
     def _update_partition_metrics(self, message: ConsumerRecord) -> None:
         if not self._consumer:

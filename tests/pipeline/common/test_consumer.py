@@ -444,7 +444,7 @@ class TestMessageConsumerErrorRouting:
         consumer._dlq_producer.send.assert_not_awaited()
         mock_kafka.commit.assert_not_awaited()
 
-    async def test_unknown_error_does_not_commit_offset(self):
+    async def test_unknown_error_routes_to_dlq_and_commits(self):
         from core.types import ErrorCategory
 
         consumer = _make_consumer(enable_message_commit=True)
@@ -454,11 +454,29 @@ class TestMessageConsumerErrorRouting:
         record = _make_consumer_record()
         pipeline_msg = self._make_pipeline_msg()
 
-        # Use a category that falls through to the else branch
+        # Unknown errors should be routed to DLQ to prevent silent data loss
         with self._classify_as(ErrorCategory.UNKNOWN):
             await consumer._handle_processing_error(pipeline_msg, record, RuntimeError("wat"), 0.1)
 
-        consumer._dlq_producer.send.assert_not_awaited()
+        consumer._dlq_producer.send.assert_awaited_once()
+        mock_kafka.commit.assert_awaited_once()
+
+    async def test_unknown_error_dlq_failure_does_not_commit(self):
+        from core.types import ErrorCategory
+
+        consumer = _make_consumer(enable_message_commit=True)
+        consumer._dlq_producer.send = AsyncMock(side_effect=RuntimeError("DLQ down"))
+        mock_kafka = _make_kafka_mock()
+        consumer._consumer = mock_kafka
+
+        record = _make_consumer_record()
+        pipeline_msg = self._make_pipeline_msg()
+
+        # If DLQ send fails for unknown error, don't commit — preserve for retry
+        with self._classify_as(ErrorCategory.UNKNOWN):
+            await consumer._handle_processing_error(pipeline_msg, record, RuntimeError("wat"), 0.1)
+
+        consumer._dlq_producer.send.assert_awaited_once()
         mock_kafka.commit.assert_not_awaited()
 
     async def test_dlq_send_failure_does_not_commit_offset(self):

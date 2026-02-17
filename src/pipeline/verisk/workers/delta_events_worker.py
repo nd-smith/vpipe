@@ -29,6 +29,7 @@ import uuid
 from typing import Any
 
 from config.config import MessageConfig
+from core.errors.exceptions import PermanentError
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
@@ -354,7 +355,15 @@ class DeltaEventsWorker:
                 partition=record.partition,
                 offset=record.offset,
             )
-            raise
+            raise PermanentError(
+                f"Failed to parse message JSON: {e}",
+                cause=e,
+                context={
+                    "topic": record.topic,
+                    "partition": record.partition,
+                    "offset": record.offset,
+                },
+            ) from e
 
         # Set logging context for correlation
         trace_id = message_data.get("traceId")

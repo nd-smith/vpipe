@@ -5,6 +5,8 @@ Provides consistent error handling for transport exceptions (Kafka protocol, Eve
 mapping them to typed PipelineError hierarchy with retry decisions.
 """
 
+import json
+
 from core.errors.exceptions import (
     AuthError,
     ConnectionError,
@@ -147,7 +149,7 @@ class TransportErrorClassifier:
         Returns:
             Classified PipelineError subclass
         """
-        # If already a PipelineError (e.g., CircuitOpenError), preserve it
+        # If already a PipelineError (e.g., CircuitOpenError, PermanentError), preserve it
         if isinstance(error, PipelineError):
             return error
 
@@ -156,6 +158,14 @@ class TransportErrorClassifier:
         error_context = {"service": "message_consumer"}
         if context:
             error_context.update(context)
+
+        # Data deserialization errors are permanent - malformed data won't fix on retry
+        if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+            return PermanentError(
+                f"Message deserialization failed: {error}",
+                cause=error,
+                context=error_context,
+            )
 
         # Classify by exception type first (checks both Kafka and EventHub mappings)
         category = classify_error_type(error_type)
@@ -265,7 +275,7 @@ class TransportErrorClassifier:
         Returns:
             Classified PipelineError subclass
         """
-        # If already a PipelineError (e.g., CircuitOpenError), preserve it
+        # If already a PipelineError (e.g., CircuitOpenError, PermanentError), preserve it
         if isinstance(error, PipelineError):
             return error
 
@@ -274,6 +284,14 @@ class TransportErrorClassifier:
         error_context = {"service": "message_producer"}
         if context:
             error_context.update(context)
+
+        # Data serialization errors are permanent - malformed data won't fix on retry
+        if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+            return PermanentError(
+                f"Message serialization failed: {error}",
+                cause=error,
+                context=error_context,
+            )
 
         # Classify by exception type first (checks both Kafka and EventHub mappings)
         category = classify_error_type(error_type)
