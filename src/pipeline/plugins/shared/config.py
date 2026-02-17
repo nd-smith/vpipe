@@ -38,7 +38,7 @@ def load_yaml_config(path: Path) -> dict:
 def load_connections(config_path: Path) -> list[ConnectionConfig]:
     """Load connection configurations from a YAML file.
 
-    Expands environment variables in base_url and auth_token fields.
+    Expands environment variables in base_url, auth_token, endpoint, and method fields.
 
     Args:
         config_path: Path to connections YAML file
@@ -117,8 +117,8 @@ def load_connections(config_path: Path) -> list[ConnectionConfig]:
             oauth2_client_credential=oauth2_client_credential,
             oauth2_token_url=oauth2_token_url,
             oauth2_scope=oauth2_scope,
-            endpoint=conn_data.get("endpoint", ""),
-            method=conn_data.get("method", "POST"),
+            endpoint=expand_env_var_string(conn_data.get("endpoint", "")),
+            method=expand_env_var_string(conn_data.get("method", "POST")),
         )
         connections.append(conn)
         logger.info("Loaded connection: %s -> %s", conn.name, conn.base_url)
