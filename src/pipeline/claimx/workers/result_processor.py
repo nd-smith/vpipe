@@ -65,6 +65,7 @@ class ClaimXResultProcessor:
     def __init__(
         self,
         config: MessageConfig,
+        domain: str = "claimx",
         results_topic: str = "",
         inventory_table_path: str = "",
         batch_size: int | None = None,
@@ -76,6 +77,7 @@ class ClaimXResultProcessor:
 
         Args:
             config: Message broker configuration for consumer
+            domain: Pipeline domain identifier (default: "claimx")
             results_topic: Topic name for upload results (e.g., "claimx-downloads-results")
             inventory_table_path: Full abfss:// path to claimx_attachments table (optional)
             batch_size: Optional custom batch size (default: 500)
@@ -83,7 +85,7 @@ class ClaimXResultProcessor:
             instance_id: Optional instance ID for multiple workers (default: None)
         """
         self.config = config
-        self.domain = "claimx"
+        self.domain = domain
         self.worker_name = "result_processor"
         self.instance_id = instance_id
 

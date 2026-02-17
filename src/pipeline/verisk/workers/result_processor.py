@@ -100,6 +100,7 @@ class ResultProcessor:
         batch_timeout_seconds: float | None = None,
         max_batches: int | None = None,
         instance_id: str | None = None,
+        domain: str = "verisk",
     ):
         """
         Initialize result processor.
@@ -121,7 +122,7 @@ class ResultProcessor:
         self.max_batches = max_batches
 
         # Domain and worker configuration (must be set before using them)
-        self.domain = "verisk"
+        self.domain = domain
         self.worker_name = "result_processor"
         self.instance_id = instance_id
 
