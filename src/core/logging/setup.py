@@ -25,6 +25,27 @@ DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
 
 
+def _resolve_onelake_log_path() -> str:
+    """Resolve OneLake log path from env var or config.yaml."""
+    path = os.getenv("ONELAKE_LOG_PATH")
+    if path:
+        return path
+
+    try:
+        from config.config import DEFAULT_CONFIG_FILE, _expand_env_vars, load_yaml
+
+        if DEFAULT_CONFIG_FILE.exists():
+            data = load_yaml(DEFAULT_CONFIG_FILE)
+            data = _expand_env_vars(data)
+            path = data.get("observability", {}).get("onelake_log_path", "")
+            if path:
+                return path
+    except Exception:
+        pass
+
+    return ""
+
+
 def _generate_instance_id() -> str:
     """Generate unique human-readable instance ID using coolname."""
     from coolname import generate_slug
@@ -313,7 +334,7 @@ def _build_file_handler(
 
     onelake_client = None
     if upload_enabled:
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
+        onelake_log_path = _resolve_onelake_log_path()
         if not onelake_log_path:
             print(
                 "Warning: LOG_UPLOAD_ENABLED=true but ONELAKE_LOG_PATH not configured, "
@@ -731,7 +752,7 @@ def _do_crash_log_upload(reason: str) -> None:
 
     # Phase 2: Get or create OneLake client
     if onelake_client is None:
-        onelake_log_path = os.getenv("ONELAKE_LOG_PATH")
+        onelake_log_path = _resolve_onelake_log_path()
         if not onelake_log_path:
             crash_logger.warning(
                 "No OneLake path configured for crash log upload (set ONELAKE_LOG_PATH)"
