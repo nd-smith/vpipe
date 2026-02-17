@@ -594,6 +594,9 @@ class ItelCabinetApiWorker:
             method=conn_config.method,
             path=conn_config.endpoint,
             json=api_payload,
+            headers={
+                "Ocp-Apim-Subscription-Key": self.api_config.get("subscription_id", ""),
+            },
         )
 
         logger.info(
