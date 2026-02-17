@@ -175,8 +175,8 @@ async def run_result_processor(
     if enable_delta_writes and not inventory_table_path:
         logger.error(
             "inventory_table_path is required for xact-result-processor "
-            "when enable_delta_writes=True. Configure via DELTA_INVENTORY_TABLE_PATH "
-            "environment variable or delta.xact.inventory_table_path in config.yaml."
+            "when enable_delta_writes=True. Configure via VERISK_INVENTORY_TABLE_PATH "
+            "environment variable or delta.verisk.inventory_table_path in config.yaml."
         )
         raise ValueError("inventory_table_path is required when delta writes are enabled")
 

@@ -111,6 +111,9 @@ async def run_worker_from_registry(
     # Add worker-specific table paths
     if worker_name == "xact-delta-writer":
         kwargs["events_table_path"] = pipeline_config.events_table_path
+    elif worker_name == "xact-result-processor":
+        kwargs["inventory_table_path"] = pipeline_config.inventory_table_path
+        kwargs["failed_table_path"] = pipeline_config.failed_table_path
     elif worker_name == "claimx-delta-writer":
         kwargs["events_table_path"] = pipeline_config.claimx_events_table_path
     elif worker_name == "claimx-entity-writer":
