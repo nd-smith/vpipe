@@ -74,13 +74,6 @@ CLAIMX_API_RATE_CONFIG = RateLimiterConfig(
     name="claimx_api",
 )
 
-# External downloads - more aggressive since files are larger
-EXTERNAL_DOWNLOAD_RATE_CONFIG = RateLimiterConfig(
-    calls_per_second=float(os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_PER_SECOND", "5")),
-    burst_capacity=None,
-    enabled=os.getenv("EXTERNAL_DOWNLOAD_RATE_LIMIT_ENABLED", "false").lower() == "true",
-    name="external_download",
-)
 
 
 class RateLimiter:
@@ -306,5 +299,4 @@ __all__ = [
     "get_rate_limiter",
     "reset_rate_limiters",  # For testing only
     "CLAIMX_API_RATE_CONFIG",
-    "EXTERNAL_DOWNLOAD_RATE_CONFIG",
 ]

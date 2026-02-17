@@ -26,7 +26,6 @@ from .circuit_breaker import (
 )
 from .rate_limiter import (
     CLAIMX_API_RATE_CONFIG,
-    EXTERNAL_DOWNLOAD_RATE_CONFIG,
     RateLimiter,
     RateLimiterConfig,
     get_rate_limiter,
@@ -66,5 +65,4 @@ __all__ = [
     "ONELAKE_CIRCUIT_CONFIG",
     # Rate Limiter Configs
     "CLAIMX_API_RATE_CONFIG",
-    "EXTERNAL_DOWNLOAD_RATE_CONFIG",
 ]

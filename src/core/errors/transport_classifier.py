@@ -90,22 +90,6 @@ EVENTHUB_ERROR_MAPPINGS = {
 }
 
 
-def classify_kafka_error_type(error_type_name: str) -> str | None:
-    """
-    Classify Kafka error by exception type name.
-
-    Args:
-        error_type_name: Name of the exception class
-
-    Returns:
-        Error category: "transient", "auth", "permanent", "throttling", or None
-    """
-    for category, error_types in KAFKA_ERROR_MAPPINGS.items():
-        if error_type_name in error_types:
-            return category
-    return None
-
-
 def classify_error_type(error_type_name: str) -> str | None:
     """
     Classify error by exception type name, checking both Kafka and EventHub mappings.

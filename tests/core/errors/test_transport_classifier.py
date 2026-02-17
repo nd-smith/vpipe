@@ -21,39 +21,7 @@ from core.errors.transport_classifier import (
     KAFKA_ERROR_MAPPINGS,
     TransportErrorClassifier,
     classify_error_type,
-    classify_kafka_error_type,
 )
-
-# ---------------------------------------------------------------------------
-# classify_kafka_error_type
-# ---------------------------------------------------------------------------
-
-
-class TestClassifyKafkaErrorType:
-    @pytest.mark.parametrize("error_name", KAFKA_ERROR_MAPPINGS["transient"])
-    def test_transient_errors(self, error_name):
-        assert classify_kafka_error_type(error_name) == "transient"
-
-    @pytest.mark.parametrize("error_name", KAFKA_ERROR_MAPPINGS["auth"])
-    def test_auth_errors(self, error_name):
-        assert classify_kafka_error_type(error_name) == "auth"
-
-    @pytest.mark.parametrize("error_name", KAFKA_ERROR_MAPPINGS["permanent"])
-    def test_permanent_errors(self, error_name):
-        assert classify_kafka_error_type(error_name) == "permanent"
-
-    @pytest.mark.parametrize("error_name", KAFKA_ERROR_MAPPINGS["throttling"])
-    def test_throttling_errors(self, error_name):
-        assert classify_kafka_error_type(error_name) == "throttling"
-
-    def test_unknown_error_returns_none(self):
-        assert classify_kafka_error_type("SomeRandomError") is None
-
-    def test_empty_string_returns_none(self):
-        assert classify_kafka_error_type("") is None
-
-    def test_eventhub_error_not_found_in_kafka(self):
-        assert classify_kafka_error_type("EventHubError") is None
 
 
 # ---------------------------------------------------------------------------
