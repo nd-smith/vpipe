@@ -358,7 +358,9 @@ class TestSetupLogging:
         clear_log_context()
         yield
         clear_log_context()
-        # Clean up root logger handlers
+        # Close handlers before clearing to avoid dangling file descriptors
+        for h in logging.getLogger().handlers[:]:
+            h.close()
         logging.getLogger().handlers.clear()
 
     @patch("core.logging.setup._generate_instance_id", return_value="test-id")
@@ -532,6 +534,9 @@ class TestSetupMultiWorkerLogging:
         clear_log_context()
         yield
         clear_log_context()
+        # Close handlers before clearing to avoid dangling file descriptors
+        for h in logging.getLogger().handlers[:]:
+            h.close()
         logging.getLogger().handlers.clear()
 
     @patch("core.logging.setup._generate_instance_id", return_value="test-id")

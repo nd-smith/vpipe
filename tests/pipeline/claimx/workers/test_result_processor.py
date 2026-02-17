@@ -119,7 +119,7 @@ class TestClaimXResultProcessorInitialization:
         assert processor.worker_id == "result_processor"
         assert processor.instance_id is None
         assert processor._running is False
-        assert processor.batch_size == 2000
+        assert processor.batch_size == 500
         assert processor.batch_timeout_seconds == 5
 
     def test_initialization_with_custom_batch_config(self, mock_config):
