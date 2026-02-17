@@ -20,6 +20,7 @@ from core.download.http_client import create_session, download_url
 from core.download.models import DownloadOutcome, DownloadTask
 from core.download.streaming import download_to_file, should_stream
 from core.errors.exceptions import ErrorCategory, classify_os_error
+from core.logging.context import get_log_context
 from core.security.exceptions import FileValidationError, URLValidationError
 from core.security.file_validation import validate_file_type
 from core.security.presigned_urls import check_presigned_url
@@ -226,12 +227,15 @@ class AttachmentDownloader:
         if error:
             # Log timeout errors with additional context
             if "timeout" in error.error_message.lower():
+                log_ctx = get_log_context()
+                media_id = log_ctx.get("media_id", "")
                 logger.warning(
-                    "Download timeout",
+                    f"Download timeout [media_id={media_id}]",
                     extra={
                         "url": task.url,
                         "timeout_seconds": task.timeout,
                         "error_message": error.error_message,
+                        "media_id": media_id,
                     },
                 )
 
@@ -279,12 +283,15 @@ class AttachmentDownloader:
         if error:
             # Log timeout errors with additional context
             if "timeout" in error.error_message.lower():
+                log_ctx = get_log_context()
+                media_id = log_ctx.get("media_id", "")
                 logger.warning(
-                    "Download timeout (streaming)",
+                    f"Download timeout (streaming) [media_id={media_id}]",
                     extra={
                         "url": task.url,
                         "timeout_seconds": task.timeout,
                         "error_message": error.error_message,
+                        "media_id": media_id,
                     },
                 )
 

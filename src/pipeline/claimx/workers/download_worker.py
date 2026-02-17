@@ -797,7 +797,8 @@ class ClaimXDownloadWorker:
         error_category = outcome.error_category or ErrorCategory.UNKNOWN
 
         logger.warning(
-            f"Download outcome details: error_message={outcome.error_message}, "
+            f"Download outcome details: media_id={task_message.media_id}, "
+            f"error_message={outcome.error_message}, "
             f"validation_error={outcome.validation_error}, "
             f"error_category={error_category.value}, "
             f"status_code={outcome.status_code}, "
@@ -816,7 +817,7 @@ class ClaimXDownloadWorker:
 
         log_worker_error(
             logger,
-            "Download failed",
+            f"Download failed [media_id={task_message.media_id}]",
             error_category=error_category.value,
             trace_id=task_message.trace_id,
             media_id=task_message.media_id,
