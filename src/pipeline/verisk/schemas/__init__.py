@@ -8,8 +8,6 @@ Schemas:
     tasks.py       - DownloadTaskMessage (work items for download workers)
     cached.py      - CachedDownloadMessage (files cached locally, awaiting upload)
     results.py     - DownloadResultMessage, FailedDownloadMessage (outcomes and DLQ)
-    delta_batch.py - FailedDeltaBatch (failed Delta batch writes for retry)
-
 Design Decisions:
     - Pydantic for validation and JSON serialization
     - Explicit schemas (no dynamic/dict-based messages)
@@ -18,7 +16,7 @@ Design Decisions:
 """
 
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
-from pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
+from pipeline.common.schemas.delta_batch import FailedDeltaBatch
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.models import XACT_PRIMARY_KEYS, EventRecord, Task
 from pipeline.verisk.schemas.results import (

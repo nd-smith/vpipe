@@ -67,7 +67,7 @@ from pipeline.common.retry.retry_utils import (
     truncate_error_message,
 )
 from pipeline.common.transport import create_producer
-from pipeline.verisk.schemas.delta_batch import FailedDeltaBatch
+from pipeline.common.schemas.delta_batch import FailedDeltaBatch
 
 logger = logging.getLogger(__name__)
 
