@@ -50,7 +50,7 @@ from pipeline.verisk.schemas.tasks import (
     DownloadTaskMessage,
     XACTEnrichmentTask,
 )
-from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 
 from core.errors.exceptions import PermanentError
 

@@ -38,7 +38,8 @@ from pipeline.common.metrics import record_delta_write
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.transport import create_consumer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
-from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS, MAX_POLL_RECORDS
+from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+from pipeline.verisk.workers.worker_defaults import MAX_POLL_RECORDS
 
 from core.errors.exceptions import PermanentError
 from pipeline.verisk.writers import DeltaEventsWriter

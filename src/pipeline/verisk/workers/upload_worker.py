@@ -45,7 +45,7 @@ from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.worker_defaults import (
+from pipeline.common.worker_defaults import (
     BATCH_SIZE,
     CONCURRENCY,
     CYCLE_LOG_INTERVAL_SECONDS,

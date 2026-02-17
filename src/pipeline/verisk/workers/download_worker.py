@@ -55,7 +55,7 @@ from pipeline.verisk.retry.download_handler import RetryHandler
 from pipeline.verisk.schemas.cached import CachedDownloadMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
 from pipeline.verisk.schemas.tasks import DownloadTaskMessage
-from pipeline.verisk.workers.worker_defaults import (
+from pipeline.common.worker_defaults import (
     BATCH_SIZE,
     CONCURRENCY,
     CYCLE_LOG_INTERVAL_SECONDS,

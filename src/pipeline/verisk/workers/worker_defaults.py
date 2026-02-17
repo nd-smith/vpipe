@@ -1,6 +1,4 @@
-"""Default configuration values for Verisk workers."""
+"""Verisk-specific worker defaults (extends pipeline.common.worker_defaults)."""
 
-CONCURRENCY = 25
-BATCH_SIZE = 200
+# Verisk uses a larger poll batch for delta event workers
 MAX_POLL_RECORDS = 5000
-CYCLE_LOG_INTERVAL_SECONDS = 30

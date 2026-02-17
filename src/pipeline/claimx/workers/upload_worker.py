@@ -20,7 +20,7 @@ from core.logging.periodic_logger import PeriodicStatsLogger
 from core.logging.utilities import format_cycle_output, log_worker_error
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.results import ClaimXUploadResultMessage
-from pipeline.claimx.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 from pipeline.common.decorators import set_log_context_from_message
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (

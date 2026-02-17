@@ -49,7 +49,7 @@ from pipeline.common.transport import (
 from pipeline.common.types import BatchResult, PipelineMessage
 from pipeline.verisk.schemas.events import EventMessage
 from pipeline.verisk.schemas.tasks import XACTEnrichmentTask
-from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
 

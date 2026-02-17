@@ -33,7 +33,7 @@ from pipeline.claimx.schemas.tasks import (
     ClaimXEnrichmentTask,
 )
 from pipeline.claimx.workers.download_factory import DownloadTaskFactory
-from pipeline.claimx.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
     record_delta_write,

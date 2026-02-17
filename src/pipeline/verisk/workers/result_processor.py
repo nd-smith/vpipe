@@ -35,7 +35,7 @@ from pipeline.common.telemetry import initialize_worker_telemetry
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
-from pipeline.verisk.workers.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
+from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 
 from core.errors.exceptions import PermanentError
 from pipeline.verisk.writers.delta_inventory import (

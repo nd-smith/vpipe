@@ -28,7 +28,7 @@ from pipeline.claimx.api_client import ClaimXApiClient
 from pipeline.claimx.retry import DownloadRetryHandler
 from pipeline.claimx.schemas.cached import ClaimXCachedDownloadMessage
 from pipeline.claimx.schemas.tasks import ClaimXDownloadTask
-from pipeline.claimx.workers.worker_defaults import (
+from pipeline.common.worker_defaults import (
     BATCH_SIZE,
     CONCURRENCY,
     CYCLE_LOG_INTERVAL_SECONDS,
