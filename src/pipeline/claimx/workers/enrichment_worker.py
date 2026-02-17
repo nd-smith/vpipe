@@ -32,7 +32,7 @@ from pipeline.claimx.schemas.tasks import (
     ClaimXDownloadTask,
     ClaimXEnrichmentTask,
 )
-from pipeline.claimx.workers.download_factory import DownloadTaskFactory
+from pipeline.claimx.workers.download_factory import create_download_tasks_from_media
 from pipeline.common.worker_defaults import CYCLE_LOG_INTERVAL_SECONDS
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import (
@@ -605,7 +605,7 @@ class ClaimXEnrichmentWorker:
 
         # Dispatch download tasks (single batch)
         if all_entity_rows.media:
-            download_tasks = DownloadTaskFactory.create_download_tasks_from_media(all_entity_rows.media)
+            download_tasks = create_download_tasks_from_media(all_entity_rows.media)
             if download_tasks:
                 await self._produce_download_tasks(download_tasks)
 
@@ -691,7 +691,7 @@ class ClaimXEnrichmentWorker:
         if not entity_rows.media:
             return 0
 
-        download_tasks = DownloadTaskFactory.create_download_tasks_from_media(entity_rows.media)
+        download_tasks = create_download_tasks_from_media(entity_rows.media)
         if download_tasks:
             await self._produce_download_tasks(download_tasks)
         return len(download_tasks)

@@ -636,7 +636,7 @@ class TestEnrichmentWorkerDownloadTasks:
         ]
 
         with patch(
-            "pipeline.claimx.workers.enrichment_worker.DownloadTaskFactory.create_download_tasks_from_media"
+            "pipeline.claimx.workers.enrichment_worker.create_download_tasks_from_media"
         ) as mock_factory:
             mock_factory.return_value = [Mock()]  # Simulate download tasks
 
