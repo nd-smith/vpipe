@@ -113,6 +113,142 @@ def classify_error_type(error_type_name: str) -> str | None:
     return None
 
 
+def _classify_kafka_error(
+    error: Exception,
+    service_name: str,
+    context: dict | None = None,
+) -> PipelineError:
+    """
+    Shared classification logic for Kafka consumer and producer errors.
+
+    Args:
+        error: Original exception
+        service_name: "consumer" or "producer" (used in error messages and context)
+        context: Additional context to merge
+    """
+    # If already a PipelineError (e.g., CircuitOpenError, PermanentError), preserve it
+    if isinstance(error, PipelineError):
+        return error
+
+    error_str = str(error).lower()
+    error_type = type(error).__name__
+    error_context = {"service": f"message_{service_name}"}
+    if context:
+        error_context.update(context)
+
+    label = f"Kafka {service_name}"
+
+    # Data serialization errors are permanent - malformed data won't fix on retry
+    if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+        return PermanentError(
+            f"Message {'de' if service_name == 'consumer' else ''}serialization failed: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    # Classify by exception type first (checks both Kafka and EventHub mappings)
+    category = classify_error_type(error_type)
+
+    if category == "auth":
+        return AuthError(
+            f"{label} authentication failed: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    if category == "throttling":
+        return ThrottlingError(
+            f"{label} throttled: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    if category == "permanent":
+        if "topic" in error_str and "not" in error_str:
+            return PermanentError(
+                f"Kafka topic does not exist: {error}",
+                cause=error,
+                context=error_context,
+            )
+        if "message" in error_str and ("size" in error_str or "large" in error_str):
+            return PermanentError(
+                f"Kafka message too large: {error}",
+                cause=error,
+                context=error_context,
+            )
+        if service_name == "consumer" and "offset" in error_str and "out of range" in error_str:
+            return PermanentError(
+                f"Kafka offset out of range: {error}",
+                cause=error,
+                context=error_context,
+            )
+        if service_name == "producer" and "invalid" in error_str:
+            return PermanentError(
+                f"{label} validation error: {error}",
+                cause=error,
+                context=error_context,
+            )
+        return PermanentError(
+            f"{label} permanent error: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    if category == "transient":
+        if "timeout" in error_str or "KafkaTimeoutError" in error_type:
+            return TransientError(
+                f"{label} timeout: {error}",
+                cause=error,
+                context=error_context,
+            )
+        if "connection" in error_str or "KafkaConnectionError" in error_type:
+            return TransientError(
+                f"{label} connection error: {error}",
+                cause=error,
+                context=error_context,
+            )
+        return TransientError(
+            f"{label} transient error: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    # String-based fallback classification
+    if any(marker in error_str for marker in ("unauthorized", "authentication", "authorization")):
+        return AuthError(
+            f"{label} auth error: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    if "timeout" in error_str:
+        return TimeoutError(
+            f"{label} timeout: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    connection_markers = ["connection", "broker", "network"]
+    if service_name == "consumer":
+        connection_markers.append("node not ready")
+    else:
+        connection_markers.append("leader")
+
+    if any(marker in error_str for marker in connection_markers):
+        return ConnectionError(
+            f"{label} connection error: {error}",
+            cause=error,
+            context=error_context,
+        )
+
+    # Default to generic Kafka error
+    return KafkaError(
+        f"{label} error: {error}",
+        cause=error,
+        context=error_context,
+    )
+
+
 class TransportErrorClassifier:
     """
     Centralized error classification for message transport operations.
@@ -133,119 +269,7 @@ class TransportErrorClassifier:
         Returns:
             Classified PipelineError subclass
         """
-        # If already a PipelineError (e.g., CircuitOpenError, PermanentError), preserve it
-        if isinstance(error, PipelineError):
-            return error
-
-        error_str = str(error).lower()
-        error_type = type(error).__name__
-        error_context = {"service": "message_consumer"}
-        if context:
-            error_context.update(context)
-
-        # Data deserialization errors are permanent - malformed data won't fix on retry
-        if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
-            return PermanentError(
-                f"Message deserialization failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Classify by exception type first (checks both Kafka and EventHub mappings)
-        category = classify_error_type(error_type)
-
-        if category == "auth":
-            return AuthError(
-                f"Kafka consumer authentication failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if category == "throttling":
-            return ThrottlingError(
-                f"Kafka consumer throttled: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if category == "permanent":
-            # Specific handling for common permanent errors
-            if "topic" in error_str and "not" in error_str:
-                return PermanentError(
-                    f"Kafka topic does not exist: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            if "offset" in error_str and "out of range" in error_str:
-                return PermanentError(
-                    f"Kafka offset out of range: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            if "message" in error_str and "size" in error_str:
-                return PermanentError(
-                    f"Kafka message too large: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            return PermanentError(
-                f"Kafka consumer permanent error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if category == "transient":
-            # Differentiate between timeout and connection errors
-            if "timeout" in error_str or "KafkaTimeoutError" in error_type:
-                return TransientError(
-                    f"Kafka consumer timeout: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            if "connection" in error_str or "KafkaConnectionError" in error_type:
-                return TransientError(
-                    f"Kafka consumer connection error: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            return TransientError(
-                f"Kafka consumer transient error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # String-based fallback classification
-        if any(
-            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
-        ):
-            return AuthError(
-                f"Kafka consumer auth error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if "timeout" in error_str:
-            return TimeoutError(
-                f"Kafka consumer timeout: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if any(
-            marker in error_str for marker in ("connection", "broker", "network", "node not ready")
-        ):
-            return ConnectionError(
-                f"Kafka consumer connection error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Default to generic Kafka error
-        return KafkaError(
-            f"Kafka consumer error: {error}",
-            cause=error,
-            context=error_context,
-        )
+        return _classify_kafka_error(error, "consumer", context)
 
     @staticmethod
     def classify_producer_error(error: Exception, context: dict | None = None) -> PipelineError:
@@ -259,117 +283,7 @@ class TransportErrorClassifier:
         Returns:
             Classified PipelineError subclass
         """
-        # If already a PipelineError (e.g., CircuitOpenError, PermanentError), preserve it
-        if isinstance(error, PipelineError):
-            return error
-
-        error_str = str(error).lower()
-        error_type = type(error).__name__
-        error_context = {"service": "message_producer"}
-        if context:
-            error_context.update(context)
-
-        # Data serialization errors are permanent - malformed data won't fix on retry
-        if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
-            return PermanentError(
-                f"Message serialization failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Classify by exception type first (checks both Kafka and EventHub mappings)
-        category = classify_error_type(error_type)
-
-        if category == "auth":
-            return AuthError(
-                f"Kafka producer authentication failed: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if category == "throttling":
-            return ThrottlingError(
-                f"Kafka producer throttled: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if category == "permanent":
-            # Specific handling for common permanent errors
-            if "topic" in error_str and "not" in error_str:
-                return PermanentError(
-                    f"Kafka topic does not exist: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            if "message" in error_str and ("size" in error_str or "large" in error_str):
-                return PermanentError(
-                    f"Kafka message too large: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            if "invalid" in error_str:
-                return PermanentError(
-                    f"Kafka producer validation error: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            return PermanentError(
-                f"Kafka producer permanent error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if category == "transient":
-            # Differentiate between timeout and connection errors
-            if "timeout" in error_str or "KafkaTimeoutError" in error_type:
-                return TransientError(
-                    f"Kafka producer timeout: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            if "connection" in error_str or "KafkaConnectionError" in error_type:
-                return TransientError(
-                    f"Kafka producer connection error: {error}",
-                    cause=error,
-                    context=error_context,
-                )
-            return TransientError(
-                f"Kafka producer transient error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # String-based fallback classification
-        if any(
-            marker in error_str for marker in ("unauthorized", "authentication", "authorization")
-        ):
-            return AuthError(
-                f"Kafka producer auth error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if "timeout" in error_str:
-            return TimeoutError(
-                f"Kafka producer timeout: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        if any(marker in error_str for marker in ("connection", "broker", "network", "leader")):
-            return ConnectionError(
-                f"Kafka producer connection error: {error}",
-                cause=error,
-                context=error_context,
-            )
-
-        # Default to generic Kafka error
-        return KafkaError(
-            f"Kafka producer error: {error}",
-            cause=error,
-            context=error_context,
-        )
+        return _classify_kafka_error(error, "producer", context)
 
     @staticmethod
     def classify_transport_error(
