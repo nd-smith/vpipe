@@ -22,6 +22,37 @@ __all__ = [
 ]
 
 
+def _unwrap_result_object(obj: Any, ctx: dict[str, Any]) -> Any:
+    """Unwrap result objects to get underlying task/event, adding error context."""
+    if hasattr(obj, "task") and obj.task is not None:
+        if hasattr(obj, "error_category") and obj.error_category:
+            cat = obj.error_category
+            ctx["error_category"] = cat.value if hasattr(cat, "value") else str(cat)
+        if hasattr(obj, "http_status") and obj.http_status:
+            ctx["http_status"] = obj.http_status
+        return obj.task
+
+    if hasattr(obj, "event") and obj.event is not None:
+        if hasattr(obj, "error_category") and obj.error_category:
+            cat = obj.error_category
+            ctx["error_category"] = cat.value if hasattr(cat, "value") else str(cat)
+        if hasattr(obj, "api_calls") and obj.api_calls:
+            ctx["api_calls"] = obj.api_calls
+        return obj.event
+
+    return obj
+
+
+_CONTEXT_ATTRS = [
+    "trace_id",
+    "assignment_id",
+    "status_subtype",
+    "event_type",
+    "project_id",
+    "media_id",
+]
+
+
 def extract_log_context(obj: Any) -> dict[str, Any]:
     """
     Extract loggable context from any pipeline object.
@@ -45,34 +76,9 @@ def extract_log_context(obj: Any) -> dict[str, Any]:
     if obj is None:
         return ctx
 
-    # Unwrap result objects to get underlying task/event
-    inner = obj
-    if hasattr(obj, "task") and obj.task is not None:
-        inner = obj.task
-        # Capture error info from result
-        if hasattr(obj, "error_category") and obj.error_category:
-            cat = obj.error_category
-            ctx["error_category"] = cat.value if hasattr(cat, "value") else str(cat)
-        if hasattr(obj, "http_status") and obj.http_status:
-            ctx["http_status"] = obj.http_status
-    elif hasattr(obj, "event") and obj.event is not None:
-        inner = obj.event
-        # Capture error info from result
-        if hasattr(obj, "error_category") and obj.error_category:
-            cat = obj.error_category
-            ctx["error_category"] = cat.value if hasattr(cat, "value") else str(cat)
-        if hasattr(obj, "api_calls") and obj.api_calls:
-            ctx["api_calls"] = obj.api_calls
+    inner = _unwrap_result_object(obj, ctx)
 
-    # Extract common identifiers
-    for attr in [
-        "trace_id",
-        "assignment_id",
-        "status_subtype",  # Xact
-        "event_type",
-        "project_id",
-        "media_id",  # ClaimX
-    ]:
+    for attr in _CONTEXT_ATTRS:
         if hasattr(inner, attr):
             value = getattr(inner, attr)
             if value is not None:

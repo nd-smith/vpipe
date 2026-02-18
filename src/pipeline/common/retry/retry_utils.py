@@ -62,6 +62,7 @@ def create_retry_headers(
     retry_at: datetime,
     delay_seconds: int,
     target_topic: str,
+    *,
     worker_type: str,
     original_key: str,
     error_category: ErrorCategory,

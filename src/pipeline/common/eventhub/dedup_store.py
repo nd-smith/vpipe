@@ -187,6 +187,18 @@ def _load_dedup_config() -> dict:
 # =============================================================================
 
 
+def _should_skip_initialization() -> bool:
+    """Check if we should skip initialization (already attempted, within cooldown)."""
+    if not _initialization_attempted:
+        return False
+    if _last_failed_attempt > 0:
+        elapsed = time.monotonic() - _last_failed_attempt
+        if elapsed >= _RETRY_COOLDOWN_SECONDS:
+            logger.info("Retrying BlobDedupStore initialization after cooldown")
+            return False
+    return True
+
+
 async def get_dedup_store() -> DedupStoreProtocol | None:
     """Get or create the singleton dedup store instance.
 
@@ -198,47 +210,33 @@ async def get_dedup_store() -> DedupStoreProtocol | None:
 
     Raises:
         ValueError: If dedup store type is unknown
-        Exception: If dedup store creation fails
     """
     global _dedup_store, _initialization_attempted, _last_failed_attempt
 
-    # Fast path: already initialized
     if _dedup_store is not None:
         return _dedup_store
 
     async with _dedup_store_lock:
-        # Double-check after acquiring lock
         if _dedup_store is not None:
             return _dedup_store
 
-        if _initialization_attempted:
-            # Allow retry after cooldown period for transient failures
-            if _last_failed_attempt > 0:
-                elapsed = time.monotonic() - _last_failed_attempt
-                if elapsed < _RETRY_COOLDOWN_SECONDS:
-                    return None
-                logger.info("Retrying BlobDedupStore initialization after cooldown")
-            else:
-                return None
+        if _should_skip_initialization():
+            return None
 
         _initialization_attempted = True
-
-        # Load configuration
         config = _load_dedup_config()
         store_type = config.get("type", "blob")
 
         if store_type == "json":
             _dedup_store = _create_json_store(config)
-            return _dedup_store
         elif store_type == "blob":
             _dedup_store = await _create_blob_store(config)
             if _dedup_store is None and config.get("blob_storage_connection_string"):
-                # Blob storage is configured but initialization failed (transient) -
-                # record failure time so we can retry after cooldown
                 _last_failed_attempt = time.monotonic()
-            return _dedup_store
         else:
             raise ValueError(f"Unknown dedup store type: '{store_type}'. Must be 'blob' or 'json'.")
+
+        return _dedup_store
 
 
 def _create_json_store(config: dict) -> DedupStoreProtocol:
