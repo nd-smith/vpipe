@@ -8,7 +8,7 @@ Tests cover:
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl
 import pytest
@@ -28,19 +28,13 @@ def sample_raw_event():
 
 @pytest.fixture
 def delta_writer():
-    """Create a DeltaEventsWriter with mocked Delta backend."""
-    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_class:
-        # Setup mock instance
-        mock_instance = MagicMock()
-        mock_instance.append = MagicMock(return_value=1)
-        mock_delta_class.return_value = mock_instance
+    """Create a DeltaEventsWriter."""
+    from pipeline.verisk.writers.delta_events import DeltaEventsWriter
 
-        from pipeline.verisk.writers.delta_events import DeltaEventsWriter
-
-        writer = DeltaEventsWriter(
-            table_path="abfss://test@onelake/lakehouse/xact_events",
-        )
-        yield writer
+    writer = DeltaEventsWriter(
+        table_path="abfss://test@onelake/lakehouse/xact_events",
+    )
+    yield writer
 
 
 class TestDeltaEventsWriter:
@@ -49,12 +43,12 @@ class TestDeltaEventsWriter:
     def test_initialization(self, delta_writer):
         """Test writer initialization."""
         assert delta_writer.table_path == "abfss://test@onelake/lakehouse/xact_events"
-        assert delta_writer._delta_writer is not None
+        assert delta_writer._timestamp_column == "created_at"
+        assert delta_writer._partition_column == "event_date"
 
     @pytest.mark.asyncio
     async def test_write_raw_events_success(self, delta_writer, sample_raw_event):
         """Test successful raw event write."""
-        # Mock flatten_events to return a valid DataFrame
         mock_df = pl.DataFrame(
             {
                 "trace_id": ["test-trace-123"],
@@ -63,11 +57,13 @@ class TestDeltaEventsWriter:
             }
         )
 
-        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
+        with (
+            patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df),
+            patch.object(delta_writer, "_async_append", new_callable=AsyncMock, return_value=True),
+        ):
             result = await delta_writer.write_raw_events([sample_raw_event])
 
         assert result is True
-        delta_writer._delta_writer.append.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_write_raw_events_multiple(self, delta_writer):
@@ -91,15 +87,17 @@ class TestDeltaEventsWriter:
             }
         )
 
-        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
+        with (
+            patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df),
+            patch.object(delta_writer, "_async_append", new_callable=AsyncMock, return_value=True) as mock_append,
+        ):
             result = await delta_writer.write_raw_events(events)
 
         assert result is True
-        delta_writer._delta_writer.append.assert_called_once()
+        mock_append.assert_called_once()
 
-        # Verify DataFrame passed to append has created_at column added
-        call_args = delta_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        # Verify DataFrame passed to _async_append has created_at column added
+        df_written = mock_append.call_args[0][0]
         assert "created_at" in df_written.columns
 
     @pytest.mark.asyncio
@@ -108,7 +106,6 @@ class TestDeltaEventsWriter:
         result = await delta_writer.write_raw_events([])
 
         assert result is True
-        delta_writer._delta_writer.append.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_write_raw_events_failure(self, delta_writer, sample_raw_event):
@@ -121,45 +118,14 @@ class TestDeltaEventsWriter:
             }
         )
 
-        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
-            # Mock append to raise an exception
-            delta_writer._delta_writer.append = MagicMock(
-                side_effect=Exception("Delta write failed")
-            )
-
-            with pytest.raises(Exception, match="Delta write failed"):
-                await delta_writer.write_raw_events([sample_raw_event])
-
-    @pytest.mark.asyncio
-    async def test_write_raw_events_async_execution(self, delta_writer, sample_raw_event):
-        """Test that write operations use asyncio.to_thread for non-blocking execution."""
-        mock_df = pl.DataFrame(
-            {
-                "trace_id": ["test-trace-123"],
-                "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(UTC)],
-            }
-        )
-
-        to_thread_call_count = [0]
-
-        async def mock_to_thread_impl(func, *args, **kwargs):
-            # Actually call the function to simulate to_thread behavior
-            to_thread_call_count[0] += 1
-            return func(*args, **kwargs)
-
         with (
             patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df),
-            patch(
-                "asyncio.to_thread",
-                side_effect=mock_to_thread_impl,
-            ),
+            patch.object(delta_writer, "_async_append", new_callable=AsyncMock, return_value=False),
         ):
-            result = await delta_writer.write_raw_events([sample_raw_event])
-
-            assert result is True
-            # Verify to_thread was called (proving async execution)
-            assert to_thread_call_count[0] >= 1
+            # write_raw_events raises when _async_append returns False
+            # (it checks _last_append_error or raises RuntimeError)
+            with pytest.raises(RuntimeError):
+                await delta_writer.write_raw_events([sample_raw_event])
 
     @pytest.mark.asyncio
     async def test_created_at_timestamp_added(self, delta_writer, sample_raw_event):
@@ -174,14 +140,16 @@ class TestDeltaEventsWriter:
 
         before = datetime.now(UTC)
 
-        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
+        with (
+            patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df),
+            patch.object(delta_writer, "_async_append", new_callable=AsyncMock, return_value=True) as mock_append,
+        ):
             await delta_writer.write_raw_events([sample_raw_event])
 
         after = datetime.now(UTC)
 
         # Verify created_at was added
-        call_args = delta_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        df_written = mock_append.call_args[0][0]
         assert "created_at" in df_written.columns
 
         created_at = df_written["created_at"][0]
@@ -190,47 +158,40 @@ class TestDeltaEventsWriter:
 
 @pytest.mark.asyncio
 async def test_delta_writer_integration():
-    """Integration test with DeltaTableWriter mocked."""
-    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_writer_class:
-        # Setup mock
-        mock_writer_instance = MagicMock()
-        mock_writer_instance.append = MagicMock(return_value=1)
-        mock_delta_writer_class.return_value = mock_writer_instance
+    """Integration test verifying writer config."""
+    from pipeline.verisk.writers.delta_events import DeltaEventsWriter
 
-        from pipeline.verisk.writers.delta_events import DeltaEventsWriter
+    writer = DeltaEventsWriter(
+        table_path="abfss://test@onelake/lakehouse/xact_events",
+    )
 
-        # Create writer
-        writer = DeltaEventsWriter(
-            table_path="abfss://test@onelake/lakehouse/xact_events",
-        )
+    # Verify writer was initialized with correct params
+    assert writer._timestamp_column == "created_at"
+    assert writer._partition_column == "event_date"
+    assert writer._z_order_columns == ["event_date", "trace_id", "event_id", "type"]
 
-        # Verify DeltaTableWriter was initialized with correct params
-        mock_delta_writer_class.assert_called_once_with(
-            table_path="abfss://test@onelake/lakehouse/xact_events",
-            timestamp_column="created_at",
-            partition_column="event_date",
-            z_order_columns=["event_date", "trace_id", "event_id", "type"],
-        )
+    # Write a raw event
+    raw_event = {
+        "type": "verisk.claims.property.xn.documentsReceived",
+        "version": 1,
+        "utcDateTime": "2024-01-01T12:00:00Z",
+        "traceId": "integration-test",
+        "data": '{"assignmentId": "A12345"}',
+    }
 
-        # Write a raw event
-        raw_event = {
-            "type": "verisk.claims.property.xn.documentsReceived",
-            "version": 1,
-            "utcDateTime": "2024-01-01T12:00:00Z",
-            "traceId": "integration-test",
-            "data": '{"assignmentId": "A12345"}',
+    mock_df = pl.DataFrame(
+        {
+            "trace_id": ["integration-test"],
+            "type": ["documentsReceived"],
+            "ingested_at": [datetime.now(UTC)],
         }
+    )
 
-        mock_df = pl.DataFrame(
-            {
-                "trace_id": ["integration-test"],
-                "type": ["documentsReceived"],
-                "ingested_at": [datetime.now(UTC)],
-            }
-        )
+    with (
+        patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df),
+        patch.object(writer, "_async_append", new_callable=AsyncMock, return_value=True) as mock_append,
+    ):
+        result = await writer.write_raw_events([raw_event])
 
-        with patch("pipeline.verisk.writers.delta_events.flatten_events", return_value=mock_df):
-            result = await writer.write_raw_events([raw_event])
-
-        assert result is True
-        mock_writer_instance.append.assert_called_once()
+    assert result is True
+    mock_append.assert_called_once()

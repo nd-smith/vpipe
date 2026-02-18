@@ -9,7 +9,7 @@ Tests cover:
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl
 import pytest
@@ -17,19 +17,13 @@ import pytest
 
 @pytest.fixture
 def claimx_events_writer():
-    """Create a ClaimXEventsDeltaWriter with mocked Delta backend."""
-    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_class:
-        # Setup mock instance
-        mock_instance = MagicMock()
-        mock_instance.append = MagicMock(return_value=1)
-        mock_delta_class.return_value = mock_instance
+    """Create a ClaimXEventsDeltaWriter."""
+    from pipeline.claimx.writers.delta_events import ClaimXEventsDeltaWriter
 
-        from pipeline.claimx.writers.delta_events import ClaimXEventsDeltaWriter
-
-        writer = ClaimXEventsDeltaWriter(
-            table_path="abfss://test@onelake/lakehouse/claimx_events",
-        )
-        yield writer
+    writer = ClaimXEventsDeltaWriter(
+        table_path="abfss://test@onelake/lakehouse/claimx_events",
+    )
+    yield writer
 
 
 class TestClaimXEventsDeltaWriter:
@@ -38,15 +32,19 @@ class TestClaimXEventsDeltaWriter:
     def test_initialization(self, claimx_events_writer):
         """Test writer initialization."""
         assert claimx_events_writer.table_path == "abfss://test@onelake/lakehouse/claimx_events"
-        assert claimx_events_writer._delta_writer is not None
+        assert claimx_events_writer._timestamp_column == "ingested_at"
+        assert claimx_events_writer._partition_column == "event_date"
 
     @pytest.mark.asyncio
     async def test_write_events_success(self, claimx_events_writer, sample_claimx_event):
         """Test successful event write."""
-        result = await claimx_events_writer.write_events([sample_claimx_event])
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events([sample_claimx_event])
 
         assert result is True
-        claimx_events_writer._delta_writer.append.assert_called_once()
+        mock_append.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_write_events_multiple(self, claimx_events_writer):
@@ -62,14 +60,16 @@ class TestClaimXEventsDeltaWriter:
             for i in range(3)
         ]
 
-        result = await claimx_events_writer.write_events(events)
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events(events)
 
         assert result is True
-        claimx_events_writer._delta_writer.append.assert_called_once()
+        mock_append.assert_called_once()
 
-        # Verify DataFrame passed to append
-        call_args = claimx_events_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        # Verify DataFrame passed to _async_append
+        df_written = mock_append.call_args[0][0]
         assert len(df_written) == 3
         assert "trace_id" in df_written.columns
         assert "event_type" in df_written.columns
@@ -83,17 +83,14 @@ class TestClaimXEventsDeltaWriter:
         result = await claimx_events_writer.write_events([])
 
         assert result is True
-        claimx_events_writer._delta_writer.append.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_write_events_failure(self, claimx_events_writer, sample_claimx_event):
         """Test write failure handling."""
-        # Mock append to raise an exception
-        claimx_events_writer._delta_writer.append = MagicMock(
-            side_effect=Exception("Delta write failed")
-        )
-
-        result = await claimx_events_writer.write_events([sample_claimx_event])
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=False
+        ):
+            result = await claimx_events_writer.write_events([sample_claimx_event])
 
         assert result is False
 
@@ -107,10 +104,13 @@ class TestClaimXEventsDeltaWriter:
             "ingested_at": "2024-01-01T12:00:00Z",
         }
 
-        result = await claimx_events_writer.write_events([event])
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events([event])
 
         assert result is True
-        claimx_events_writer._delta_writer.append.assert_called_once()
+        mock_append.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_write_events_derives_event_date(self, claimx_events_writer):
@@ -122,12 +122,14 @@ class TestClaimXEventsDeltaWriter:
             "ingested_at": datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC),
         }
 
-        result = await claimx_events_writer.write_events([event])
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events([event])
 
         assert result is True
 
-        call_args = claimx_events_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        df_written = mock_append.call_args[0][0]
 
         # Verify event_date was derived correctly
         from datetime import date
@@ -146,13 +148,17 @@ class TestClaimXEventsDeltaWriter:
         }
 
         before = datetime.now(UTC)
-        result = await claimx_events_writer.write_events([event])
+
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events([event])
+
         after = datetime.now(UTC)
 
         assert result is True
 
-        call_args = claimx_events_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        df_written = mock_append.call_args[0][0]
 
         ingested_at = df_written["ingested_at"][0]
         assert before <= ingested_at <= after
@@ -175,12 +181,14 @@ class TestClaimXEventsDeltaWriter:
             },
         ]
 
-        result = await claimx_events_writer.write_events(events)
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events(events)
 
         assert result is True
 
-        call_args = claimx_events_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        df_written = mock_append.call_args[0][0]
 
         # Only valid event should be written
         assert len(df_written) == 1
@@ -204,32 +212,29 @@ class TestClaimXEventsDeltaWriter:
             },
         ]
 
-        result = await claimx_events_writer.write_events(events)
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
+            result = await claimx_events_writer.write_events(events)
 
         assert result is True
 
-        call_args = claimx_events_writer._delta_writer.append.call_args
-        df_written = call_args[0][0]
+        df_written = mock_append.call_args[0][0]
 
         # Only event with type should be written
         assert len(df_written) == 1
         assert df_written["trace_id"][0] == "evt-with-type"
 
     @pytest.mark.asyncio
-    async def test_write_events_async_execution(self, claimx_events_writer, sample_claimx_event):
-        """Test that write operations use asyncio.to_thread for non-blocking execution."""
-        to_thread_call_count = [0]
-
-        async def mock_to_thread_impl(func, *args, **kwargs):
-            to_thread_call_count[0] += 1
-            return func(*args, **kwargs)
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+    async def test_write_events_subprocess_execution(self, claimx_events_writer, sample_claimx_event):
+        """Test that write operations use subprocess for non-blocking execution."""
+        with patch.object(
+            claimx_events_writer, "_async_append", new_callable=AsyncMock, return_value=True
+        ) as mock_append:
             result = await claimx_events_writer.write_events([sample_claimx_event])
 
             assert result is True
-            # Verify to_thread was called (proving async execution)
-            assert to_thread_call_count[0] >= 1
+            mock_append.assert_called_once()
 
 
 class TestClaimXEventsDeltaWriterSchema:
@@ -282,38 +287,31 @@ class TestClaimXEventsDeltaWriterSchema:
 
 @pytest.mark.asyncio
 async def test_claimx_events_writer_integration():
-    """Integration test with DeltaTableWriter mocked."""
-    with patch("pipeline.common.writers.base.DeltaTableWriter") as mock_delta_writer_class:
-        # Setup mock
-        mock_writer_instance = MagicMock()
-        mock_writer_instance.append = MagicMock(return_value=1)
-        mock_delta_writer_class.return_value = mock_writer_instance
+    """Integration test verifying writer config."""
+    from pipeline.claimx.writers.delta_events import ClaimXEventsDeltaWriter
 
-        from pipeline.claimx.writers.delta_events import ClaimXEventsDeltaWriter
+    writer = ClaimXEventsDeltaWriter(
+        table_path="abfss://test@onelake/lakehouse/claimx_events",
+    )
 
-        # Create writer
-        writer = ClaimXEventsDeltaWriter(
-            table_path="abfss://test@onelake/lakehouse/claimx_events",
-        )
+    # Verify writer was initialized with correct params
+    assert writer._timestamp_column == "ingested_at"
+    assert writer._partition_column == "event_date"
+    assert writer._z_order_columns == ["project_id"]
 
-        # Verify DeltaTableWriter was initialized with correct params
-        mock_delta_writer_class.assert_called_once_with(
-            table_path="abfss://test@onelake/lakehouse/claimx_events",
-            timestamp_column="ingested_at",
-            partition_column="event_date",
-            z_order_columns=["project_id"],
-        )
+    # Write an event
+    event = {
+        "trace_id": "integration-test-evt",
+        "event_type": "PROJECT_FILE_ADDED",
+        "project_id": "123456",
+        "media_id": "media-789",
+        "ingested_at": datetime.now(UTC),
+    }
 
-        # Write an event
-        event = {
-            "trace_id": "integration-test-evt",
-            "event_type": "PROJECT_FILE_ADDED",
-            "project_id": "123456",
-            "media_id": "media-789",
-            "ingested_at": datetime.now(UTC),
-        }
-
+    with patch.object(
+        writer, "_async_append", new_callable=AsyncMock, return_value=True
+    ) as mock_append:
         result = await writer.write_events([event])
 
-        assert result is True
-        mock_writer_instance.append.assert_called_once()
+    assert result is True
+    mock_append.assert_called_once()

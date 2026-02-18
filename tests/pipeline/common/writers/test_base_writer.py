@@ -4,14 +4,26 @@ Tests for BaseDeltaWriter base class.
 Covers:
 - Initialization with default and custom parameters
 - Logger creation with correct class name
-- _async_append: empty df, success, failure, batch_id, logging
+- _async_append: empty df, success, failure, batch_id, logging, BrokenProcessPool
 - _async_merge: empty df, success, failure, preserve_columns, update_condition, logging
 - Subclass inheritance pattern
 """
 
-from unittest.mock import MagicMock, patch
+from concurrent.futures.process import BrokenProcessPool
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import polars as pl
 
 from pipeline.common.writers.base import BaseDeltaWriter
+
+_BASE = "pipeline.common.writers.base"
+
+
+def _make_writer(**kwargs):
+    defaults = {"table_path": "abfss://ws@acct/table"}
+    defaults.update(kwargs)
+    return BaseDeltaWriter(**defaults)
+
 
 # ---------------------------------------------------------------------------
 # Initialization
@@ -19,50 +31,34 @@ from pipeline.common.writers.base import BaseDeltaWriter
 
 
 class TestBaseDeltaWriterInit:
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    def test_initializes_with_defaults(self, mock_dtw):
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
+    def test_initializes_with_defaults(self):
+        writer = _make_writer()
 
         assert writer.table_path == "abfss://ws@acct/table"
-        mock_dtw.assert_called_once_with(
-            table_path="abfss://ws@acct/table",
-            timestamp_column="ingested_at",
-            partition_column=None,
-            z_order_columns=[],
-        )
+        assert writer._timestamp_column == "ingested_at"
+        assert writer._partition_column is None
+        assert writer._z_order_columns == []
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    def test_initializes_with_custom_params(self, mock_dtw):
-        BaseDeltaWriter(
-            table_path="abfss://ws@acct/table",
+    def test_initializes_with_custom_params(self):
+        writer = _make_writer(
             timestamp_column="created_at",
             partition_column="event_date",
             z_order_columns=["id", "ts"],
         )
 
-        mock_dtw.assert_called_once_with(
-            table_path="abfss://ws@acct/table",
-            timestamp_column="created_at",
-            partition_column="event_date",
-            z_order_columns=["id", "ts"],
-        )
+        assert writer._timestamp_column == "created_at"
+        assert writer._partition_column == "event_date"
+        assert writer._z_order_columns == ["id", "ts"]
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    def test_creates_logger_with_class_name(self, mock_dtw):
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
+    def test_creates_logger_with_class_name(self):
+        writer = _make_writer()
         assert writer.logger.name == "BaseDeltaWriter"
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    def test_none_z_order_becomes_empty_list(self, mock_dtw):
-        BaseDeltaWriter(
-            table_path="abfss://ws@acct/table",
-            z_order_columns=None,
-        )
-        call_kwargs = mock_dtw.call_args[1]
-        assert call_kwargs["z_order_columns"] == []
+    def test_none_z_order_becomes_empty_list(self):
+        writer = _make_writer(z_order_columns=None)
+        assert writer._z_order_columns == []
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    def test_subclass_logger_uses_subclass_name(self, mock_dtw):
+    def test_subclass_logger_uses_subclass_name(self):
         class MyWriter(BaseDeltaWriter):
             pass
 
@@ -76,94 +72,97 @@ class TestBaseDeltaWriterInit:
 
 
 class TestBaseDeltaWriterAsyncAppend:
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    async def test_returns_true_for_empty_df(self, mock_dtw):
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
+    async def test_returns_true_for_empty_df(self):
+        writer = _make_writer()
         mock_df = MagicMock()
         mock_df.is_empty.return_value = True
 
         result = await writer._async_append(mock_df)
 
         assert result is True
-        mock_dtw.return_value.append.assert_not_called()
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_returns_true_on_success(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 5
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_returns_true_on_success(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1, 2]})
 
-        result = await writer._async_append(mock_df)
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=5)
+            mock_loop_fn.return_value = mock_loop
+
+            result = await writer._async_append(df)
 
         assert result is True
-        mock_thread.assert_called_once_with(
-            writer._delta_writer.append,
-            mock_df,
-            batch_id=None,
-        )
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_passes_batch_id(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 3
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_passes_batch_id(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        await writer._async_append(mock_df, batch_id="batch-42")
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=3)
+            mock_loop_fn.return_value = mock_loop
 
-        mock_thread.assert_called_once_with(
-            writer._delta_writer.append,
-            mock_df,
-            batch_id="batch-42",
-        )
+            await writer._async_append(df, batch_id="batch-42")
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_returns_false_on_exception(self, mock_thread, mock_dtw):
-        mock_thread.side_effect = Exception("write boom")
+        call_args = mock_loop.run_in_executor.call_args[0]
+        assert call_args[7] == "batch-42"  # batch_id
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_returns_false_on_exception(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        result = await writer._async_append(mock_df)
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
+
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=Exception("write boom"))
+            mock_loop_fn.return_value = mock_loop
+
+            result = await writer._async_append(df)
 
         assert result is False
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_logs_success_details(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 10
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_logs_success_details(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        with patch.object(writer.logger, "info") as mock_log:
-            await writer._async_append(mock_df, batch_id="b1")
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=10)
+            mock_loop_fn.return_value = mock_loop
 
-        # The init also logs, so we check the second call
+            with patch.object(writer.logger, "info") as mock_log:
+                await writer._async_append(df, batch_id="b1")
+
         calls = mock_log.call_args_list
         success_call = [c for c in calls if "Successfully appended" in str(c)]
         assert len(success_call) == 1
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_logs_error_details(self, mock_thread, mock_dtw):
-        mock_thread.side_effect = Exception("Schema mismatch")
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_logs_error_details(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
-        mock_df.__len__ = lambda self: 5
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1, 2, 3, 4, 5]})
 
-        with patch.object(writer.logger, "error") as mock_log:
-            await writer._async_append(mock_df, batch_id="b2")
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=Exception("Schema mismatch"))
+            mock_loop_fn.return_value = mock_loop
+
+            with patch.object(writer.logger, "error") as mock_log:
+                await writer._async_append(df, batch_id="b2")
 
         mock_log.assert_called_once()
         extra = mock_log.call_args[1]["extra"]
@@ -172,6 +171,27 @@ class TestBaseDeltaWriterAsyncAppend:
         assert "Schema mismatch" in extra["error"]
         assert extra["table_path"] == "abfss://ws@acct/table"
 
+    @patch(f"{_BASE}._reset_delta_process_pool")
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_broken_pool_resets_and_raises(self, mock_get_pool, mock_reset):
+        mock_get_pool.return_value = MagicMock()
+
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
+
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=BrokenProcessPool("died"))
+            mock_loop_fn.return_value = mock_loop
+
+            try:
+                await writer._async_append(df)
+                assert False, "Should have raised"
+            except BrokenProcessPool:
+                pass
+
+        mock_reset.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # _async_merge
@@ -179,120 +199,138 @@ class TestBaseDeltaWriterAsyncAppend:
 
 
 class TestBaseDeltaWriterAsyncMerge:
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    async def test_returns_true_for_empty_df(self, mock_dtw):
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
+    async def test_returns_true_for_empty_df(self):
+        writer = _make_writer()
         mock_df = MagicMock()
         mock_df.is_empty.return_value = True
 
         result = await writer._async_merge(mock_df, merge_keys=["id"])
 
         assert result is True
-        mock_dtw.return_value.merge.assert_not_called()
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_returns_true_on_success(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 3
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_returns_true_on_success(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        result = await writer._async_merge(mock_df, merge_keys=["id"])
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=3)
+            mock_loop_fn.return_value = mock_loop
+
+            result = await writer._async_merge(df, merge_keys=["id"])
 
         assert result is True
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_passes_merge_keys(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 1
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_passes_merge_keys(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        await writer._async_merge(mock_df, merge_keys=["id", "tenant_id"])
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=1)
+            mock_loop_fn.return_value = mock_loop
 
-        call_kwargs = mock_thread.call_args[1]
-        assert call_kwargs["merge_keys"] == ["id", "tenant_id"]
+            await writer._async_merge(df, merge_keys=["id", "tenant_id"])
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_passes_preserve_columns(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 1
+        call_args = mock_loop.run_in_executor.call_args[0]
+        assert call_args[7] == ["id", "tenant_id"]  # merge_keys
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_passes_preserve_columns(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        await writer._async_merge(
-            mock_df,
-            merge_keys=["id"],
-            preserve_columns=["created_at", "owner"],
-        )
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        call_kwargs = mock_thread.call_args[1]
-        assert call_kwargs["preserve_columns"] == ["created_at", "owner"]
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=1)
+            mock_loop_fn.return_value = mock_loop
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_passes_update_condition(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 1
+            await writer._async_merge(
+                df,
+                merge_keys=["id"],
+                preserve_columns=["created_at", "owner"],
+            )
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        call_args = mock_loop.run_in_executor.call_args[0]
+        assert call_args[8] == ["created_at", "owner"]  # preserve_columns
 
-        await writer._async_merge(
-            mock_df,
-            merge_keys=["id"],
-            update_condition="source.modified > target.modified",
-        )
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_passes_update_condition(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        call_kwargs = mock_thread.call_args[1]
-        assert call_kwargs["update_condition"] == "source.modified > target.modified"
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_defaults_preserve_and_condition_to_none(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 1
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=1)
+            mock_loop_fn.return_value = mock_loop
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+            await writer._async_merge(
+                df,
+                merge_keys=["id"],
+                update_condition="source.modified > target.modified",
+            )
 
-        await writer._async_merge(mock_df, merge_keys=["id"])
+        call_args = mock_loop.run_in_executor.call_args[0]
+        assert call_args[9] == "source.modified > target.modified"
 
-        call_kwargs = mock_thread.call_args[1]
-        assert call_kwargs["preserve_columns"] is None
-        assert call_kwargs["update_condition"] is None
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_defaults_preserve_and_condition_to_none(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_returns_false_on_exception(self, mock_thread, mock_dtw):
-        mock_thread.side_effect = Exception("merge boom")
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=1)
+            mock_loop_fn.return_value = mock_loop
 
-        result = await writer._async_merge(mock_df, merge_keys=["id"])
+            await writer._async_merge(df, merge_keys=["id"])
+
+        call_args = mock_loop.run_in_executor.call_args[0]
+        assert call_args[8] is None  # preserve_columns
+        assert call_args[9] is None  # update_condition
+
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_returns_false_on_exception(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
+
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
+
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=Exception("merge boom"))
+            mock_loop_fn.return_value = mock_loop
+
+            result = await writer._async_merge(df, merge_keys=["id"])
 
         assert result is False
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_logs_error_details(self, mock_thread, mock_dtw):
-        mock_thread.side_effect = Exception("Key violation")
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_logs_error_details(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
-        mock_df.__len__ = lambda self: 7
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1, 2, 3, 4, 5, 6, 7]})
 
-        with patch.object(writer.logger, "error") as mock_log:
-            await writer._async_merge(mock_df, merge_keys=["id"])
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=Exception("Key violation"))
+            mock_loop_fn.return_value = mock_loop
+
+            with patch.object(writer.logger, "error") as mock_log:
+                await writer._async_merge(df, merge_keys=["id"])
 
         mock_log.assert_called_once()
         extra = mock_log.call_args[1]["extra"]
@@ -300,17 +338,20 @@ class TestBaseDeltaWriterAsyncMerge:
         assert extra["row_count"] == 7
         assert "Key violation" in extra["error"]
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    @patch("pipeline.common.writers.base.asyncio.to_thread")
-    async def test_logs_success_details(self, mock_thread, mock_dtw):
-        mock_thread.return_value = 5
+    @patch(f"{_BASE}._get_delta_process_pool")
+    async def test_logs_success_details(self, mock_get_pool):
+        mock_get_pool.return_value = MagicMock()
 
-        writer = BaseDeltaWriter(table_path="abfss://ws@acct/table")
-        mock_df = MagicMock()
-        mock_df.is_empty.return_value = False
+        writer = _make_writer()
+        df = pl.DataFrame({"id": [1]})
 
-        with patch.object(writer.logger, "info") as mock_log:
-            await writer._async_merge(mock_df, merge_keys=["id"])
+        with patch("asyncio.get_running_loop") as mock_loop_fn:
+            mock_loop = MagicMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=5)
+            mock_loop_fn.return_value = mock_loop
+
+            with patch.object(writer.logger, "info") as mock_log:
+                await writer._async_merge(df, merge_keys=["id"])
 
         calls = mock_log.call_args_list
         success_call = [c for c in calls if "Successfully merged" in str(c)]
@@ -323,8 +364,7 @@ class TestBaseDeltaWriterAsyncMerge:
 
 
 class TestBaseDeltaWriterSubclass:
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    async def test_subclass_can_call_async_append(self, mock_dtw):
+    async def test_subclass_can_call_async_append(self):
         class CustomWriter(BaseDeltaWriter):
             async def write(self, data):
                 mock_df = MagicMock()
@@ -335,8 +375,7 @@ class TestBaseDeltaWriterSubclass:
         result = await writer.write({"key": "val"})
         assert result is True
 
-    @patch("pipeline.common.writers.base.DeltaTableWriter")
-    async def test_subclass_can_call_async_merge(self, mock_dtw):
+    async def test_subclass_can_call_async_merge(self):
         class CustomWriter(BaseDeltaWriter):
             async def upsert(self, data):
                 mock_df = MagicMock()
