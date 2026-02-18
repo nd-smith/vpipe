@@ -211,31 +211,7 @@ class ClaimXDownloadWorker:
         self._in_flight_tasks = set()
 
         # Close resources from a previous failed start attempt to prevent leak.
-        # Each cleanup is independent so one failure must not skip the others.
-        if self._http_session and not self._http_session.closed:
-            try:
-                await self._http_session.close()
-                await asyncio.sleep(0)
-            except Exception as e:
-                logger.warning("Error closing stale HTTP session", extra={"error": str(e)})
-            finally:
-                self._http_session = None
-
-        if self.api_client:
-            try:
-                await self.api_client.close()
-            except Exception as e:
-                logger.warning("Error closing stale API client", extra={"error": str(e)})
-            finally:
-                self.api_client = None
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except Exception as e:
-                logger.warning("Error stopping stale retry handler", extra={"error": str(e)})
-            finally:
-                self.retry_handler = None
+        await self._cleanup_stale_resources()
 
         connector = aiohttp.TCPConnector(
             limit=self.concurrency,
@@ -353,16 +329,8 @@ class ClaimXDownloadWorker:
         logger.info("Stopping ClaimX download worker, waiting for in-flight downloads")
         self._running = False
 
-        try:
-            if self._stats_logger:
-                await self._stats_logger.stop()
-        except Exception as e:
-            logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        try:
-            await self._stale_cleaner.stop()
-        except Exception as e:
-            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
+        await self._close_resource("_stats_logger", clear=False)
+        await self._close_resource("_stale_cleaner", clear=False)
 
         if self._shutdown_event:
             self._shutdown_event.set()
@@ -372,79 +340,12 @@ class ClaimXDownloadWorker:
         except asyncio.CancelledError:
             logger.warning("Interrupted while waiting for in-flight downloads")
 
-        if self._consumer:
-            try:
-                # Batch consumer's stop() method flushes remaining batches
-                await self._consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error(
-                    "Error stopping consumer",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self._consumer = None
-
-        if self._http_session:
-            try:
-                await self._http_session.close()
-                await asyncio.sleep(0)
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while closing HTTP session")
-            except Exception as e:
-                logger.error(
-                    "Error closing HTTP session",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self._http_session = None
-
-        try:
-            await self.producer.stop()
-        except asyncio.CancelledError:
-            logger.warning("Cancelled while stopping producer")
-        except Exception as e:
-            logger.error(
-                "Error stopping producer",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
-
-        if self.api_client:
-            try:
-                await self.api_client.close()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while closing API client")
-            except Exception as e:
-                logger.error(
-                    "Error closing API client",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self.api_client = None
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping retry handler")
-            except Exception as e:
-                logger.error(
-                    "Error stopping retry handler",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self.retry_handler = None
-
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("_consumer")
+        await self._close_http_session()
+        await self._close_resource("producer", clear=False)
+        await self._close_resource("api_client", method="close")
+        await self._close_resource("retry_handler")
+        await self._close_resource("health_server", clear=False)
 
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(self._consumer_group, 0)
@@ -478,6 +379,165 @@ class ClaimXDownloadWorker:
             )
             await asyncio.sleep(0.5)
 
+    async def _close_resource(
+        self, attr: str, method: str = "stop", *, clear: bool = True
+    ) -> None:
+        """Execute a cleanup action on a resource attribute, logging any errors."""
+        resource = getattr(self, attr, None)
+        if resource is None:
+            return
+        try:
+            await getattr(resource, method)()
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while closing %s", attr)
+        except Exception as e:
+            logger.error(
+                "Error closing %s", attr, extra={"error": str(e)}, exc_info=True
+            )
+        finally:
+            if clear:
+                setattr(self, attr, None)
+
+    async def _close_http_session(self) -> None:
+        """Close HTTP session with connector cleanup grace period."""
+        if self._http_session is None:
+            return
+        try:
+            await self._http_session.close()
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while closing HTTP session")
+        except Exception as e:
+            logger.error(
+                "Error closing HTTP session",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
+        finally:
+            self._http_session = None
+
+    async def _cleanup_stale_resources(self) -> None:
+        """Close resources from a previous failed start attempt to prevent leaks."""
+        if self._http_session and not self._http_session.closed:
+            try:
+                await self._http_session.close()
+                await asyncio.sleep(0)
+            except Exception as e:
+                logger.warning(
+                    "Error closing stale HTTP session", extra={"error": str(e)}
+                )
+            finally:
+                self._http_session = None
+
+        if self.api_client:
+            try:
+                await self.api_client.close()
+            except Exception as e:
+                logger.warning(
+                    "Error closing stale API client", extra={"error": str(e)}
+                )
+            finally:
+                self.api_client = None
+
+        if self.retry_handler:
+            try:
+                await self.retry_handler.stop()
+            except Exception as e:
+                logger.warning(
+                    "Error stopping stale retry handler", extra={"error": str(e)}
+                )
+            finally:
+                self.retry_handler = None
+
+    def _process_gather_results(
+        self,
+        messages: list[PipelineMessage],
+        raw_results: list[TaskResult | BaseException],
+    ) -> tuple[int, int, int, list[TaskResult]]:
+        """Process asyncio.gather results: log exceptions, tally outcomes.
+
+        Returns (succeeded, failed, errors, circuit_errors).
+        """
+        processed: list[TaskResult | None] = []
+        for i, result in enumerate(raw_results):
+            if isinstance(result, Exception):
+                msg = messages[i]
+                logger.error(
+                    "Unhandled exception processing message",
+                    extra={
+                        "topic": msg.topic,
+                        "partition": msg.partition,
+                        "offset": msg.offset,
+                        "error": str(result),
+                    },
+                    exc_info=result,
+                )
+                processed.append(None)
+            else:
+                processed.append(result)
+
+        succeeded = sum(1 for r in processed if r and r.success)
+        failed = sum(1 for r in processed if r and not r.success)
+        errors = sum(1 for r in processed if r is None)
+        circuit_errors = [
+            r
+            for r in processed
+            if r and r.error and isinstance(r.error, CircuitOpenError)
+        ]
+        return succeeded, failed, errors, circuit_errors
+
+    def _update_cycle_offsets(self, ts: int | None) -> None:
+        """Track earliest/latest message timestamps for cycle logging."""
+        if ts is None:
+            return
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    async def _finalize_task(
+        self,
+        message: PipelineMessage,
+        task_message: ClaimXDownloadTask,
+        outcome: DownloadOutcome,
+        download_task: DownloadTask,
+        processing_time_ms: int,
+    ) -> TaskResult:
+        """Record metrics and build TaskResult from download outcome."""
+        if outcome.success:
+            await self._handle_success(task_message, outcome, processing_time_ms)
+            record_message_consumed(
+                message.topic, self._consumer_group, len(message.value), success=True
+            )
+            self._bytes_downloaded += outcome.bytes_downloaded or 0
+            return TaskResult(
+                message=message,
+                task_message=task_message,
+                outcome=outcome,
+                processing_time_ms=processing_time_ms,
+                success=True,
+            )
+
+        await self._handle_failure(task_message, outcome, processing_time_ms)
+        record_message_consumed(
+            message.topic, self._consumer_group, len(message.value), success=False
+        )
+        await self._cleanup_empty_temp_dir(download_task.destination.parent)
+
+        is_circuit_error = outcome.error_category == ErrorCategory.CIRCUIT_OPEN
+        return TaskResult(
+            message=message,
+            task_message=task_message,
+            outcome=outcome,
+            processing_time_ms=processing_time_ms,
+            success=False,
+            error=(
+                CircuitOpenError("claimx_download_worker", 60.0)
+                if is_circuit_error
+                else None
+            ),
+        )
+
     async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
         """Process batch of download messages concurrently.
 
@@ -490,34 +550,11 @@ class ClaimXDownloadWorker:
                 return await self._process_single_task(message)
 
         tasks = [bounded_process(msg) for msg in messages]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        processed_results: list[TaskResult] = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                message = messages[i]
-                logger.error(
-                    "Unhandled exception processing message",
-                    extra={
-                        "topic": message.topic,
-                        "partition": message.partition,
-                        "offset": message.offset,
-                        "error": str(result),
-                    },
-                    exc_info=result,
-                )
-                processed_results.append(None)  # type: ignore
-            else:
-                processed_results.append(result)
-
-        succeeded = sum(1 for r in processed_results if r and r.success)
-        failed = sum(1 for r in processed_results if r and not r.success)
-        errors = sum(1 for r in processed_results if r is None)
-
-        # Check for circuit breaker errors (transient errors that need immediate retry)
-        circuit_errors = [
-            r for r in processed_results if r and r.error and isinstance(r.error, CircuitOpenError)
-        ]
+        succeeded, failed, errors, circuit_errors = self._process_gather_results(
+            messages, raw_results
+        )
 
         logger.debug(
             "Batch processing complete",
@@ -531,18 +568,16 @@ class ClaimXDownloadWorker:
         )
 
         self._records_succeeded += succeeded
-        self._records_failed += failed
-        self._records_failed += errors  # Count errors as failed too
+        self._records_failed += failed + errors
 
-        # Return commit decision
         if circuit_errors:
             logger.warning(
                 "Circuit breaker errors in batch - not committing offsets",
                 extra={"circuit_error_count": len(circuit_errors)},
             )
-            return False  # Don't commit - batch will be reprocessed
+            return False
 
-        return True  # Commit batch
+        return True
 
     @set_log_context_from_message
     async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
@@ -578,12 +613,7 @@ class ClaimXDownloadWorker:
             )
 
         self._records_processed += 1
-
-        ts = message.timestamp
-        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-            self._cycle_offset_start_ts = ts
-        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-            self._cycle_offset_end_ts = ts
+        self._update_cycle_offsets(message.timestamp)
 
         async with self._in_flight_lock:
             self._in_flight_tasks.add(task_message.media_id)
@@ -629,40 +659,9 @@ class ClaimXDownloadWorker:
                 },
             )
 
-            if outcome.success:
-                await self._handle_success(task_message, outcome, processing_time_ms)
-                record_message_consumed(
-                    message.topic, self._consumer_group, len(message.value), success=True
-                )
-                self._bytes_downloaded += outcome.bytes_downloaded or 0
-                return TaskResult(
-                    message=message,
-                    task_message=task_message,
-                    outcome=outcome,
-                    processing_time_ms=processing_time_ms,
-                    success=True,
-                )
-            else:
-                await self._handle_failure(task_message, outcome, processing_time_ms)
-                record_message_consumed(
-                    message.topic, self._consumer_group, len(message.value), success=False
-                )
-
-                await self._cleanup_empty_temp_dir(download_task.destination.parent)
-
-                is_circuit_error = outcome.error_category == ErrorCategory.CIRCUIT_OPEN
-                return TaskResult(
-                    message=message,
-                    task_message=task_message,
-                    outcome=outcome,
-                    processing_time_ms=processing_time_ms,
-                    success=False,
-                    error=(
-                        CircuitOpenError("claimx_download_worker", 60.0)
-                        if is_circuit_error
-                        else None
-                    ),
-                )
+            return await self._finalize_task(
+                message, task_message, outcome, download_task, processing_time_ms
+            )
 
         finally:
             async with self._in_flight_lock:
