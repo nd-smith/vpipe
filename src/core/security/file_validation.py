@@ -74,6 +74,29 @@ EXTENSION_TO_MIME: dict[str, set[str]] = {
 }
 
 
+def _extension_from_path(path: str) -> str | None:
+    """Extract extension from a file path segment, stripping query/fragment."""
+    if "." not in path:
+        return None
+    extension = path.rsplit(".", 1)[-1].lower()
+    extension = extension.split("?")[0].split("#")[0]
+    return extension or None
+
+
+def _extension_from_query(query: str) -> str | None:
+    """Extract extension from URL query params (filename, file, name)."""
+    try:
+        query_params = parse_qs(query)
+        for param_name in ("filename", "file", "name"):
+            if param_name in query_params and query_params[param_name]:
+                result = _extension_from_path(query_params[param_name][0])
+                if result:
+                    return result
+    except Exception:
+        pass
+    return None
+
+
 def extract_extension(filename_or_url: str) -> str | None:
     """Extract file extension, checking URL path then 'filename' query param as fallback.
 
@@ -90,29 +113,13 @@ def extract_extension(filename_or_url: str) -> str | None:
     except Exception:
         path = filename_or_url
 
-    # Extract extension from path
-    if "." in path:
-        extension = path.rsplit(".", 1)[-1].lower()
-        # Remove query parameters if present
-        extension = extension.split("?")[0].split("#")[0]
-        if extension:
-            return extension
+    result = _extension_from_path(path)
+    if result:
+        return result
 
     # Fallback: check query parameters for filename
-    # Common pattern for file service APIs (e.g., ?filename=document.pdf)
     if parsed and parsed.query:
-        try:
-            query_params = parse_qs(parsed.query)
-            # Check common filename parameter names
-            for param_name in ("filename", "file", "name"):
-                if param_name in query_params and query_params[param_name]:
-                    filename = query_params[param_name][0]
-                    if "." in filename:
-                        extension = filename.rsplit(".", 1)[-1].lower()
-                        if extension:
-                            return extension
-        except Exception:
-            pass
+        return _extension_from_query(parsed.query)
 
     return None
 
@@ -171,20 +178,26 @@ def validate_file_type(
 
     # Validate Content-Type if provided
     if content_type:
-        normalized_ct = normalize_content_type(content_type)
-        if not normalized_ct:
-            raise FileValidationError("Invalid Content-Type header")
+        _validate_content_type(content_type, extension, allowed_content_types)
 
-        if normalized_ct not in allowed_content_types:
-            raise FileValidationError(f"Content-Type '{normalized_ct}' not allowed")
 
-        # Additional check: extension and Content-Type should be compatible
-        # (defense against spoofing)
-        expected_mimes = EXTENSION_TO_MIME.get(extension)
-        if expected_mimes and normalized_ct not in expected_mimes:
-            raise FileValidationError(
-                f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'"
-            )
+def _validate_content_type(
+    content_type: str, extension: str, allowed_content_types: set[str]
+) -> None:
+    """Validate Content-Type header against allowed types and extension compatibility."""
+    normalized_ct = normalize_content_type(content_type)
+    if not normalized_ct:
+        raise FileValidationError("Invalid Content-Type header")
+
+    if normalized_ct not in allowed_content_types:
+        raise FileValidationError(f"Content-Type '{normalized_ct}' not allowed")
+
+    # Defense against spoofing: extension and Content-Type should be compatible
+    expected_mimes = EXTENSION_TO_MIME.get(extension)
+    if expected_mimes and normalized_ct not in expected_mimes:
+        raise FileValidationError(
+            f"Content-Type '{normalized_ct}' doesn't match extension '{extension}'"
+        )
 
 
 def is_allowed_extension(extension: str) -> bool:
