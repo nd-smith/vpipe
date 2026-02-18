@@ -95,12 +95,11 @@ class ResultProcessor:
     def __init__(
         self,
         config: MessageConfig,
-        producer,
-        inventory_table_path: str,
+        producer=None,
+        inventory_table_path: str = "",
         failed_table_path: str | None = None,
         batch_size: int | None = None,
         batch_timeout_seconds: float | None = None,
-        max_batches: int | None = None,
         instance_id: str | None = None,
         domain: str = "verisk",
     ):
@@ -109,19 +108,18 @@ class ResultProcessor:
 
         Args:
             config: Message broker configuration
-            producer: Message producer for retry topic routing (required)
+            producer: Message producer for retry topic routing
             inventory_table_path: Full abfss:// path to xact_attachments Delta table
             failed_table_path: Optional path to xact_attachments_failed Delta table.
                                If provided, permanent failures will be written here.
             batch_size: Optional custom batch size (default: 100)
             batch_timeout_seconds: Optional custom timeout (default: 5.0)
-            max_batches: Optional limit on batches to write (for testing). None = unlimited.
         """
         self.config = config
         self.producer = producer
         self.batch_size = batch_size or self.BATCH_SIZE
         self.batch_timeout_seconds = batch_timeout_seconds or self.BATCH_TIMEOUT_SECONDS
-        self.max_batches = max_batches
+        self.max_batches: int | None = None
 
         # Domain and worker configuration (must be set before using them)
         self.domain = domain
@@ -269,6 +267,29 @@ class ResultProcessor:
         finally:
             self._running = False
 
+    async def _cancel_flush_task(self) -> None:
+        """Cancel the periodic flush background task."""
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+
+    async def _flush_pending_on_shutdown(self) -> None:
+        """Flush any pending success and failed batches during shutdown."""
+        async with self._batch_lock:
+            if self._batch:
+                logger.info(
+                    "Flushing pending success batch on shutdown",
+                    extra={"batch_size": len(self._batch)},
+                )
+                await self._flush_batch()
+            if self._failed_batch:
+                logger.info(
+                    "Flushing pending failed batch on shutdown",
+                    extra={"batch_size": len(self._failed_batch)},
+                )
+                await self._flush_failed_batch()
+
     async def stop(self) -> None:
         """
         Stop the result processor gracefully.
@@ -279,59 +300,35 @@ class ResultProcessor:
         logger.info("Stopping result processor")
         self._running = False
 
-        # Stop background tasks
-        try:
-            if self._stats_logger:
-                await self._stats_logger.stop()
-        except Exception as e:
-            logger.error("Error stopping stats logger", extra={"error": str(e)})
+        for name, coro in [
+            ("stats_logger", self._stats_logger.stop() if self._stats_logger else None),
+            ("flush_task", self._cancel_flush_task()),
+            ("pending_batches", self._flush_pending_on_shutdown()),
+        ]:
+            if coro is None:
+                continue
+            try:
+                await coro
+            except Exception as e:
+                logger.error("Error stopping %s", name, extra={"error": str(e)})
 
-        try:
-            if self._flush_task and not self._flush_task.done():
-                self._flush_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._flush_task
-        except Exception as e:
-            logger.error("Error cancelling flush task", extra={"error": str(e)})
-
-        # Flush any pending batches
-        try:
-            async with self._batch_lock:
-                if self._batch:
-                    logger.info(
-                        "Flushing pending success batch on shutdown",
-                        extra={"batch_size": len(self._batch)},
-                    )
-                    await self._flush_batch()
-                if self._failed_batch:
-                    logger.info(
-                        "Flushing pending failed batch on shutdown",
-                        extra={"batch_size": len(self._failed_batch)},
-                    )
-                    await self._flush_failed_batch()
-        except Exception as e:
-            logger.error("Error flushing batches on shutdown", extra={"error": str(e)})
-
-        # Stop consumer
-        try:
-            if self._consumer:
+        if self._consumer:
+            try:
                 await self._consumer.stop()
+            except Exception as e:
+                logger.error("Error stopping consumer", extra={"error": str(e)})
+            finally:
                 self._consumer = None
-        except Exception as e:
-            logger.error("Error stopping consumer", extra={"error": str(e)})
 
-        # Stop retry handler producers
-        try:
-            if self._retry_handler:
-                await self._retry_handler.stop()
-        except Exception as e:
-            logger.error("Error stopping retry handler", extra={"error": str(e)})
-
-        # Stop health check server
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        for name, resource in [
+            ("retry_handler", self._retry_handler),
+            ("health_server", self.health_server),
+        ]:
+            if resource:
+                try:
+                    await resource.stop()
+                except Exception as e:
+                    logger.error("Error stopping %s", name, extra={"error": str(e)})
 
         logger.info(
             "Result processor stopped successfully",
@@ -341,6 +338,20 @@ class ResultProcessor:
                 "total_records_written": self._total_records_written,
             },
         )
+
+    async def _add_to_batch_and_flush(
+        self, batch: list, result: DownloadResultMessage, flush_fn, label: str
+    ) -> None:
+        """Add a result to a batch and flush if size threshold is reached."""
+        async with self._batch_lock:
+            batch.append(result)
+            if len(batch) >= self.batch_size:
+                logger.debug(
+                    "%s batch size threshold reached, flushing",
+                    label,
+                    extra={"batch_size": len(batch)},
+                )
+                await flush_fn()
 
     async def _handle_result(self, message: PipelineMessage) -> None:
         """
@@ -352,10 +363,7 @@ class ResultProcessor:
         - failed_transient → skip (still retrying)
 
         Triggers flush if size or timeout threshold reached.
-
-        Raises Exception if message parsing or batch flush fails.
         """
-        # Track messages received
         self._records_processed += 1
         ts = message.timestamp
         if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
@@ -363,7 +371,6 @@ class ResultProcessor:
         if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
             self._cycle_offset_end_ts = ts
 
-        # Parse message
         try:
             result = DownloadResultMessage.model_validate_json(message.value)
         except Exception as e:
@@ -379,83 +386,55 @@ class ResultProcessor:
             )
             raise PermanentError(str(e)) from e
 
-        # Set logging context
         set_log_context(trace_id=result.trace_id)
 
-        # Route by status
         if result.status == "completed":
-            # Add to success batch
             self._records_succeeded += 1
-            async with self._batch_lock:
-                self._batch.append(result)
-
-                # Check if flush needed (size-based)
-                if len(self._batch) >= self.batch_size:
-                    logger.debug(
-                        "Success batch size threshold reached, flushing",
-                        extra={"batch_size": len(self._batch)},
-                    )
-                    await self._flush_batch()
-
+            await self._add_to_batch_and_flush(
+                self._batch, result, self._flush_batch, "Success"
+            )
         elif result.status == "failed_permanent" and self._failed_writer:
-            # Add to failed batch (only if tracking enabled)
             self._records_failed += 1
-            async with self._batch_lock:
-                self._failed_batch.append(result)
-
-                # Check if flush needed (size-based)
-                if len(self._failed_batch) >= self.batch_size:
-                    logger.debug(
-                        "Failed batch size threshold reached, flushing",
-                        extra={"batch_size": len(self._failed_batch)},
-                    )
-                    await self._flush_failed_batch()
-
+            await self._add_to_batch_and_flush(
+                self._failed_batch, result, self._flush_failed_batch, "Failed"
+            )
         else:
-            # Skip transient failures (still retrying) or permanent without writer
             self._records_skipped += 1
             logger.debug(
                 "Skipping result",
                 extra={
                     "trace_id": result.trace_id,
                     "status": result.status,
-                    "reason": (
-                        "transient" if result.status == "failed" else "no_failed_writer"
-                    ),
-                    "attachment_url": result.attachment_url[:100],  # truncate for logging
+                    "reason": "transient" if result.status == "failed" else "no_failed_writer",
+                    "attachment_url": result.attachment_url[:100],
                 },
             )
+
+    async def _flush_if_timed_out(self) -> None:
+        """Check timeout and flush batches if threshold reached. Caller must hold lock."""
+        elapsed = time.monotonic() - self._last_flush
+        if elapsed < self.batch_timeout_seconds:
+            return
+        if self._batch:
+            logger.debug(
+                "Success batch timeout threshold reached, flushing",
+                extra={"batch_size": len(self._batch), "elapsed_seconds": elapsed},
+            )
+            await self._flush_batch()
+        if self._failed_batch:
+            logger.debug(
+                "Failed batch timeout threshold reached, flushing",
+                extra={"batch_size": len(self._failed_batch), "elapsed_seconds": elapsed},
+            )
+            await self._flush_failed_batch()
 
     async def _periodic_flush(self) -> None:
         """Background task for timeout-based batch flushing."""
         try:
             while self._running:
                 await asyncio.sleep(1)
-
                 async with self._batch_lock:
-                    elapsed = time.monotonic() - self._last_flush
-
-                    if elapsed >= self.batch_timeout_seconds:
-                        if self._batch:
-                            logger.debug(
-                                "Success batch timeout threshold reached, flushing",
-                                extra={
-                                    "batch_size": len(self._batch),
-                                    "elapsed_seconds": elapsed,
-                                },
-                            )
-                            await self._flush_batch()
-
-                        if self._failed_batch:
-                            logger.debug(
-                                "Failed batch timeout threshold reached, flushing",
-                                extra={
-                                    "batch_size": len(self._failed_batch),
-                                    "elapsed_seconds": elapsed,
-                                },
-                            )
-                            await self._flush_failed_batch()
-
+                    await self._flush_if_timed_out()
         except asyncio.CancelledError:
             logger.debug("Periodic flush task cancelled")
             raise
