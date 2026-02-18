@@ -309,22 +309,23 @@ class ActionExecutor:
             action: Action to execute
             context: Plugin context
         """
-        if action.action_type == ActionType.PUBLISH_TO_TOPIC:
-            await self._publish_to_topic(action.params, context)
-        elif action.action_type == ActionType.HTTP_WEBHOOK:
-            await self._http_webhook(action.params, context)
-        elif action.action_type == ActionType.SEND_EMAIL:
-            await self._send_email(action.params, context)
-        elif action.action_type == ActionType.CREATE_CLAIMX_TASK:
-            await self._create_claimx_task(action.params, context)
-        elif action.action_type == ActionType.LOG:
-            self._log(action.params, context)
-        elif action.action_type == ActionType.ADD_HEADER:
-            self._add_header(action.params, context)
-        elif action.action_type == ActionType.METRIC:
-            self._emit_metric(action.params, context)
-        elif action.action_type == ActionType.FILTER:
-            pass  # Handled by orchestrator via terminate_pipeline
+        handler = self._ACTION_HANDLERS.get(action.action_type)
+        if handler is not None:
+            result = handler(self, action.params, context)
+            if hasattr(result, "__await__"):
+                await result
+
+    # Dispatch table: ActionType -> handler method
+    _ACTION_HANDLERS: dict[ActionType, Callable] = {
+        ActionType.PUBLISH_TO_TOPIC: lambda self, p, c: self._publish_to_topic(p, c),
+        ActionType.HTTP_WEBHOOK: lambda self, p, c: self._http_webhook(p, c),
+        ActionType.SEND_EMAIL: lambda self, p, c: self._send_email(p, c),
+        ActionType.CREATE_CLAIMX_TASK: lambda self, p, c: self._create_claimx_task(p, c),
+        ActionType.LOG: lambda self, p, c: self._log(p, c),
+        ActionType.ADD_HEADER: lambda self, p, c: self._add_header(p, c),
+        ActionType.METRIC: lambda self, p, c: self._emit_metric(p, c),
+        # FILTER is handled by orchestrator via terminate_pipeline
+    }
 
     async def _get_producer_for_topic(self, topic: str):
         """Get or create a producer for the given topic.

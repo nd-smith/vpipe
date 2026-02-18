@@ -232,13 +232,19 @@ class PluginResult:
         body: str,
         *,
         connection: str = "email_service",
-        cc: str | list[str] | None = None,
-        bcc: str | list[str] | None = None,
-        reply_to: str | None = None,
         html: bool = False,
-        template_id: str | None = None,
-        template_data: dict[str, Any] | None = None,
+        **options,
     ) -> "PluginResult":
+        """Create email action result.
+
+        Args:
+            to: Recipient email address(es)
+            subject: Email subject
+            body: Email body
+            connection: Named connection for email service
+            html: Whether body is HTML
+            **options: Optional email params: cc, bcc, reply_to, template_id, template_data
+        """
         params = {
             "connection": connection,
             "to": to if isinstance(to, list) else [to],
@@ -246,16 +252,13 @@ class PluginResult:
             "body": body,
             "html": html,
         }
-        if cc:
-            params["cc"] = cc if isinstance(cc, list) else [cc]
-        if bcc:
-            params["bcc"] = bcc if isinstance(bcc, list) else [bcc]
-        if reply_to:
-            params["reply_to"] = reply_to
-        if template_id:
-            params["template_id"] = template_id
-        if template_data:
-            params["template_data"] = template_data
+        for key in ("cc", "bcc"):
+            if options.get(key):
+                val = options[key]
+                params[key] = val if isinstance(val, list) else [val]
+        for key in ("reply_to", "template_id", "template_data"):
+            if options.get(key):
+                params[key] = options[key]
 
         return cls(
             success=True,
