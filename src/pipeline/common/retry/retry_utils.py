@@ -211,7 +211,7 @@ def log_retry_decision(
 def record_dlq_metrics(
     domain: str,
     reason: str,
-    error_category: ErrorCategory | None = None,
+    _error_category: ErrorCategory | None = None,
 ) -> None:
     """
     Record DLQ routing metrics.
@@ -219,7 +219,7 @@ def record_dlq_metrics(
     Args:
         domain: Domain identifier (e.g., "verisk", "claimx")
         reason: Reason for DLQ routing ("permanent", "exhausted")
-        error_category: Optional error classification for exhausted retries
+        _error_category: Optional error classification for exhausted retries (unused)
     """
     record_dlq_message(domain=domain, reason=reason)
 

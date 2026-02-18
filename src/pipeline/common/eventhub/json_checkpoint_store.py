@@ -71,7 +71,7 @@ class JsonCheckpointStore:
         fully_qualified_namespace: str,
         eventhub_name: str,
         consumer_group: str,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> Iterable[dict[str, Any]]:
         """List all partition ownership records.
 
@@ -88,7 +88,7 @@ class JsonCheckpointStore:
     async def claim_ownership(
         self,
         ownership_list: Iterable[dict[str, Any]],
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> Iterable[dict[str, Any]]:
         """Claim ownership of partitions using optimistic concurrency.
 
@@ -119,7 +119,6 @@ class JsonCheckpointStore:
 
             for ownership in ownership_items:
                 partition_id = ownership["partition_id"]
-                ownership.get("owner_id", "UNKNOWN")
                 existing = data["partitions"].get(partition_id)
 
                 # Claim succeeds if no existing owner or etag matches
@@ -144,7 +143,7 @@ class JsonCheckpointStore:
     async def update_checkpoint(
         self,
         checkpoint: dict[str, Any],
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> None:
         """Persist a checkpoint record for a partition.
 
@@ -177,7 +176,7 @@ class JsonCheckpointStore:
         fully_qualified_namespace: str,
         eventhub_name: str,
         consumer_group: str,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> Iterable[dict[str, Any]]:
         """List all checkpoint records.
 

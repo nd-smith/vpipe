@@ -697,7 +697,7 @@ class ItelCabinetApiWorker:
         ts = now.strftime("%Y%m%dT%H%M%S")
         return f"{result_type}/{now.year}/{now.month:02d}/{now.day:02d}/{assignment_id}_{ts}.json"
 
-    async def _write_simulation_payload(self, api_payload: dict, original_payload: dict):
+    async def _write_simulation_payload(self, api_payload: dict, _original_payload: dict):
         """Write payload to simulation directory (simulation mode).
 
         In simulation mode, submissions are written to /tmp/pcesdopodappv1_simulation/itel_submissions/
@@ -706,7 +706,7 @@ class ItelCabinetApiWorker:
 
         Args:
             api_payload: Transformed payload for iTel API (vendor schema format)
-            original_payload: Original message payload
+            _original_payload: Original message payload (unused)
         """
         # Extract assignment_id from new vendor schema
         assignment_id = api_payload.get("integration_test_id", "unknown")

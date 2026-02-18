@@ -239,7 +239,7 @@ def _check_suspicious_query(query: str, logger) -> None:
 
 
 def _validate_production_url(
-    url: str,
+    _url: str,
     parsed,
     hostname: str,
     hostname_lower: str,
@@ -249,7 +249,7 @@ def _validate_production_url(
     Validate URL for production use with standard SSRF protection.
 
     Args:
-        url: Original URL string
+        _url: Original URL string (unused, kept for interface consistency)
         parsed: Already-parsed URL object from urlparse()
         hostname: Original hostname (preserves case)
         hostname_lower: Lowercase hostname for comparison

@@ -189,7 +189,7 @@ async def execute_worker_with_shutdown(
 
 async def execute_worker_with_producer(
     worker_class,
-    producer_class,
+    _producer_class,
     kafka_config,
     domain: str,
     stage_name: str,

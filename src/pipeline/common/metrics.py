@@ -307,7 +307,7 @@ disk_usage_ratio_gauge = _create_gauge(
 # =============================================================================
 
 
-def record_message_produced(topic: str, message_bytes: int, success: bool = True) -> None:
+def record_message_produced(topic: str, _message_bytes: int, success: bool = True) -> None:
     """Record a produced message."""
     messages_produced_counter.labels(topic=topic).inc()
     if not success:
@@ -315,7 +315,7 @@ def record_message_produced(topic: str, message_bytes: int, success: bool = True
 
 
 def record_message_consumed(
-    topic: str, consumer_group: str, message_bytes: int, success: bool = True
+    topic: str, consumer_group: str, _message_bytes: int, success: bool = True
 ) -> None:
     """Record a consumed message."""
     messages_consumed_counter.labels(topic=topic, consumer_group=consumer_group).inc()
@@ -363,7 +363,7 @@ def update_assigned_partitions(consumer_group: str, count: int) -> None:
     consumer_assigned_partitions_gauge.labels(consumer_group=consumer_group).set(count)
 
 
-def record_delta_write(table: str, event_count: int, success: bool = True) -> None:
+def record_delta_write(table: str, _event_count: int, success: bool = True) -> None:
     """Record a Delta Lake write operation."""
     delta_writes_counter.labels(table=table, success="true" if success else "false").inc()
 

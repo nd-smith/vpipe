@@ -287,7 +287,7 @@ class MediaHandler(EventHandler):
         event: ClaimXEventMessage,
         media_by_id: dict[int, dict],
         project_id: int,
-        batch_start_time: datetime,
+        _batch_start_time: datetime,
     ) -> EnrichmentResult:
         """Process single event using pre-fetched media data."""
         rows = EntityRowsMessage()

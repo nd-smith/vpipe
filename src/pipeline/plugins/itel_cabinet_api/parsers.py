@@ -737,7 +737,7 @@ def parse_cabinet_form(task_data: dict, event_id: str) -> CabinetSubmission:
 def parse_cabinet_attachments(
     task_data: dict,
     assignment_id: int,
-    project_id: int,
+    _project_id: int,
     event_id: str,
     media_url_map: dict[int, str] = None,
 ) -> list[CabinetAttachment]:
@@ -747,7 +747,7 @@ def parse_cabinet_attachments(
     Args:
         task_data: Full task data from ClaimX API
         assignment_id: Assignment ID
-        project_id: ClaimX project ID
+        _project_id: ClaimX project ID (unused, kept for interface consistency)
         event_id: Event ID for traceability
         media_url_map: Optional mapping of media_id to download URL
 

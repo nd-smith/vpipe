@@ -304,7 +304,7 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
 
             return store
 
-        except (TimeoutError, OSError, ConnectionError) as e:
+        except OSError as e:
             # Close the client from the failed attempt to avoid leaked sessions
             if store:
                 await store.close()

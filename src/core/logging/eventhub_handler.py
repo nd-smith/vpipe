@@ -276,7 +276,7 @@ class EventHubLogHandler(logging.Handler):
             )
             raise
 
-    def _handle_send_error(self, error: Exception, loop_time: float) -> None:
+    def _handle_send_error(self, _error: Exception, loop_time: float) -> None:
         """
         Handle errors with circuit breaker pattern.
 
@@ -284,7 +284,7 @@ class EventHubLogHandler(logging.Handler):
         Event Hub or wasting resources.
 
         Args:
-            error: Exception that occurred during send
+            _error: Exception that occurred during send (unused, kept for interface)
             loop_time: Current event loop time for circuit breaker timing
         """
         self._failure_count += 1

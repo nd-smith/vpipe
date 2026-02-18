@@ -261,7 +261,7 @@ def _resolve_eventhub_consumer_group(
     domain: str,
     topic_key: str | None,
     worker_name: str,
-    message_config: MessageConfig,
+    _message_config: MessageConfig,
 ) -> str:
     """Resolve Event Hub consumer group for a given domain/topic/worker.
 

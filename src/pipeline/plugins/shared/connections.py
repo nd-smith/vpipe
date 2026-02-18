@@ -426,7 +426,7 @@ class ConnectionManager:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         timeout_override: int | None = None,
-        retry_override: int | None = None,
+        _retry_override: int | None = None,
         allow_redirects: bool = True,
     ) -> aiohttp.ClientResponse:
         """Make HTTP request to a full URL using a named connection's auth.
@@ -443,7 +443,7 @@ class ConnectionManager:
             params: Query parameters
             headers: Additional headers
             timeout_override: Override connection timeout
-            retry_override: Override connection max_retries
+            _retry_override: Override connection max_retries (unused in request_url)
             allow_redirects: Whether to follow redirects (default: True)
 
         Returns:

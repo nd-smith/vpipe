@@ -940,7 +940,7 @@ class ActionExecutor:
         if key and value:
             context.headers[key] = value
 
-    def _emit_metric(self, params: dict, context: PluginContext) -> None:
+    def _emit_metric(self, params: dict, _context: PluginContext) -> None:
         """Emit a metric (placeholder - implement with your metrics system)."""
         name = params.get("name")
         labels = params.get("labels", {})

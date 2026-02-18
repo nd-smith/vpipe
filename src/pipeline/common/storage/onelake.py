@@ -136,7 +136,7 @@ class TokenCredential:
         self._token = token
         self._expires_on = int((datetime.now(UTC) + timedelta(hours=expires_in_hours)).timestamp())
 
-    def get_token(self, *scopes, **kwargs) -> AccessToken:
+    def get_token(self, *_scopes, **_kwargs) -> AccessToken:
         return AccessToken(self._token, self._expires_on)
 
 
@@ -219,7 +219,7 @@ class FileBackedTokenCredential:
         self._logger.debug("FileBackedTokenCredential refreshed token for %s", self._resource)
         return token
 
-    def get_token(self, *scopes, **kwargs) -> AccessToken:
+    def get_token(self, *_scopes, **_kwargs) -> AccessToken:
         if self._should_refresh():
             self._fetch_token()
 

@@ -13,7 +13,7 @@ from pipeline.runners.common import execute_worker_with_shutdown
 logger = logging.getLogger(__name__)
 
 
-async def run_itel_cabinet_tracking(shutdown_event: asyncio.Event, **kwargs):
+async def run_itel_cabinet_tracking(shutdown_event: asyncio.Event, **_kwargs):
     """Run the iTel Cabinet tracking worker with standard lifecycle management."""
     from pipeline.plugins.itel_cabinet_api.itel_cabinet_tracking_worker import (
         build_tracking_worker,
@@ -47,7 +47,7 @@ async def run_itel_cabinet_tracking(shutdown_event: asyncio.Event, **kwargs):
         await health_server.stop()
 
 
-async def run_claimx_mitigation_tracking(shutdown_event: asyncio.Event, **kwargs):
+async def run_claimx_mitigation_tracking(shutdown_event: asyncio.Event, **_kwargs):
     """Run the ClaimX Mitigation Task tracking worker with standard lifecycle management."""
     from pipeline.plugins.claimx_mitigation_task.mitigation_tracking_worker import (
         build_tracking_worker,
@@ -81,7 +81,7 @@ async def run_claimx_mitigation_tracking(shutdown_event: asyncio.Event, **kwargs
         await health_server.stop()
 
 
-async def run_itel_cabinet_api(shutdown_event: asyncio.Event, **kwargs):
+async def run_itel_cabinet_api(shutdown_event: asyncio.Event, **_kwargs):
     """Run the iTel Cabinet API worker with standard lifecycle management."""
     from pipeline.plugins.itel_cabinet_api.itel_cabinet_api_worker import (
         build_api_worker,
