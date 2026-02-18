@@ -101,53 +101,48 @@ def get_ssl_kwargs() -> dict:
     return {"connection_verify": False}
 
 
+def _extract_hubs(
+    domain_configs: dict[str, Any],
+    skip_keys: set[str],
+    domain_prefix: str = "",
+    is_source: bool = False,
+) -> list[EventHubInfo]:
+    """Extract EventHubInfo entries from a config section."""
+    hubs = []
+    for domain_key, domain_config in domain_configs.items():
+        if domain_key in skip_keys or not isinstance(domain_config, dict):
+            continue
+        domain_name = f"{domain_prefix}{domain_key}" if domain_prefix else domain_key
+        for topic_key, topic_config in domain_config.items():
+            if not isinstance(topic_config, dict) or "eventhub_name" not in topic_config:
+                continue
+            hubs.append(EventHubInfo(
+                domain=domain_name,
+                topic_key=topic_key,
+                eventhub_name=topic_config["eventhub_name"],
+                consumer_groups=dict(topic_config.get("consumer_groups", {})),
+                is_source=is_source,
+            ))
+    return hubs
+
+
 def list_eventhubs() -> list[EventHubInfo]:
     """Extract all EventHub definitions from config.yaml."""
     config = load_eventhub_config()
-    hubs = []
 
     # Internal domains: verisk, claimx, plugins
-    skip_keys = {
+    internal_skip = {
         "namespace_connection_string", "transport_type",
         "default_consumer_group", "checkpoint_store", "dedup_store", "source",
     }
-
-    for domain_key, domain_config in config.items():
-        if domain_key in skip_keys or not isinstance(domain_config, dict):
-            continue
-
-        for topic_key, topic_config in domain_config.items():
-            if not isinstance(topic_config, dict) or "eventhub_name" not in topic_config:
-                continue
-
-            consumer_groups = topic_config.get("consumer_groups", {})
-            hubs.append(EventHubInfo(
-                domain=domain_key,
-                topic_key=topic_key,
-                eventhub_name=topic_config["eventhub_name"],
-                consumer_groups=dict(consumer_groups),
-                is_source=False,
-            ))
+    hubs = _extract_hubs(config, internal_skip)
 
     # Source domains: source.verisk, source.claimx
     source_config = config.get("source", {})
-    source_skip = {"namespace_connection_string"}
-    for domain_key, domain_config in source_config.items():
-        if domain_key in source_skip or not isinstance(domain_config, dict):
-            continue
-
-        for topic_key, topic_config in domain_config.items():
-            if not isinstance(topic_config, dict) or "eventhub_name" not in topic_config:
-                continue
-
-            consumer_groups = topic_config.get("consumer_groups", {})
-            hubs.append(EventHubInfo(
-                domain=f"source.{domain_key}",
-                topic_key=topic_key,
-                eventhub_name=topic_config["eventhub_name"],
-                consumer_groups=dict(consumer_groups),
-                is_source=True,
-            ))
+    hubs.extend(_extract_hubs(
+        source_config, {"namespace_connection_string"},
+        domain_prefix="source.", is_source=True,
+    ))
 
     return hubs
 

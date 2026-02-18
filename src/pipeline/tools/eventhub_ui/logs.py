@@ -111,6 +111,46 @@ def list_log_files(domain: str, date: str) -> list[LogFileInfo]:
     return sorted(files, key=lambda f: f.name, reverse=True)
 
 
+def _parse_log_entry(
+    line: str,
+    level: str | None,
+    search_lower: str | None,
+    trace_id: str | None,
+) -> LogEntry | None:
+    """Parse a single JSON log line and apply filters. Returns None if filtered out."""
+    line = line.strip()
+    if not line:
+        return None
+
+    try:
+        raw = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+    entry_level = raw.get("level", "")
+    entry_message = raw.get("message", "")
+    entry_trace_id = raw.get("trace_id", "")
+
+    if level and entry_level != level:
+        return None
+    if trace_id and trace_id not in entry_trace_id:
+        return None
+    if search_lower and search_lower not in entry_message.lower():
+        return None
+
+    return LogEntry(
+        ts=raw.get("ts", ""),
+        level=entry_level,
+        logger=raw.get("logger", ""),
+        message=entry_message,
+        domain=raw.get("domain", ""),
+        stage=raw.get("stage", ""),
+        worker_id=raw.get("worker_id", ""),
+        trace_id=entry_trace_id,
+        raw=raw,
+    )
+
+
 def read_log_file(
     path: str,
     level: str | None = None,
@@ -137,41 +177,12 @@ def read_log_file(
     if len(lines) > tail:
         lines = lines[-tail:]
 
-    entries = []
     search_lower = search.lower() if search else None
 
+    entries = []
     for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        entry_level = raw.get("level", "")
-        entry_message = raw.get("message", "")
-        entry_trace_id = raw.get("trace_id", "")
-
-        # Apply filters
-        if level and entry_level != level:
-            continue
-        if trace_id and trace_id not in entry_trace_id:
-            continue
-        if search_lower and search_lower not in entry_message.lower():
-            continue
-
-        entries.append(LogEntry(
-            ts=raw.get("ts", ""),
-            level=entry_level,
-            logger=raw.get("logger", ""),
-            message=entry_message,
-            domain=raw.get("domain", ""),
-            stage=raw.get("stage", ""),
-            worker_id=raw.get("worker_id", ""),
-            trace_id=entry_trace_id,
-            raw=raw,
-        ))
+        entry = _parse_log_entry(line, level, search_lower, trace_id)
+        if entry is not None:
+            entries.append(entry)
 
     return entries

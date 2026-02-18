@@ -1,7 +1,7 @@
 """Checkpoint viewing, advancing, and time-based reset."""
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from azure.eventhub import TransportType
@@ -14,6 +14,19 @@ class CheckpointEntry:
     partition_id: str
     offset: str | None
     sequence_number: int | None
+
+
+@dataclass
+class CheckpointConfig:
+    """Connection parameters shared across checkpoint operations."""
+
+    conn_str: str
+    eventhub_name: str
+    consumer_group: str
+    fqdn: str
+    blob_conn_str: str
+    container_name: str
+    ssl_kwargs: dict = field(default_factory=dict)
 
 
 def list_checkpoints(
@@ -67,20 +80,17 @@ def advance_checkpoints_to_latest(
 
 
 async def reset_checkpoints_to_time(
-    conn_str: str,
-    eventhub_name: str,
-    consumer_group: str,
-    fqdn: str,
-    blob_conn_str: str,
-    container_name: str,
+    cfg: CheckpointConfig,
     target_time: datetime,
-    ssl_kwargs: dict | None = None,
 ) -> dict[str, dict]:
     """Reset checkpoints to a specific point in time. Returns {partition_id: {old, new}}."""
-    offsets = await _find_offsets_at_time(conn_str, eventhub_name, target_time, ssl_kwargs)
+    offsets = await _find_offsets_at_time(
+        cfg.conn_str, cfg.eventhub_name, target_time, cfg.ssl_kwargs or None,
+    )
 
     return _update_checkpoint_blobs(
-        blob_conn_str, container_name, fqdn, eventhub_name, consumer_group, offsets,
+        cfg.blob_conn_str, cfg.container_name, cfg.fqdn,
+        cfg.eventhub_name, cfg.consumer_group, offsets,
     )
 
 

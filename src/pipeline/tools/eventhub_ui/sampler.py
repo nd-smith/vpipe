@@ -19,6 +19,24 @@ class SampledMessage:
     body: str  # JSON string or raw text
 
 
+def _format_event(event: Any) -> SampledMessage:
+    """Convert a received EventHub event to a SampledMessage."""
+    body_bytes = event.body_as_str()
+    try:
+        parsed = json.loads(body_bytes)
+        body = json.dumps(parsed, indent=2, default=str)
+    except (json.JSONDecodeError, TypeError):
+        body = body_bytes
+
+    return SampledMessage(
+        sequence_number=event.sequence_number,
+        offset=str(event.offset),
+        enqueued_time=event.enqueued_time,
+        partition_key=event.partition_key,
+        body=body,
+    )
+
+
 async def sample_messages(
     conn_str: str,
     eventhub_name: str,
@@ -42,22 +60,18 @@ async def sample_messages(
         **(ssl_kwargs or {}),
     )
 
-    messages = []
-
     async with client:
         if starting_time:
             position = starting_time
             inclusive = True
         elif starting_position == "@latest":
-            # To get the *last N* messages, compute a starting sequence number
             props = await client.get_partition_properties(partition_id)
             if props["is_empty"]:
                 return []
-            target_seq = max(
+            position = max(
                 props["beginning_sequence_number"],
                 props["last_enqueued_sequence_number"] - count,
             )
-            position = target_seq
             inclusive = True
         else:
             position = starting_position
@@ -83,21 +97,4 @@ async def sample_messages(
         except StopIteration:
             pass
 
-    for event in received:
-        body_bytes = event.body_as_str()
-        try:
-            # Pretty-print JSON if possible
-            parsed = json.loads(body_bytes)
-            body = json.dumps(parsed, indent=2, default=str)
-        except (json.JSONDecodeError, TypeError):
-            body = body_bytes
-
-        messages.append(SampledMessage(
-            sequence_number=event.sequence_number,
-            offset=str(event.offset),
-            enqueued_time=event.enqueued_time,
-            partition_key=event.partition_key,
-            body=body,
-        ))
-
-    return messages
+    return [_format_event(event) for event in received]

@@ -113,33 +113,41 @@ async def partitions(request: Request, eventhub_name: str):
     })
 
 
+def _load_lag_config() -> tuple[dict, list[str]]:
+    """Load connection strings needed for lag calculation.
+
+    Returns (config_dict, errors). If errors is non-empty, config is unusable.
+    """
+    config = {}
+    errors = []
+
+    for key, getter, fqdn_key in [
+        ("internal_conn", get_namespace_connection_string, "internal_fqdn"),
+        ("source_conn", get_source_connection_string, "source_fqdn"),
+    ]:
+        try:
+            conn = getter()
+            config[key] = conn
+            config[fqdn_key] = extract_fqdn(conn)
+        except Exception as e:
+            config[key] = None
+            config[fqdn_key] = None
+            errors.append(str(e))
+
+    try:
+        config["blob_conn"] = get_blob_connection_string()
+    except Exception as e:
+        config["blob_conn"] = None
+        errors.append(str(e))
+
+    return config, errors
+
+
 async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
     """Fetch lag for every consumer group. Returns (results, errors)."""
     from pipeline.tools.eventhub_ui.lag import calculate_lag
 
-    config_errors = []
-    try:
-        internal_conn = get_namespace_connection_string()
-        internal_fqdn = extract_fqdn(internal_conn)
-    except Exception as e:
-        internal_conn = None
-        internal_fqdn = None
-        config_errors.append(str(e))
-
-    try:
-        source_conn = get_source_connection_string()
-        source_fqdn = extract_fqdn(source_conn)
-    except Exception as e:
-        source_conn = None
-        source_fqdn = None
-        config_errors.append(str(e))
-
-    try:
-        blob_conn = get_blob_connection_string()
-    except Exception as e:
-        blob_conn = None
-        config_errors.append(str(e))
-
+    cfg, config_errors = _load_lag_config()
     if config_errors:
         return [], config_errors
 
@@ -152,8 +160,8 @@ async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
         if not hub.consumer_groups:
             continue
 
-        conn_str = source_conn if hub.is_source else internal_conn
-        fqdn = source_fqdn if hub.is_source else internal_fqdn
+        conn_str = cfg["source_conn"] if hub.is_source else cfg["internal_conn"]
+        fqdn = cfg["source_fqdn"] if hub.is_source else cfg["internal_fqdn"]
 
         for worker_name, cg_name in hub.consumer_groups.items():
             tasks.append((hub, worker_name, cg_name, calculate_lag(
@@ -161,7 +169,7 @@ async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
                 eventhub_name=hub.eventhub_name,
                 consumer_group=cg_name,
                 fqdn=fqdn,
-                blob_conn_str=blob_conn,
+                blob_conn_str=cfg["blob_conn"],
                 container_name=container_name,
                 ssl_kwargs=ssl_kwargs,
             )))
@@ -411,7 +419,7 @@ async def checkpoints_reset_to_time(
     target_datetime: str = Form(...),
 ):
     """Reset checkpoints to a specific UTC datetime."""
-    from pipeline.tools.eventhub_ui.checkpoints import reset_checkpoints_to_time
+    from pipeline.tools.eventhub_ui.checkpoints import CheckpointConfig, reset_checkpoints_to_time
 
     hub = _find_hub(eventhub_name)
     if not hub:
@@ -430,17 +438,16 @@ async def checkpoints_reset_to_time(
 
     try:
         conn_str = _conn_str_for_hub(hub)
-        fqdn = extract_fqdn(conn_str)
-        changes = await reset_checkpoints_to_time(
+        cfg = CheckpointConfig(
             conn_str=conn_str,
             eventhub_name=eventhub_name,
             consumer_group=consumer_group,
-            fqdn=fqdn,
+            fqdn=extract_fqdn(conn_str),
             blob_conn_str=get_blob_connection_string(),
             container_name=get_checkpoint_container_name(),
-            target_time=target_time,
             ssl_kwargs=get_ssl_kwargs(),
         )
+        changes = await reset_checkpoints_to_time(cfg, target_time)
     except Exception as e:
         logger.exception(f"Failed to reset checkpoints for {eventhub_name}/{consumer_group}")
         return templates.TemplateResponse("error.html", {
