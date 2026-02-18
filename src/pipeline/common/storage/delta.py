@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import operator
 import os
 import warnings
 from datetime import UTC, datetime
@@ -200,6 +201,15 @@ class DeltaTableReader:
         Returns:
             Polars DataFrame
         """
+        _FILTER_OPS = {
+            "=": operator.eq,
+            "!=": operator.ne,
+            "<": operator.lt,
+            ">": operator.gt,
+            "<=": operator.le,
+            ">=": operator.ge,
+        }
+
         opts = self.storage_options or get_storage_options()
 
         lf = pl.scan_delta(self.table_path, storage_options=opts)
@@ -211,26 +221,14 @@ class DeltaTableReader:
                     # Cast column to match value type for numeric comparisons
                     col_expr = pl.col(col)
                     if isinstance(value, int):
-                        # Cast to int, fill nulls with 0 to handle conversion failures
                         col_expr = col_expr.cast(pl.Int64, strict=False).fill_null(0)
                     elif isinstance(value, float):
-                        # Cast to float, fill nulls with 0.0
                         col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(0.0)
 
-                    if op == "=":
-                        lf = lf.filter(col_expr == value)
-                    elif op == "!=":
-                        lf = lf.filter(col_expr != value)
-                    elif op == "<":
-                        lf = lf.filter(col_expr < value)
-                    elif op == ">":
-                        lf = lf.filter(col_expr > value)
-                    elif op == "<=":
-                        lf = lf.filter(col_expr <= value)
-                    elif op == ">=":
-                        lf = lf.filter(col_expr >= value)
-                    else:
+                    op_fn = _FILTER_OPS.get(op)
+                    if op_fn is None:
                         raise ValueError(f"Unsupported filter operator: {op}")
+                    lf = lf.filter(op_fn(col_expr, value))
                 except Exception as e:
                     # Provide detailed error for debugging
                     raise TypeError(
@@ -357,6 +355,50 @@ class DeltaTableWriter:
                 df = df.with_columns(pl.col(col).cast(target_type, strict=False).alias(col))
         return df
 
+    def _build_cast_expr(
+        self, col: str, source_dtype: pl.DataType, target_arrow_type: Any
+    ) -> tuple[pl.Expr, str | None]:
+        """Build a Polars cast expression for a single column.
+
+        Returns (expression, mismatch_note). mismatch_note is None when no cast needed.
+        """
+        try:
+            polars_type = self._arrow_type_to_polars(target_arrow_type)
+        except Exception as e:
+            return pl.col(col), f"{col}: cast failed ({e})"
+
+        if polars_type is None:
+            return pl.col(col), f"{col}: source={source_dtype}, target={target_arrow_type} (unmapped)"
+
+        if source_dtype == pl.Null:
+            return pl.col(col).cast(polars_type, strict=False).alias(col), f"{col}: Null -> {polars_type}"
+
+        if source_dtype == polars_type:
+            return pl.col(col), None
+
+        note = f"{col}: {source_dtype} -> {polars_type}"
+
+        # Datetime timezone conversions need special handling (cast() doesn't convert TZ)
+        if isinstance(source_dtype, pl.Datetime) and isinstance(polars_type, pl.Datetime):
+            expr = self._build_datetime_cast(col, source_dtype.time_zone, polars_type.time_zone)
+            if expr is not None:
+                return expr, note
+
+        return pl.col(col).cast(polars_type, strict=False).alias(col), note
+
+    @staticmethod
+    def _build_datetime_cast(
+        col: str, source_tz: str | None, target_tz: str | None
+    ) -> pl.Expr | None:
+        """Build a timezone-aware datetime cast, or None if no TZ difference."""
+        if source_tz == target_tz:
+            return None
+        if target_tz is None:
+            return pl.col(col).dt.replace_time_zone(None).alias(col)
+        if source_tz is None:
+            return pl.col(col).dt.replace_time_zone(target_tz).alias(col)
+        return pl.col(col).dt.convert_time_zone(target_tz).alias(col)
+
     def _align_schema_with_target(
         self,
         df: pl.DataFrame,
@@ -385,64 +427,10 @@ class DeltaTableWriter:
             mismatches = []
             for col in target_column_order:
                 if col in source_columns:
-                    target_arrow_type = target_types[col]
-                    source_dtype = df[col].dtype
-                    # Convert Arrow type to Polars type and cast
-                    try:
-                        polars_type = self._arrow_type_to_polars(target_arrow_type)
-                        if polars_type is None:
-                            # Unknown type - log warning and keep original
-                            mismatches.append(
-                                f"{col}: source={source_dtype}, target={target_arrow_type} (unmapped)"
-                            )
-                            cast_exprs.append(pl.col(col))
-                        elif source_dtype == pl.Null:
-                            # NULL-typed columns must be cast to target type for delta-rs CASE WHEN
-                            mismatches.append(f"{col}: Null -> {polars_type}")
-                            # Cast existing column (not literal) to preserve DataFrame structure
-                            cast_exprs.append(
-                                pl.col(col).cast(polars_type, strict=False).alias(col)
-                            )
-                        elif source_dtype != polars_type:
-                            mismatches.append(f"{col}: {source_dtype} -> {polars_type}")
-                            # Special handling for datetime timezone conversions
-                            # Polars cast() doesn't handle timezone conversion properly
-                            if isinstance(source_dtype, pl.Datetime) and isinstance(
-                                polars_type, pl.Datetime
-                            ):
-                                # Handle timezone differences
-                                source_tz = source_dtype.time_zone
-                                target_tz = polars_type.time_zone
-                                if source_tz != target_tz:
-                                    if target_tz is None:
-                                        # Remove timezone
-                                        cast_exprs.append(
-                                            pl.col(col).dt.replace_time_zone(None).alias(col)
-                                        )
-                                    elif source_tz is None:
-                                        # Add timezone
-                                        cast_exprs.append(
-                                            pl.col(col).dt.replace_time_zone(target_tz).alias(col)
-                                        )
-                                    else:
-                                        # Convert between timezones
-                                        cast_exprs.append(
-                                            pl.col(col).dt.convert_time_zone(target_tz).alias(col)
-                                        )
-                                else:
-                                    cast_exprs.append(
-                                        pl.col(col).cast(polars_type, strict=False).alias(col)
-                                    )
-                            else:
-                                cast_exprs.append(
-                                    pl.col(col).cast(polars_type, strict=False).alias(col)
-                                )
-                        else:
-                            cast_exprs.append(pl.col(col))
-                    except Exception as e:
-                        # If cast fails, keep original column
-                        mismatches.append(f"{col}: cast failed ({e})")
-                        cast_exprs.append(pl.col(col))
+                    expr, note = self._build_cast_expr(col, df[col].dtype, target_types[col])
+                    cast_exprs.append(expr)
+                    if note:
+                        mismatches.append(note)
 
             # Add any extra source columns not in target (at the end)
             # Schema evolution will handle adding these to the table
@@ -478,7 +466,8 @@ class DeltaTableWriter:
             )
             return df
 
-    def _arrow_type_to_polars(self, arrow_type: Any) -> pl.DataType | None:
+    @staticmethod
+    def _arrow_type_to_polars(arrow_type: Any) -> pl.DataType | None:
         """
         Convert Arrow type to Polars type for schema alignment.
 
@@ -490,69 +479,62 @@ class DeltaTableWriter:
         """
         import pyarrow as pa
 
+        # Exact Arrow type matches (checked first for precision)
+        _EXACT_MAP = {
+            pa.string(): pl.Utf8,
+            pa.large_string(): pl.Utf8,
+            pa.int64(): pl.Int64,
+            pa.int32(): pl.Int32,
+            pa.int16(): pl.Int16,
+            pa.int8(): pl.Int8,
+            pa.float64(): pl.Float64,
+            pa.float32(): pl.Float32,
+            pa.bool_(): pl.Boolean,
+            pa.date32(): pl.Date,
+            pa.date64(): pl.Date,
+            pa.binary(): pl.Binary,
+            pa.large_binary(): pl.Binary,
+            pa.null(): pl.Null,
+        }
+
+        exact = _EXACT_MAP.get(arrow_type)
+        if exact is not None:
+            return exact
+
+        # String-based fallback for complex/parameterized types
         type_str = str(arrow_type).lower()
 
-        # Timestamp types - always use UTC for consistency across all tables
-        # All timestamps in the pipeline should be timezone-aware UTC
+        # Timestamp types - always use UTC for consistency
         if "timestamp" in type_str:
             return pl.Datetime("us", "UTC")
 
-        # String types - check by string representation for flexibility
-        # Handles: string, large_string, utf8, large_utf8
-        if arrow_type == pa.string() or arrow_type == pa.large_string():
-            return pl.Utf8
-        if "string" in type_str or "utf8" in type_str:
-            return pl.Utf8
+        # Keyword-based fallback lookup (order matters: check timestamp before date)
+        _STR_CHECKS: list[tuple[str, pl.DataType]] = [
+            ("string", pl.Utf8),
+            ("utf8", pl.Utf8),
+            ("int64", pl.Int64),
+            ("int32", pl.Int32),
+            ("float64", pl.Float64),
+            ("double", pl.Float64),
+            ("float32", pl.Float32),
+            ("bool", pl.Boolean),
+            ("binary", pl.Binary),
+            ("decimal", pl.Float64),
+            ("null", pl.Null),
+        ]
+        for keyword, polars_type in _STR_CHECKS:
+            if keyword in type_str:
+                return polars_type
 
-        # Integer types - exact match first, then string fallback
-        if arrow_type == pa.int64():
-            return pl.Int64
-        if arrow_type == pa.int32():
-            return pl.Int32
-        if arrow_type == pa.int16():
-            return pl.Int16
-        if arrow_type == pa.int8():
-            return pl.Int8
-        if "int64" in type_str or type_str == "long":
-            return pl.Int64
-        if "int32" in type_str or type_str == "int":
-            return pl.Int32
-
-        # Float types
-        if arrow_type == pa.float64():
-            return pl.Float64
-        if arrow_type == pa.float32():
-            return pl.Float32
-        if "float64" in type_str or "double" in type_str:
-            return pl.Float64
-        if "float32" in type_str or type_str == "float":
-            return pl.Float32
-
-        # Boolean
-        if arrow_type == pa.bool_():
-            return pl.Boolean
-        if "bool" in type_str:
-            return pl.Boolean
-
-        # Date types
-        if arrow_type == pa.date32() or arrow_type == pa.date64():
-            return pl.Date
-        if "date" in type_str and "timestamp" not in type_str:
+        # "date" must exclude "timestamp" (already handled above)
+        if "date" in type_str:
             return pl.Date
 
-        # Binary
-        if arrow_type == pa.binary() or arrow_type == pa.large_binary():
-            return pl.Binary
-        if "binary" in type_str:
-            return pl.Binary
-
-        # Decimal types - convert to Float64 for compatibility
-        if "decimal" in type_str:
-            return pl.Float64
-
-        # Null type
-        if arrow_type == pa.null() or type_str == "null":
-            return pl.Null
+        # Exact string fallbacks for aliases
+        _ALIAS_MAP = {"long": pl.Int64, "int": pl.Int32, "float": pl.Float32}
+        alias = _ALIAS_MAP.get(type_str)
+        if alias is not None:
+            return alias
 
         return None
 
