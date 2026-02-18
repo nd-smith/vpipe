@@ -45,6 +45,46 @@ class PipelineVerifier:
             self._storage_options = get_storage_options()
         return self._storage_options
 
+    @staticmethod
+    def _analyze_duplicates(df: pl.DataFrame, results: dict) -> None:
+        """Analyze duplicate trace_ids and their temporal patterns."""
+        duplicate_analysis = (
+            df.group_by("trace_id")
+            .agg(pl.count().alias("count"))
+            .filter(pl.col("count") > 1)
+            .sort("count", descending=True)
+        )
+
+        results["duplicate_analysis"] = {
+            "trace_ids_with_duplicates": len(duplicate_analysis),
+            "max_duplicates_per_trace_id": duplicate_analysis["count"].max(),
+            "sample_duplicates": duplicate_analysis.head(10).to_dicts(),
+        }
+
+        # Temporal pattern analysis on a sample of duplicated trace_ids
+        duplicated_ids = duplicate_analysis["trace_id"].to_list()[:100]
+        duplicate_df = df.filter(pl.col("trace_id").is_in(duplicated_ids))
+        if len(duplicate_df) == 0:
+            return
+
+        temporal = (
+            duplicate_df.group_by("trace_id")
+            .agg([
+                pl.col("ingested_at").min().alias("first_ingested"),
+                pl.col("ingested_at").max().alias("last_ingested"),
+                pl.count().alias("count"),
+            ])
+            .with_columns([
+                (pl.col("last_ingested") - pl.col("first_ingested"))
+                .dt.total_seconds()
+                .alias("time_span_seconds"),
+            ])
+        )
+        results["temporal_analysis"] = {
+            "avg_time_span_between_duplicates_seconds": round(temporal["time_span_seconds"].mean() or 0, 2),
+            "max_time_span_between_duplicates_seconds": round(temporal["time_span_seconds"].max() or 0, 2),
+        }
+
     def analyze_events(
         self,
         since: datetime | None = None,
@@ -104,58 +144,8 @@ class PipelineVerifier:
                 ),
             }
 
-            # Analyze duplicates if present
             if duplicate_count > 0:
-                # Find trace_ids with duplicates
-                duplicate_analysis = (
-                    df.group_by("trace_id")
-                    .agg(pl.count().alias("count"))
-                    .filter(pl.col("count") > 1)
-                    .sort("count", descending=True)
-                )
-
-                # Get sample duplicates
-                sample_duplicates = duplicate_analysis.head(10).to_dicts()
-                max_duplicates = duplicate_analysis["count"].max()
-                trace_ids_with_duplicates = len(duplicate_analysis)
-
-                results["duplicate_analysis"] = {
-                    "trace_ids_with_duplicates": trace_ids_with_duplicates,
-                    "max_duplicates_per_trace_id": max_duplicates,
-                    "sample_duplicates": sample_duplicates,
-                }
-
-                # Analyze temporal pattern of duplicates
-                duplicated_trace_ids = set(duplicate_analysis["trace_id"].to_list())
-                duplicate_df = df.filter(pl.col("trace_id").is_in(list(duplicated_trace_ids)[:100]))
-
-                # Check if duplicates have different ingested_at times
-                if len(duplicate_df) > 0:
-                    temporal_analysis = (
-                        duplicate_df.group_by("trace_id")
-                        .agg(
-                            [
-                                pl.col("ingested_at").min().alias("first_ingested"),
-                                pl.col("ingested_at").max().alias("last_ingested"),
-                                pl.count().alias("count"),
-                            ]
-                        )
-                        .with_columns(
-                            [
-                                (pl.col("last_ingested") - pl.col("first_ingested"))
-                                .dt.total_seconds()
-                                .alias("time_span_seconds"),
-                            ]
-                        )
-                    )
-
-                    avg_time_span = temporal_analysis["time_span_seconds"].mean()
-                    max_time_span = temporal_analysis["time_span_seconds"].max()
-
-                    results["temporal_analysis"] = {
-                        "avg_time_span_between_duplicates_seconds": round(avg_time_span or 0, 2),
-                        "max_time_span_between_duplicates_seconds": round(max_time_span or 0, 2),
-                    }
+                self._analyze_duplicates(df, results)
 
             # Event type distribution
             type_distribution = (
@@ -295,34 +285,38 @@ def print_report(results: dict) -> None:
 
     print("\n" + "=" * 80)
 
-    # Recommendations
-    print("\n--- RECOMMENDATIONS ---")
-    if results["duplicate_rows"] > 0:
-        dup_pct = results["duplicate_percentage"]
-        if dup_pct > 10:
-            print("⚠️  HIGH DUPLICATE RATE detected!")
-            print("   Possible causes:")
-            print("   1. KQL Poller overlap_minutes causing re-polling")
-            print("   2. Multiple poller instances running simultaneously")
-            print("   3. Daily maintenance job not running or failing")
-            print("   4. Eventhouse source has higher duplicate rate than expected (>0.5%)")
-            print("")
-            print("   Recommended actions:")
-            print("   1. Check for multiple poller pods/processes")
-            print("   2. Verify daily maintenance job is running (see fabric_notebooks/)")
-            print("   3. Check Eventhouse source duplicate rate")
-        elif dup_pct > 1:
-            print("⚠️  Moderate duplicate rate detected.")
-            print("   This may be expected due to the 5-minute polling overlap window.")
-            print("   Daily maintenance job will clean these up.")
-            print("   Monitor to ensure rate doesn't increase.")
-        else:
-            print("✓  Duplicate rate within acceptable range (<1%)")
-            print("   Daily maintenance job will clean up remaining duplicates.")
-    else:
-        print("✓  No duplicates detected in Delta table")
-
+    _print_recommendations(results)
     print("\n" + "=" * 80)
+
+
+def _print_recommendations(results: dict) -> None:
+    """Print duplicate-rate recommendations."""
+    print("\n--- RECOMMENDATIONS ---")
+    if results["duplicate_rows"] == 0:
+        print("✓  No duplicates detected in Delta table")
+        return
+
+    dup_pct = results["duplicate_percentage"]
+    if dup_pct > 10:
+        print("⚠️  HIGH DUPLICATE RATE detected!")
+        print("   Possible causes:")
+        print("   1. KQL Poller overlap_minutes causing re-polling")
+        print("   2. Multiple poller instances running simultaneously")
+        print("   3. Daily maintenance job not running or failing")
+        print("   4. Eventhouse source has higher duplicate rate than expected (>0.5%)")
+        print("")
+        print("   Recommended actions:")
+        print("   1. Check for multiple poller pods/processes")
+        print("   2. Verify daily maintenance job is running (see fabric_notebooks/)")
+        print("   3. Check Eventhouse source duplicate rate")
+    elif dup_pct > 1:
+        print("⚠️  Moderate duplicate rate detected.")
+        print("   This may be expected due to the 5-minute polling overlap window.")
+        print("   Daily maintenance job will clean these up.")
+        print("   Monitor to ensure rate doesn't increase.")
+    else:
+        print("✓  Duplicate rate within acceptable range (<1%)")
+        print("   Daily maintenance job will clean up remaining duplicates.")
 
 
 def main():
