@@ -16,7 +16,6 @@ Test Coverage:
 No infrastructure required - all dependencies mocked.
 """
 
-import contextlib
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
@@ -219,8 +218,10 @@ class TestEnrichmentWorkerLifecycle:
                 "pipeline.claimx.workers.enrichment_worker.create_producer"
             ) as mock_create_producer,
             patch(
-                "pipeline.claimx.workers.enrichment_worker.create_consumer"
-            ) as mock_create_consumer,
+                "pipeline.claimx.workers.enrichment_worker.create_batch_consumer",
+                new_callable=AsyncMock,
+            ) as mock_create_batch_consumer,
+            patch("pipeline.claimx.workers.enrichment_worker.EnrichmentRetryHandler"),
             patch("pipeline.common.telemetry.initialize_worker_telemetry"),
         ):
             # Setup mocks
@@ -230,12 +231,9 @@ class TestEnrichmentWorkerLifecycle:
 
             mock_consumer = AsyncMock()
             mock_consumer.start = AsyncMock()
-            mock_create_consumer.return_value = mock_consumer
+            mock_create_batch_consumer.return_value = mock_consumer
 
-            # Start worker (will block on consumer.start, so we need to cancel)
-            start_task = pytest.raises(Exception)
-            with start_task:
-                await worker.start()
+            await worker.start()
 
             # Verify components initialized
             assert worker._running is True
@@ -254,8 +252,10 @@ class TestEnrichmentWorkerLifecycle:
                 "pipeline.claimx.workers.enrichment_worker.create_producer"
             ) as mock_create_producer,
             patch(
-                "pipeline.claimx.workers.enrichment_worker.create_consumer"
-            ) as mock_create_consumer,
+                "pipeline.claimx.workers.enrichment_worker.create_batch_consumer",
+                new_callable=AsyncMock,
+            ) as mock_create_batch_consumer,
+            patch("pipeline.claimx.workers.enrichment_worker.EnrichmentRetryHandler"),
             patch("pipeline.common.telemetry.initialize_worker_telemetry"),
         ):
             mock_producer = AsyncMock()
@@ -264,13 +264,9 @@ class TestEnrichmentWorkerLifecycle:
 
             mock_consumer = AsyncMock()
             mock_consumer.start = AsyncMock()
-            mock_create_consumer.return_value = mock_consumer
+            mock_create_batch_consumer.return_value = mock_consumer
 
-            # Prevent blocking on consumer.start
-            mock_consumer.start.side_effect = Exception("Stop")
-
-            with contextlib.suppress(Exception):
-                await worker.start()
+            await worker.start()
 
             # Verify injected client was used
             assert worker.api_client is mock_api_client
