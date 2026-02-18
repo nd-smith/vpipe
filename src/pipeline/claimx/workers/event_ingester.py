@@ -131,32 +131,29 @@ class ClaimXEventIngesterWorker:
     def config(self) -> MessageConfig:
         return self.consumer_config
 
+    async def _close_resource(self, name: str, method: str = "stop", *, clear: bool = False) -> None:
+        """Close a resource by attribute name, logging errors. Optionally set to None."""
+        resource = getattr(self, name, None)
+        if resource is None:
+            return
+        try:
+            await getattr(resource, method)()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+        finally:
+            if clear:
+                setattr(self, name, None)
+
     async def start(self) -> None:
         logger.info("Starting ClaimXEventIngesterWorker")
         self._running = True
 
         # Clean up resources from a previous failed start attempt (retry safety)
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale stats logger", extra={"error": str(e)})
-            finally:
-                self._stats_logger = None
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
+        await self._close_resource("_stats_logger", clear=True)
+        await self._close_resource("consumer", clear=True)
+        await self._close_resource("producer", clear=True)
 
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
@@ -227,11 +224,7 @@ class ClaimXEventIngesterWorker:
         logger.info("Stopping ClaimXEventIngesterWorker")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
+        await self._close_resource("_stats_logger", clear=True)
 
         # Cancel dedup cleanup task
         if self._dedup_cleanup_task and not self._dedup_cleanup_task.done():
@@ -241,25 +234,8 @@ class ClaimXEventIngesterWorker:
 
         await self._wait_for_pending_tasks(timeout_seconds=30)
 
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping producer")
-            except Exception as e:
-                logger.error("Error stopping producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
+        await self._close_resource("consumer", clear=True)
+        await self._close_resource("producer", clear=True)
 
         # Close persistent dedup store
         try:
@@ -267,10 +243,7 @@ class ClaimXEventIngesterWorker:
         except Exception as e:
             logger.error("Error closing dedup store", extra={"error": str(e)})
 
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("health_server")
 
         logger.info("ClaimXEventIngesterWorker stopped successfully")
 
@@ -447,6 +420,27 @@ class ClaimXEventIngesterWorker:
 
         return BatchResult(commit=True, permanent_failures=permanent_failures)
 
+    def _update_cycle_offsets(self, ts: int | None) -> None:
+        """Update cycle offset tracking with a message timestamp."""
+        if ts is None:
+            return
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    def _is_memory_duplicate(self, trace_id: str, now: float) -> bool:
+        """Check if trace_id is a duplicate in the memory cache. Returns True if duplicate."""
+        if trace_id in self._dedup_cache:
+            cached_time = self._dedup_cache[trace_id]
+            if now - cached_time < self._dedup_cache_ttl_seconds:
+                self._dedup_cache.move_to_end(trace_id)
+                self._dedup_memory_hits += 1
+                self._records_deduplicated += 1
+                return True
+            del self._dedup_cache[trace_id]
+        return False
+
     async def _parse_and_dedup_events(
         self, records: list[PipelineMessage],
     ) -> tuple[list[ClaimXEventMessage], datetime | None, list[tuple[PipelineMessage, Exception]]]:
@@ -462,11 +456,7 @@ class ClaimXEventIngesterWorker:
         now = time.time()
 
         for record in records:
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
 
             # Parse event — unparseable messages are permanent failures (route to DLQ)
             try:
@@ -497,14 +487,8 @@ class ClaimXEventIngesterWorker:
                 seen_in_batch.add(trace_id)
 
                 # Fast path: memory cache check (no I/O)
-                if trace_id in self._dedup_cache:
-                    cached_time = self._dedup_cache[trace_id]
-                    if now - cached_time < self._dedup_cache_ttl_seconds:
-                        self._dedup_cache.move_to_end(trace_id)
-                        self._dedup_memory_hits += 1
-                        self._records_deduplicated += 1
-                        continue
-                    del self._dedup_cache[trace_id]
+                if self._is_memory_duplicate(trace_id, now):
+                    continue
 
             parsed_events.append(event)
 
