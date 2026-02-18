@@ -96,6 +96,36 @@ class OAuth2TokenManager:
                 )
             return self._providers[provider_name]
 
+    def _get_cached_token(self, provider_name: str) -> str | None:
+        """Return cached access token if valid, or None if refresh is needed."""
+        with self._lock:
+            cached_token = self._tokens.get(provider_name)
+            if cached_token and not cached_token.is_expired(self.refresh_buffer_seconds):
+                return cached_token.access_token
+        return None
+
+    async def _acquire_or_refresh(
+        self, provider: BaseOAuth2Provider, provider_name: str,
+    ) -> str:
+        """Acquire a new token or refresh an existing one."""
+        with self._lock:
+            current_token = self._tokens.get(provider_name)
+
+        if current_token:
+            logger.debug(f"Refreshing token for '{provider_name}'")
+            new_token = await provider.refresh_token(current_token)
+        else:
+            logger.debug(f"Acquiring new token for '{provider_name}'")
+            new_token = await provider.acquire_token()
+
+        with self._lock:
+            self._tokens[provider_name] = new_token
+
+        logger.info(
+            f"Token for '{provider_name}' valid until {new_token.expires_at.isoformat()}"
+        )
+        return new_token.access_token
+
     async def get_token(self, provider_name: str, force_refresh: bool = False) -> str:
         """
         Get access token for provider, with automatic caching and refresh.
@@ -118,50 +148,23 @@ class OAuth2TokenManager:
 
         # Check if we have a valid cached token (thread-safe)
         if not force_refresh:
-            with self._lock:
-                cached_token = self._tokens.get(provider_name)
-                if cached_token and not cached_token.is_expired(self.refresh_buffer_seconds):
-                    logger.debug(
-                        f"Using cached token for '{provider_name}' "
-                        f"(expires in {cached_token.remaining_lifetime.total_seconds()}s)"
-                    )
-                    return cached_token.access_token
+            cached = self._get_cached_token(provider_name)
+            if cached is not None:
+                logger.debug(f"Using cached token for '{provider_name}'")
+                return cached
 
         # Need to refresh - use async lock to prevent concurrent refreshes
         refresh_lock = self._refresh_locks[provider_name]
         async with refresh_lock:
             # Double-check after acquiring lock (another coroutine may have refreshed)
             if not force_refresh:
-                with self._lock:
-                    cached_token = self._tokens.get(provider_name)
-                    if cached_token and not cached_token.is_expired(self.refresh_buffer_seconds):
-                        logger.debug(
-                            f"Token was refreshed by another coroutine for '{provider_name}'"
-                        )
-                        return cached_token.access_token
+                cached = self._get_cached_token(provider_name)
+                if cached is not None:
+                    logger.debug(f"Token was refreshed by another coroutine for '{provider_name}'")
+                    return cached
 
-            # Acquire or refresh token
             try:
-                with self._lock:
-                    current_token = self._tokens.get(provider_name)
-
-                if current_token:
-                    logger.debug(f"Refreshing token for '{provider_name}'")
-                    new_token = await provider.refresh_token(current_token)
-                else:
-                    logger.debug(f"Acquiring new token for '{provider_name}'")
-                    new_token = await provider.acquire_token()
-
-                # Cache the new token (thread-safe)
-                with self._lock:
-                    self._tokens[provider_name] = new_token
-
-                logger.info(
-                    f"Token for '{provider_name}' valid until {new_token.expires_at.isoformat()}"
-                )
-
-                return new_token.access_token
-
+                return await self._acquire_or_refresh(provider, provider_name)
             except Exception as e:
                 logger.error(f"Failed to get token for '{provider_name}': {e}")
                 raise TokenAcquisitionError(

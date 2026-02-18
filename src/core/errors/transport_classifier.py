@@ -113,6 +113,51 @@ def classify_error_type(error_type_name: str) -> str | None:
     return None
 
 
+def _classify_permanent_detail(
+    error_str: str, service_name: str, label: str, error: Exception, ctx: dict,
+) -> PermanentError:
+    """Refine permanent error classification based on error message content."""
+    if "topic" in error_str and "not" in error_str:
+        return PermanentError(f"Kafka topic does not exist: {error}", cause=error, context=ctx)
+    if "message" in error_str and ("size" in error_str or "large" in error_str):
+        return PermanentError(f"Kafka message too large: {error}", cause=error, context=ctx)
+    if service_name == "consumer" and "offset" in error_str and "out of range" in error_str:
+        return PermanentError(f"Kafka offset out of range: {error}", cause=error, context=ctx)
+    if service_name == "producer" and "invalid" in error_str:
+        return PermanentError(f"{label} validation error: {error}", cause=error, context=ctx)
+    return PermanentError(f"{label} permanent error: {error}", cause=error, context=ctx)
+
+
+def _classify_transient_detail(
+    error_str: str, error_type: str, label: str, error: Exception, ctx: dict,
+) -> TransientError:
+    """Refine transient error classification based on error message content."""
+    if "timeout" in error_str or "KafkaTimeoutError" in error_type:
+        return TransientError(f"{label} timeout: {error}", cause=error, context=ctx)
+    if "connection" in error_str or "KafkaConnectionError" in error_type:
+        return TransientError(f"{label} connection error: {error}", cause=error, context=ctx)
+    return TransientError(f"{label} transient error: {error}", cause=error, context=ctx)
+
+
+def _classify_by_string_fallback(
+    error_str: str, service_name: str, label: str, error: Exception, ctx: dict,
+) -> PipelineError:
+    """Classify error by string markers when type-based classification fails."""
+    if any(m in error_str for m in ("unauthorized", "authentication", "authorization")):
+        return AuthError(f"{label} auth error: {error}", cause=error, context=ctx)
+
+    if "timeout" in error_str:
+        return TimeoutError(f"{label} timeout: {error}", cause=error, context=ctx)
+
+    connection_markers = ["connection", "broker", "network"]
+    connection_markers.append("node not ready" if service_name == "consumer" else "leader")
+
+    if any(m in error_str for m in connection_markers):
+        return ConnectionError(f"{label} connection error: {error}", cause=error, context=ctx)
+
+    return KafkaError(f"{label} error: {error}", cause=error, context=ctx)
+
+
 def _classify_kafka_error(
     error: Exception,
     service_name: str,
@@ -150,103 +195,19 @@ def _classify_kafka_error(
     category = classify_error_type(error_type)
 
     if category == "auth":
-        return AuthError(
-            f"{label} authentication failed: {error}",
-            cause=error,
-            context=error_context,
-        )
+        return AuthError(f"{label} authentication failed: {error}", cause=error, context=error_context)
 
     if category == "throttling":
-        return ThrottlingError(
-            f"{label} throttled: {error}",
-            cause=error,
-            context=error_context,
-        )
+        return ThrottlingError(f"{label} throttled: {error}", cause=error, context=error_context)
 
     if category == "permanent":
-        if "topic" in error_str and "not" in error_str:
-            return PermanentError(
-                f"Kafka topic does not exist: {error}",
-                cause=error,
-                context=error_context,
-            )
-        if "message" in error_str and ("size" in error_str or "large" in error_str):
-            return PermanentError(
-                f"Kafka message too large: {error}",
-                cause=error,
-                context=error_context,
-            )
-        if service_name == "consumer" and "offset" in error_str and "out of range" in error_str:
-            return PermanentError(
-                f"Kafka offset out of range: {error}",
-                cause=error,
-                context=error_context,
-            )
-        if service_name == "producer" and "invalid" in error_str:
-            return PermanentError(
-                f"{label} validation error: {error}",
-                cause=error,
-                context=error_context,
-            )
-        return PermanentError(
-            f"{label} permanent error: {error}",
-            cause=error,
-            context=error_context,
-        )
+        return _classify_permanent_detail(error_str, service_name, label, error, error_context)
 
     if category == "transient":
-        if "timeout" in error_str or "KafkaTimeoutError" in error_type:
-            return TransientError(
-                f"{label} timeout: {error}",
-                cause=error,
-                context=error_context,
-            )
-        if "connection" in error_str or "KafkaConnectionError" in error_type:
-            return TransientError(
-                f"{label} connection error: {error}",
-                cause=error,
-                context=error_context,
-            )
-        return TransientError(
-            f"{label} transient error: {error}",
-            cause=error,
-            context=error_context,
-        )
+        return _classify_transient_detail(error_str, error_type, label, error, error_context)
 
-    # String-based fallback classification
-    if any(marker in error_str for marker in ("unauthorized", "authentication", "authorization")):
-        return AuthError(
-            f"{label} auth error: {error}",
-            cause=error,
-            context=error_context,
-        )
-
-    if "timeout" in error_str:
-        return TimeoutError(
-            f"{label} timeout: {error}",
-            cause=error,
-            context=error_context,
-        )
-
-    connection_markers = ["connection", "broker", "network"]
-    if service_name == "consumer":
-        connection_markers.append("node not ready")
-    else:
-        connection_markers.append("leader")
-
-    if any(marker in error_str for marker in connection_markers):
-        return ConnectionError(
-            f"{label} connection error: {error}",
-            cause=error,
-            context=error_context,
-        )
-
-    # Default to generic Kafka error
-    return KafkaError(
-        f"{label} error: {error}",
-        cause=error,
-        context=error_context,
-    )
+    # No type match — fall back to string-based classification
+    return _classify_by_string_fallback(error_str, service_name, label, error, error_context)
 
 
 class TransportErrorClassifier:

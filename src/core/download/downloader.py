@@ -48,9 +48,11 @@ class AttachmentDownloader:
         self._max_connections = max_connections
         self._max_connections_per_host = max_connections_per_host
 
-    async def download(self, task: DownloadTask) -> DownloadOutcome:
-        """Download attachment with validation and error handling."""
-        # Step 1: Validate URL
+    def _validate_pre_download(self, task: DownloadTask) -> DownloadOutcome | None:
+        """Run URL, expiration, and file-type validations before downloading.
+
+        Returns a failure DownloadOutcome if any check fails, or None to proceed.
+        """
         if task.validate_url:
             try:
                 validate_download_url(
@@ -64,14 +66,11 @@ class AttachmentDownloader:
                     error_category=ErrorCategory.PERMANENT,
                 )
 
-        # Step 2: Check presigned URL expiration (Xact S3 URLs)
         if task.check_expiration:
             url_info = check_presigned_url(task.url)
-            # S3 presigned URLs are used by Xact - no refresh capability
             if url_info.url_type == "s3" and url_info.is_expired:
                 expires_at = url_info.expires_at.isoformat() if url_info.expires_at else "unknown"
                 signed_at = url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
-
                 logger.debug(
                     "Presigned URL expired, sending to DLQ",
                     extra={
@@ -87,7 +86,6 @@ class AttachmentDownloader:
                     error_category=ErrorCategory.PERMANENT,
                 )
 
-        # Step 3: Validate file type from URL extension
         if task.validate_file_type:
             try:
                 validate_file_type(task.url, allowed_extensions=task.allowed_extensions)
@@ -97,12 +95,66 @@ class AttachmentDownloader:
                     error_category=ErrorCategory.PERMANENT,
                 )
 
+        return None
+
+    @staticmethod
+    def _check_integrity(
+        outcome: DownloadOutcome, content_length: int | None,
+    ) -> DownloadOutcome | None:
+        """Validate download integrity. Returns failure outcome or None if OK."""
+        if not outcome.success:
+            return None
+        integrity_error = None
+        if outcome.bytes_downloaded == 0:
+            integrity_error = "Download produced zero bytes"
+        elif content_length and outcome.bytes_downloaded != content_length:
+            integrity_error = (
+                f"Size mismatch: expected {content_length} bytes, "
+                f"got {outcome.bytes_downloaded}"
+            )
+        if integrity_error:
+            if outcome.file_path and outcome.file_path.exists():
+                outcome.file_path.unlink()
+            return DownloadOutcome.download_failure(
+                error_message=integrity_error,
+                error_category=ErrorCategory.TRANSIENT,
+            )
+        return None
+
+    @staticmethod
+    def _validate_content_type(
+        outcome: DownloadOutcome, task: DownloadTask,
+    ) -> DownloadOutcome | None:
+        """Validate Content-Type of a successful download. Returns failure or None if OK."""
+        if not (outcome.success and task.validate_file_type and outcome.content_type):
+            return None
+        try:
+            validate_file_type(
+                task.url,
+                content_type=outcome.content_type,
+                allowed_extensions=task.allowed_extensions,
+            )
+        except FileValidationError as e:
+            if outcome.file_path and outcome.file_path.exists():
+                outcome.file_path.unlink()
+            return DownloadOutcome.validation_failure(
+                validation_error=f"Content-Type validation failed: {str(e)}",
+                error_category=ErrorCategory.TRANSIENT,
+            )
+        return None
+
+    async def download(self, task: DownloadTask) -> DownloadOutcome:
+        """Download attachment with validation and error handling."""
+        # Steps 1-3: Pre-download validation
+        pre_download_error = self._validate_pre_download(task)
+        if pre_download_error:
+            return pre_download_error
+
         # Step 4: Perform HTTP download
         session = self._session
         should_close_session = False
 
         try:
-            # Create session if needed
             if session is None:
                 session = create_session(
                     max_connections=self._max_connections,
@@ -111,8 +163,6 @@ class AttachmentDownloader:
                 should_close_session = True
 
             # HEAD request to check Content-Length for streaming decision
-            # skip_head bypasses the extra round-trip when max_size isn't set
-            # and the streaming threshold (50MB) is unlikely to trigger.
             content_length = None
             if task.skip_head:
                 use_streaming = True
@@ -125,7 +175,6 @@ class AttachmentDownloader:
                     extra={"download_url": task.url[:120]},
                 )
 
-                # Check max size if specified
                 if task.max_size and content_length and content_length > task.max_size:
                     return DownloadOutcome.validation_failure(
                         validation_error=f"File size {content_length} exceeds maximum {task.max_size}",
@@ -148,50 +197,18 @@ class AttachmentDownloader:
                 extra={"download_url": task.url[:120]},
             )
 
-            # Step 5: Validate download integrity
-            if outcome.success:
-                integrity_error = None
-                if outcome.bytes_downloaded == 0:
-                    integrity_error = "Download produced zero bytes"
-                elif content_length and outcome.bytes_downloaded != content_length:
-                    integrity_error = (
-                        f"Size mismatch: expected {content_length} bytes, "
-                        f"got {outcome.bytes_downloaded}"
-                    )
+            # Steps 5-6: Post-download validation
+            integrity_error = self._check_integrity(outcome, content_length)
+            if integrity_error:
+                return integrity_error
 
-                if integrity_error:
-                    if outcome.file_path and outcome.file_path.exists():
-                        outcome.file_path.unlink()
-                    return DownloadOutcome.download_failure(
-                        error_message=integrity_error,
-                        error_category=ErrorCategory.TRANSIENT,
-                    )
-
-            # Step 6: Validate Content-Type from response
-            if outcome.success and task.validate_file_type and outcome.content_type:
-                try:
-                    validate_file_type(
-                        task.url,
-                        content_type=outcome.content_type,
-                        allowed_extensions=task.allowed_extensions,
-                    )
-                except FileValidationError as e:
-                    # Delete downloaded file on validation failure
-                    if outcome.file_path and outcome.file_path.exists():
-                        outcome.file_path.unlink()
-
-                    # Content-Type mismatch likely means the server returned an
-                    # error page (e.g. JSON 403) instead of the actual file.
-                    # Classify as transient so it gets retried rather than DLQ'd.
-                    return DownloadOutcome.validation_failure(
-                        validation_error=f"Content-Type validation failed: {str(e)}",
-                        error_category=ErrorCategory.TRANSIENT,
-                    )
+            content_type_error = self._validate_content_type(outcome, task)
+            if content_type_error:
+                return content_type_error
 
             return outcome
 
         finally:
-            # Clean up session if we created it
             if should_close_session and session:
                 await session.close()
                 await asyncio.sleep(0)

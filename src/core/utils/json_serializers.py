@@ -12,6 +12,17 @@ from pathlib import Path
 from typing import Any
 
 
+def _serialize_known_type(obj: Any) -> tuple[bool, Any]:
+    """Try to serialize by known type. Returns (handled, result)."""
+    if isinstance(obj, (datetime, date)):
+        return True, obj.isoformat()
+    if isinstance(obj, Decimal):
+        return True, float(obj)
+    if isinstance(obj, Path):
+        return True, str(obj)
+    return False, None
+
+
 def json_serializer(obj: Any) -> Any:
     """
     Type-safe JSON serializer for ADX compatibility.
@@ -32,21 +43,14 @@ def json_serializer(obj: Any) -> Any:
     Returns:
         JSON-serializable representation with proper types
     """
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    elif isinstance(obj, Decimal):
-        return float(obj)
-    elif isinstance(obj, Path):
-        return str(obj)
-    elif hasattr(obj, "value"):
-        # For enums
+    handled, result = _serialize_known_type(obj)
+    if handled:
+        return result
+    if hasattr(obj, "value"):
         return obj.value
-    elif hasattr(obj, "__dict__"):
-        # For objects with __dict__, serialize as dict
+    if hasattr(obj, "__dict__"):
         return obj.__dict__
-    else:
-        # Fallback to string
-        return str(obj)
+    return str(obj)
 
 
 __all__ = ["json_serializer"]

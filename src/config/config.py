@@ -586,6 +586,28 @@ def _handle_cli_error(error: Exception, json_output: bool, verbose: bool, label:
         traceback.print_exc()
 
 
+def _execute_cli(args: Any) -> int:
+    """Execute CLI actions (validate and/or show-merged). Returns exit code."""
+    config = load_config(config_path=args.config)
+
+    config_path = args.config or DEFAULT_CONFIG_FILE
+    config_dict = load_yaml(config_path)
+    config_dict = _expand_env_vars(config_dict)
+
+    output: dict[str, Any] = {}
+
+    if args.validate:
+        output.update(_build_validation_output(config, args.json))
+
+    if args.show_merged:
+        output.update(_build_merged_config_output(config_dict, args.json))
+
+    if args.json:
+        print(json.dumps(output, indent=2))
+
+    return 0
+
+
 def _cli_main() -> int:
     """CLI entry point for config validation and debugging."""
     parser = _build_cli_parser()
@@ -597,39 +619,17 @@ def _cli_main() -> int:
         return 0
 
     try:
-        config = load_config(config_path=args.config)
-
-        config_path = args.config or DEFAULT_CONFIG_FILE
-        config_dict = load_yaml(config_path)
-        config_dict = _expand_env_vars(config_dict)
-
-        output: dict[str, Any] = {}
-
-        if args.validate:
-            output.update(_build_validation_output(config, args.json))
-
-        if args.show_merged:
-            output.update(_build_merged_config_output(config_dict, args.json))
-
-        if args.json:
-            print(json.dumps(output, indent=2))
-
-        return 0
-
+        return _execute_cli(args)
     except FileNotFoundError as e:
         _handle_cli_error(e, args.json, args.verbose, label="Error")
-        return 1
-
     except ValueError as e:
         _handle_cli_error(e, args.json, args.verbose, label="Validation error")
-        return 1
-
     except Exception as e:
         if args.json:
             print(json.dumps({"error": f"Unexpected error: {e}"}))
         else:
             _handle_cli_error(e, args.json, args.verbose, label="Unexpected error")
-        return 1
+    return 1
 
 
 if __name__ == "__main__":
