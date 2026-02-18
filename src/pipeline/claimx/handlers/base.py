@@ -3,6 +3,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
@@ -25,56 +26,54 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class EnrichmentResult:
     """Result from processing a single ClaimX event."""
 
-    def __init__(
-        self,
-        event: ClaimXEventMessage,
-        success: bool,
-        rows: EntityRowsMessage | None = None,
-        error: str | None = None,
-        error_category: ErrorCategory | None = None,
-        is_retryable: bool = True,
-        api_calls: int = 0,
-        duration_ms: int = 0,
-    ):
-        self.event = event
-        self.success = success
-        self.rows = rows or EntityRowsMessage()
-        self.error = error
-        self.error_category = error_category
-        self.is_retryable = is_retryable
-        self.api_calls = api_calls
-        self.duration_ms = duration_ms
+    event: ClaimXEventMessage
+    success: bool
+    rows: EntityRowsMessage | None = field(default_factory=EntityRowsMessage)
+    error: str | None = None
+    error_category: ErrorCategory | None = None
+    is_retryable: bool = True
+    api_calls: int = 0
+    duration_ms: int = 0
+
+    def __post_init__(self):
+        if self.rows is None:
+            self.rows = EntityRowsMessage()
 
 
+@dataclass
 class HandlerResult:
     """Aggregated result from processing a batch of events."""
 
-    def __init__(
-        self,
-        handler_name: str,
-        total: int,
-        succeeded: int,
-        failed: int,
-        failed_permanent: int,
-        skipped: int,
-        rows: EntityRowsMessage,
-        errors: list[str],
-        duration_seconds: float,
-        api_calls: int,
-    ):
-        self.handler_name = handler_name
-        self.total = total
-        self.succeeded = succeeded
-        self.failed = failed
-        self.failed_permanent = failed_permanent
-        self.skipped = skipped
-        self.rows = rows
-        self.errors = errors
-        self.duration_seconds = duration_seconds
-        self.api_calls = api_calls
+    handler_name: str
+    total: int
+    succeeded: int
+    failed: int
+    failed_permanent: int
+    skipped: int
+    rows: EntityRowsMessage
+    errors: list[str]
+    duration_seconds: float
+    api_calls: int
+
+
+def _tally_enrichment_result(
+    result: EnrichmentResult,
+    all_rows: EntityRowsMessage,
+    errors: list[str],
+) -> tuple[int, int, int]:
+    """Tally a single enrichment result. Returns (succeeded, failed, failed_permanent)."""
+    if result.success:
+        all_rows.merge(result.rows)
+        return 1, 0, 0
+
+    permanent = 0 if result.is_retryable else 1
+    if result.error:
+        errors.append(result.error)
+    return 0, 1, permanent
 
 
 def aggregate_results(
@@ -91,30 +90,22 @@ def aggregate_results(
     failed_permanent = 0
     api_calls = 0
     all_rows = EntityRowsMessage()
-    errors = []
+    errors: list[str] = []
 
     for enrichment_result in results:
         if enrichment_result is None:
             logger.error(
                 "Invalid handler result",
-                extra={
-                    "handler_name": handler_name,
-                },
+                extra={"handler_name": handler_name},
                 exc_info=True,
             )
             continue
         total += 1
         api_calls += enrichment_result.api_calls
-
-        if enrichment_result.success:
-            succeeded += 1
-            all_rows.merge(enrichment_result.rows)
-        else:
-            failed += 1
-            if not enrichment_result.is_retryable:
-                failed_permanent += 1
-            if enrichment_result.error:
-                errors.append(enrichment_result.error)
+        s, f, fp = _tally_enrichment_result(enrichment_result, all_rows, errors)
+        succeeded += s
+        failed += f
+        failed_permanent += fp
 
     # Log entity row counts
     row_counts = {
