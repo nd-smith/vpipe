@@ -26,6 +26,7 @@ from core.resilience.retry import (
     DEFAULT_RETRY,
     RetryConfig,
     with_retry,
+    with_retry_async,
 )
 
 
@@ -390,3 +391,225 @@ class TestStandardConfigs:
         """AUTH_RETRY is more aggressive."""
         assert AUTH_RETRY.max_attempts == 2
         assert AUTH_RETRY.base_delay == 0.5
+
+
+class TestShouldRetryPermanentNonPipelineError:
+    """Tests for the should_retry PERMANENT branch for non-PipelineError (line 293)."""
+
+    @patch("core.resilience.retry.classify_exception")
+    def test_should_retry_permanent_non_pipeline_error(self, mock_classify):
+        """Does not retry non-PipelineError that classifies as PERMANENT when respect_permanent=True."""
+        from core.types import ErrorCategory as CoreErrorCategory
+
+        mock_classify.return_value = CoreErrorCategory.PERMANENT
+        config = RetryConfig(respect_permanent=True, max_attempts=3)
+        error = RuntimeError("Permanent non-pipeline error")
+
+        # respect_permanent=True + PERMANENT category → False (hits line 293)
+        assert config.should_retry(error, 0) is False
+
+    @patch("core.resilience.retry.classify_exception")
+    def test_should_retry_permanent_non_pipeline_error_ignored_when_not_respected(self, mock_classify):
+        """When respect_permanent=False, PERMANENT classification falls through to category check."""
+        from core.types import ErrorCategory as CoreErrorCategory
+
+        mock_classify.return_value = CoreErrorCategory.PERMANENT
+        config = RetryConfig(respect_permanent=False, max_attempts=3)
+        error = RuntimeError("Permanent non-pipeline error")
+
+        # PERMANENT is not in (TRANSIENT, AUTH, UNKNOWN) so still False, but via a different branch
+        assert config.should_retry(error, 0) is False
+
+
+class TestWithRetrySyncFinalRaise:
+    """Tests for the with_retry safety-net raise after all retries (lines 355-356)."""
+
+    @patch("core.resilience.retry.time.sleep")
+    def test_last_error_raised_when_handle_exception_does_not_reraise(self, mock_sleep):
+        """Lines 355-356: last_error is raised when _handle_exception returns without raising."""
+        # _handle_exception normally raises when retries are exhausted.
+        # We patch it to return normally so the loop can exhaust and hit the
+        # safety-net raise at lines 355-356.
+        sentinel = TransientError("final error")
+
+        def fake_handle_exception(e, attempt, config, func_name, on_retry, wrap_errors):
+            # Store the exception but don't raise; return valid tuple
+            return 0.0, e, False
+
+        call_count = 0
+
+        with patch("core.resilience.retry._handle_exception", side_effect=fake_handle_exception):
+
+            @with_retry(config=RetryConfig(max_attempts=2, base_delay=0.0))
+            def always_fails():
+                nonlocal call_count
+                call_count += 1
+                raise sentinel
+
+            with pytest.raises(TransientError) as exc_info:
+                always_fails()
+
+        assert exc_info.value is sentinel
+        assert call_count == 2  # Ran both attempts
+
+
+class TestWithRetryAsync:
+    """Tests for the with_retry_async decorator (lines 375-406)."""
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_success_on_first_attempt(self, mock_sleep):
+        """Async decorator returns result immediately without sleeping."""
+
+        @with_retry_async()
+        async def func():
+            return "async_success"
+
+        result = await func()
+        assert result == "async_success"
+        mock_sleep.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_success_after_transient_error(self, mock_sleep):
+        """Async decorator retries transient error and succeeds."""
+        call_count = 0
+
+        @with_retry_async(config=RetryConfig(max_attempts=3, base_delay=0.0))
+        async def func():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise TransientError("Temporary")
+            return "recovered"
+
+        result = await func()
+        assert result == "recovered"
+        assert call_count == 2
+        assert mock_sleep.call_count == 1
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_all_retries_exhausted_raises_last_error(self, mock_sleep):
+        """Async decorator raises after all retries exhausted (hits line 401-402)."""
+
+        @with_retry_async(config=RetryConfig(max_attempts=3, base_delay=0.0))
+        async def func():
+            raise TransientError("Always fails")
+
+        with pytest.raises(TransientError):
+            await func()
+
+        assert mock_sleep.call_count == 2  # 3 attempts = 2 sleeps
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_permanent_error_no_retry(self, mock_sleep):
+        """Async decorator does not retry permanent errors."""
+
+        @with_retry_async(config=RetryConfig(max_attempts=3))
+        async def func():
+            raise PermanentError("Not found")
+
+        with pytest.raises(PermanentError):
+            await func()
+
+        mock_sleep.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_sync_on_auth_error_callback(self, mock_sleep):
+        """Async decorator calls sync on_auth_error callback on auth errors."""
+        auth_callback = Mock()
+        call_count = 0
+
+        @with_retry_async(
+            config=RetryConfig(max_attempts=3, base_delay=0.0),
+            on_auth_error=auth_callback,
+        )
+        async def func():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise AuthError("Token expired")
+            return "success"
+
+        result = await func()
+        assert result == "success"
+        auth_callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_async_on_auth_error_callback(self, mock_sleep):
+        """Async decorator awaits async on_auth_error callback (hits line 395-396)."""
+        auth_callback = Mock()
+        call_count = 0
+
+        async def async_auth_callback():
+            auth_callback()
+
+        @with_retry_async(
+            config=RetryConfig(max_attempts=3, base_delay=0.0),
+            on_auth_error=async_auth_callback,
+        )
+        async def func():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise AuthError("Token expired")
+            return "success"
+
+        result = await func()
+        assert result == "success"
+        auth_callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_on_retry_callback(self, mock_sleep):
+        """Async decorator calls on_retry callback before each retry."""
+        retry_callback = Mock()
+        call_count = 0
+
+        @with_retry_async(
+            config=RetryConfig(max_attempts=3, base_delay=0.0),
+            on_retry=retry_callback,
+        )
+        async def func():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise TransientError("Temporary")
+            return "success"
+
+        result = await func()
+        assert result == "success"
+        assert retry_callback.call_count == 1
+        args = retry_callback.call_args[0]
+        assert isinstance(args[0], TransientError)
+        assert args[1] == 0  # First attempt (0-indexed)
+        assert isinstance(args[2], float)
+
+    @pytest.mark.asyncio
+    @patch("core.resilience.retry.asyncio.sleep")
+    async def test_last_error_raised_when_handle_exception_does_not_reraise(self, mock_sleep):
+        """Async safety-net raise at line 401-402 is hit when _handle_exception returns normally."""
+        sentinel = TransientError("final async error")
+
+        def fake_handle_exception(e, attempt, config, func_name, on_retry, wrap_errors):
+            return 0.0, e, False
+
+        call_count = 0
+
+        with patch("core.resilience.retry._handle_exception", side_effect=fake_handle_exception):
+
+            @with_retry_async(config=RetryConfig(max_attempts=2, base_delay=0.0))
+            async def always_fails():
+                nonlocal call_count
+                call_count += 1
+                raise sentinel
+
+            with pytest.raises(TransientError) as exc_info:
+                await always_fails()
+
+        assert exc_info.value is sentinel
+        assert call_count == 2
