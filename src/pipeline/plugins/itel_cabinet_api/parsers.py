@@ -41,6 +41,19 @@ def parse_date(date_str: str) -> datetime | None:
         return None
 
 
+def _convert_field_value(field_type, value):
+    """Convert a single field value to its target type, handling lists and optionals."""
+    origin = getattr(field_type, "__origin__", None)
+    args = getattr(field_type, "__args__", [])
+    if origin is list:
+        item_type = args[0]
+        return [from_dict(item_type, item) for item in value]
+    if (origin is Union or isinstance(field_type, types.UnionType)) and type(None) in args:
+        non_none_type = next(t for t in args if t is not type(None))
+        return from_dict(non_none_type, value)
+    return from_dict(field_type, value)
+
+
 def from_dict(data_class, data):
     """
     Recursively convert dict to dataclass instance.
@@ -48,30 +61,18 @@ def from_dict(data_class, data):
     """
     if data is None:
         return None
-    if is_dataclass(data_class):
-        field_types = {f.name: f.type for f in fields(data_class)}
-        kwargs = {}
-        for key, value in data.items():
-            snake_key = camel_to_snake(key)
-            if snake_key in field_types:
-                field_type = field_types[snake_key]
-                origin = getattr(field_type, "__origin__", None)
-                args = getattr(field_type, "__args__", [])
-                if origin is list:
-                    item_type = args[0]
-                    kwargs[snake_key] = [from_dict(item_type, item) for item in value]
-                elif (
-                    origin is Union
-                    or isinstance(field_type, types.UnionType)
-                ) and type(None) in args:
-                    non_none_type = next(t for t in args if t is not type(None))
-                    kwargs[snake_key] = from_dict(non_none_type, value)
-                else:
-                    kwargs[snake_key] = from_dict(field_type, value)
-        return data_class(**kwargs)
-    elif data_class is datetime:
+    if data_class is datetime:
         return parse_date(data)
-    return data
+    if not is_dataclass(data_class):
+        return data
+
+    field_types = {f.name: f.type for f in fields(data_class)}
+    kwargs = {}
+    for key, value in data.items():
+        snake_key = camel_to_snake(key)
+        if snake_key in field_types:
+            kwargs[snake_key] = _convert_field_value(field_types[snake_key], value)
+    return data_class(**kwargs)
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -337,6 +338,29 @@ class DataBuilder:
     """
 
     @staticmethod
+    def _extract_raw_value(export_data: ResponseAnswerExport):
+        """Extract the raw value from a response answer by type."""
+        if export_data.type == "text":
+            return export_data.text
+        if export_data.type == "number":
+            return export_data.number_answer.value if export_data.number_answer else None
+        if export_data.type == "option":
+            return export_data.option_answer.name if export_data.option_answer else None
+        if export_data.type == "image":
+            return export_data.claim_media_ids if export_data.claim_media_ids else []
+        return None
+
+    @staticmethod
+    def _normalize_boolean(val: str):
+        """Normalize Yes/No string variants to True/False, or return None if not boolean."""
+        clean = val.lower().strip()
+        if clean == "yes" or clean.startswith("yes,"):
+            return True
+        if clean == "no" or clean.startswith("there is no"):
+            return False
+        return None
+
+    @staticmethod
     def extract_value(export_data: ResponseAnswerExport):
         """
         Extracts and normalizes value from response answer.
@@ -344,46 +368,67 @@ class DataBuilder:
         """
         if not export_data:
             return None
-
-        val = None
-        if export_data.type == "text":
-            val = export_data.text
-        elif export_data.type == "number":
-            val = export_data.number_answer.value if export_data.number_answer else None
-        elif export_data.type == "option":
-            val = export_data.option_answer.name if export_data.option_answer else None
-        elif export_data.type == "image":
-            return export_data.claim_media_ids if export_data.claim_media_ids else []
-
-        # Normalize Boolean
+        val = DataBuilder._extract_raw_value(export_data)
         if isinstance(val, str):
-            clean_val = val.lower().strip()
-            if clean_val == "yes":
-                return True
-            if clean_val == "no":
-                return False
-            if clean_val.startswith("yes,"):
-                return True
-            if clean_val.startswith("there is no"):
-                return False
-
+            normalized = DataBuilder._normalize_boolean(val)
+            if normalized is not None:
+                return normalized
         return val
+
+    _TOPIC_KEYWORDS = [
+        ("island", "Island Cabinets"),
+        ("lower", "Lower Cabinets"),
+        ("upper", "Upper Cabinets"),
+        ("full height", "Full Height / Pantry"),
+        ("pantry", "Full Height / Pantry"),
+        ("countertop", "Countertops"),
+    ]
 
     @staticmethod
     def get_topic_category(group_name: str, question_text: str) -> str:
         """Determine topic category for organizing attachments and readable reports."""
         text = (group_name + " " + question_text).lower()
-        if "island" in text:
-            return "Island Cabinets"
-        if "lower" in text:
-            return "Lower Cabinets"
-        if "upper" in text:
-            return "Upper Cabinets"
-        if "full height" in text or "pantry" in text:
-            return "Full Height / Pantry"
-        if "countertop" in text:
-            return "Countertops"
+        for keyword, category in DataBuilder._TOPIC_KEYWORDS:
+            if keyword in text:
+                return category
         return "General"
+
+    @staticmethod
+    def _extract_external_link_fields(ext_data: ExternalLinkData | None) -> dict:
+        """Extract external link data fields, returning None for each if absent."""
+        if not ext_data:
+            return {
+                "external_link_url": None,
+                "customer_first_name": None,
+                "customer_last_name": None,
+                "customer_email": None,
+                "customer_phone": None,
+            }
+        return {
+            "external_link_url": ext_data.url,
+            "customer_first_name": ext_data.first_name,
+            "customer_last_name": ext_data.last_name,
+            "customer_email": ext_data.email,
+            "customer_phone": ext_data.phone,
+        }
+
+    @staticmethod
+    def _process_response_groups(groups: list[Group]) -> tuple[dict, dict]:
+        """Process response groups, returning (column_values, raw_data_flat)."""
+        column_values = {}
+        raw_data_flat = defaultdict(list)
+        for group in groups:
+            clean_group_name = group.name.strip()
+            for qa in group.question_and_answers:
+                clean_question_text = qa.question_text.strip()
+                answer_val = DataBuilder.extract_value(qa.response_answer_export)
+                map_key = (clean_group_name, clean_question_text)
+                if map_key in COLUMN_MAP:
+                    column_values[COLUMN_MAP[map_key]] = answer_val
+                raw_data_flat[clean_group_name].append(
+                    {"q": clean_question_text, "a": answer_val, "id": qa.form_control.id}
+                )
+        return column_values, dict(raw_data_flat)
 
     @staticmethod
     def build_form_row(api_obj: ApiResponse, event_id: str) -> dict:
@@ -405,49 +450,46 @@ class DataBuilder:
             "date_completed": api_obj.date_completed,
             "ingested_at": now,
             "assignor_email": api_obj.assignor_email,
-            "external_link_url": (
-                api_obj.external_link_data.url if api_obj.external_link_data else None
-            ),
-            "customer_first_name": (
-                api_obj.external_link_data.first_name if api_obj.external_link_data else None
-            ),
-            "customer_last_name": (
-                api_obj.external_link_data.last_name if api_obj.external_link_data else None
-            ),
-            "customer_email": (
-                api_obj.external_link_data.email if api_obj.external_link_data else None
-            ),
-            "customer_phone": (
-                api_obj.external_link_data.phone if api_obj.external_link_data else None
-            ),
+            **DataBuilder._extract_external_link_fields(api_obj.external_link_data),
             **dict.fromkeys(COLUMN_MAP.values()),
         }
 
-        raw_data_flat = defaultdict(list)
-
-        if api_obj.response and api_obj.response.groups:
-            for group in api_obj.response.groups:
-                clean_group_name = group.name.strip()
-
-                for qa in group.question_and_answers:
-                    clean_question_text = qa.question_text.strip()
-                    answer_val = DataBuilder.extract_value(qa.response_answer_export)
-
-                    map_key = (clean_group_name, clean_question_text)
-                    if map_key in COLUMN_MAP:
-                        col_name = COLUMN_MAP[map_key]
-                        form_row[col_name] = answer_val
-
-                    raw_data_flat[clean_group_name].append(
-                        {
-                            "q": clean_question_text,
-                            "a": answer_val,
-                            "id": qa.form_control.id,
-                        }
-                    )
-
-        form_row["raw_data"] = json.dumps(dict(raw_data_flat), cls=DateTimeEncoder)
+        groups = api_obj.response.groups if api_obj.response and api_obj.response.groups else []
+        column_values, raw_data_flat = DataBuilder._process_response_groups(groups)
+        form_row.update(column_values)
+        form_row["raw_data"] = json.dumps(raw_data_flat, cls=DateTimeEncoder)
         return form_row
+
+    @staticmethod
+    def _build_attachment_rows(
+        api_obj: ApiResponse,
+        qa: QuestionAndAnswer,
+        media_ids: list,
+        topic: str,
+        event_id: str,
+        now: datetime,
+        media_url_map: dict[int, str],
+    ) -> list[dict]:
+        """Build attachment row dicts for a single image question."""
+        clean_question_text = qa.question_text.strip()
+        return [
+            {
+                "assignment_id": api_obj.assignment_id,
+                "project_id": api_obj.project_id,
+                "event_id": event_id,
+                "control_id": qa.form_control.id,
+                "question_key": _get_question_key(clean_question_text),
+                "question_text": clean_question_text,
+                "topic_category": topic,
+                "media_id": media_id,
+                "display_order": idx + 1,
+                "created_at": now,
+                "is_active": True,
+                "media_type": "image/jpeg",
+                "url": media_url_map.get(media_id),
+            }
+            for idx, media_id in enumerate(media_ids)
+        ]
 
     @staticmethod
     def extract_attachments(
@@ -461,37 +503,55 @@ class DataBuilder:
 
         now = datetime.now(UTC)
         attachments_rows = []
+        groups = api_obj.response.groups if api_obj.response and api_obj.response.groups else []
 
-        if api_obj.response and api_obj.response.groups:
-            for group in api_obj.response.groups:
-                clean_group_name = group.name.strip()
-
-                for qa in group.question_and_answers:
-                    clean_question_text = qa.question_text.strip()
-                    answer_val = DataBuilder.extract_value(qa.response_answer_export)
-
-                    topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
-                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
-                        for idx, media_id in enumerate(answer_val):
-                            attachments_rows.append(
-                                {
-                                    "assignment_id": api_obj.assignment_id,
-                                    "project_id": api_obj.project_id,
-                                    "event_id": event_id,
-                                    "control_id": qa.form_control.id,
-                                    "question_key": _get_question_key(clean_question_text),
-                                    "question_text": clean_question_text,
-                                    "topic_category": topic,
-                                    "media_id": media_id,
-                                    "display_order": idx + 1,
-                                    "created_at": now,
-                                    "is_active": True,
-                                    "media_type": "image/jpeg",
-                                    "url": media_url_map.get(media_id),
-                                }
-                            )
+        for group in groups:
+            clean_group_name = group.name.strip()
+            for qa in group.question_and_answers:
+                answer_val = DataBuilder.extract_value(qa.response_answer_export)
+                if qa.response_answer_export.type != "image" or not isinstance(answer_val, list):
+                    continue
+                topic = DataBuilder.get_topic_category(clean_group_name, qa.question_text.strip())
+                attachments_rows.extend(
+                    DataBuilder._build_attachment_rows(
+                        api_obj, qa, answer_val, topic, event_id, now, media_url_map
+                    )
+                )
 
         return attachments_rows
+
+    @staticmethod
+    def _build_report_meta(api_obj: ApiResponse, media_url_map: dict[int, str]) -> dict:
+        """Build the meta section for a readable report."""
+        meta = {
+            "task_id": api_obj.task_id,
+            "assignment_id": api_obj.assignment_id,
+            "project_id": str(api_obj.project_id),
+            "status": api_obj.status,
+            "dates": {
+                "assigned": api_obj.date_assigned.isoformat() if api_obj.date_assigned else None,
+                "completed": (
+                    api_obj.date_completed.isoformat() if api_obj.date_completed else None
+                ),
+            },
+        }
+        if media_url_map:
+            first_url = next(iter(media_url_map.values()), None)
+            url_expiration = parse_url_expiration(first_url)
+            if url_expiration:
+                meta["media_urls_expire_at"] = url_expiration["expires_at"]
+                meta["media_urls_ttl_seconds"] = url_expiration["ttl_seconds"]
+        return meta
+
+    @staticmethod
+    def _enrich_answer(answer_val, export_type: str, media_url_map: dict[int, str]):
+        """Enrich image answers with URLs, pass through others."""
+        if export_type == "image" and isinstance(answer_val, list):
+            return [
+                {"media_id": media_id, "url": media_url_map.get(media_id)}
+                for media_id in answer_val
+            ]
+        return answer_val
 
     @staticmethod
     def build_readable_report(
@@ -503,59 +563,28 @@ class DataBuilder:
         if not api_obj:
             return {}
 
-        readable_report = {
-            "meta": {
-                "task_id": api_obj.task_id,
-                "assignment_id": api_obj.assignment_id,
-                "project_id": str(api_obj.project_id),
-                "status": api_obj.status,
-                "dates": {
-                    "assigned": (
-                        api_obj.date_assigned.isoformat() if api_obj.date_assigned else None
+        topics = defaultdict(list)
+        groups = api_obj.response.groups if api_obj.response and api_obj.response.groups else []
+
+        for group in groups:
+            clean_group_name = group.name.strip()
+            for qa in group.question_and_answers:
+                clean_question_text = qa.question_text.strip()
+                answer_val = DataBuilder.extract_value(qa.response_answer_export)
+                topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
+                topics[topic].append({
+                    "question": clean_question_text,
+                    "answer": DataBuilder._enrich_answer(
+                        answer_val, qa.response_answer_export.type, media_url_map
                     ),
-                    "completed": (
-                        api_obj.date_completed.isoformat() if api_obj.date_completed else None
-                    ),
-                },
-            },
-            "topics": defaultdict(list),
+                    "type": qa.response_answer_export.type,
+                    "control_id": qa.form_control.id,
+                })
+
+        return {
+            "meta": DataBuilder._build_report_meta(api_obj, media_url_map),
+            "topics": dict(topics),
         }
-
-        if media_url_map:
-            first_url = next(iter(media_url_map.values()), None)
-            url_expiration = parse_url_expiration(first_url)
-            if url_expiration:
-                readable_report["meta"]["media_urls_expire_at"] = url_expiration["expires_at"]
-                readable_report["meta"]["media_urls_ttl_seconds"] = url_expiration["ttl_seconds"]
-
-        if api_obj.response and api_obj.response.groups:
-            for group in api_obj.response.groups:
-                clean_group_name = group.name.strip()
-
-                for qa in group.question_and_answers:
-                    clean_question_text = qa.question_text.strip()
-                    answer_val = DataBuilder.extract_value(qa.response_answer_export)
-
-                    topic = DataBuilder.get_topic_category(clean_group_name, clean_question_text)
-
-                    if qa.response_answer_export.type == "image" and isinstance(answer_val, list):
-                        enriched_answer = [
-                            {"media_id": media_id, "url": media_url_map.get(media_id)}
-                            for media_id in answer_val
-                        ]
-                    else:
-                        enriched_answer = answer_val
-
-                    readable_item = {
-                        "question": clean_question_text,
-                        "answer": enriched_answer,
-                        "type": qa.response_answer_export.type,
-                        "control_id": qa.form_control.id,
-                    }
-                    readable_report["topics"][topic].append(readable_item)
-
-        readable_report["topics"] = dict(readable_report["topics"])
-        return readable_report
 
 
 # ==========================================
