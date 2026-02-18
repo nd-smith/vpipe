@@ -197,6 +197,34 @@ async def test_consumer_async(connection_string: str, eventhub_name: str, consum
         return False
 
 
+def _print_connection_info(connection_string: str, eventhub_name: str, consumer_group: str) -> None:
+    """Display connection details."""
+    print("\nConnection Info:")
+    for part in connection_string.split(";"):
+        if part.startswith("Endpoint="):
+            print(f"  Namespace: {part.split('=', 1)[1]}")
+        elif part.startswith("SharedAccessKeyName="):
+            print(f"  Policy: {part.split('=', 1)[1]}")
+    print(f"  Entity: {eventhub_name}")
+    print(f"  Consumer Group: {consumer_group}")
+
+
+def _print_summary(producer_ok: bool, consumer_ok: bool) -> None:
+    """Print test results and exit with appropriate code."""
+    print("\n" + "=" * 60)
+    print("Test Summary")
+    print("=" * 60)
+    print(f"Producer: {'PASS' if producer_ok else 'FAIL'}")
+    print(f"Consumer: {'PASS' if consumer_ok else 'FAIL'}")
+
+    if producer_ok and consumer_ok:
+        print("\nAll tests passed! Event Hub connection is working.")
+        sys.exit(0)
+    else:
+        print("\nSome tests failed. Check configuration and connection.")
+        sys.exit(1)
+
+
 def main():
     """Run all tests."""
     parser = argparse.ArgumentParser(description="Test Event Hub connection")
@@ -216,7 +244,6 @@ def main():
     print("Event Hub Connection Test")
     print("=" * 60)
 
-    # Check environment
     connection_string = _get_connection_string()
     if not connection_string:
         print("\nERROR: No connection string configured")
@@ -230,39 +257,17 @@ def main():
     eventhub_name = _get_eventhub_name(args.entity)
     consumer_group = args.consumer_group or os.getenv("EVENTHUB_CONSUMER_GROUP", "$Default")
 
-    # Extract connection info for display
-    print("\nConnection Info:")
-    for part in connection_string.split(";"):
-        if part.startswith("Endpoint="):
-            print(f"  Namespace: {part.split('=', 1)[1]}")
-        elif part.startswith("SharedAccessKeyName="):
-            print(f"  Policy: {part.split('=', 1)[1]}")
-    print(f"  Entity: {eventhub_name}")
-    print(f"  Consumer Group: {consumer_group}")
+    _print_connection_info(connection_string, eventhub_name, consumer_group)
 
-    # Run tests
     producer_ok = test_producer_sync(connection_string, eventhub_name)
 
-    # Only run consumer test if producer succeeded
     consumer_ok = False
     if producer_ok:
         consumer_ok = asyncio.run(
             test_consumer_async(connection_string, eventhub_name, consumer_group)
         )
 
-    # Summary
-    print("\n" + "=" * 60)
-    print("Test Summary")
-    print("=" * 60)
-    print(f"Producer: {'PASS' if producer_ok else 'FAIL'}")
-    print(f"Consumer: {'PASS' if consumer_ok else 'FAIL'}")
-
-    if producer_ok and consumer_ok:
-        print("\nAll tests passed! Event Hub connection is working.")
-        sys.exit(0)
-    else:
-        print("\nSome tests failed. Check configuration and connection.")
-        sys.exit(1)
+    _print_summary(producer_ok, consumer_ok)
 
 
 if __name__ == "__main__":

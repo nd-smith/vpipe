@@ -280,56 +280,38 @@ class XACTEnrichmentWorker:
             self._running = False
             raise
 
+    @staticmethod
+    async def _stop_component(
+        coro, name: str, catch_cancelled: bool = True,
+    ) -> None:
+        """Stop a single component, logging errors."""
+        try:
+            await coro
+        except asyncio.CancelledError:
+            if catch_cancelled:
+                logger.warning("Cancelled while stopping %s", name)
+            else:
+                raise
+        except Exception as e:
+            logger.error("Error stopping %s", name, extra={"error": str(e)})
+
     async def stop(self) -> None:
         logger.info("Stopping XACTEnrichmentWorker")
         self._running = False
 
         if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
+            await self._stop_component(self._stats_logger.stop(), "stats logger", catch_cancelled=False)
 
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping retry handler")
-            except Exception as e:
-                logger.error("Error stopping retry handler", extra={"error": str(e)})
-            finally:
-                self.retry_handler = None
-
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping producer")
-            except Exception as e:
-                logger.error("Error stopping producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
+        for attr, name in [("consumer", "consumer"), ("retry_handler", "retry handler"), ("producer", "producer")]:
+            component = getattr(self, attr)
+            if component:
+                await self._stop_component(component.stop(), name)
+                setattr(self, attr, None)
 
         if self.action_executor:
-            try:
-                await self.action_executor.close()
-            except Exception as e:
-                logger.error("Error closing action executor", extra={"error": str(e)})
+            await self._stop_component(self.action_executor.close(), "action executor", catch_cancelled=False)
 
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._stop_component(self.health_server.stop(), "health server", catch_cancelled=False)
 
         logger.info("XACTEnrichmentWorker stopped successfully")
 
