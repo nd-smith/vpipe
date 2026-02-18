@@ -204,43 +204,55 @@ class ValidationHandler(EnrichmentHandler):
     async def enrich(self, context: EnrichmentContext) -> EnrichmentResult:
         """Validate data and optionally skip message."""
         # Check skip conditions first
-        skip_if = self.config.get("skip_if")
-        if skip_if:
-            field = skip_if.get("field")
-            expected = skip_if.get("equals")
-            value = self._get_value(context, field)
+        skip_result = self._check_skip_condition(context)
+        if skip_result is not None:
+            return skip_result
 
-            if value == expected:
-                return EnrichmentResult.skip_message(f"Field '{field}' equals '{expected}'")
         required_fields = self.config.get("required_fields", [])
         for field in required_fields:
             value = self._get_value(context, field)
             if value is None:
                 return EnrichmentResult.failed(f"Required field '{field}' is missing")
+
+        rule_failure = self._validate_field_rules(context)
+        if rule_failure is not None:
+            return rule_failure
+
+        logger.debug("Validation passed")
+        return EnrichmentResult.ok(context.data)
+
+    def _check_skip_condition(self, context: EnrichmentContext) -> EnrichmentResult | None:
+        """Check if message should be skipped based on skip_if config."""
+        skip_if = self.config.get("skip_if")
+        if not skip_if:
+            return None
+        field = skip_if.get("field")
+        expected = skip_if.get("equals")
+        value = self._get_value(context, field)
+        if value == expected:
+            return EnrichmentResult.skip_message(f"Field '{field}' equals '{expected}'")
+        return None
+
+    def _validate_field_rules(self, context: EnrichmentContext) -> EnrichmentResult | None:
+        """Validate field rules (allowed_values, min, max). Returns failure or None."""
         field_rules = self.config.get("field_rules", {})
         for field, rules in field_rules.items():
             value = self._get_value(context, field)
-
             if value is None:
-                continue  # Skip validation if field not present (use required_fields for that)
+                continue
             if "allowed_values" in rules and value not in rules["allowed_values"]:
                 return EnrichmentResult.failed(
                     f"Field '{field}' value '{value}' not in allowed values: {rules['allowed_values']}"
                 )
-
-            # Check min/max
             if "min" in rules and value < rules["min"]:
                 return EnrichmentResult.failed(
                     f"Field '{field}' value {value} below minimum {rules['min']}"
                 )
-
             if "max" in rules and value > rules["max"]:
                 return EnrichmentResult.failed(
                     f"Field '{field}' value {value} above maximum {rules['max']}"
                 )
-
-        logger.debug("Validation passed")
-        return EnrichmentResult.ok(context.data)
+        return None
 
     def _get_value(self, context: EnrichmentContext, field: str) -> Any:
         """Get field value from context data."""
@@ -294,43 +306,72 @@ class LookupHandler(EnrichmentHandler):
         if not connection_name:
             return EnrichmentResult.failed("No connection specified in config")
 
-        # Build endpoint with path params
-        endpoint = self.config.get("endpoint", "")
-        path_params = self.config.get("path_params", {})
+        endpoint, err = self._resolve_endpoint(context)
+        if err is not None:
+            return err
 
-        for param_name, field_name in path_params.items():
-            value = context.data.get(field_name) or context.data.get(field_name)
-            if value is None:
-                return EnrichmentResult.failed(
-                    f"Path parameter '{param_name}' field '{field_name}' not found"
-                )
-            endpoint = endpoint.replace(f"{{{param_name}}}", str(value))
-        query_params = {}
-        config_params = self.config.get("query_params", {})
-        for param_name, value_or_field in config_params.items():
-            # Check if it's a field reference or literal value
-            if (
-                isinstance(value_or_field, str)
-                and value_or_field in context.data
-                or isinstance(value_or_field, str)
-                and value_or_field in context.data
-            ):
-                query_params[param_name] = context.data[value_or_field]
-            else:
-                query_params[param_name] = value_or_field
+        query_params = self._resolve_query_params(context)
         cache_key = f"{connection_name}:{endpoint}:{query_params}"
         cache_ttl = self.config.get("cache_ttl", 0)
 
-        if cache_ttl > 0 and cache_key in self._cache:
-            import time
+        cached = self._check_cache(cache_key, cache_ttl, endpoint, context)
+        if cached is not None:
+            return cached
 
-            age = time.time() - self._cache_timestamps.get(cache_key, 0)
-            if age < cache_ttl:
-                logger.debug("Cache hit for %s (age: %.1fs)", endpoint, age)
-                cached_data = self._cache[cache_key]
-                result_field = self.config.get("result_field", "lookup_result")
-                context.data[result_field] = cached_data
-                return EnrichmentResult.ok(context.data)
+        return await self._fetch_and_store(
+            context, connection_name, endpoint, query_params, cache_key, cache_ttl
+        )
+
+    def _resolve_endpoint(
+        self, context: EnrichmentContext
+    ) -> tuple[str, EnrichmentResult | None]:
+        """Build endpoint URL by substituting path params. Returns (endpoint, error_or_None)."""
+        endpoint = self.config.get("endpoint", "")
+        for param_name, field_name in self.config.get("path_params", {}).items():
+            value = context.data.get(field_name)
+            if value is None:
+                return "", EnrichmentResult.failed(
+                    f"Path parameter '{param_name}' field '{field_name}' not found"
+                )
+            endpoint = endpoint.replace(f"{{{param_name}}}", str(value))
+        return endpoint, None
+
+    def _resolve_query_params(self, context: EnrichmentContext) -> dict:
+        """Build query params from config, resolving field references."""
+        query_params = {}
+        for param_name, value_or_field in self.config.get("query_params", {}).items():
+            if isinstance(value_or_field, str) and value_or_field in context.data:
+                query_params[param_name] = context.data[value_or_field]
+            else:
+                query_params[param_name] = value_or_field
+        return query_params
+
+    def _check_cache(
+        self, cache_key: str, cache_ttl: int, endpoint: str, context: EnrichmentContext
+    ) -> EnrichmentResult | None:
+        """Return cached result if valid, otherwise None."""
+        if cache_ttl <= 0 or cache_key not in self._cache:
+            return None
+        import time
+
+        age = time.time() - self._cache_timestamps.get(cache_key, 0)
+        if age >= cache_ttl:
+            return None
+        logger.debug("Cache hit for %s (age: %.1fs)", endpoint, age)
+        result_field = self.config.get("result_field", "lookup_result")
+        context.data[result_field] = self._cache[cache_key]
+        return EnrichmentResult.ok(context.data)
+
+    async def _fetch_and_store(
+        self,
+        context: EnrichmentContext,
+        connection_name: str,
+        endpoint: str,
+        query_params: dict,
+        cache_key: str,
+        cache_ttl: int,
+    ) -> EnrichmentResult:
+        """Fetch data from API, store in context and cache."""
         try:
             status, response_data = await context.connection_manager.request_json(
                 connection_name=connection_name,
@@ -344,7 +385,6 @@ class LookupHandler(EnrichmentHandler):
                     f"API request failed with status {status}: {response_data}"
                 )
 
-            # Store result in context
             result_field = self.config.get("result_field", "lookup_result")
             context.data[result_field] = response_data
             if cache_ttl > 0:
