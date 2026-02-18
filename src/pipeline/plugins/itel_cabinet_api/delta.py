@@ -101,42 +101,47 @@ ATTACHMENTS_SCHEMA: dict[str, pl.DataType] = {
 }
 
 
+def _coerce_datetime(val):
+    """Coerce a value to a timezone-aware datetime."""
+    if isinstance(val, str):
+        return datetime.fromisoformat(val.replace("Z", "+00:00"))
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=UTC) if val.tzinfo is None else val
+    return None
+
+
+def _coerce_bool(val):
+    """Coerce a value to bool."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ("yes", "true", "1")
+    return bool(val) if val is not None else None
+
+
+_DATETIME_UTC = pl.Datetime("us", "UTC")
+
+
 def _process_row(row: dict, schema: dict[str, pl.DataType]) -> dict:
     """Pre-process a row dict to match a Polars schema.
 
     Handles datetime parsing, numeric/boolean coercion, and null defaults.
     """
     processed = {}
-
     for col_name, col_type in schema.items():
         val = row.get(col_name)
-
         if val is None:
             processed[col_name] = None
-        elif col_type == pl.Datetime("us", "UTC"):
-            if isinstance(val, str):
-                processed[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-            elif isinstance(val, datetime):
-                if val.tzinfo is None:
-                    processed[col_name] = val.replace(tzinfo=UTC)
-                else:
-                    processed[col_name] = val
-            else:
-                processed[col_name] = None
-        elif col_type == pl.Int64 or col_type == pl.Int32:
-            processed[col_name] = int(val) if val is not None else None
+        elif col_type == _DATETIME_UTC:
+            processed[col_name] = _coerce_datetime(val)
+        elif col_type in (pl.Int64, pl.Int32):
+            processed[col_name] = int(val)
         elif col_type == pl.Boolean:
-            if isinstance(val, bool):
-                processed[col_name] = val
-            elif isinstance(val, str):
-                processed[col_name] = val.lower() in ("yes", "true", "1")
-            else:
-                processed[col_name] = bool(val) if val is not None else None
+            processed[col_name] = _coerce_bool(val)
         elif col_type == pl.Utf8:
-            processed[col_name] = str(val) if val is not None else None
+            processed[col_name] = str(val)
         else:
             processed[col_name] = val
-
     return processed
 
 

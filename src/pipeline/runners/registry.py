@@ -73,6 +73,32 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
 }
 
 
+def _get_worker_table_paths(worker_name: str, pipeline_config) -> dict[str, str]:
+    """Return worker-specific table path kwargs for the given worker."""
+    table_path_map = {
+        "xact-delta-writer": {
+            "events_table_path": pipeline_config.events_table_path,
+        },
+        "xact-result-processor": {
+            "inventory_table_path": pipeline_config.inventory_table_path,
+            "failed_table_path": pipeline_config.failed_table_path,
+        },
+        "claimx-delta-writer": {
+            "events_table_path": pipeline_config.claimx_events_table_path,
+        },
+        "claimx-entity-writer": {
+            "projects_table_path": pipeline_config.claimx_projects_table_path,
+            "contacts_table_path": pipeline_config.claimx_contacts_table_path,
+            "media_table_path": pipeline_config.claimx_media_table_path,
+            "tasks_table_path": pipeline_config.claimx_tasks_table_path,
+            "task_templates_table_path": pipeline_config.claimx_task_templates_table_path,
+            "external_links_table_path": pipeline_config.claimx_external_links_table_path,
+            "video_collab_table_path": pipeline_config.claimx_video_collab_table_path,
+        },
+    }
+    return table_path_map.get(worker_name, {})
+
+
 async def run_worker_from_registry(
     worker_name: str,
     pipeline_config,
@@ -109,21 +135,7 @@ async def run_worker_from_registry(
         kwargs["instance_id"] = instance_id
 
     # Add worker-specific table paths
-    if worker_name == "xact-delta-writer":
-        kwargs["events_table_path"] = pipeline_config.events_table_path
-    elif worker_name == "xact-result-processor":
-        kwargs["inventory_table_path"] = pipeline_config.inventory_table_path
-        kwargs["failed_table_path"] = pipeline_config.failed_table_path
-    elif worker_name == "claimx-delta-writer":
-        kwargs["events_table_path"] = pipeline_config.claimx_events_table_path
-    elif worker_name == "claimx-entity-writer":
-        kwargs["projects_table_path"] = pipeline_config.claimx_projects_table_path
-        kwargs["contacts_table_path"] = pipeline_config.claimx_contacts_table_path
-        kwargs["media_table_path"] = pipeline_config.claimx_media_table_path
-        kwargs["tasks_table_path"] = pipeline_config.claimx_tasks_table_path
-        kwargs["task_templates_table_path"] = pipeline_config.claimx_task_templates_table_path
-        kwargs["external_links_table_path"] = pipeline_config.claimx_external_links_table_path
-        kwargs["video_collab_table_path"] = pipeline_config.claimx_video_collab_table_path
+    kwargs.update(_get_worker_table_paths(worker_name, pipeline_config))
 
     # Run the worker, passing only kwargs that match the runner's signature
     runner = worker_def["runner"]
