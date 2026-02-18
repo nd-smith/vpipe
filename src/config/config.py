@@ -625,7 +625,10 @@ def _cli_main() -> int:
     except ValueError as e:
         _handle_cli_error(e, args.json, args.verbose, label="Validation error")
     except Exception as e:
-        _handle_cli_error(e, args.json, args.verbose, label="Unexpected error")
+        if args.json:
+            print(json.dumps({"error": f"Unexpected error: {e}"}))
+        else:
+            _handle_cli_error(e, args.json, args.verbose, label="Unexpected error")
     return 1
 
 
