@@ -78,6 +78,7 @@ class EventHubBatchConsumer:
         eventhub_name: str,
         consumer_group: str,
         batch_handler: Callable[[list[PipelineMessage]], Awaitable[bool]],
+        *,
         batch_size: int = 20,
         max_batch_size: int | None = None,
         batch_timeout_ms: int = 1000,
@@ -486,7 +487,6 @@ class EventHubBatchConsumer:
         start_time = time.perf_counter()
 
         try:
-            # Call batch handler
             result = await self.batch_handler(messages)
 
             # Backward compat: bool return = existing behavior
@@ -501,75 +501,51 @@ class EventHubBatchConsumer:
 
             # Route permanent failures to DLQ
             for msg, error in permanent_failures:
-                success = await self._route_to_dlq(msg, error)
-                if not success:
-                    should_commit = False  # Don't advance past un-DLQ'd message
+                if not await self._route_to_dlq(msg, error):
+                    should_commit = False
 
             if should_commit and self._enable_message_commit:
-                # Checkpoint only the last event — within a partition, offsets are
-                # ordered, so checkpointing the highest offset implicitly covers
-                # all earlier ones. This reduces N HTTPS calls to 1 per flush.
-                checkpoint_errors = 0
-                last = batch[-1]
-                try:
-                    await last.partition_context.update_checkpoint(last.event)
-                except Exception:
-                    logger.error(
-                        "Failed to checkpoint batch - messages will be redelivered",
-                        extra={
-                            "partition_id": partition_id,
-                            "offset": last.message.offset,
-                            "batch_size": len(batch),
-                        },
-                        exc_info=True,
-                    )
-                    checkpoint_errors += 1
-
-                self._batch_checkpoint_count += 1
-                if self._batch_checkpoint_count % 100 == 0:
-                    logger.info(
-                        "Batch checkpoint heartbeat",
-                        extra={
-                            "partition_id": partition_id,
-                            "batch_size": len(batch),
-                            "total_batches_checkpointed": self._batch_checkpoint_count,
-                            "consumer_group": self.consumer_group,
-                        },
-                    )
-                else:
-                    logger.debug(
-                        "Batch checkpointed",
-                        extra={
-                            "partition_id": partition_id,
-                            "batch_size": len(batch),
-                            "duration_ms": round(duration * 1000, 2),
-                            "checkpoint_errors": checkpoint_errors,
-                        },
-                    )
-            else:
+                await self._checkpoint_batch(batch, partition_id, duration)
+            elif not should_commit:
                 logger.info(
                     "Batch checkpoint skipped (handler returned False) - messages will be redelivered",
-                    extra={
-                        "partition_id": partition_id,
-                        "batch_size": len(batch),
-                        "duration_ms": round(duration * 1000, 2),
-                    },
+                    extra={"partition_id": partition_id, "batch_size": len(batch), "duration_ms": round(duration * 1000, 2)},
                 )
 
         except Exception:
             duration = time.perf_counter() - start_time
-
-            # Handler raised exception - don't checkpoint
             logger.error(
                 "Batch processing failed - messages will be redelivered",
-                extra={
-                    "partition_id": partition_id,
-                    "batch_size": len(batch),
-                    "duration_ms": round(duration * 1000, 2),
-                },
+                extra={"partition_id": partition_id, "batch_size": len(batch), "duration_ms": round(duration * 1000, 2)},
                 exc_info=True,
             )
-            # Don't re-raise - continue processing other partitions
+
+    async def _checkpoint_batch(
+        self, batch: list[BufferedMessage], partition_id: str, duration: float
+    ) -> None:
+        """Checkpoint the last event in a batch and log the result."""
+        last = batch[-1]
+        try:
+            await last.partition_context.update_checkpoint(last.event)
+        except Exception:
+            logger.error(
+                "Failed to checkpoint batch - messages will be redelivered",
+                extra={"partition_id": partition_id, "offset": last.message.offset, "batch_size": len(batch)},
+                exc_info=True,
+            )
+
+        self._batch_checkpoint_count += 1
+        log_level = logging.INFO if self._batch_checkpoint_count % 100 == 0 else logging.DEBUG
+        log_msg = "Batch checkpoint heartbeat" if log_level == logging.INFO else "Batch checkpointed"
+        extra = {
+            "partition_id": partition_id,
+            "batch_size": len(batch),
+            "duration_ms": round(duration * 1000, 2),
+        }
+        if log_level == logging.INFO:
+            extra["total_batches_checkpointed"] = self._batch_checkpoint_count
+            extra["consumer_group"] = self.consumer_group
+        logger.log(log_level, log_msg, extra=extra)
 
     async def _route_to_dlq(self, msg: PipelineMessage, error: Exception) -> bool:
         """Route a permanently failed message to the DLQ Event Hub entity.
