@@ -24,6 +24,11 @@ from core.logging.setup import (
 )
 
 
+def _is_pytest_handler(h):
+    """Check if a handler belongs to pytest's logging infrastructure."""
+    return type(h).__module__.startswith(("_pytest", "pytest"))
+
+
 class TestGetLogFilePath:
     @patch("core.logging.setup._generate_instance_id", return_value="happy-tiger")
     def test_builds_path_with_domain_and_stage(self, _):
@@ -358,10 +363,12 @@ class TestSetupLogging:
         clear_log_context()
         yield
         clear_log_context()
-        # Close handlers before clearing to avoid dangling file descriptors
-        for h in logging.getLogger().handlers[:]:
-            h.close()
-        logging.getLogger().handlers.clear()
+        # Close our handlers but preserve pytest's LogCaptureHandler
+        root = logging.getLogger()
+        for h in root.handlers[:]:
+            if not type(h).__module__.startswith(("_pytest", "pytest")):
+                h.close()
+                root.removeHandler(h)
 
     @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     def test_stdout_mode_returns_logger(self, _, tmp_path):
@@ -386,7 +393,7 @@ class TestSetupLogging:
         stream_handlers = [
             h
             for h in root.handlers
-            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler) and not _is_pytest_handler(h)
         ]
         assert len(stream_handlers) == 1
 
@@ -534,10 +541,12 @@ class TestSetupMultiWorkerLogging:
         clear_log_context()
         yield
         clear_log_context()
-        # Close handlers before clearing to avoid dangling file descriptors
-        for h in logging.getLogger().handlers[:]:
-            h.close()
-        logging.getLogger().handlers.clear()
+        # Close our handlers but preserve pytest's LogCaptureHandler
+        root = logging.getLogger()
+        for h in root.handlers[:]:
+            if not type(h).__module__.startswith(("_pytest", "pytest")):
+                h.close()
+                root.removeHandler(h)
 
     @patch("core.logging.setup._generate_instance_id", return_value="test-id")
     @patch.dict(os.environ, {"LOG_UPLOAD_ENABLED": "false"}, clear=False)
@@ -566,7 +575,7 @@ class TestSetupMultiWorkerLogging:
         stream_handlers = [
             h
             for h in root.handlers
-            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler) and not _is_pytest_handler(h)
         ]
         assert len(stream_handlers) == 1
         # log_to_stdout makes console handler use file_level (DEBUG)

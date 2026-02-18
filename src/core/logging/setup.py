@@ -1,7 +1,6 @@
 """Logging setup and configuration."""
 
 import contextlib
-import io
 import logging
 import os
 import secrets
@@ -445,17 +444,19 @@ def setup_logging(
     # Console handler (always created)
     console_formatter = ConsoleFormatter()
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-        console_handler = logging.StreamHandler(safe_stdout)
-    else:
-        console_handler = logging.StreamHandler(sys.stdout)
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    console_handler = logging.StreamHandler(sys.stdout)
 
-    # Configure root logger
+    # Configure root logger — close and remove our handlers but preserve
+    # any external handlers (e.g. pytest's LogCaptureHandler) to avoid
+    # destroying streams we don't own.
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
     for h in root_logger.handlers[:]:
+        if type(h).__module__.startswith(("_pytest", "pytest")):
+            continue
         h.close()
-    root_logger.handlers.clear()
+        root_logger.removeHandler(h)
 
     # Add EventHub handler if enabled and configured
     if enable_eventhub_logging and eventhub_config:
@@ -569,12 +570,16 @@ def setup_multi_worker_logging(
 
     console_formatter = ConsoleFormatter()
 
-    # Configure root logger
+    # Configure root logger — close and remove our handlers but preserve
+    # any external handlers (e.g. pytest's LogCaptureHandler) to avoid
+    # destroying streams we don't own.
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
     for h in root_logger.handlers[:]:
+        if type(h).__module__.startswith(("_pytest", "pytest")):
+            continue
         h.close()
-    root_logger.handlers.clear()
+        root_logger.removeHandler(h)
 
     # Add EventHub handler if enabled and configured
     if enable_eventhub_logging and eventhub_config:
@@ -596,10 +601,8 @@ def setup_multi_worker_logging(
 
     # Add console handler (receives all logs)
     if sys.platform == "win32":
-        safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-        console_handler = logging.StreamHandler(safe_stdout)
-    else:
-        console_handler = logging.StreamHandler(sys.stdout)
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    console_handler = logging.StreamHandler(sys.stdout)
     # Console handler: log_to_stdout makes it verbose (file_level), otherwise normal
     console_handler.setLevel(file_level if log_to_stdout else console_level)
     console_handler.setFormatter(console_formatter)
