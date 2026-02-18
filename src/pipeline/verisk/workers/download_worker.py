@@ -367,95 +367,56 @@ class DownloadWorker:
         logger.info("Stopping download worker, waiting for in-flight downloads")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        try:
-            await self._stale_cleaner.stop()
-        except Exception as e:
-            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
-
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        try:
-            await self._wait_for_in_flight(timeout=30.0)
-        except asyncio.CancelledError:
-            logger.warning("Interrupted while waiting for in-flight downloads")
-
-        if self._consumer:
-            try:
-                await self._consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error(
-                    "Error stopping consumer",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self._consumer = None
-
-        if self._http_session:
-            try:
-                await self._http_session.close()
-                await asyncio.sleep(0)
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while closing HTTP session")
-            except Exception as e:
-                logger.error(
-                    "Error closing HTTP session",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self._http_session = None
-
-        try:
-            await self.producer.stop()
-        except asyncio.CancelledError:
-            logger.warning("Cancelled while stopping producer")
-        except Exception as e:
-            logger.error(
-                "Error stopping producer",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
-
-        try:
-            await self.results_producer.stop()
-        except asyncio.CancelledError:
-            logger.warning("Cancelled while stopping results producer")
-        except Exception as e:
-            logger.error(
-                "Error stopping results producer",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping retry handler")
-            except Exception as e:
-                logger.error(
-                    "Error stopping retry handler",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-            finally:
-                self.retry_handler = None
+        await self._close_resource("stats logger", self._stop_stats_logger)
+        await self._close_resource("stale cleaner", self._stale_cleaner.stop)
+        await self._close_resource("in-flight downloads", self._drain_in_flight)
+        await self._close_resource("consumer", self._stop_consumer, clear="_consumer")
+        await self._close_resource("HTTP session", self._close_http_session, clear="_http_session")
+        await self._close_resource("producer", self.producer.stop)
+        await self._close_resource("results producer", self.results_producer.stop)
+        await self._close_resource("retry handler", self._stop_retry_handler, clear="retry_handler")
 
         await self.health_server.stop()
         update_connection_status("consumer", connected=False)
         update_assigned_partitions(self._consumer_group, 0)
 
         logger.info("Download worker stopped successfully")
+
+    async def _close_resource(
+        self, name: str, method, *, clear: str | None = None
+    ) -> None:
+        try:
+            await method()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)}, exc_info=True)
+        finally:
+            if clear:
+                setattr(self, clear, None)
+
+    async def _stop_stats_logger(self) -> None:
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
+    async def _drain_in_flight(self) -> None:
+        await self._wait_for_in_flight(timeout=30.0)
+
+    async def _stop_consumer(self) -> None:
+        if self._consumer:
+            await self._consumer.stop()
+
+    async def _close_http_session(self) -> None:
+        if self._http_session:
+            await self._http_session.close()
+            await asyncio.sleep(0)
+
+    async def _stop_retry_handler(self) -> None:
+        if self.retry_handler:
+            await self.retry_handler.stop()
 
     async def _wait_for_in_flight(self, timeout: float = 30.0) -> None:
         start_time = time.perf_counter()
@@ -495,10 +456,16 @@ class DownloadWorker:
                 return await self._process_single_task(message)
 
         tasks = [bounded_process(msg) for msg in messages]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        processed_results: list[TaskResult] = []
-        for i, result in enumerate(results):
+        processed_results = self._collect_results(messages, raw_results)
+        return self._tally_batch_results(messages, processed_results)
+
+    def _collect_results(
+        self, messages: list[PipelineMessage], raw_results: list
+    ) -> list[TaskResult | None]:
+        processed: list[TaskResult | None] = []
+        for i, result in enumerate(raw_results):
             if isinstance(result, Exception):
                 message = messages[i]
                 logger.error(
@@ -511,20 +478,22 @@ class DownloadWorker:
                     },
                     exc_info=result,
                 )
-                processed_results.append(None)  # type: ignore
+                processed.append(None)
             else:
-                processed_results.append(result)
+                processed.append(result)
+        return processed
 
-        succeeded = sum(1 for r in processed_results if r and r.success)
-        failed = sum(1 for r in processed_results if r and not r.success)
-        errors = sum(1 for r in processed_results if r is None)
+    def _tally_batch_results(
+        self, messages: list[PipelineMessage], results: list[TaskResult | None]
+    ) -> bool:
+        succeeded = sum(1 for r in results if r and r.success)
+        failed = sum(1 for r in results if r and not r.success)
+        errors = sum(1 for r in results if r is None)
 
-        # Check for circuit breaker errors
         circuit_errors = [
-            r for r in processed_results if r and r.error and isinstance(r.error, CircuitOpenError)
+            r for r in results if r and r.error and isinstance(r.error, CircuitOpenError)
         ]
 
-        # Log stats
         logger.debug(
             "Batch processing complete",
             extra={
@@ -537,10 +506,8 @@ class DownloadWorker:
         )
 
         self._records_succeeded += succeeded
-        self._records_failed += failed
-        self._records_failed += errors
+        self._records_failed += failed + errors
 
-        # Return commit decision
         if circuit_errors:
             logger.warning(
                 "Circuit breaker errors in batch - not committing offsets",
@@ -550,6 +517,12 @@ class DownloadWorker:
 
         return True
 
+    def _update_cycle_offsets(self, ts) -> None:
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
     @set_log_context_from_message
     async def _process_single_task(self, message: PipelineMessage) -> TaskResult:
         start_time = time.perf_counter()
@@ -557,40 +530,12 @@ class DownloadWorker:
         try:
             task_message = DownloadTaskMessage.model_validate_json(message.value)
         except Exception as e:
-            raw_preview = message.value[:1000].decode("utf-8", errors="replace") if message.value else ""
-            logger.error(
-                "Failed to parse DownloadTaskMessage",
-                extra={
-                    "topic": message.topic,
-                    "partition": message.partition,
-                    "offset": message.offset,
-                    "error": str(e),
-                    "raw_payload_preview": raw_preview,
-                    "raw_payload_bytes": len(message.value) if message.value else 0,
-                },
-                exc_info=True,
-            )
-            return TaskResult(
-                message=message,
-                task_message=None,  # type: ignore
-                outcome=DownloadOutcome(
-                    success=False,
-                    error_message=f"Failed to parse message: {str(e)}",
-                    error_category=ErrorCategory.PERMANENT,
-                ),
-                processing_time_ms=int((time.perf_counter() - start_time) * 1000),
-                success=False,
-                error=e,
-            )
+            return self._make_parse_error_result(message, e, start_time)
 
         set_log_context(trace_id=task_message.trace_id, media_id=task_message.media_id)
 
         self._records_processed += 1
-        ts = message.timestamp
-        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-            self._cycle_offset_start_ts = ts
-        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-            self._cycle_offset_end_ts = ts
+        self._update_cycle_offsets(message.timestamp)
 
         async with self._in_flight_lock:
             self._in_flight_tasks.add(task_message.media_id)
@@ -610,53 +555,63 @@ class DownloadWorker:
             )
 
             download_task = self._convert_to_download_task(task_message)
-
             outcome = await self.downloader.download(download_task)
-
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+
+            record_message_consumed(
+                message.topic, self._consumer_group, len(message.value), success=outcome.success,
+            )
 
             if outcome.success:
                 await self._handle_success(task_message, outcome, processing_time_ms)
-                record_message_consumed(
-                    message.topic,
-                    self._consumer_group,
-                    len(message.value),
-                    success=True,
-                )
-
                 self._bytes_downloaded += outcome.bytes_downloaded or 0
-
                 return TaskResult(
-                    message=message,
-                    task_message=task_message,
-                    outcome=outcome,
-                    processing_time_ms=processing_time_ms,
-                    success=True,
-                )
-            else:
-                await self._handle_failure(task_message, outcome, processing_time_ms)
-                record_message_consumed(
-                    message.topic,
-                    self._consumer_group,
-                    len(message.value),
-                    success=False,
+                    message=message, task_message=task_message, outcome=outcome,
+                    processing_time_ms=processing_time_ms, success=True,
                 )
 
-                await self._cleanup_empty_temp_dir(download_task.destination.parent)
+            await self._handle_failure(task_message, outcome, processing_time_ms)
+            await self._cleanup_empty_temp_dir(download_task.destination.parent)
 
-                is_circuit_error = outcome.error_category == ErrorCategory.CIRCUIT_OPEN
-                return TaskResult(
-                    message=message,
-                    task_message=task_message,
-                    outcome=outcome,
-                    processing_time_ms=processing_time_ms,
-                    success=False,
-                    error=(CircuitOpenError("download_worker", 60.0) if is_circuit_error else None),
-                )
+            is_circuit_error = outcome.error_category == ErrorCategory.CIRCUIT_OPEN
+            return TaskResult(
+                message=message, task_message=task_message, outcome=outcome,
+                processing_time_ms=processing_time_ms, success=False,
+                error=(CircuitOpenError("download_worker", 60.0) if is_circuit_error else None),
+            )
 
         finally:
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(task_message.media_id)
+
+    def _make_parse_error_result(
+        self, message: PipelineMessage, error: Exception, start_time: float
+    ) -> TaskResult:
+        raw_preview = message.value[:1000].decode("utf-8", errors="replace") if message.value else ""
+        logger.error(
+            "Failed to parse DownloadTaskMessage",
+            extra={
+                "topic": message.topic,
+                "partition": message.partition,
+                "offset": message.offset,
+                "error": str(error),
+                "raw_payload_preview": raw_preview,
+                "raw_payload_bytes": len(message.value) if message.value else 0,
+            },
+            exc_info=True,
+        )
+        return TaskResult(
+            message=message,
+            task_message=None,  # type: ignore
+            outcome=DownloadOutcome(
+                success=False,
+                error_message=f"Failed to parse message: {error}",
+                error_category=ErrorCategory.PERMANENT,
+            ),
+            processing_time_ms=int((time.perf_counter() - start_time) * 1000),
+            success=False,
+            error=error,
+        )
 
     def _convert_to_download_task(self, task_message: DownloadTaskMessage) -> DownloadTask:
         destination_filename = Path(task_message.blob_path).name
