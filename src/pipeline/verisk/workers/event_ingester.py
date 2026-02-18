@@ -326,7 +326,7 @@ class EventIngesterWorker:
                 record_processing_error(
                     topic=self.producer_config.get_topic(self.domain, "enrichment_pending"),
                     consumer_group=f"{self.domain}-event-ingester",
-                    error_type="SEND_BATCH_FAILED",
+                    error_category="SEND_BATCH_FAILED",
                 )
                 logger.error(
                     "Failed to send enrichment batch — will retry",

@@ -97,10 +97,7 @@ class MetricsParser:
 
             # Parse value
             try:
-                if value_str in ("NaN", "Inf", "-Inf"):
-                    value = float(value_str)
-                else:
-                    value = float(value_str)
+                value = float(value_str)
             except ValueError:
                 continue
 
