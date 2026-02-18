@@ -22,6 +22,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from azure.eventhub import EventData, TransportType
@@ -67,6 +68,37 @@ class EventHubConsumerRecord:
     - EventData.properties (dict) -> PipelineMessage.headers (List[Tuple[str, bytes]])
     """
 
+    @staticmethod
+    def _extract_key(properties: dict | None) -> bytes | None:
+        """Extract message key from EventData properties."""
+        if not properties or "_key" not in properties:
+            return None
+        key_prop = properties.get("_key", "")
+        if not key_prop:
+            return None
+        return key_prop if isinstance(key_prop, bytes) else str(key_prop).encode("utf-8")
+
+    @staticmethod
+    def _to_bytes(value) -> bytes:
+        """Convert a property value to bytes."""
+        if isinstance(value, bytes):
+            return value
+        if isinstance(value, str):
+            return value.encode("utf-8")
+        return str(value).encode("utf-8")
+
+    @staticmethod
+    def _convert_headers(properties: dict | None) -> list[tuple[str, bytes]] | None:
+        """Convert EventData properties to header tuples, excluding internal _key."""
+        if not properties:
+            return None
+        headers = []
+        for k, v in properties.items():
+            key_name = k.decode("utf-8", errors="replace") if isinstance(k, bytes) else str(k)
+            if key_name != "_key":
+                headers.append((key_name, EventHubConsumerRecord._to_bytes(v)))
+        return headers if headers else None
+
     def __init__(self, event_data: EventData, eventhub_name: str, partition: str) -> None:
         """Convert EventData to PipelineMessage.
 
@@ -75,51 +107,37 @@ class EventHubConsumerRecord:
             eventhub_name: Name of the Event Hub entity (used as topic)
             partition: Partition ID as string (converted to int)
         """
-        # Convert timestamp: EventData uses datetime, PipelineMessage uses int milliseconds
         timestamp_ms = 0
         if event_data.enqueued_time:
             timestamp_ms = int(event_data.enqueued_time.timestamp() * 1000)
 
-        # Extract key from properties (stored by EventHub producer)
-        key_bytes = None
-        if event_data.properties and "_key" in event_data.properties:
-            key_prop = event_data.properties.get("_key", "")
-            if key_prop:
-                if isinstance(key_prop, bytes):
-                    key_bytes = key_prop
-                else:
-                    key_bytes = str(key_prop).encode("utf-8")
-
-        # Convert properties to headers format: dict -> List[Tuple[str, bytes]]
-        headers = []
-        if event_data.properties:
-            for k, v in event_data.properties.items():
-                key_name = (
-                    k.decode("utf-8", errors="replace") if isinstance(k, bytes) else str(k)
-                )
-                if key_name != "_key":  # Skip internal key property
-                    if isinstance(v, bytes):
-                        value_bytes = v
-                    elif isinstance(v, str):
-                        value_bytes = v.encode("utf-8")
-                    else:
-                        value_bytes = str(v).encode("utf-8")
-                    headers.append((key_name, value_bytes))
-
-        # Create transport-agnostic PipelineMessage
         self._message = PipelineMessage(
             topic=eventhub_name,
             partition=int(partition) if partition else 0,
             offset=event_data.offset if hasattr(event_data, "offset") else 0,
             timestamp=timestamp_ms,
-            key=key_bytes,
+            key=self._extract_key(event_data.properties),
             value=event_data.body if isinstance(event_data.body, bytes) else b"".join(event_data.body),
-            headers=headers if headers else None,
+            headers=self._convert_headers(event_data.properties),
         )
 
     def to_pipeline_message(self) -> PipelineMessage:
         """Get the underlying PipelineMessage for handlers that accept it directly."""
         return self._message
+
+
+@dataclass
+class EventHubConsumerOptions:
+    """Optional configuration for EventHubConsumer."""
+
+    enable_message_commit: bool = True
+    instance_id: str | None = None
+    checkpoint_store: Any = None
+    prefetch: int = 300
+    starting_position: Any = field(default="@latest")
+    starting_position_inclusive: bool = False
+    checkpoint_interval: int = 1
+    owner_level: int = 0
 
 
 class EventHubConsumer:
@@ -141,14 +159,9 @@ class EventHubConsumer:
         eventhub_name: str,
         consumer_group: str,
         message_handler: Callable[[PipelineMessage], Awaitable[None]],
-        enable_message_commit: bool = True,
-        instance_id: str | None = None,
-        checkpoint_store: Any = None,
-        prefetch: int = 300,
-        starting_position: str | Any = "@latest",
-        starting_position_inclusive: bool = False,
-        checkpoint_interval: int = 1,
-        owner_level: int = 0,
+        options: EventHubConsumerOptions | None = None,
+        # Legacy keyword args — forwarded to options if provided
+        **kwargs,
     ):
         """Initialize Event Hub consumer.
 
@@ -159,49 +172,39 @@ class EventHubConsumer:
             eventhub_name: Event Hub name (resolved from config.yaml by transport layer)
             consumer_group: Consumer group name (resolved from config.yaml by transport layer)
             message_handler: Async function to process each PipelineMessage
-            enable_message_commit: Whether to commit offsets after processing
-            instance_id: Optional instance identifier for parallel consumers
-            checkpoint_store: Optional checkpoint store for durable offset persistence.
-                If None, offsets are stored in-memory only and lost on restart.
-            starting_position: Position to start from when no checkpoint exists.
-                "@latest" (default), "-1" (earliest), or datetime.
-            starting_position_inclusive: Whether the starting position is inclusive.
-                True for datetime positions.
-            checkpoint_interval: Checkpoint every N successfully processed events per
-                partition. Default 1 checkpoints every event (current behavior).
-            owner_level: Epoch value for exclusive partition ownership. A consumer
-                with a higher owner_level takes ownership from consumers with lower
-                levels. Default 0.
+            options: Optional EventHubConsumerOptions for advanced settings
         """
+        # Support both options object and legacy kwargs
+        if options is None:
+            options = EventHubConsumerOptions(**kwargs)
+
         self.connection_string = connection_string
         self.domain = domain
         self.worker_name = worker_name
-        self.instance_id = instance_id
+        self.instance_id = options.instance_id
         self.eventhub_name = eventhub_name
         self.consumer_group = consumer_group
         self.message_handler = message_handler
-        self.checkpoint_store = checkpoint_store
-        self.prefetch = prefetch
-        self.starting_position = starting_position
-        self.starting_position_inclusive = starting_position_inclusive
+        self.checkpoint_store = options.checkpoint_store
+        self.prefetch = options.prefetch
+        self.starting_position = options.starting_position
+        self.starting_position_inclusive = options.starting_position_inclusive
         self._consumer: EventHubConsumerClient | None = None
         self._running = False
-        self._enable_message_commit = enable_message_commit
+        self._enable_message_commit = options.enable_message_commit
         self._dlq_producer: EventHubProducer | None = None
-        self._current_partition_context = {}  # Track partition contexts for checkpointing
-        self._last_partition_event = {}  # Track last event per partition for batch commit
-        self._checkpoint_count = 0  # Total checkpoints since startup
-        self._checkpoint_interval = checkpoint_interval
-        self._partition_since_checkpoint = {}  # partition_id -> events since last checkpoint
-        self._owner_level = owner_level or None  # None means no exclusive ownership
+        self._current_partition_context = {}
+        self._last_partition_event = {}
+        self._checkpoint_count = 0
+        self._checkpoint_interval = options.checkpoint_interval
+        self._partition_since_checkpoint = {}
+        self._owner_level = options.owner_level or None
 
-        # Generate unique worker ID using coolnames for easier tracing in logs
         prefix = f"{domain}-{worker_name}"
-        if instance_id:
-            prefix = f"{prefix}-{instance_id}"
+        if options.instance_id:
+            prefix = f"{prefix}-{options.instance_id}"
         self.worker_id = generate_worker_id(prefix)
 
-        # DLQ configuration mapping
         self._dlq_entity_map = self._build_dlq_entity_map()
 
         logger.info(
@@ -211,10 +214,12 @@ class EventHubConsumer:
                 "worker_name": worker_name,
                 "entity": eventhub_name,
                 "consumer_group": consumer_group,
-                "enable_message_commit": enable_message_commit,
-                "prefetch": prefetch,
-                "checkpoint_interval": checkpoint_interval,
-                "checkpoint_persistence": ("blob_storage" if checkpoint_store else "in_memory"),
+                "enable_message_commit": options.enable_message_commit,
+                "prefetch": options.prefetch,
+                "checkpoint_interval": options.checkpoint_interval,
+                "checkpoint_persistence": (
+                    "blob_storage" if options.checkpoint_store else "in_memory"
+                ),
                 "owner_level": self._owner_level,
             },
         )
@@ -380,6 +385,28 @@ class EventHubConsumer:
             },
         )
 
+    async def _maybe_checkpoint(self, partition_context, event, partition_id: str, offset) -> None:
+        """Checkpoint if commit is enabled and interval is reached."""
+        if not self._enable_message_commit:
+            return
+        count = self._partition_since_checkpoint.get(partition_id, 0) + 1
+        if count < self._checkpoint_interval:
+            self._partition_since_checkpoint[partition_id] = count
+            return
+        await partition_context.update_checkpoint(event)
+        self._checkpoint_count += 1
+        self._partition_since_checkpoint[partition_id] = 0
+        if self._checkpoint_count % 1000 == 0:
+            logger.info(
+                "Checkpoint heartbeat",
+                extra={
+                    "partition_id": partition_id,
+                    "offset": offset,
+                    "total_checkpoints": self._checkpoint_count,
+                    "consumer_group": self.consumer_group,
+                },
+            )
+
     async def _consume_loop(self) -> None:
         """Main consumption loop using Event Hub async receive."""
         logger.info(
@@ -392,14 +419,10 @@ class EventHubConsumer:
 
         async def on_event(partition_context, event):
             """Process single event from Event Hub partition."""
-            if not self._running:
+            if not self._running or event is None:
                 return
 
             partition_id = partition_context.partition_id
-
-            if event is None:
-                return
-
             self._current_partition_context[partition_id] = partition_context
             self._last_partition_event[partition_id] = event
 
@@ -408,24 +431,7 @@ class EventHubConsumer:
 
             try:
                 await self._process_message(message)
-                if self._enable_message_commit:
-                    count = self._partition_since_checkpoint.get(partition_id, 0) + 1
-                    if count >= self._checkpoint_interval:
-                        await partition_context.update_checkpoint(event)
-                        self._checkpoint_count += 1
-                        self._partition_since_checkpoint[partition_id] = 0
-                        if self._checkpoint_count % 1000 == 0:
-                            logger.info(
-                                "Checkpoint heartbeat",
-                                extra={
-                                    "partition_id": partition_id,
-                                    "offset": message.offset,
-                                    "total_checkpoints": self._checkpoint_count,
-                                    "consumer_group": self.consumer_group,
-                                },
-                            )
-                    else:
-                        self._partition_since_checkpoint[partition_id] = count
+                await self._maybe_checkpoint(partition_context, event, partition_id, message.offset)
             except Exception:
                 logger.error(
                     "Message processing failed - will not checkpoint",
@@ -741,6 +747,39 @@ class EventHubConsumer:
             )
             return False
 
+    async def _route_to_dlq_or_raise(
+        self, message: PipelineMessage, error: Exception, error_category: ErrorCategory
+    ) -> None:
+        """Send to DLQ; if DLQ write fails, re-raise to prevent checkpoint."""
+        dlq_success = await self._send_to_dlq(message, error, error_category)
+        if dlq_success:
+            logger.info(
+                "Message sent to DLQ successfully - will checkpoint to skip",
+                extra={
+                    "original_topic": message.topic,
+                    "original_partition": message.partition,
+                    "original_offset": message.offset,
+                },
+            )
+            return
+        logger.error(
+            "DLQ write failed - preventing checkpoint, message will be retried",
+            extra={
+                "original_topic": message.topic,
+                "original_partition": message.partition,
+                "original_offset": message.offset,
+                "error_category": error_category.value,
+            },
+        )
+        raise error
+
+    # Maps transient error categories to their log messages
+    _TRANSIENT_ERROR_MESSAGES = {
+        ErrorCategory.TRANSIENT: "Transient error - will reprocess message",
+        ErrorCategory.AUTH: "Authentication error - will reprocess after token refresh",
+        ErrorCategory.CIRCUIT_OPEN: "Circuit breaker open - will reprocess when circuit closes",
+    }
+
     async def _handle_processing_error(
         self, message: PipelineMessage, error: Exception, duration: float
     ) -> None:
@@ -770,78 +809,22 @@ class EventHubConsumer:
                 extra=common_context,
                 exc_info=True,
             )
+            await self._route_to_dlq_or_raise(message, error, error_category)
+            return
 
-            # Route to DLQ
-            dlq_success = await self._send_to_dlq(message, error, error_category)
+        transient_msg = self._TRANSIENT_ERROR_MESSAGES.get(error_category)
+        if transient_msg:
+            logger.warning(transient_msg, extra=common_context, exc_info=True)
+            return
 
-            if dlq_success:
-                # Successfully sent to DLQ
-                # Allow normal flow to continue - checkpoint will happen in on_event
-                logger.info(
-                    "Message sent to DLQ successfully - will checkpoint to skip",
-                    extra={
-                        "original_topic": message.topic,
-                        "original_partition": message.partition,
-                        "original_offset": message.offset,
-                    },
-                )
-                # Do NOT re-raise - this allows checkpoint to happen
-            else:
-                # DLQ write failed - prevent checkpoint by re-raising
-                logger.error(
-                    "DLQ write failed - preventing checkpoint, message will be retried",
-                    extra={
-                        "original_topic": message.topic,
-                        "original_partition": message.partition,
-                        "original_offset": message.offset,
-                    },
-                )
-                # Re-raise to prevent checkpoint
-                raise error
-
-        elif error_category == ErrorCategory.TRANSIENT:
-            logger.warning(
-                "Transient error - will reprocess message",
-                extra=common_context,
-                exc_info=True,
-            )
-
-        elif error_category == ErrorCategory.AUTH:
-            logger.warning(
-                "Authentication error - will reprocess after token refresh",
-                extra=common_context,
-                exc_info=True,
-            )
-
-        elif error_category == ErrorCategory.CIRCUIT_OPEN:
-            logger.warning(
-                "Circuit breaker open - will reprocess when circuit closes",
-                extra=common_context,
-                exc_info=True,
-            )
-
-        else:
-            logger.error(
-                f"Unhandled error category '{error_category.value}' - "
-                f"routing to DLQ: {type(error).__name__}: {error}",
-                extra=common_context,
-                exc_info=True,
-            )
-
-            # Route unknown errors to DLQ to prevent silent data loss
-            dlq_success = await self._send_to_dlq(message, error, error_category)
-
-            if not dlq_success:
-                logger.error(
-                    "DLQ write failed for unknown error - preventing checkpoint",
-                    extra={
-                        "original_topic": message.topic,
-                        "original_partition": message.partition,
-                        "original_offset": message.offset,
-                        "error_category": error_category.value,
-                    },
-                )
-                raise error
+        # Unknown category — route to DLQ to prevent silent data loss
+        logger.error(
+            f"Unhandled error category '{error_category.value}' - "
+            f"routing to DLQ: {type(error).__name__}: {error}",
+            extra=common_context,
+            exc_info=True,
+        )
+        await self._route_to_dlq_or_raise(message, error, error_category)
 
     @property
     def is_running(self) -> bool:
@@ -850,5 +833,6 @@ class EventHubConsumer:
 
 __all__ = [
     "EventHubConsumer",
+    "EventHubConsumerOptions",
     "EventHubConsumerRecord",
 ]
