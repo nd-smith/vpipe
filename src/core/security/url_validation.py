@@ -124,20 +124,22 @@ def validate_download_url(
             "This indicates a configuration error - simulation mode should not be enabled in production."
         )
 
-    # Check if this is a localhost or simulation internal hostname URL
-    is_localhost = hostname_lower in ("localhost", "127.0.0.1")
-    # In simulation mode, also treat Docker internal hostnames as localhost
-    is_simulation_internal = allow_localhost and (
-        hostname_lower.endswith("-simulation") or hostname_lower.startswith(SIMULATION_HOST_PREFIX)
-    )
-
     # If localhost/simulation-internal and allowed (simulation mode), validate localhost-specific rules
-    if (is_localhost or is_simulation_internal) and allow_localhost:
+    if allow_localhost and _is_localhost_or_internal(hostname_lower):
         _validate_localhost_url(url, parsed)
         return
 
     # For non-localhost or localhost when not allowed, use production validation
     _validate_production_url(url, parsed, hostname, hostname_lower, allowed_domains)
+
+
+def _is_localhost_or_internal(hostname_lower: str) -> bool:
+    """Check if hostname is localhost, 127.0.0.1, or a simulation-internal Docker host."""
+    return (
+        hostname_lower in ("localhost", "127.0.0.1")
+        or hostname_lower.endswith("-simulation")
+        or hostname_lower.startswith(SIMULATION_HOST_PREFIX)
+    )
 
 
 def _is_production_environment() -> bool:
@@ -186,12 +188,7 @@ def _validate_localhost_url(url: str, parsed) -> None:
 
     # Verify hostname is actually localhost, 127.0.0.1, or simulation internal hostname
     hostname_lower = (parsed.hostname or "").lower()
-    is_valid_internal = (
-        hostname_lower in ("localhost", "127.0.0.1")
-        or hostname_lower.endswith("-simulation")
-        or hostname_lower.startswith(SIMULATION_HOST_PREFIX)
-    )
-    if not is_valid_internal:
+    if not _is_localhost_or_internal(hostname_lower):
         raise URLValidationError(f"Invalid localhost/internal hostname: {hostname_lower}")
 
     # Check for path traversal attempts
@@ -212,16 +209,7 @@ def _validate_localhost_url(url: str, parsed) -> None:
 
     # Check for suspicious query parameters (common in SSRF attacks)
     if parsed.query:
-        query_lower = parsed.query.lower()
-        # Block common SSRF payloads in query params
-        suspicious_patterns = ["file://", "dict://", "gopher://", "ftp://", "tftp://"]
-        for pattern in suspicious_patterns:
-            if pattern in query_lower:
-                logger.warning(
-                    "Blocked localhost URL with suspicious query parameter",
-                    extra={"query_pattern": pattern},
-                )
-                raise URLValidationError(f"Suspicious query parameter detected: {pattern}")
+        _check_suspicious_query(parsed.query, logger)
 
     # Log localhost URL access for audit trail
     logger.debug(
@@ -233,6 +221,21 @@ def _validate_localhost_url(url: str, parsed) -> None:
             "url_path": parsed.path[:100],  # Truncate for logging
         },
     )
+
+
+_SUSPICIOUS_SCHEMES = ("file://", "dict://", "gopher://", "ftp://", "tftp://")
+
+
+def _check_suspicious_query(query: str, logger) -> None:
+    """Block common SSRF payloads in query parameters."""
+    query_lower = query.lower()
+    for pattern in _SUSPICIOUS_SCHEMES:
+        if pattern in query_lower:
+            logger.warning(
+                "Blocked localhost URL with suspicious query parameter",
+                extra={"query_pattern": pattern},
+            )
+            raise URLValidationError(f"Suspicious query parameter detected: {pattern}")
 
 
 def _validate_production_url(
