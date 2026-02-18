@@ -17,6 +17,7 @@ import asyncio
 import atexit
 import io
 import logging
+import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -90,7 +91,8 @@ def _get_delta_process_pool() -> ProcessPoolExecutor:
     """Lazily create a shared ProcessPoolExecutor for delta writes."""
     global _process_pool
     if _process_pool is None:
-        _process_pool = ProcessPoolExecutor(max_workers=2)
+        ctx = multiprocessing.get_context("forkserver")
+        _process_pool = ProcessPoolExecutor(max_workers=2, mp_context=ctx)
         atexit.register(_shutdown_delta_process_pool)
     return _process_pool
 
