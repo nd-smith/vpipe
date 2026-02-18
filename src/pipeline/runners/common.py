@@ -194,6 +194,7 @@ async def execute_worker_with_producer(
     domain: str,
     stage_name: str,
     shutdown_event: asyncio.Event,
+    *,
     worker_kwargs: dict | None = None,
     producer_worker_name: str | None = None,
     instance_id: int | None = None,

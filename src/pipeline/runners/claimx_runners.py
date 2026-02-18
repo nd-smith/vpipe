@@ -183,6 +183,7 @@ async def run_claimx_retry_scheduler(
 
 async def run_claimx_entity_delta_worker(
     kafka_config,
+    *,
     projects_table_path: str,
     contacts_table_path: str,
     media_table_path: str,
