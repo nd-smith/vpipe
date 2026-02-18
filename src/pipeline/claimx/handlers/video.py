@@ -146,6 +146,16 @@ class VideoCollabHandler(EventHandler):
                 duration_ms=duration_ms,
             )
 
+    @staticmethod
+    def _unwrap_response(response: Any) -> Any:
+        """Unwrap dict wrappers to get the collaboration data or list."""
+        if not isinstance(response, dict):
+            return response
+        for key in ("data", "collaborations", "videoCollaboration"):
+            if key in response:
+                return response[key]
+        return response
+
     def _extract_collab_data(
         self,
         response: Any,
@@ -169,25 +179,14 @@ class VideoCollabHandler(EventHandler):
         if response is None:
             return None
 
-        if isinstance(response, dict):
-            if "data" in response:
-                response = response["data"]
-            elif "collaborations" in response:
-                response = response["collaborations"]
-            elif "videoCollaboration" in response:
-                response = response["videoCollaboration"]
+        unwrapped = self._unwrap_response(response)
 
-        if isinstance(response, list):
-            if not response:
+        if isinstance(unwrapped, list):
+            if not unwrapped:
                 return None
+            for item in unwrapped:
+                if str(item.get("claimId")) == project_id:
+                    return item
+            return unwrapped[0]
 
-            for video_collaboration in response:
-                if str(video_collaboration.get("claimId")) == project_id:
-                    return video_collaboration
-
-            return response[0]
-
-        if isinstance(response, dict):
-            return response
-
-        return None
+        return unwrapped if isinstance(unwrapped, dict) else None

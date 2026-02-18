@@ -89,6 +89,28 @@ class ClaimXEventMessage(BaseModel):
             raise ValueError(f"{info.field_name} cannot be empty or whitespace")
         return v.strip()
 
+    @staticmethod
+    def _get_field(row: dict[str, Any], snake: str, camel: str) -> Any:
+        """Get a field from row, checking snake_case then camelCase."""
+        return row.get(snake) or row.get(camel)
+
+    @staticmethod
+    def _build_trace_id(
+        project_id: str, event_type: str, ingested_at: Any,
+        media_id: Any, task_id: Any, video_id: Any, master_file: Any,
+    ) -> str:
+        """Build deterministic trace_id from stable composite key."""
+        parts = [project_id, event_type]
+
+        if ingested_at:
+            parts.append(ingested_at.isoformat() if isinstance(ingested_at, datetime) else str(ingested_at))
+
+        for prefix, val in [("media", media_id), ("task", task_id), ("video", video_id), ("file", master_file)]:
+            if val:
+                parts.append(f"{prefix}:{val}")
+
+        return hashlib.sha256("|".join(parts).encode()).hexdigest()
+
     @classmethod
     def from_raw_event(cls, row: dict[str, Any]) -> "ClaimXEventMessage":
         """
@@ -102,40 +124,19 @@ class ClaimXEventMessage(BaseModel):
         Returns:
             ClaimXEventMessage instance
         """
-        event_type = row.get("event_type") or row.get("eventType") or ""
-        project_id = str(row.get("project_id") or row.get("projectId") or "")
-        ingested_at = row.get("ingested_at") or row.get("ingestedAt") or datetime.now()
+        event_type = cls._get_field(row, "event_type", "eventType") or ""
+        project_id = str(cls._get_field(row, "project_id", "projectId") or "")
+        ingested_at = cls._get_field(row, "ingested_at", "ingestedAt") or datetime.now()
 
-        # Build deterministic trace_id from stable composite key
-        composite_parts = [project_id, event_type]
+        media_id = cls._get_field(row, "media_id", "mediaId")
+        task_id = cls._get_field(row, "task_assignment_id", "taskAssignmentId")
+        video_id = cls._get_field(row, "video_collaboration_id", "videoCollaborationId")
+        master_file = cls._get_field(row, "master_file_name", "masterFileName")
 
-        if ingested_at:
-            if isinstance(ingested_at, datetime):
-                composite_parts.append(ingested_at.isoformat())
-            else:
-                composite_parts.append(str(ingested_at))
-
-        media_id = row.get("media_id") or row.get("mediaId")
-        task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
-        video_id = row.get("video_collaboration_id") or row.get("videoCollaborationId")
-        master_file = row.get("master_file_name") or row.get("masterFileName")
-
-        if media_id:
-            composite_parts.append(f"media:{media_id}")
-        if task_id:
-            composite_parts.append(f"task:{task_id}")
-        if video_id:
-            composite_parts.append(f"video:{video_id}")
-        if master_file:
-            composite_parts.append(f"file:{master_file}")
-
-        composite_key = "|".join(composite_parts)
-        trace_id = hashlib.sha256(composite_key.encode()).hexdigest()
-
-        media_id = row.get("media_id") or row.get("mediaId")
-        task_id = row.get("task_assignment_id") or row.get("taskAssignmentId")
-        video_id = row.get("video_collaboration_id") or row.get("videoCollaborationId")
-        master_file = row.get("master_file_name") or row.get("masterFileName")
+        trace_id = cls._build_trace_id(
+            project_id, event_type, ingested_at,
+            media_id, task_id, video_id, master_file,
+        )
 
         return cls(
             trace_id=trace_id,

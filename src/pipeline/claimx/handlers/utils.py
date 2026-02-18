@@ -110,21 +110,24 @@ def today_date() -> date:
     return datetime.now(UTC).date()
 
 
+def _parse_timestamp_str(s: str) -> datetime | None:
+    """Parse a timestamp string to datetime, returning None on failure."""
+    s = s.strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def parse_timestamp_dt(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
         return value
     if isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return None
-        try:
-            # Handle Z suffix
-            s = s.replace("Z", "+00:00")
-            return datetime.fromisoformat(s)
-        except ValueError:
-            return None
+        return _parse_timestamp_str(value)
     return None
 
 
