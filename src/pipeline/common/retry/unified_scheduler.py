@@ -274,45 +274,46 @@ class UnifiedRetryScheduler:
 
         self._running = False
 
-        # Stop stats logger
-        try:
-            if self._stats_logger:
-                await self._stats_logger.stop()
-                self._stats_logger = None
-        except Exception as e:
-            logger.error("Error stopping stats logger", extra={"error": str(e)})
+        await self._close_resource("stats logger", self._stop_stats_logger)
+        await self._cancel_task("processor task", self._processor_task)
+        await self._cancel_task("persistence task", self._persistence_task)
+        await self._close_resource("delay queue persistence", self._persist_queue)
+        await self._close_resource("consumer", self._stop_consumer)
+        await self._stop_producer_pool()
+        await self._close_resource("DLQ producer", self._stop_dlq_producer)
+        await self._close_resource("health server", self.health_server.stop)
 
-        # Stop background tasks
+        logger.info("UnifiedRetryScheduler stopped successfully")
+
+    async def _close_resource(self, name: str, method) -> None:
         try:
-            if self._processor_task:
-                self._processor_task.cancel()
+            await method()
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+
+    async def _cancel_task(self, name: str, task: asyncio.Task | None) -> None:
+        try:
+            if task:
+                task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await self._processor_task
+                    await task
         except Exception as e:
-            logger.error("Error cancelling processor task", extra={"error": str(e)})
+            logger.error(f"Error cancelling {name}", extra={"error": str(e)})
 
-        try:
-            if self._persistence_task:
-                self._persistence_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._persistence_task
-        except Exception as e:
-            logger.error("Error cancelling persistence task", extra={"error": str(e)})
+    async def _stop_stats_logger(self) -> None:
+        if self._stats_logger:
+            await self._stats_logger.stop()
+            self._stats_logger = None
 
-        # Persist delayed queue before shutdown
-        try:
-            self._delay_queue.persist_to_disk()
-        except Exception as e:
-            logger.error("Error persisting delay queue", extra={"error": str(e)})
+    async def _persist_queue(self) -> None:
+        self._delay_queue.persist_to_disk()
 
-        try:
-            if self._consumer:
-                await self._consumer.stop()
-                self._consumer = None
-        except Exception as e:
-            logger.error("Error stopping consumer", extra={"error": str(e)})
+    async def _stop_consumer(self) -> None:
+        if self._consumer:
+            await self._consumer.stop()
+            self._consumer = None
 
-        # Stop all producers in the pool
+    async def _stop_producer_pool(self) -> None:
         for topic, producer in list(self._producer_pool.items()):
             try:
                 await producer.stop()
@@ -320,95 +321,104 @@ class UnifiedRetryScheduler:
                 logger.error("Error stopping producer", extra={"error": str(e), "topic": topic})
         self._producer_pool.clear()
 
-        # Stop DLQ producer
-        try:
-            if self._dlq_producer:
-                await self._dlq_producer.stop()
-                self._dlq_producer = None
-        except Exception as e:
-            logger.error("Error stopping DLQ producer", extra={"error": str(e)})
+    async def _stop_dlq_producer(self) -> None:
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
+            self._dlq_producer = None
 
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
-
-        logger.info("UnifiedRetryScheduler stopped successfully")
-
-    @set_log_context_from_message
-    async def _handle_retry_message(self, message: PipelineMessage) -> None:
-        """Handle a message from the retry topic.
-
-        Extracts routing information from headers, checks if delay has elapsed,
-        and routes to the target topic if ready. If not ready, stores in
-        in-memory queue for later processing.
-        """
-        headers = self._parse_headers(message)
-
-        ts = message.timestamp
+    def _update_cycle_offsets(self, ts) -> None:
         if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
             self._cycle_offset_start_ts = ts
         if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
             self._cycle_offset_end_ts = ts
 
-        # Validate required headers
-        required_headers = ["scheduled_retry_time", "target_topic", "retry_count"]
-        missing_headers = [h for h in required_headers if h not in headers]
+    async def _validate_and_extract_headers(
+        self, message: PipelineMessage, headers: dict[str, str],
+    ) -> tuple[str, int, str, str | None] | None:
+        """Validate required headers and extract routing info.
 
-        if missing_headers:
+        Returns (target_topic, retry_count, worker_type, original_key) or None if invalid.
+        """
+        required = ["scheduled_retry_time", "target_topic", "retry_count"]
+        missing = [h for h in required if h not in headers]
+
+        if missing:
             logger.error(
                 "Message missing required headers, routing to DLQ | "
                 "missing=%s available=%s raw_type=%s raw_len=%s",
-                missing_headers,
-                list(headers.keys()),
+                missing, list(headers.keys()),
                 type(message.headers).__name__,
                 len(message.headers) if message.headers else 0,
                 extra={
-                    "topic": message.topic,
-                    "partition": message.partition,
-                    "offset": message.offset,
-                    "missing_headers": missing_headers,
+                    "topic": message.topic, "partition": message.partition,
+                    "offset": message.offset, "missing_headers": missing,
                     "available_headers": list(headers.keys()),
                 },
             )
             self._messages_malformed += 1
-            await self._send_to_dlq(
-                message,
-                f"Missing required headers: {missing_headers}",
-                headers,
-            )
-            return
+            await self._send_to_dlq(message, f"Missing required headers: {missing}", headers)
+            return None
 
-        target_topic = headers["target_topic"]
-        retry_count_str = headers["retry_count"]
-        original_key = headers.get("original_key", message.key)
-        worker_type = headers.get("worker_type", "unknown")
-
-        # Parse and validate retry count
-        retry_count = parse_retry_count(retry_count_str)
+        retry_count = parse_retry_count(headers["retry_count"])
         if retry_count is None:
             logger.error(
                 "Invalid retry_count in header, routing to DLQ",
-                extra={
-                    "retry_count": retry_count_str,
-                    "target_topic": target_topic,
-                },
+                extra={"retry_count": headers["retry_count"], "target_topic": headers["target_topic"]},
             )
             self._messages_malformed += 1
-            await self._send_to_dlq(
-                message,
-                f"Invalid retry_count: {retry_count_str}",
-                headers,
-            )
+            await self._send_to_dlq(message, f"Invalid retry_count: {headers['retry_count']}", headers)
+            return None
+
+        return (
+            headers["target_topic"],
+            retry_count,
+            headers.get("worker_type", "unknown"),
+            headers.get("original_key", message.key),
+        )
+
+    def _enqueue_delayed(
+        self, message: PipelineMessage, target_topic: str, retry_count: int,
+        worker_type: str, original_key, scheduled_time: datetime, headers: dict[str, str],
+    ) -> None:
+        """Add message to in-memory delay queue."""
+        seconds_remaining = (scheduled_time - datetime.now(UTC)).total_seconds()
+        logger.debug(
+            "Retry delay not elapsed, adding to in-memory queue",
+            extra={
+                "scheduled_retry_time": scheduled_time.isoformat(),
+                "seconds_remaining": seconds_remaining,
+                "target_topic": target_topic,
+            },
+        )
+        delayed_msg = DelayedMessage(
+            scheduled_time=scheduled_time,
+            target_topic=target_topic,
+            retry_count=retry_count,
+            worker_type=worker_type,
+            message_key=encode_message_key(original_key, message),
+            message_value=bytes(message.value),
+            headers=headers,
+        )
+        self._delay_queue.push(delayed_msg)
+        self._messages_delayed += 1
+
+    @set_log_context_from_message
+    async def _handle_retry_message(self, message: PipelineMessage) -> None:
+        """Handle a message from the retry topic."""
+        headers = self._parse_headers(message)
+        self._update_cycle_offsets(message.timestamp)
+
+        extracted = await self._validate_and_extract_headers(message, headers)
+        if extracted is None:
             return
+
+        target_topic, retry_count, worker_type, original_key = extracted
 
         logger.debug(
             "Processing retry message",
             extra={
-                "target_topic": target_topic,
-                "retry_count": retry_count,
-                "worker_type": worker_type,
-                "scheduled_retry_time": headers["scheduled_retry_time"],
+                "target_topic": target_topic, "retry_count": retry_count,
+                "worker_type": worker_type, "scheduled_retry_time": headers["scheduled_retry_time"],
             },
         )
 
@@ -417,17 +427,13 @@ class UnifiedRetryScheduler:
             logger.warning(
                 "Retries exhausted, routing to DLQ",
                 extra={
-                    "retry_count": retry_count,
-                    "max_retries": self._max_retries,
-                    "target_topic": target_topic,
-                    "worker_type": worker_type,
+                    "retry_count": retry_count, "max_retries": self._max_retries,
+                    "target_topic": target_topic, "worker_type": worker_type,
                 },
             )
             self._messages_exhausted += 1
             await self._send_to_dlq(
-                message,
-                f"Retries exhausted ({retry_count}/{self._max_retries})",
-                headers,
+                message, f"Retries exhausted ({retry_count}/{self._max_retries})", headers,
             )
             return
 
@@ -436,61 +442,26 @@ class UnifiedRetryScheduler:
         if scheduled_time is None:
             logger.error(
                 "Failed to parse scheduled_retry_time, routing to DLQ",
-                extra={
-                    "scheduled_retry_time": headers["scheduled_retry_time"],
-                },
+                extra={"scheduled_retry_time": headers["scheduled_retry_time"]},
                 exc_info=True,
             )
             self._messages_malformed += 1
             await self._send_to_dlq(
-                message,
-                f"Invalid scheduled_retry_time: {headers['scheduled_retry_time']}",
-                headers,
+                message, f"Invalid scheduled_retry_time: {headers['scheduled_retry_time']}", headers,
             )
             return
 
         # Not ready yet — add to delay queue
-        now = datetime.now(UTC)
-        if now < scheduled_time:
-            seconds_remaining = (scheduled_time - now).total_seconds()
-            logger.debug(
-                "Retry delay not elapsed, adding to in-memory queue",
-                extra={
-                    "scheduled_retry_time": scheduled_time.isoformat(),
-                    "seconds_remaining": seconds_remaining,
-                    "target_topic": target_topic,
-                },
-            )
-
-            delayed_msg = DelayedMessage(
-                scheduled_time=scheduled_time,
-                target_topic=target_topic,
-                retry_count=retry_count,
-                worker_type=worker_type,
-                message_key=encode_message_key(original_key, message),
-                message_value=bytes(message.value),
-                headers=headers,
-            )
-            self._delay_queue.push(delayed_msg)
-            self._messages_delayed += 1
-
-            logger.debug(
-                "Message added to delay queue",
-                extra={
-                    "queue_size": len(self._delay_queue),
-                    "target_topic": target_topic,
-                },
+        if datetime.now(UTC) < scheduled_time:
+            self._enqueue_delayed(
+                message, target_topic, retry_count, worker_type, original_key, scheduled_time, headers,
             )
             return
 
         # Ready — route to target topic immediately
         logger.info(
             "Routing message to target topic",
-            extra={
-                "target_topic": target_topic,
-                "retry_count": retry_count,
-                "worker_type": worker_type,
-            },
+            extra={"target_topic": target_topic, "retry_count": retry_count, "worker_type": worker_type},
         )
 
         await self._route_to_target(
@@ -505,50 +476,42 @@ class UnifiedRetryScheduler:
 
     def _parse_headers(self, message: PipelineMessage) -> dict[str, str]:
         """Parse message headers into a dictionary."""
+        if not message.headers:
+            return {}
+
+        header_items = message.headers.items() if isinstance(message.headers, dict) else message.headers
         headers = {}
-        if message.headers:
-            if isinstance(message.headers, dict):
-                header_items = message.headers.items()
-            else:
-                header_items = message.headers
+        for entry in header_items:
+            result = self._decode_header_entry(entry)
+            if result is not None:
+                headers[result[0]] = result[1]
 
-            for entry in header_items:
-                try:
-                    if isinstance(entry, tuple) and len(entry) == 2:
-                        key, value = entry
-                    else:
-                        logger.warning(
-                            "Skipping malformed header entry",
-                            extra={
-                                "entry_type": type(entry).__name__,
-                                "entry_preview": repr(entry)[:200],
-                            },
-                        )
-                        continue
-
-                    decoded_key = (
-                        key.decode("utf-8", errors="replace") if isinstance(key, bytes) else str(key)
-                    )
-                    decoded_value = (
-                        value.decode("utf-8") if isinstance(value, bytes) else str(value)
-                    )
-                    headers[decoded_key] = decoded_value
-                except Exception as e:
-                    logger.warning(
-                        "Failed to decode header",
-                        extra={
-                            "key": key if 'key' in locals() else None,
-                            "error": str(e),
-                        },
-                    )
-            if not headers:
-                logger.warning(
-                    "Headers empty after parsing | raw_type=%s raw_len=%s raw_sample=%s",
-                    type(message.headers).__name__,
-                    len(message.headers),
-                    repr(message.headers[:3]) if len(message.headers) > 0 else "[]",
-                )
+        if not headers:
+            logger.warning(
+                "Headers empty after parsing | raw_type=%s raw_len=%s raw_sample=%s",
+                type(message.headers).__name__,
+                len(message.headers),
+                repr(message.headers[:3]) if len(message.headers) > 0 else "[]",
+            )
         return headers
+
+    @staticmethod
+    def _decode_header_entry(entry) -> tuple[str, str] | None:
+        """Decode a single header entry. Returns (key, value) or None."""
+        try:
+            if not (isinstance(entry, tuple) and len(entry) == 2):
+                logger.warning(
+                    "Skipping malformed header entry",
+                    extra={"entry_type": type(entry).__name__, "entry_preview": repr(entry)[:200]},
+                )
+                return None
+            key, value = entry
+            decoded_key = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else str(key)
+            decoded_value = value.decode("utf-8") if isinstance(value, bytes) else str(value)
+            return decoded_key, decoded_value
+        except Exception as e:
+            logger.warning("Failed to decode header", extra={"error": str(e)})
+            return None
 
     @staticmethod
     def _resolve_send_topic(producer: Any, configured_topic: str) -> str:
