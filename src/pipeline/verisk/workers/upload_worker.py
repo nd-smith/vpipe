@@ -363,7 +363,6 @@ class UploadWorker:
         Safe to call multiple times. Will clean up resources even if
         request_shutdown() was called first.
         """
-        # Check if already fully stopped (consumer is None)
         if self._consumer is None and not self.onelake_clients:
             logger.debug("Worker already stopped")
             return
@@ -371,42 +370,41 @@ class UploadWorker:
         logger.info("Stopping upload worker...")
         self._running = False
 
-        # Stop periodic stats logger
-        try:
-            if self._stats_logger:
-                await self._stats_logger.stop()
-        except Exception as e:
-            logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        try:
-            await self._stale_cleaner.stop()
-        except Exception as e:
-            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
-
-        # Signal shutdown
         if self._shutdown_event:
             self._shutdown_event.set()
 
-        try:
-            await self._wait_for_in_flight(timeout=30.0)
-        except Exception as e:
-            logger.error("Error waiting for in-flight uploads", extra={"error": str(e)})
+        await self._close_resource("stats logger", self._stop_stats_logger)
+        await self._close_resource("stale cleaner", self._stale_cleaner.stop)
+        await self._close_resource("in-flight uploads", self._drain_in_flight)
+        await self._close_resource("consumer", self._stop_consumer)
+        await self._close_resource("producer", self.producer.stop)
+        await self._close_onelake_clients()
+        await self._close_resource("health server", self.health_server.stop)
 
-        # Stop consumer
-        try:
-            if self._consumer is not None:
-                await self._consumer.stop()
-                self._consumer = None
-        except Exception as e:
-            logger.error("Error stopping consumer", extra={"error": str(e)})
+        update_connection_status("consumer", connected=False)
+        update_assigned_partitions(self._consumer_group, 0)
 
-        # Stop producer
-        try:
-            await self.producer.stop()
-        except Exception as e:
-            logger.error("Error stopping producer", extra={"error": str(e)})
+        logger.info("Upload worker stopped")
 
-        # Close all OneLake clients
+    async def _close_resource(self, name: str, method) -> None:
+        try:
+            await method()
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+
+    async def _stop_stats_logger(self) -> None:
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
+    async def _drain_in_flight(self) -> None:
+        await self._wait_for_in_flight(timeout=30.0)
+
+    async def _stop_consumer(self) -> None:
+        if self._consumer is not None:
+            await self._consumer.stop()
+            self._consumer = None
+
+    async def _close_onelake_clients(self) -> None:
         for domain, client in self.onelake_clients.items():
             try:
                 await client.close()
@@ -417,18 +415,6 @@ class UploadWorker:
                     extra={"domain": domain, "error": str(e)},
                 )
         self.onelake_clients.clear()
-
-        # Stop health check server
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
-
-        # Update metrics
-        update_connection_status("consumer", connected=False)
-        update_assigned_partitions(self._consumer_group, 0)
-
-        logger.info("Upload worker stopped")
 
     async def _process_batch(self, messages: list[PipelineMessage]) -> bool:
         """Process batch of upload messages concurrently.
@@ -441,16 +427,16 @@ class UploadWorker:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call start() first")
 
-        topic = self.topics[0]
-
         logger.debug("Processing message batch", extra={"batch_size": len(messages)})
 
-        # Process all messages concurrently
         tasks = [asyncio.create_task(self._process_single_with_semaphore(msg)) for msg in messages]
-
         results: list[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Handle any exceptions
+        self._log_batch_exceptions(results)
+        return self._check_batch_commit(results)
+
+    def _log_batch_exceptions(self, results: list) -> None:
+        topic = self.topics[0]
         for upload_result in results:
             if isinstance(upload_result, Exception):
                 logger.error(
@@ -460,25 +446,19 @@ class UploadWorker:
                 )
                 record_processing_error(topic, self._consumer_group, "unexpected_error")
 
-        # Check for circuit breaker errors (transient errors that need immediate retry)
-        # For upload worker, we don't typically have circuit breaker errors,
-        # but we maintain consistency with the download worker pattern
+    def _check_batch_commit(self, results: list) -> bool:
         circuit_errors = [
-            r
-            for r in results
+            r for r in results
             if isinstance(r, UploadResult)
             and r.error
-            and hasattr(r.error, "__class__")
             and r.error.__class__.__name__ == "CircuitOpenError"
         ]
-
         if circuit_errors:
             logger.warning(
                 "Circuit breaker errors - not committing",
                 extra={"count": len(circuit_errors)},
             )
             return False
-
         return True
 
     async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
@@ -488,6 +468,84 @@ class UploadWorker:
         async with self._semaphore:
             return await self._process_single_upload(message)
 
+    def _update_cycle_offsets(self, ts) -> None:
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    def _resolve_onelake_client(self, cached_message: CachedDownloadMessage):
+        """Resolve the OneLake client for the message's domain."""
+        domain = cached_message.event_type.lower()
+        available_domains = list(self.onelake_clients.keys())
+
+        logger.debug(
+            "Domain lookup for upload",
+            extra={
+                "trace_id": cached_message.trace_id,
+                "media_id": cached_message.media_id,
+                "raw_event_type": cached_message.event_type,
+                "domain": domain,
+                "available_domains": available_domains,
+            },
+        )
+
+        client = self.onelake_clients.get(domain)
+        if client is not None:
+            return client, domain
+
+        client = self.onelake_clients.get("_fallback")
+        if client is None:
+            raise ValueError(
+                f"No OneLake client configured for domain '{domain}' "
+                f"(event_type='{cached_message.event_type}') and no fallback configured. "
+                f"Available domains: {available_domains}"
+            )
+        logger.warning(
+            "Using fallback OneLake client - domain not found",
+            extra={
+                "trace_id": cached_message.trace_id,
+                "media_id": cached_message.media_id,
+                "raw_event_type": cached_message.event_type,
+                "domain": domain,
+                "available_domains": available_domains,
+            },
+        )
+        return client, domain
+
+    async def _produce_failure_result(
+        self, message: PipelineMessage, cached_message: CachedDownloadMessage | None,
+        trace_id: str, error: Exception,
+    ) -> None:
+        try:
+            if cached_message is None:
+                cached_message = CachedDownloadMessage.model_validate_json(message.value)
+
+            result_message = DownloadResultMessage(
+                media_id=cached_message.media_id,
+                trace_id=cached_message.trace_id,
+                attachment_url=cached_message.attachment_url,
+                blob_path=cached_message.destination_path,
+                status_subtype=cached_message.status_subtype,
+                file_type=cached_message.file_type,
+                assignment_id=cached_message.assignment_id,
+                status="failed_permanent",
+                bytes_downloaded=0,
+                error_message=str(error)[:500],
+                created_at=datetime.now(UTC),
+            )
+
+            await self.producer.send(key=cached_message.trace_id, value=result_message)
+        except Exception as produce_error:
+            logger.error(
+                "Failed to produce failure result",
+                extra={
+                    "error": str(produce_error),
+                    "trace_id": trace_id,
+                    "media_id": cached_message.media_id if cached_message else None,
+                },
+            )
+
     @set_log_context_from_message
     async def _process_single_upload(self, message: PipelineMessage) -> UploadResult:
         start_time = time.perf_counter()
@@ -495,22 +553,14 @@ class UploadWorker:
         cached_message: CachedDownloadMessage | None = None
 
         try:
-            # Parse message
             cached_message = CachedDownloadMessage.model_validate_json(message.value)
             trace_id = cached_message.trace_id
 
-            # Set logging context for correlation
             set_log_context(trace_id=trace_id, media_id=cached_message.media_id)
 
-            # Track messages received for cycle output
             self._records_processed += 1
-            ts = message.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(message.timestamp)
 
-            # Track in-flight
             async with self._in_flight_lock:
                 self._in_flight_tasks.add(trace_id)
 
@@ -518,52 +568,12 @@ class UploadWorker:
                 self.topics[0], self._consumer_group, len(message.value), success=True
             )
 
-            # Verify cached file exists
             cache_path = Path(cached_message.local_cache_path)
             if not cache_path.exists():
                 raise FileNotFoundError(f"Cached file not found: {cache_path}")
 
-            # Get domain from event_type to route to correct OneLake path
-            # event_type should be the domain (e.g., "xact", "claimx") set by EventIngester
-            raw_event_type = cached_message.event_type
-            domain = raw_event_type.lower()
+            onelake_client, domain = self._resolve_onelake_client(cached_message)
 
-            # Log domain lookup for debugging
-            available_domains = list(self.onelake_clients.keys())
-            logger.debug(
-                "Domain lookup for upload",
-                extra={
-                    "trace_id": trace_id,
-                    "media_id": cached_message.media_id,
-                    "raw_event_type": raw_event_type,
-                    "domain": domain,
-                    "available_domains": available_domains,
-                },
-            )
-
-            # Get appropriate OneLake client for this domain
-            onelake_client = self.onelake_clients.get(domain)
-            if onelake_client is None:
-                # Fall back to default client
-                onelake_client = self.onelake_clients.get("_fallback")
-                if onelake_client is None:
-                    raise ValueError(
-                        f"No OneLake client configured for domain '{domain}' "
-                        f"(event_type='{raw_event_type}') and no fallback configured. "
-                        f"Available domains: {available_domains}"
-                    )
-                logger.warning(
-                    "Using fallback OneLake client - domain not found",
-                    extra={
-                        "trace_id": trace_id,
-                        "media_id": cached_message.media_id,
-                        "raw_event_type": raw_event_type,
-                        "domain": domain,
-                        "available_domains": available_domains,
-                    },
-                )
-
-            # Upload to OneLake (domain-specific path)
             blob_path = await onelake_client.async_upload_file(
                 relative_path=cached_message.destination_path,
                 local_path=cache_path,
@@ -576,7 +586,7 @@ class UploadWorker:
                     "trace_id": trace_id,
                     "media_id": cached_message.media_id,
                     "domain": domain,
-                    "raw_event_type": raw_event_type,
+                    "raw_event_type": cached_message.event_type,
                     "destination_path": cached_message.destination_path,
                     "onelake_base_path": onelake_client.base_path,
                     "blob_path": blob_path,
@@ -584,10 +594,8 @@ class UploadWorker:
                 },
             )
 
-            # Calculate processing time
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            # Produce success result
             result_message = DownloadResultMessage(
                 media_id=cached_message.media_id,
                 trace_id=trace_id,
@@ -601,92 +609,41 @@ class UploadWorker:
                 created_at=datetime.now(UTC),
             )
 
-            await self.producer.send(
-                value=result_message,
-                key=trace_id,
-            )
-
-            # Clean up cached file
+            await self.producer.send(value=result_message, key=trace_id)
             await self._cleanup_cache_file(cache_path)
 
-            # Track successful upload for cycle output
             self._records_succeeded += 1
             self._bytes_uploaded += cached_message.bytes_downloaded
 
-            # Record processing duration metric
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(
                 topic=self.topics[0], consumer_group=self._consumer_group
             ).observe(duration)
 
             return UploadResult(
-                message=message,
-                cached_message=cached_message,
-                processing_time_ms=processing_time_ms,
-                success=True,
+                message=message, cached_message=cached_message,
+                processing_time_ms=processing_time_ms, success=True,
             )
 
         except Exception as e:
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
-
-            # Track failed upload for cycle output
             self._records_failed += 1
 
             log_worker_error(
-                logger,
-                "Upload failed",
-                error_category="TRANSIENT",
-                exc=e,
+                logger, "Upload failed", error_category="TRANSIENT", exc=e,
                 trace_id=trace_id,
                 media_id=cached_message.media_id if cached_message else None,
             )
             record_processing_error(self.topics[0], self._consumer_group, "upload_error")
 
-            # For upload failures, we produce a failure result
-            # The file stays in cache for manual review/retry
-            try:
-                # Re-parse message in case it wasn't parsed yet (e.g., JSON parsing failed)
-                if cached_message is None:
-                    cached_message = CachedDownloadMessage.model_validate_json(message.value)
-
-                result_message = DownloadResultMessage(
-                    media_id=cached_message.media_id,
-                    trace_id=cached_message.trace_id,
-                    attachment_url=cached_message.attachment_url,
-                    blob_path=cached_message.destination_path,
-                    status_subtype=cached_message.status_subtype,
-                    file_type=cached_message.file_type,
-                    assignment_id=cached_message.assignment_id,
-                    status="failed_permanent",
-                    bytes_downloaded=0,
-                    error_message=str(e)[:500],
-                    created_at=datetime.now(UTC),
-                )
-
-                await self.producer.send(
-                    key=cached_message.trace_id,
-                    value=result_message,
-                )
-            except Exception as produce_error:
-                logger.error(
-                    "Failed to produce failure result",
-                    extra={
-                        "error": str(produce_error),
-                        "trace_id": trace_id,
-                        "media_id": cached_message.media_id if cached_message else None,
-                    },
-                )
+            await self._produce_failure_result(message, cached_message, trace_id, e)
 
             return UploadResult(
-                message=message,
-                cached_message=cached_message,
-                processing_time_ms=processing_time_ms,
-                success=False,
-                error=e,
+                message=message, cached_message=cached_message,
+                processing_time_ms=processing_time_ms, success=False, error=e,
             )
 
         finally:
-            # Remove from in-flight tracking
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(trace_id)
 
