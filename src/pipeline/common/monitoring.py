@@ -159,34 +159,37 @@ class MonitoringServer:
 
         return data
 
+    @staticmethod
+    def _accumulate_metric(
+        metrics: dict[str, list[dict[str, Any]]],
+        metric_name: str,
+        targets: dict[str, TopicStats],
+        attr: str,
+    ) -> None:
+        """Sum a metric into a TopicStats attribute, filtered by topic label."""
+        for entry in metrics.get(metric_name, []):
+            topic = entry["labels"].get("topic", "")
+            stats = targets.get(topic)
+            if stats is not None:
+                setattr(stats, attr, getattr(stats, attr) + int(entry["value"]))
+
     def _extract_topic_stats(
         self, metrics: dict[str, list[dict[str, Any]]], data: DashboardData
     ) -> None:
         """Extract topic statistics from parsed metrics."""
-        # Known topics to track
         topic_names = [
-            "verisk-downloads-pending",
-            "verisk-downloads-cached",
-            "verisk-downloads-results",
-            "verisk-dlq",
-            "verisk_events",
-            "claimx-downloads-pending",
-            "claimx-downloads-cached",
-            "claimx-downloads-results",
-            "claimx-dlq",
-            "claimx_events",
+            "verisk-downloads-pending", "verisk-downloads-cached",
+            "verisk-downloads-results", "verisk-dlq", "verisk_events",
+            "claimx-downloads-pending", "claimx-downloads-cached",
+            "claimx-downloads-results", "claimx-dlq", "claimx_events",
         ]
 
-        # Initialize topics
         for name in topic_names:
-            # Names are already short/clean, use as-is
             data.topics[name] = TopicStats(name=name)
 
-        # Consumer lag per topic
-        for entry in metrics.get("pipeline_consumer_lag", []):
-            topic = entry["labels"].get("topic", "")
-            if topic in data.topics:
-                data.topics[topic].total_lag += int(entry["value"])
+        self._accumulate_metric(metrics, "pipeline_consumer_lag", data.topics, "total_lag")
+        self._accumulate_metric(metrics, "pipeline_messages_consumed_total", data.topics, "messages_consumed")
+        self._accumulate_metric(metrics, "pipeline_messages_produced_total", data.topics, "messages_produced")
 
         # Partition count from lag metrics (count unique partitions)
         partition_counts: dict[str, set] = {t: set() for t in topic_names}
@@ -200,67 +203,64 @@ class MonitoringServer:
             if topic in data.topics:
                 data.topics[topic].partitions = len(partitions)
 
-        # Messages consumed (total counter)
-        for entry in metrics.get("pipeline_messages_consumed_total", []):
-            topic = entry["labels"].get("topic", "")
-            if topic in data.topics:
-                data.topics[topic].messages_consumed += int(entry["value"])
+    # Map topic keywords to worker names for error attribution
+    _ERROR_TOPIC_MAP = [
+        (("pending", "retry"), "download_worker"),
+        (("cached",), "upload_worker"),
+        (("results",), "result_processor"),
+    ]
 
-        # Messages produced (total counter)
-        for entry in metrics.get("pipeline_messages_produced_total", []):
+    _CB_STATE_MAP = {0: "closed", 1: "open", 2: "half-open"}
+
+    def _apply_connection_status(
+        self, metrics: dict[str, list[dict[str, Any]]], data: DashboardData
+    ) -> None:
+        """Set worker connected flags from connection status metrics."""
+        for entry in metrics.get("pipeline_connection_status", []):
+            component = entry["labels"].get("component", "")
+            connected = entry["value"] == 1.0
+            if component == "consumer":
+                for w in data.workers.values():
+                    w.connected = connected
+            elif component == "producer":
+                for w in data.workers.values():
+                    w.connected = w.connected or connected
+
+    def _apply_processing_errors(
+        self, metrics: dict[str, list[dict[str, Any]]], data: DashboardData
+    ) -> None:
+        """Attribute processing errors to workers by topic keyword matching."""
+        for entry in metrics.get("pipeline_processing_errors_total", []):
             topic = entry["labels"].get("topic", "")
-            if topic in data.topics:
-                data.topics[topic].messages_produced += int(entry["value"])
+            for keywords, worker_name in self._ERROR_TOPIC_MAP:
+                if any(kw in topic for kw in keywords):
+                    worker = data.workers.get(worker_name)
+                    if worker:
+                        worker.errors += int(entry["value"])
+                    break
 
     def _extract_worker_stats(
         self, metrics: dict[str, list[dict[str, Any]]], data: DashboardData
     ) -> None:
         """Extract worker statistics from parsed metrics."""
-        # Initialize workers
         worker_names = [
-            "event_ingester",
-            "enrichment_worker",
-            "download_worker",
-            "upload_worker",
-            "result_processor",
-            "delta_events_writer",
+            "event_ingester", "enrichment_worker", "download_worker",
+            "upload_worker", "result_processor", "delta_events_writer",
             "entity_delta_writer",
         ]
         for name in worker_names:
-            display_name = name.replace("_", " ").title()
-            data.workers[name] = WorkerStats(name=display_name)
+            data.workers[name] = WorkerStats(name=name.replace("_", " ").title())
 
-        # Connection status
-        for entry in metrics.get("pipeline_connection_status", []):
-            component = entry["labels"].get("component", "")
-            connected = entry["value"] == 1.0
-            # Map component to worker
-            if component == "consumer":
-                for w in worker_names:
-                    if w in data.workers:
-                        data.workers[w].connected = connected
-            elif component == "producer":
-                for w in data.workers.values():
-                    w.connected = w.connected or connected
-
-        # Processing errors
-        for entry in metrics.get("pipeline_processing_errors_total", []):
-            # Sum all errors - metrics don't have worker label, use topic to infer
-            topic = entry["labels"].get("topic", "")
-            if "pending" in topic or "retry" in topic:
-                data.workers.get("download_worker", WorkerStats("")).errors += int(entry["value"])
-            elif "cached" in topic:
-                data.workers.get("upload_worker", WorkerStats("")).errors += int(entry["value"])
-            elif "results" in topic:
-                data.workers.get("result_processor", WorkerStats("")).errors += int(entry["value"])
+        self._apply_connection_status(metrics, data)
+        self._apply_processing_errors(metrics, data)
 
         # Circuit breaker state
         for entry in metrics.get("circuit_breaker_state", []):
             name = entry["labels"].get("name", "")
-            state_val = int(entry["value"])
-            state = {0: "closed", 1: "open", 2: "half-open"}.get(state_val, "unknown")
             if name in data.workers:
-                data.workers[name].circuit_breaker = state
+                data.workers[name].circuit_breaker = self._CB_STATE_MAP.get(
+                    int(entry["value"]), "unknown"
+                )
 
     def render_dashboard(self, data: DashboardData) -> str:
         """Render HTML dashboard."""
