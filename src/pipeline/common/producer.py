@@ -318,7 +318,7 @@ class MessageProducer:
                 "Batch sent successfully",
                 extra={
                     "topic": topic, "message_count": len(items),
-                    "partitions": list({r.partition for r in items}) if hasattr(items[0], "partition") else [],
+                    "partitions": list({r.partition for r in items}) if items and hasattr(items[0], "partition") else [],
                     "duration_ms": round(duration * 1000, 2),
                 },
             )
