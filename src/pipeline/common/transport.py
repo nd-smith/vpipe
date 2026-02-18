@@ -533,9 +533,10 @@ async def _setup_eventhub_consumer_args(
     topics: list[str],
     topic_key: str | None,
     config: MessageConfig,
-    connection_string: str | None,
-    starting_position: str | None,
-    consumer_label: str,
+    *,
+    connection_string: str | None = None,
+    starting_position: str | None = None,
+    consumer_label: str = "consumer",
 ) -> dict:
     """Resolve common Event Hub consumer configuration.
 
@@ -595,6 +596,7 @@ async def create_consumer(
     worker_name: str,
     topics: list[str],
     message_handler: Callable[[ConsumerRecord], Awaitable[None]],
+    *,
     enable_message_commit: bool = True,
     instance_id: str | None = None,
     transport_type: TransportType | None = None,
@@ -642,7 +644,9 @@ async def create_consumer(
 
         eh = await _setup_eventhub_consumer_args(
             domain, worker_name, topics, topic_key, config,
-            connection_string, starting_position, consumer_label="consumer",
+            connection_string=connection_string,
+            starting_position=starting_position,
+            consumer_label="consumer",
         )
 
         logger.info(
@@ -693,6 +697,7 @@ async def create_batch_consumer(
     worker_name: str,
     topics: list[str],
     batch_handler: Callable[[list[ConsumerRecord]], Awaitable[bool]],
+    *,
     batch_size: int = 20,
     max_batch_size: int | None = None,
     batch_timeout_ms: int = 1000,
@@ -761,7 +766,9 @@ async def create_batch_consumer(
 
         eh = await _setup_eventhub_consumer_args(
             domain, worker_name, topics, topic_key, config,
-            connection_string, starting_position, consumer_label="batch consumer",
+            connection_string=connection_string,
+            starting_position=starting_position,
+            consumer_label="batch consumer",
         )
 
         logger.info(
