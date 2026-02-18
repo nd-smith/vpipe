@@ -26,6 +26,7 @@ import contextlib
 import json
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from config.config import MessageConfig
@@ -263,52 +264,12 @@ class DeltaEventsWorker:
         logger.info("Stopping DeltaEventsWorker")
         self._running = False
 
-        try:
-            if self._stats_logger:
-                await self._stats_logger.stop()
-        except Exception as e:
-            logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        # Cancel batch timer
-        try:
-            if self._batch_timer and not self._batch_timer.done():
-                self._batch_timer.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._batch_timer
-        except Exception as e:
-            logger.error("Error cancelling batch timer", extra={"error": str(e)})
-
-        # Flush any remaining events in the batch
-        try:
-            if self._batch:
-                logger.info(
-                    "Flushing remaining batch on shutdown",
-                    extra={"batch_size": len(self._batch)},
-                )
-                await self._flush_batch()
-        except Exception as e:
-            logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
-
-        # Stop consumer
-        try:
-            if self.consumer:
-                await self.consumer.stop()
-                self.consumer = None
-        except Exception as e:
-            logger.error("Error stopping consumer", extra={"error": str(e)})
-
-        # Stop retry handler producers
-        try:
-            if self.retry_handler:
-                await self.retry_handler.stop()
-        except Exception as e:
-            logger.error("Error stopping retry handler", extra={"error": str(e)})
-
-        # Stop health check server
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("stats logger", self._stop_stats_logger)
+        await self._close_resource("batch timer", self._cancel_batch_timer)
+        await self._close_resource("pending batch", self._flush_pending_batch)
+        await self._close_resource("consumer", self._stop_consumer)
+        await self._close_resource("retry handler", self._stop_retry_handler)
+        await self._close_resource("health server", self.health_server.stop)
 
         logger.info(
             "DeltaEventsWorker stopped successfully",
@@ -318,19 +279,53 @@ class DeltaEventsWorker:
             },
         )
 
+    async def _close_resource(self, name: str, method: Callable[[], Awaitable[None]]) -> None:
+        try:
+            await method()
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+
+    async def _stop_stats_logger(self) -> None:
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
+    async def _cancel_batch_timer(self) -> None:
+        if self._batch_timer and not self._batch_timer.done():
+            self._batch_timer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._batch_timer
+
+    async def _flush_pending_batch(self) -> None:
+        if self._batch:
+            logger.info(
+                "Flushing remaining batch on shutdown",
+                extra={"batch_size": len(self._batch)},
+            )
+            await self._flush_batch()
+
+    async def _stop_consumer(self) -> None:
+        if self.consumer:
+            await self.consumer.stop()
+            self.consumer = None
+
+    async def _stop_retry_handler(self) -> None:
+        if self.retry_handler:
+            await self.retry_handler.stop()
+
+    def _update_cycle_offsets(self, ts: Any) -> None:
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         """
         Process a single event message from Event Hub.
 
         Adds the event to the batch and flushes when batch is full.
         """
-        # Track events received for cycle output
         self._records_processed += 1
-        ts = record.timestamp
-        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-            self._cycle_offset_start_ts = ts
-        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-            self._cycle_offset_end_ts = ts
+        self._update_cycle_offsets(record.timestamp)
 
         # Check if we've reached max batches limit
         if self.max_batches is not None and self._batches_written >= self.max_batches:
@@ -407,84 +402,84 @@ class DeltaEventsWorker:
         success = await self._write_batch(batch_to_write, batch_id)
 
         if success:
-            self._batches_written += 1
-            self._records_succeeded += batch_size
-
-            # Commit offsets after successful Delta write
-            # This ensures at-least-once semantics: offsets are only committed
-            # after data is durably written to Delta Lake
-            if self.consumer:
-                await self.consumer.commit()
-
-            # Build progress message
-            if self.max_batches:
-                progress = f"Batch {self._batches_written}/{self.max_batches}"
-            else:
-                progress = f"Batch {self._batches_written}"
-
-            logger.info(
-                f"{progress}: Successfully wrote {batch_size} events to Delta",
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "batches_written": self._batches_written,
-                    "records_succeeded": self._records_succeeded,
-                    "max_batches": self.max_batches,
-                },
-            )
-
-            # Stop immediately if we've reached max_batches
-            if self.max_batches and self._batches_written >= self.max_batches:
-                logger.info(
-                    "Reached max_batches limit, stopping consumer",
-                    extra={
-                        "batch_id": batch_id,
-                        "max_batches": self.max_batches,
-                        "batches_written": self._batches_written,
-                    },
-                )
-                if self.consumer:
-                    await self.consumer.stop()
+            await self._handle_successful_batch(batch_id, batch_size)
         else:
-            # Use actual error from _write_batch for proper classification
-            error = getattr(self, "_last_write_error", None) or Exception(
-                "Delta write failed"
-            )
-            error_category = getattr(self, "_last_error_category", None)
-            category_str = (
-                error_category.value
-                if hasattr(error_category, "value")
-                else "transient"
-            )
+            await self._handle_failed_batch(batch_to_write, batch_id, batch_size)
 
-            trace_ids = []
-            for event_dict in batch_to_write[:10]:
-                if event_dict.get("traceId") or event_dict.get("trace_id"):
-                    trace_ids.append(event_dict.get("traceId") or event_dict.get("trace_id"))
-            logger.warning(
-                "Batch write failed, routing to retry topic",
+    async def _handle_successful_batch(self, batch_id: str, batch_size: int) -> None:
+        self._batches_written += 1
+        self._records_succeeded += batch_size
+
+        if self.consumer:
+            await self.consumer.commit()
+
+        progress = (
+            f"Batch {self._batches_written}/{self.max_batches}"
+            if self.max_batches
+            else f"Batch {self._batches_written}"
+        )
+
+        logger.info(
+            f"{progress}: Successfully wrote {batch_size} events to Delta",
+            extra={
+                "batch_id": batch_id,
+                "batch_size": batch_size,
+                "batches_written": self._batches_written,
+                "records_succeeded": self._records_succeeded,
+                "max_batches": self.max_batches,
+            },
+        )
+
+        if self.max_batches and self._batches_written >= self.max_batches:
+            logger.info(
+                "Reached max_batches limit, stopping consumer",
                 extra={
                     "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "error_category": category_str,
-                    "trace_ids": trace_ids,
+                    "max_batches": self.max_batches,
+                    "batches_written": self._batches_written,
                 },
             )
-            try:
-                await self.retry_handler.handle_batch_failure(
-                    batch=batch_to_write,
-                    error=error,
-                    retry_count=0,
-                    error_category=category_str,
-                    batch_id=batch_id,
-                )
-            except Exception:
-                logger.error(
-                    "Failed to route batch to retry handler, events will be "
-                    "redelivered from last checkpoint",
-                    extra={"batch_id": batch_id, "batch_size": batch_size},
-                    exc_info=True,
-                )
+            if self.consumer:
+                await self.consumer.stop()
+
+    async def _handle_failed_batch(
+        self, batch_to_write: list[dict[str, Any]], batch_id: str, batch_size: int
+    ) -> None:
+        error = getattr(self, "_last_write_error", None) or Exception("Delta write failed")
+        error_category = getattr(self, "_last_error_category", None)
+        category_str = (
+            error_category.value if hasattr(error_category, "value") else "transient"
+        )
+
+        trace_ids = [
+            event_dict.get("traceId") or event_dict.get("trace_id")
+            for event_dict in batch_to_write[:10]
+            if event_dict.get("traceId") or event_dict.get("trace_id")
+        ]
+        logger.warning(
+            "Batch write failed, routing to retry topic",
+            extra={
+                "batch_id": batch_id,
+                "batch_size": batch_size,
+                "error_category": category_str,
+                "trace_ids": trace_ids,
+            },
+        )
+        try:
+            await self.retry_handler.handle_batch_failure(
+                batch=batch_to_write,
+                error=error,
+                retry_count=0,
+                error_category=category_str,
+                batch_id=batch_id,
+            )
+        except Exception:
+            logger.error(
+                "Failed to route batch to retry handler, events will be "
+                "redelivered from last checkpoint",
+                extra={"batch_id": batch_id, "batch_size": batch_size},
+                exc_info=True,
+            )
 
     async def _write_batch(self, batch: list[dict[str, Any]], batch_id: str) -> bool:
         """
