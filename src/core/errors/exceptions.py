@@ -259,32 +259,36 @@ def is_retryable_error(exc: Exception) -> bool:
     )
 
 
+_HTTP_STATUS_CATEGORIES: dict[int, ErrorCategory] = {
+    302: ErrorCategory.AUTH,
+    401: ErrorCategory.AUTH,
+    429: ErrorCategory.TRANSIENT,
+    400: ErrorCategory.PERMANENT,
+    403: ErrorCategory.PERMANENT,
+    404: ErrorCategory.PERMANENT,
+    405: ErrorCategory.PERMANENT,
+    410: ErrorCategory.PERMANENT,
+    422: ErrorCategory.PERMANENT,
+    500: ErrorCategory.TRANSIENT,
+    502: ErrorCategory.TRANSIENT,
+    503: ErrorCategory.TRANSIENT,
+    504: ErrorCategory.TRANSIENT,
+}
+
+
 def classify_http_status(status_code: int) -> ErrorCategory:
     """Classify HTTP status code into error category."""
     if 200 <= status_code < 300:
         return ErrorCategory.UNKNOWN  # Not an error
 
-    # Auth redirects (302 = redirect to login page)
-    if status_code == 302:
-        return ErrorCategory.AUTH
+    if status_code in _HTTP_STATUS_CATEGORIES:
+        return _HTTP_STATUS_CATEGORIES[status_code]
 
-    if status_code == 401:
-        return ErrorCategory.AUTH
-
-    if status_code == 429:
-        return ErrorCategory.TRANSIENT  # Rate limited
-
-    if status_code in (403, 404, 400, 405, 410, 422):
-        return ErrorCategory.PERMANENT  # Client errors, won't fix with retry
-
+    # Range fallbacks for unlisted codes
     if 400 <= status_code < 500:
-        return ErrorCategory.PERMANENT  # Other 4xx
-
-    if status_code in (500, 502, 503, 504):
-        return ErrorCategory.TRANSIENT  # Server errors, may recover
-
+        return ErrorCategory.PERMANENT
     if status_code >= 500:
-        return ErrorCategory.TRANSIENT  # Other 5xx
+        return ErrorCategory.TRANSIENT
 
     return ErrorCategory.UNKNOWN
 
@@ -302,77 +306,75 @@ def classify_os_error(error: OSError) -> ErrorCategory:
     return ErrorCategory.PERMANENT if error.errno in permanent_errnos else ErrorCategory.TRANSIENT
 
 
+_EXCEPTION_MARKER_RULES: list[tuple[tuple[str, ...], ErrorCategory]] = [
+    # Delta Lake commit conflicts (transient, should be retried with backoff)
+    (
+        (
+            "commitfailederror", "failed to commit transaction",
+            "transaction conflict", "version conflict", "concurrent modification",
+        ),
+        ErrorCategory.TRANSIENT,
+    ),
+    # Connection errors
+    (
+        (
+            "connectionerror", "connection refused", "connection reset",
+            "connection aborted", "no route to host", "network unreachable",
+            "name resolution", "dns", "socket", "broken pipe",
+        ),
+        ErrorCategory.TRANSIENT,
+    ),
+    # Timeout errors
+    (("timeout",), ErrorCategory.TRANSIENT),
+    # Auth errors (302 = redirect to login, 401 = unauthorized)
+    (("302", "401", "unauthorized", "authentication", "token expired", "invalid token"), ErrorCategory.AUTH),
+    # Throttling
+    (("429", "throttl", "rate limit"), ErrorCategory.TRANSIENT),
+    # Server errors
+    (("503", "502", "504"), ErrorCategory.TRANSIENT),
+    # Permission errors (not auth — actual permissions)
+    (("403", "forbidden", "access denied"), ErrorCategory.PERMANENT),
+    # Not found
+    (("404", "not found"), ErrorCategory.PERMANENT),
+]
+
+
 def classify_exception(exc: Exception) -> ErrorCategory:
     """Classify an exception into error category."""
-    # Already classified
     if isinstance(exc, PipelineError):
         return exc.category
 
-    # Check exception type
     exc_type = type(exc).__name__.lower()
     exc_str = str(exc).lower()
 
-    # Delta Lake commit conflicts (delta-rs error code 15 = version conflict)
-    # These are transient and should be retried with backoff
-    delta_conflict_markers = (
-        "commitfailederror",
-        "failed to commit transaction",
-        "transaction conflict",
-        "version conflict",
-        "concurrent modification",
-    )
-    if any(m in exc_type or m in exc_str for m in delta_conflict_markers):
-        return ErrorCategory.TRANSIENT
-
-    # Connection errors
-    connection_markers = (
-        "connectionerror",
-        "connection refused",
-        "connection reset",
-        "connection aborted",
-        "no route to host",
-        "network unreachable",
-        "name resolution",
-        "dns",
-        "socket",
-        "broken pipe",
-    )
-    if any(m in exc_type or m in exc_str for m in connection_markers):
-        return ErrorCategory.TRANSIENT
-
-    # Timeout errors
-    if "timeout" in exc_type or "timeout" in exc_str:
-        return ErrorCategory.TRANSIENT
-
-    # Auth errors (302 = redirect to login, 401 = unauthorized)
-    auth_markers = (
-        "302",
-        "401",
-        "unauthorized",
-        "authentication",
-        "token expired",
-        "invalid token",
-    )
-    if any(m in exc_str for m in auth_markers):
-        return ErrorCategory.AUTH
-
-    # Throttling
-    if "429" in exc_str or "throttl" in exc_str or "rate limit" in exc_str:
-        return ErrorCategory.TRANSIENT
-
-    # Server errors
-    if "503" in exc_str or "502" in exc_str or "504" in exc_str:
-        return ErrorCategory.TRANSIENT
-
-    # Permission errors (not auth - actual permissions)
-    if "403" in exc_str or "forbidden" in exc_str or "access denied" in exc_str:
-        return ErrorCategory.PERMANENT
-
-    # Not found
-    if "404" in exc_str or "not found" in exc_str:
-        return ErrorCategory.PERMANENT
+    for markers, category in _EXCEPTION_MARKER_RULES:
+        if any(m in exc_type or m in exc_str for m in markers):
+            return category
 
     return ErrorCategory.UNKNOWN
+
+
+_ERROR_TYPE_MARKERS: list[tuple[tuple[str, ...], str]] = [
+    (("timeout",), "timeout"),
+    (("429", "throttl"), "throttling"),
+    (("503",), "service_unavailable"),
+    (("404", "not found"), "not_found"),
+    (("403", "forbidden"), "forbidden"),
+    (("expired",), "token_expired"),
+]
+
+_CATEGORY_TO_CLASS: dict[ErrorCategory, type] = {
+    ErrorCategory.AUTH: AuthError,
+    ErrorCategory.PERMANENT: PermanentError,
+}
+
+
+def _detect_error_type(exc_str: str) -> str | None:
+    """Detect specific error type from exception message for context enrichment."""
+    for markers, error_type in _ERROR_TYPE_MARKERS:
+        if any(m in exc_str for m in markers):
+            return error_type
+    return None
 
 
 def wrap_exception(
@@ -390,32 +392,17 @@ def wrap_exception(
     exc_str = str(exc).lower()
     context = context or {}
 
-    # Add error details to context dict instead of using specialized classes
-    if "timeout" in exc_str:
-        context["error_type"] = "timeout"
-    elif "429" in exc_str or "throttl" in exc_str:
-        context["error_type"] = "throttling"
-    elif "503" in exc_str:
-        context["error_type"] = "service_unavailable"
-    elif "404" in exc_str or "not found" in exc_str:
-        context["error_type"] = "not_found"
-    elif "403" in exc_str or "forbidden" in exc_str:
-        context["error_type"] = "forbidden"
-    elif "expired" in exc_str:
-        context["error_type"] = "token_expired"
+    error_type = _detect_error_type(exc_str)
+    if error_type:
+        context["error_type"] = error_type
 
-    # Map to base exception types by category
-    if category == ErrorCategory.AUTH:
-        return AuthError(str(exc), cause=exc, context=context)
+    # Use specific class for known categories
+    if category in _CATEGORY_TO_CLASS:
+        return _CATEGORY_TO_CLASS[category](str(exc), cause=exc, context=context)
 
     if category == ErrorCategory.TRANSIENT:
-        # Use ThrottlingError if rate limited (has retry_after logic)
         if "429" in exc_str or "throttl" in exc_str:
             return ThrottlingError(str(exc), cause=exc, context=context)
         return TransientError(str(exc), cause=exc, context=context)
 
-    if category == ErrorCategory.PERMANENT:
-        return PermanentError(str(exc), cause=exc, context=context)
-
-    # Default wrapper
     return default_class(str(exc), cause=exc, context=context)
