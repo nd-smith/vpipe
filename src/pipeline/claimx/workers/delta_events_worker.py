@@ -28,6 +28,17 @@ from core.errors.exceptions import PermanentError
 
 logger = logging.getLogger(__name__)
 
+# Lookup list for Delta error classification: (markers, category)
+_DELTA_ERROR_RULES: list[tuple[tuple[str, ...], ErrorCategory]] = [
+    (("schema", "validation"), ErrorCategory.PERMANENT),
+    (("not found", "404"), ErrorCategory.PERMANENT),
+    (("401", "403", "unauthorized"), ErrorCategory.AUTH),
+    (("timeout",), ErrorCategory.TRANSIENT),
+    (("connection", "network"), ErrorCategory.TRANSIENT),
+    (("429", "throttl", "rate limit"), ErrorCategory.TRANSIENT),
+    (("503", "service unavailable"), ErrorCategory.TRANSIENT),
+]
+
 
 class ClaimXDeltaEventsWorker:
     """
@@ -236,6 +247,21 @@ class ClaimXDeltaEventsWorker:
         finally:
             self._running = False
 
+    async def _close_resource(self, name: str, method: str = "stop", *, clear: bool = False) -> None:
+        """Close a resource by attribute name, logging errors. Optionally set to None."""
+        resource = getattr(self, name, None)
+        if resource is None:
+            return
+        try:
+            await getattr(resource, method)()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+        finally:
+            if clear:
+                setattr(self, name, None)
+
     async def stop(self) -> None:
         """
         Stop the ClaimX delta events worker.
@@ -245,13 +271,7 @@ class ClaimXDeltaEventsWorker:
         logger.info("Stopping ClaimXDeltaEventsWorker")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
-            finally:
-                self._stats_logger = None
+        await self._close_resource("_stats_logger", clear=True)
 
         if self._batch_timer:
             self._batch_timer.cancel()
@@ -265,32 +285,29 @@ class ClaimXDeltaEventsWorker:
         except Exception as e:
             logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
 
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping retry handler")
-            except Exception as e:
-                logger.error("Error stopping retry handler", extra={"error": str(e)})
-            finally:
-                self.retry_handler = None
-
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("consumer", clear=True)
+        await self._close_resource("retry_handler", clear=True)
+        await self._close_resource("health_server")
 
         logger.info("ClaimXDeltaEventsWorker stopped successfully")
+
+    def _update_cycle_offsets(self, ts: int | None) -> None:
+        """Update cycle offset tracking with a message timestamp."""
+        if ts is None:
+            return
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    def _record_log_context(self, record: PipelineMessage) -> dict[str, Any]:
+        """Build log context dict from a PipelineMessage."""
+        return {
+            "topic": record.topic,
+            "partition": record.partition,
+            "offset": record.offset,
+            "trace_id": record.key.decode("utf-8") if record.key else None,
+        }
 
     async def _handle_event_message(self, record: PipelineMessage) -> None:
         """
@@ -301,40 +318,19 @@ class ClaimXDeltaEventsWorker:
         when the source does not provide one.
         """
         self._records_processed += 1
-
-        ts = record.timestamp
-        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-            self._cycle_offset_start_ts = ts
-        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-            self._cycle_offset_end_ts = ts
+        self._update_cycle_offsets(record.timestamp)
 
         try:
             message_data = json.loads(record.value.decode("utf-8"))
         except json.JSONDecodeError as e:
-            logger.exception(
-                "Failed to parse message JSON",
-                extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                    "trace_id": record.key.decode("utf-8") if record.key else None,
-                },
-            )
+            logger.exception("Failed to parse message JSON", extra=self._record_log_context(record))
             raise PermanentError(str(e)) from e
 
         try:
             event = ClaimXEventMessage.from_raw_event(message_data)
             event_data = event.model_dump(exclude={"raw_data"})
         except ValidationError as e:
-            logger.exception(
-                "Failed to parse ClaimXEventMessage",
-                extra={
-                    "topic": record.topic,
-                    "partition": record.partition,
-                    "offset": record.offset,
-                    "trace_id": record.key.decode("utf-8") if record.key else None,
-                },
-            )
+            logger.exception("Failed to parse ClaimXEventMessage", extra=self._record_log_context(record))
             raise PermanentError(str(e)) from e
 
         async with self._batch_lock:
@@ -456,33 +452,11 @@ class ClaimXDeltaEventsWorker:
         """
         error_str = str(error).lower()
         error_type = type(error).__name__.lower()
+        combined = error_str + " " + error_type
 
-        # Schema validation errors are PERMANENT (won't succeed on retry)
-        if "schema" in error_str or "validation" in error_str:
-            return ErrorCategory.PERMANENT
-
-        # File not found or path errors are PERMANENT
-        if "not found" in error_str or "404" in error_str:
-            return ErrorCategory.PERMANENT
-
-        # Permission/auth errors need credential refresh
-        if "401" in error_str or "403" in error_str or "unauthorized" in error_str:
-            return ErrorCategory.AUTH
-
-        # Timeout and connection errors are TRANSIENT
-        if "timeout" in error_str or "timeout" in error_type:
-            return ErrorCategory.TRANSIENT
-
-        if "connection" in error_str or "network" in error_str:
-            return ErrorCategory.TRANSIENT
-
-        # Throttling errors are TRANSIENT
-        if "429" in error_str or "throttl" in error_str or "rate limit" in error_str:
-            return ErrorCategory.TRANSIENT
-
-        # Service unavailable is TRANSIENT
-        if "503" in error_str or "service unavailable" in error_str:
-            return ErrorCategory.TRANSIENT
+        for markers, category in _DELTA_ERROR_RULES:
+            if any(m in combined for m in markers):
+                return category
 
         # Default to TRANSIENT for unknown errors (safe default - allows retry)
         return ErrorCategory.TRANSIENT
