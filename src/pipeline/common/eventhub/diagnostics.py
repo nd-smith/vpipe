@@ -103,50 +103,13 @@ def test_dns_resolution(hostname: str) -> dict[str, Any]:
     return result
 
 
-def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
-    """Log comprehensive connection diagnostics for troubleshooting.
-
-    Args:
-        conn_str: Event Hub connection string
-        eventhub_name: Event Hub entity name
-    """
-    logger.info("=" * 60)
-    logger.info("[DEBUG] Event Hub Connection Diagnostics")
-    logger.info("=" * 60)
-
-    # 1. Masked connection string
-    masked_conn_str = mask_connection_string(conn_str)
-    logger.info(f"[DEBUG] Connection string (masked): {masked_conn_str}")
-
-    # 2. Connection string components
-    parts = parse_connection_string(conn_str)
-    logger.info(f"[DEBUG] Endpoint: {parts.get('Endpoint', 'NOT SET')}")
-    logger.info(f"[DEBUG] SharedAccessKeyName: {parts.get('SharedAccessKeyName', 'NOT SET')}")
-    logger.info(
-        f"[DEBUG] SharedAccessKey: {'***SET***' if parts.get('SharedAccessKey') else 'NOT SET'}"
-    )
-    logger.info(
-        f"[DEBUG] EntityPath in connection string: {parts.get('EntityPath', 'NOT SET (correct for namespace-level)')}"
-    )
-    logger.info(f"[DEBUG] Event Hub name parameter: {eventhub_name}")
-
-    # 3. Connection string source
-    conn_str_source = "unknown"
-    if os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING"):
-        conn_str_source = "EVENTHUB_NAMESPACE_CONNECTION_STRING env var"
-    elif os.getenv("EVENTHUB_CONNECTION_STRING"):
-        conn_str_source = "EVENTHUB_CONNECTION_STRING env var (legacy)"
-    else:
-        conn_str_source = "config.yaml"
-    logger.info(f"[DEBUG] Connection string source: {conn_str_source}")
-
-    # 4. SSL/TLS configuration
+def _log_ssl_ca_info() -> None:
+    """Log SSL CA bundle configuration."""
     ca_bundle = (
         os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("CURL_CA_BUNDLE")
     )
     if ca_bundle:
         logger.info(f"[DEBUG] SSL CA bundle: {ca_bundle}")
-        # Check if CA bundle file exists
         if os.path.exists(ca_bundle):
             logger.info(f"[DEBUG] CA bundle file exists: {ca_bundle}")
         else:
@@ -154,7 +117,9 @@ def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
     else:
         logger.info("[DEBUG] SSL CA bundle: system default")
 
-    # 5. DNS resolution test
+
+def _log_dns_info(conn_str: str) -> None:
+    """Log DNS resolution info for the Event Hub namespace."""
     hostname = extract_namespace_host(conn_str)
     if hostname:
         logger.info(f"[DEBUG] Service Bus namespace hostname: {hostname}")
@@ -166,7 +131,44 @@ def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
     else:
         logger.error("[DEBUG] Could not extract hostname from connection string")
 
-    # 6. Environment info
+
+def log_connection_diagnostics(conn_str: str, eventhub_name: str) -> None:
+    """Log comprehensive connection diagnostics for troubleshooting.
+
+    Args:
+        conn_str: Event Hub connection string
+        eventhub_name: Event Hub entity name
+    """
+    logger.info("=" * 60)
+    logger.info("[DEBUG] Event Hub Connection Diagnostics")
+    logger.info("=" * 60)
+
+    masked_conn_str = mask_connection_string(conn_str)
+    logger.info(f"[DEBUG] Connection string (masked): {masked_conn_str}")
+
+    parts = parse_connection_string(conn_str)
+    logger.info(f"[DEBUG] Endpoint: {parts.get('Endpoint', 'NOT SET')}")
+    logger.info(f"[DEBUG] SharedAccessKeyName: {parts.get('SharedAccessKeyName', 'NOT SET')}")
+    logger.info(
+        f"[DEBUG] SharedAccessKey: {'***SET***' if parts.get('SharedAccessKey') else 'NOT SET'}"
+    )
+    logger.info(
+        f"[DEBUG] EntityPath in connection string: {parts.get('EntityPath', 'NOT SET (correct for namespace-level)')}"
+    )
+    logger.info(f"[DEBUG] Event Hub name parameter: {eventhub_name}")
+
+    conn_str_source = "unknown"
+    if os.getenv("EVENTHUB_NAMESPACE_CONNECTION_STRING"):
+        conn_str_source = "EVENTHUB_NAMESPACE_CONNECTION_STRING env var"
+    elif os.getenv("EVENTHUB_CONNECTION_STRING"):
+        conn_str_source = "EVENTHUB_CONNECTION_STRING env var (legacy)"
+    else:
+        conn_str_source = "config.yaml"
+    logger.info(f"[DEBUG] Connection string source: {conn_str_source}")
+
+    _log_ssl_ca_info()
+    _log_dns_info(conn_str)
+
     logger.info(f"[DEBUG] Python version: {os.sys.version}")
     logger.info(f"[DEBUG] Platform: {os.sys.platform}")
 

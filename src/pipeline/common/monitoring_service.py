@@ -269,6 +269,30 @@ class MonitoringService:
                 status=503,
             )
 
+    @staticmethod
+    def _aggregate_lag_by_consumer_group(lag_metrics: list[dict]) -> dict:
+        """Aggregate lag metrics by consumer group and topic."""
+        lag_by_cg: dict = {}
+        for lag in lag_metrics:
+            cg = lag["consumer_group"]
+            if cg not in lag_by_cg:
+                lag_by_cg[cg] = {"consumer_group": cg, "total_lag": 0, "topics": {}}
+
+            topic = lag["topic"]
+            lag_value = lag["lag"]
+            lag_by_cg[cg]["total_lag"] += lag_value
+
+            if topic not in lag_by_cg[cg]["topics"]:
+                lag_by_cg[cg]["topics"][topic] = {"topic": topic, "total_lag": 0, "partitions": []}
+            lag_by_cg[cg]["topics"][topic]["total_lag"] += lag_value
+            lag_by_cg[cg]["topics"][topic]["partitions"].append(
+                {"partition": lag["partition"], "lag": lag_value}
+            )
+
+        for cg_data in lag_by_cg.values():
+            cg_data["topics"] = list(cg_data["topics"].values())
+        return lag_by_cg
+
     async def handle_status(self, request: web.Request) -> web.Response:
         """
         Handle GET /status - Worker status with consumer lag.
@@ -277,46 +301,11 @@ class MonitoringService:
             200 OK with worker health and consumer lag information
         """
         try:
-            # Get worker health and consumer lag in parallel
             workers_task = self.prometheus.get_worker_status()
             lag_task = self.prometheus.get_consumer_lag()
-
             workers, lag_metrics = await asyncio.gather(workers_task, lag_task)
 
-            # Aggregate lag by consumer group
-            lag_by_consumer_group = {}
-            for lag in lag_metrics:
-                consumer_group = lag["consumer_group"]
-                if consumer_group not in lag_by_consumer_group:
-                    lag_by_consumer_group[consumer_group] = {
-                        "consumer_group": consumer_group,
-                        "total_lag": 0,
-                        "topics": {},
-                    }
-
-                topic = lag["topic"]
-                partition = lag["partition"]
-                lag_value = lag["lag"]
-
-                # Add to total lag
-                lag_by_consumer_group[consumer_group]["total_lag"] += lag_value
-
-                # Track per-topic lag
-                if topic not in lag_by_consumer_group[consumer_group]["topics"]:
-                    lag_by_consumer_group[consumer_group]["topics"][topic] = {
-                        "topic": topic,
-                        "total_lag": 0,
-                        "partitions": [],
-                    }
-
-                lag_by_consumer_group[consumer_group]["topics"][topic]["total_lag"] += lag_value
-                lag_by_consumer_group[consumer_group]["topics"][topic]["partitions"].append(
-                    {"partition": partition, "lag": lag_value}
-                )
-
-            # Convert topics dict to list for easier JSON serialization
-            for cg_data in lag_by_consumer_group.values():
-                cg_data["topics"] = list(cg_data["topics"].values())
+            lag_by_consumer_group = self._aggregate_lag_by_consumer_group(lag_metrics)
 
             # Build worker status with lag information
             worker_status = []
