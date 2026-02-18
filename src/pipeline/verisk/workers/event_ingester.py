@@ -153,27 +153,9 @@ class EventIngesterWorker:
         self._running = True
 
         # Clean up resources from a previous failed start attempt (retry safety)
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale stats logger", extra={"error": str(e)})
-            finally:
-                self._stats_logger = None
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
+        await self._cleanup_stale_resource("stats logger", self._stats_logger, "_stats_logger")
+        await self._cleanup_stale_resource("consumer", self.consumer, "consumer")
+        await self._cleanup_stale_resource("producer", self.producer, "producer")
 
         # Start health server first for immediate liveness probe response
         await self.health_server.start()
@@ -251,50 +233,53 @@ class EventIngesterWorker:
         logger.info("Stopping EventIngesterWorker")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
+        await self._close_resource("stats logger", self._stop_stats_logger)
+        await self._close_resource("dedup cleanup task", self._cancel_dedup_cleanup)
+        await self._close_resource("consumer", self._stop_consumer, clear="consumer")
+        await self._close_resource("producer", self._stop_producer, clear="producer")
+        await self._close_resource("dedup store", close_dedup_store)
+        await self._close_resource("health server", self.health_server.stop)
 
-        # Cancel dedup cleanup task
+        logger.info("EventIngesterWorker stopped successfully")
+
+    async def _close_resource(self, name: str, method, *, clear: str | None = None) -> None:
+        try:
+            await method()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+        finally:
+            if clear:
+                setattr(self, clear, None)
+
+    async def _cleanup_stale_resource(self, name: str, resource, attr: str) -> None:
+        if resource is None:
+            return
+        try:
+            await resource.stop()
+        except Exception as e:
+            logger.warning(f"Error cleaning up stale {name}", extra={"error": str(e)})
+        finally:
+            setattr(self, attr, None)
+
+    async def _stop_stats_logger(self) -> None:
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
+    async def _cancel_dedup_cleanup(self) -> None:
         if self._dedup_cleanup_task and not self._dedup_cleanup_task.done():
             self._dedup_cleanup_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._dedup_cleanup_task
 
+    async def _stop_consumer(self) -> None:
         if self.consumer:
-            try:
-                await self.consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
+            await self.consumer.stop()
 
+    async def _stop_producer(self) -> None:
         if self.producer:
-            try:
-                await self.producer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping producer")
-            except Exception as e:
-                logger.error("Error stopping producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
-
-        # Close persistent dedup store
-        try:
-            await close_dedup_store()
-        except Exception as e:
-            logger.error("Error closing dedup store", extra={"error": str(e)})
-
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
-
-        logger.info("EventIngesterWorker stopped successfully")
+            await self.producer.stop()
 
     async def _handle_event_batch(self, records: list[PipelineMessage]) -> BatchResult:
         """Process a batch of event messages.
@@ -360,6 +345,25 @@ class EventIngesterWorker:
 
         return BatchResult(commit=True, permanent_failures=permanent_failures)
 
+    def _update_cycle_offsets(self, ts) -> None:
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    def _is_memory_duplicate(self, trace_id: str, now: float) -> bool:
+        """Check memory cache for duplicate. Returns True if duplicate found."""
+        if trace_id not in self._dedup_cache:
+            return False
+        cached_event_id, cached_time = self._dedup_cache[trace_id]
+        if now - cached_time < self._dedup_cache_ttl_seconds:
+            self._dedup_cache.move_to_end(trace_id)
+            self._dedup_memory_hits += 1
+            self._records_deduplicated += 1
+            return True
+        del self._dedup_cache[trace_id]
+        return False
+
     async def _parse_and_dedup_events(
         self, records: list[PipelineMessage],
     ) -> tuple[list[tuple[EventMessage, str]], dict[str, list[str]], list[tuple[PipelineMessage, Exception]]]:
@@ -378,11 +382,7 @@ class EventIngesterWorker:
 
         for record in records:
             self._records_processed += 1
-            ts = record.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(record.timestamp)
 
             # Parse event — unparseable messages are permanent failures (route to DLQ)
             try:
@@ -402,28 +402,19 @@ class EventIngesterWorker:
                 permanent_failures.append((record, e))
                 continue
 
-            # Generate deterministic event_id from trace_id (UUID5)
             event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
             event.event_id = event_id
 
             if self._dedup_enabled:
-                # Intra-batch dedup
                 if event.trace_id in seen_in_batch:
                     dedup_counts["intra_batch"].append(event.trace_id)
                     self._records_deduplicated += 1
                     continue
                 seen_in_batch.add(event.trace_id)
 
-                # Fast path: memory cache check (no I/O)
-                if event.trace_id in self._dedup_cache:
-                    cached_event_id, cached_time = self._dedup_cache[event.trace_id]
-                    if now - cached_time < self._dedup_cache_ttl_seconds:
-                        self._dedup_cache.move_to_end(event.trace_id)
-                        dedup_counts["memory"].append(event.trace_id)
-                        self._dedup_memory_hits += 1
-                        self._records_deduplicated += 1
-                        continue
-                    del self._dedup_cache[event.trace_id]
+                if self._is_memory_duplicate(event.trace_id, now):
+                    dedup_counts["memory"].append(event.trace_id)
+                    continue
 
             parsed_events.append((event, event_id))
 
