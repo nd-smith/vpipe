@@ -52,6 +52,41 @@ class MessageProducer:
             },
         )
 
+    def _resolve_acks_and_idempotence(self) -> tuple[Any, bool]:
+        """Resolve acks value and idempotence setting, enforcing mutual constraints."""
+        acks_value = self.producer_config.get("acks", "all")
+        if isinstance(acks_value, str) and acks_value.isdigit():
+            acks_value = int(acks_value)
+
+        enable_idempotence = self.producer_config.get("enable_idempotence", True)
+        if enable_idempotence and acks_value != "all":
+            logger.warning(
+                "Overriding acks to 'all' because enable_idempotence=True requires it",
+                extra={"configured_acks": acks_value, "domain": self.domain, "worker_name": self.worker_name},
+            )
+            acks_value = "all"
+
+        return acks_value, enable_idempotence
+
+    def _apply_optional_producer_config(self, kafka_config: dict[str, Any]) -> None:
+        """Apply optional producer settings from worker config to kafka config dict."""
+        # Config key -> kafka key mapping (direct pass-through)
+        _DIRECT_KEYS = {"linger_ms": "linger_ms"}
+        for cfg_key, kafka_key in _DIRECT_KEYS.items():
+            if cfg_key in self.producer_config:
+                kafka_config[kafka_key] = self.producer_config[cfg_key]
+
+        if "batch_size" in self.producer_config:
+            kafka_config["max_batch_size"] = self.producer_config["batch_size"]
+
+        if "compression_type" in self.producer_config:
+            compression = self.producer_config["compression_type"]
+            kafka_config["compression_type"] = None if compression == "none" else compression
+
+        kafka_config["max_request_size"] = self.producer_config.get(
+            "max_request_size", 10 * 1024 * 1024
+        )
+
     async def start(self) -> None:
         if self._started:
             logger.warning("Producer already started, ignoring duplicate start call")
@@ -59,54 +94,20 @@ class MessageProducer:
 
         logger.info("Starting message producer")
 
+        acks_value, enable_idempotence = self._resolve_acks_and_idempotence()
+
         kafka_producer_config = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "value_serializer": lambda v: v,
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
             "connections_max_idle_ms": self.config.connections_max_idle_ms,
+            "acks": acks_value,
+            "retry_backoff_ms": self.producer_config.get("retry_backoff_ms", 1000),
+            "enable_idempotence": enable_idempotence,
         }
 
-        # aiokafka requires int for acks 0/1, or string "all"
-        acks_value = self.producer_config.get("acks", "all")
-        if isinstance(acks_value, str) and acks_value.isdigit():
-            acks_value = int(acks_value)
-
-        # Idempotent producer prevents duplicate messages during retries.
-        enable_idempotence = self.producer_config.get("enable_idempotence", True)
-        if enable_idempotence and acks_value != "all":
-            logger.warning(
-                "Overriding acks to 'all' because enable_idempotence=True requires it",
-                extra={
-                    "configured_acks": acks_value,
-                    "domain": self.domain,
-                    "worker_name": self.worker_name,
-                },
-            )
-            acks_value = "all"
-
-        kafka_producer_config.update(
-            {
-                "acks": acks_value,
-                "retry_backoff_ms": self.producer_config.get("retry_backoff_ms", 1000),
-                "enable_idempotence": enable_idempotence,
-            }
-        )
-
-        # aiokafka uses 'max_batch_size', config uses 'batch_size' for compatibility
-        if "batch_size" in self.producer_config:
-            kafka_producer_config["max_batch_size"] = self.producer_config["batch_size"]
-        if "linger_ms" in self.producer_config:
-            kafka_producer_config["linger_ms"] = self.producer_config["linger_ms"]
-        if "compression_type" in self.producer_config:
-            compression = self.producer_config["compression_type"]
-            kafka_producer_config["compression_type"] = (
-                None if compression == "none" else compression
-            )
-        if "max_request_size" in self.producer_config:
-            kafka_producer_config["max_request_size"] = self.producer_config["max_request_size"]
-        if "max_request_size" not in self.producer_config:
-            kafka_producer_config["max_request_size"] = 10 * 1024 * 1024
+        self._apply_optional_producer_config(kafka_producer_config)
         kafka_producer_config.update(build_kafka_security_config(self.config))
 
         # Debug: log connection settings (mask secrets)
@@ -290,48 +291,44 @@ class MessageProducer:
             results = []
             for future in futures:
                 metadata = await future
-                # Convert RecordMetadata to transport-agnostic ProduceResult
-                result = ProduceResult(
-                    topic=metadata.topic,
-                    partition=metadata.partition,
-                    offset=metadata.offset,
-                )
-                results.append(result)
+                results.append(ProduceResult(
+                    topic=metadata.topic, partition=metadata.partition, offset=metadata.offset,
+                ))
 
-            duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(topic=topic).observe(duration)
-            for _ in results:
-                record_message_produced(topic, total_bytes // len(results), success=True)
-
-            logger.info(
-                "Batch sent successfully",
-                extra={
-                    "topic": topic,
-                    "message_count": len(results),
-                    "partitions": list({r.partition for r in results}),
-                    "duration_ms": round(duration * 1000, 2),
-                },
-            )
-
+            self._record_batch_metrics(topic, results, total_bytes, start_time, success=True)
             return results
 
         except Exception as e:
-            duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(topic=topic).observe(duration)
-            for _ in messages:
-                record_message_produced(topic, total_bytes // len(messages), success=False)
-            record_producer_error(topic, type(e).__name__)
+            self._record_batch_metrics(topic, messages, total_bytes, start_time, success=False, error=e)
+            raise
+
+    def _record_batch_metrics(
+        self, topic: str, items: list, total_bytes: int, start_time: float,
+        *, success: bool, error: Exception | None = None,
+    ) -> None:
+        """Record metrics and log for a batch send (success or failure)."""
+        duration = time.perf_counter() - start_time
+        message_processing_duration_seconds.labels(topic=topic).observe(duration)
+        avg_bytes = total_bytes // len(items) if items else 0
+        for _ in items:
+            record_message_produced(topic, avg_bytes, success=success)
+
+        if success:
+            logger.info(
+                "Batch sent successfully",
+                extra={
+                    "topic": topic, "message_count": len(items),
+                    "partitions": list({r.partition for r in items}) if hasattr(items[0], "partition") else [],
+                    "duration_ms": round(duration * 1000, 2),
+                },
+            )
+        else:
+            record_producer_error(topic, type(error).__name__ if error else "unknown")
             logger.error(
                 "Failed to send batch",
-                extra={
-                    "topic": topic,
-                    "message_count": len(messages),
-                    "duration_ms": round(duration * 1000, 2),
-                    "error": str(e),
-                },
+                extra={"topic": topic, "message_count": len(items), "duration_ms": round(duration * 1000, 2), "error": str(error)},
                 exc_info=True,
             )
-            raise
 
     async def flush(self) -> None:
         if not self._started or self._producer is None:
