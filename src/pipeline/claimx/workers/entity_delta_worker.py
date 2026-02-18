@@ -38,23 +38,33 @@ class ClaimXEntityDeltaWorker:
 
     WORKER_NAME = "entity_delta_writer"
 
+    # Table path keyword arguments accepted by __init__ and forwarded to ClaimXEntityWriter
+    _TABLE_PATH_KEYS = (
+        "projects_table_path",
+        "contacts_table_path",
+        "media_table_path",
+        "tasks_table_path",
+        "task_templates_table_path",
+        "external_links_table_path",
+        "video_collab_table_path",
+    )
+
     def __init__(
         self,
         config: MessageConfig,
         domain: str = "claimx",
         entity_rows_topic: str = "",
-        projects_table_path: str = "",
-        contacts_table_path: str = "",
-        media_table_path: str = "",
-        tasks_table_path: str = "",
-        task_templates_table_path: str = "",
-        external_links_table_path: str = "",
-        video_collab_table_path: str = "",
         producer_config: MessageConfig | None = None,
         instance_id: str | None = None,
+        **table_paths: str,
     ):
         """
         Initialize ClaimX entity delta worker.
+
+        Table paths are passed as keyword arguments (projects_table_path,
+        contacts_table_path, media_table_path, tasks_table_path,
+        task_templates_table_path, external_links_table_path,
+        video_collab_table_path) and forwarded to ClaimXEntityWriter.
         """
         self._entity_rows_topic = entity_rows_topic or config.get_topic(domain, "enriched")
         self._consumer_config = config
@@ -74,16 +84,9 @@ class ClaimXEntityDeltaWorker:
         self.producer_config = producer_config if producer_config else config
         self.retry_handler = None  # Initialized in start()
 
-        # Initialize entity writer
-        self.entity_writer = ClaimXEntityWriter(
-            projects_table_path=projects_table_path,
-            contacts_table_path=contacts_table_path,
-            media_table_path=media_table_path,
-            tasks_table_path=tasks_table_path,
-            task_templates_table_path=task_templates_table_path,
-            external_links_table_path=external_links_table_path,
-            video_collab_table_path=video_collab_table_path,
-        )
+        # Initialize entity writer — forward table_path kwargs
+        writer_paths = {k: table_paths.get(k, "") for k in self._TABLE_PATH_KEYS}
+        self.entity_writer = ClaimXEntityWriter(**writer_paths)
 
         # Get processing config
         processing_config = config.get_worker_config(domain, "entity_delta_writer", "processing")
@@ -217,17 +220,26 @@ class ClaimXEntityDeltaWorker:
         finally:
             self._running = False
 
+    async def _close_resource(self, name: str, method: str = "stop", *, clear: bool = False) -> None:
+        """Close a resource by attribute name, logging errors. Optionally set to None."""
+        resource = getattr(self, name, None)
+        if resource is None:
+            return
+        try:
+            await getattr(resource, method)()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+        finally:
+            if clear:
+                setattr(self, name, None)
+
     async def stop(self) -> None:
         """Stop the worker."""
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
-            finally:
-                self._stats_logger = None
+        await self._close_resource("_stats_logger", clear=True)
 
         if self._batch_timer:
             self._batch_timer.cancel()
@@ -244,30 +256,9 @@ class ClaimXEntityDeltaWorker:
         except Exception as e:
             logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
 
-        if self._consumer:
-            try:
-                await self._consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self._consumer = None
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping retry handler")
-            except Exception as e:
-                logger.error("Error stopping retry handler", extra={"error": str(e)})
-            finally:
-                self.retry_handler = None
-
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("_consumer", clear=True)
+        await self._close_resource("retry_handler", clear=True)
+        await self._close_resource("health_server")
 
     async def commit(self) -> None:
         """Commit consumer offsets after successful batch processing."""
@@ -417,98 +408,93 @@ class ClaimXEntityDeltaWorker:
 
         except Exception as e:
             self._records_failed += merged_rows.row_count()
+            await self._handle_flush_error(e, merged_rows, batch_size)
 
-            # Classify error using DeltaRetryHandler for proper DLQ routing
-            error_category = (
-                self.retry_handler.classify_delta_error(e)
-                if self.retry_handler
-                else ErrorCategory.UNKNOWN
+    _ENTITY_TYPES = (
+        "projects", "contacts", "media", "tasks",
+        "task_templates", "external_links", "video_collab",
+    )
+
+    def _extract_retry_events(self, merged_rows: EntityRowsMessage) -> list[dict]:
+        """Extract individual entity dicts from merged rows for retry routing."""
+        events = []
+        for entity_type in self._ENTITY_TYPES:
+            for entity in getattr(merged_rows, entity_type, []):
+                events.append({
+                    "entity_type": entity_type,
+                    "trace_id": merged_rows.trace_id,
+                    "event_type": merged_rows.event_type,
+                    "project_id": merged_rows.project_id,
+                    **entity,
+                })
+        return events
+
+    async def _handle_flush_error(
+        self, error: Exception, merged_rows: EntityRowsMessage, batch_size: int
+    ) -> None:
+        """Handle a Delta write failure: classify, log, and route to retry/DLQ."""
+        error_category = (
+            self.retry_handler.classify_delta_error(error)
+            if self.retry_handler
+            else ErrorCategory.UNKNOWN
+        )
+
+        log_worker_error(
+            logger,
+            "Failed to write entity batch to Delta",
+            error_category=error_category.value,
+            exc=error,
+            messages_in_batch=batch_size,
+            entity_row_count=merged_rows.row_count(),
+        )
+
+        if not self.retry_handler:
+            logger.critical(
+                "Entity batch write failed with no retry handler configured - DATA LOSS",
+                extra={
+                    "error": str(error),
+                    "messages_in_batch": batch_size,
+                    "entity_row_count": merged_rows.row_count(),
+                },
             )
+            return
 
-            # Use standardized error logging
-            log_worker_error(
-                logger,
-                "Failed to write entity batch to Delta",
-                error_category=error_category.value,
-                exc=e,
-                messages_in_batch=batch_size,
-                entity_row_count=merged_rows.row_count(),
+        events = self._extract_retry_events(merged_rows)
+        if not events:
+            return
+
+        try:
+            await self.retry_handler.handle_batch_failure(
+                batch=events,
+                error=error,
+                retry_count=0,
+                error_category=error_category,
             )
-
-            # Route to retry/DLQ via the retry handler
-            if self.retry_handler:
-                # Extract event data for retry context
-                events = []
-                for entity_type in [
-                    "projects",
-                    "contacts",
-                    "media",
-                    "tasks",
-                    "task_templates",
-                    "external_links",
-                    "video_collab",
-                ]:
-                    entity_list = getattr(merged_rows, entity_type, [])
-                    for entity in entity_list:
-                        events.append(
-                            {
-                                "entity_type": entity_type,
-                                "trace_id": merged_rows.trace_id,
-                                "event_type": merged_rows.event_type,
-                                "project_id": merged_rows.project_id,
-                                **entity,
-                            }
-                        )
-
-                if events:
-                    try:
-                        await self.retry_handler.handle_batch_failure(
-                            batch=events,
-                            error=e,
-                            retry_count=0,
-                            error_category=error_category,
-                        )
-
-                        # Log appropriate message based on error category
-                        if error_category == ErrorCategory.PERMANENT:
-                            logger.warning(
-                                "Entity batch sent to DLQ (permanent error)",
-                                extra={
-                                    "event_count": len(events),
-                                    "trace_id": merged_rows.trace_id,
-                                    "error_category": error_category.value,
-                                },
-                            )
-                        else:
-                            logger.info(
-                                "Entity batch sent to retry topic",
-                                extra={
-                                    "event_count": len(events),
-                                    "trace_id": merged_rows.trace_id,
-                                    "error_category": error_category.value,
-                                },
-                            )
-                    except Exception as retry_error:
-                        logger.error(
-                            "Failed to send entity batch to retry topic - DATA LOSS",
-                            extra={
-                                "original_error": str(e),
-                                "retry_error": str(retry_error),
-                                "event_count": len(events),
-                                "trace_id": merged_rows.trace_id,
-                            },
-                            exc_info=True,
-                        )
-            else:
-                # No retry handler - log critical error
-                logger.critical(
-                    "Entity batch write failed with no retry handler configured - DATA LOSS",
-                    extra={
-                        "error": str(e),
-                        "messages_in_batch": batch_size,
-                        "entity_row_count": merged_rows.row_count(),
-                    },
-                )
+            log_level = "warning" if error_category == ErrorCategory.PERMANENT else "info"
+            msg = (
+                "Entity batch sent to DLQ (permanent error)"
+                if error_category == ErrorCategory.PERMANENT
+                else "Entity batch sent to retry topic"
+            )
+            getattr(logger, log_level)(
+                msg,
+                extra={
+                    "event_count": len(events),
+                    "trace_id": merged_rows.trace_id,
+                    "error_category": error_category.value,
+                },
+            )
+        except Exception as retry_error:
+            logger.error(
+                "Failed to send entity batch to retry topic - DATA LOSS",
+                extra={
+                    "original_error": str(error),
+                    "retry_error": str(retry_error),
+                    "event_count": len(events),
+                    "trace_id": merged_rows.trace_id,
+                },
+                exc_info=True,
+            )
 
     async def _periodic_flush(self) -> None:
         """Timer callback to periodically flush batch regardless of size.
