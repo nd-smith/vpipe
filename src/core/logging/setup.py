@@ -7,9 +7,11 @@ import secrets
 import shutil
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 from core.logging.context import set_log_context
 from core.logging.filters import StageContextFilter
@@ -22,6 +24,27 @@ DEFAULT_ROTATION_INTERVAL = 1  # Interval for rotation (every 1 hour)
 DEFAULT_BACKUP_COUNT = 24  # Keep 24 hours of logs by default
 DEFAULT_CONSOLE_LEVEL = logging.INFO
 DEFAULT_FILE_LEVEL = logging.DEBUG
+
+
+@dataclass
+class LoggingConfig:
+    """Configuration for logging handlers and formatting.
+
+    Groups the many optional parameters for setup_logging() and
+    setup_multi_worker_logging() into a single object.
+    """
+
+    json_format: bool = True
+    console_level: int = DEFAULT_CONSOLE_LEVEL
+    file_level: int = DEFAULT_FILE_LEVEL
+    rotation_when: str = DEFAULT_ROTATION_WHEN
+    rotation_interval: int = DEFAULT_ROTATION_INTERVAL
+    backup_count: int = DEFAULT_BACKUP_COUNT
+    suppress_noisy: bool = True
+    use_instance_id: bool = True
+    log_to_stdout: bool = False
+    eventhub_config: dict[str, Any] | None = None
+    enable_eventhub_logging: bool = True
 
 
 def _resolve_onelake_log_path() -> str:
@@ -143,17 +166,13 @@ class PipelineFileHandler(TimedRotatingFileHandler):
     def __init__(
         self,
         filename,
-        when="midnight",
-        interval=1,
-        backupCount=0,
-        encoding=None,
-        delay=False,
-        utc=False,
+        *,
         archiver: LogArchiver | None = None,
         uploader: OneLakeLogUploader | None = None,
         max_bytes: int = 0,
+        **kwargs,
     ):
-        super().__init__(filename, when, interval, backupCount, encoding, delay, utc)
+        super().__init__(filename, **kwargs)
         self.archiver = archiver
         self.uploader = uploader
         self.max_bytes = max_bytes
@@ -378,23 +397,81 @@ def _build_file_handler(
     )
 
 
+def _reset_root_logger() -> logging.Logger:
+    """Clear root logger handlers (preserving pytest handlers) and set level to DEBUG."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    for h in root_logger.handlers[:]:
+        if type(h).__module__.startswith(("_pytest", "pytest")):
+            continue
+        h.close()
+        root_logger.removeHandler(h)
+    return root_logger
+
+
+def _attach_eventhub_handler(root_logger: logging.Logger, cfg: LoggingConfig) -> None:
+    """Create and attach EventHub log handler if enabled and configured."""
+    if not (cfg.enable_eventhub_logging and cfg.eventhub_config):
+        return
+
+    eh = cfg.eventhub_config
+    print(f"[STARTUP] Creating EventHub log handler for: {eh['eventhub_name']}")
+    eventhub_handler = _create_eventhub_handler(
+        connection_string=eh["connection_string"],
+        eventhub_name=eh["eventhub_name"],
+        level=eh["level"],
+        batch_size=eh["batch_size"],
+        batch_timeout_seconds=eh["batch_timeout_seconds"],
+        max_queue_size=eh["max_queue_size"],
+        circuit_breaker_threshold=eh["circuit_breaker_threshold"],
+    )
+    if eventhub_handler:
+        root_logger.addHandler(eventhub_handler)
+        print("[STARTUP] EventHub log handler created and attached successfully")
+    else:
+        print("[STARTUP] EventHub log handler creation FAILED - check error logs")
+
+
+def _create_console_handler(cfg: LoggingConfig) -> logging.StreamHandler:
+    """Create a console StreamHandler with appropriate level and formatting."""
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(cfg.file_level if cfg.log_to_stdout else cfg.console_level)
+    handler.setFormatter(ConsoleFormatter())
+    return handler
+
+
+def _create_file_formatter(cfg: LoggingConfig) -> logging.Formatter:
+    """Create file formatter based on config (JSON or plain text)."""
+    if cfg.json_format:
+        return JSONFormatter()
+    return logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+    )
+
+
+def _suppress_noisy_loggers() -> None:
+    """Set noisy third-party loggers to ERROR level."""
+    for logger_name in NOISY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+
+
+def _build_logging_config(kwargs: dict[str, Any]) -> LoggingConfig:
+    """Build a LoggingConfig from keyword arguments, consuming known fields."""
+    config_fields = {f.name for f in LoggingConfig.__dataclass_fields__.values()}
+    config_kwargs = {k: kwargs.pop(k) for k in list(kwargs) if k in config_fields}
+    return LoggingConfig(**config_kwargs)
+
+
 def setup_logging(
     name: str = "pipeline",
     stage: str | None = None,
     domain: str | None = None,
     log_dir: Path | None = None,
-    json_format: bool = True,
-    console_level: int = DEFAULT_CONSOLE_LEVEL,
-    file_level: int = DEFAULT_FILE_LEVEL,
-    rotation_when: str = DEFAULT_ROTATION_WHEN,
-    rotation_interval: int = DEFAULT_ROTATION_INTERVAL,
-    backup_count: int = DEFAULT_BACKUP_COUNT,
-    suppress_noisy: bool = True,
     worker_id: str | None = None,
-    use_instance_id: bool = True,
-    log_to_stdout: bool = False,
-    eventhub_config: dict | None = None,
-    enable_eventhub_logging: bool = True,
+    config: LoggingConfig | None = None,
+    **kwargs,
 ) -> logging.Logger:
     """
     Configure logging with console and auto-archiving time-based rotating file handlers.
@@ -416,22 +493,14 @@ def setup_logging(
         stage: Stage name for per-stage log files (ingest/download/retry)
         domain: Pipeline domain (xact, claimx, kafka)
         log_dir: Directory for log files (default: ./logs)
-        json_format: Use JSON format for file logs (default: True)
-        console_level: Console handler level (default: INFO)
-        file_level: File handler level (default: DEBUG)
-        rotation_when: When to rotate logs - 'midnight', 'H' (hourly), 'M' (minutes) (default: midnight)
-        rotation_interval: Interval for rotation (default: 1)
-        backup_count: Number of backup files to keep (default: 7)
-        suppress_noisy: Quiet down Azure SDK and HTTP client loggers
         worker_id: Worker identifier for context
-        use_instance_id: Generate unique phrase for log filename (default: True).
-            Set to False for single-worker deployments or when log aggregation is preferred.
-        log_to_stdout: Also send verbose (file_level) output to stdout (default: False).
-            File and EventHub handlers are always active regardless of this flag.
+        config: LoggingConfig with handler/formatter settings (or pass individual kwargs)
+        **kwargs: Individual LoggingConfig fields for backward compatibility
 
     Returns:
         Configured logger instance
     """
+    cfg = config or _build_logging_config(kwargs)
     log_dir = log_dir or DEFAULT_LOG_DIR
 
     if worker_id:
@@ -441,73 +510,28 @@ def setup_logging(
     if domain:
         set_log_context(domain=domain)
 
-    # Console handler (always created)
-    console_formatter = ConsoleFormatter()
-    if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    console_handler = logging.StreamHandler(sys.stdout)
-
-    # Configure root logger — close and remove our handlers but preserve
-    # any external handlers (e.g. pytest's LogCaptureHandler) to avoid
-    # destroying streams we don't own.
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
-    for h in root_logger.handlers[:]:
-        if type(h).__module__.startswith(("_pytest", "pytest")):
-            continue
-        h.close()
-        root_logger.removeHandler(h)
-
-    # Add EventHub handler if enabled and configured
-    if enable_eventhub_logging and eventhub_config:
-        print(f"[STARTUP] Creating EventHub log handler for: {eventhub_config['eventhub_name']}")
-        eventhub_handler = _create_eventhub_handler(
-            connection_string=eventhub_config["connection_string"],
-            eventhub_name=eventhub_config["eventhub_name"],
-            level=eventhub_config["level"],
-            batch_size=eventhub_config["batch_size"],
-            batch_timeout_seconds=eventhub_config["batch_timeout_seconds"],
-            max_queue_size=eventhub_config["max_queue_size"],
-            circuit_breaker_threshold=eventhub_config["circuit_breaker_threshold"],
-        )
-        if eventhub_handler:
-            root_logger.addHandler(eventhub_handler)
-            print("[STARTUP] EventHub log handler created and attached successfully")
-        else:
-            print("[STARTUP] EventHub log handler creation FAILED - check error logs")
-
-    # Console handler: log_to_stdout makes it verbose (file_level), otherwise normal
-    console_handler.setLevel(file_level if log_to_stdout else console_level)
-    console_handler.setFormatter(console_formatter)
-    root_logger.addHandler(console_handler)
+    root_logger = _reset_root_logger()
+    _attach_eventhub_handler(root_logger, cfg)
+    root_logger.addHandler(_create_console_handler(cfg))
 
     # File handler — always created regardless of log_to_stdout
-    instance_id = _generate_instance_id() if use_instance_id else None
+    instance_id = _generate_instance_id() if cfg.use_instance_id else None
     log_file = get_log_file_path(log_dir, domain=domain, stage=stage, instance_id=instance_id)
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    if json_format:
-        file_formatter = JSONFormatter()
-    else:
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-        )
-
     file_handler = _build_file_handler(
-        log_file, log_dir, backup_count, rotation_when, rotation_interval
+        log_file, log_dir, cfg.backup_count, cfg.rotation_when, cfg.rotation_interval
     )
-    file_handler.setLevel(file_level)
-    file_handler.setFormatter(file_formatter)
+    file_handler.setLevel(cfg.file_level)
+    file_handler.setFormatter(_create_file_formatter(cfg))
     root_logger.addHandler(file_handler)
 
-    # Suppress noisy loggers
-    if suppress_noisy:
-        for logger_name in NOISY_LOGGERS:
-            logging.getLogger(logger_name).setLevel(logging.ERROR)
+    if cfg.suppress_noisy:
+        _suppress_noisy_loggers()
 
     logger = logging.getLogger(name)
     logger.debug(
-        f"Logging initialized: file={log_file}, json={json_format}, stdout={log_to_stdout}",
+        f"Logging initialized: file={log_file}, json={cfg.json_format}, stdout={cfg.log_to_stdout}",
         extra={"stage": stage or "pipeline", "domain": domain or "unknown"},
     )
 
@@ -518,17 +542,8 @@ def setup_multi_worker_logging(
     workers: list[str],
     domain: str = "kafka",
     log_dir: Path | None = None,
-    json_format: bool = True,
-    console_level: int = DEFAULT_CONSOLE_LEVEL,
-    file_level: int = DEFAULT_FILE_LEVEL,
-    rotation_when: str = DEFAULT_ROTATION_WHEN,
-    rotation_interval: int = DEFAULT_ROTATION_INTERVAL,
-    backup_count: int = DEFAULT_BACKUP_COUNT,
-    suppress_noisy: bool = True,
-    use_instance_id: bool = True,
-    log_to_stdout: bool = False,
-    eventhub_config: dict | None = None,
-    enable_eventhub_logging: bool = True,
+    config: LoggingConfig | None = None,
+    **kwargs,
 ) -> logging.Logger:
     """
     Configure logging with per-worker auto-archiving time-based file handlers.
@@ -542,81 +557,26 @@ def setup_multi_worker_logging(
         logs/kafka/2026-01-05/kafka_upload_0105_1430_happy-tiger.log
         logs/kafka/2026-01-05/pipeline_0105_1430_happy-tiger.log  (combined)
 
-    When use_instance_id is True (default), a human-readable phrase is appended to
-    log filenames to prevent file locking conflicts when multiple instances
-    of the same worker configuration run concurrently.
-
-    Rotated backup files are automatically moved to archive subdirectories.
-
     Args:
         workers: List of worker stage names (e.g., ["download", "upload"])
         domain: Pipeline domain (default: "kafka")
         log_dir: Directory for log files (default: ./logs)
-        json_format: Use JSON format for file logs (default: True)
-        console_level: Console handler level (default: INFO)
-        file_level: File handler level (default: DEBUG)
-        rotation_when: When to rotate logs - 'midnight', 'H' (hourly), 'M' (minutes) (default: midnight)
-        rotation_interval: Interval for rotation (default: 1)
-        backup_count: Number of backup files to keep (default: 7)
-        suppress_noisy: Quiet down Azure SDK and HTTP client loggers
-        use_instance_id: Generate unique phrase for log filenames (default: True)
-        log_to_stdout: Also send verbose (file_level) output to stdout (default: False).
-            File and EventHub handlers are always active regardless of this flag.
+        config: LoggingConfig with handler/formatter settings (or pass individual kwargs)
+        **kwargs: Individual LoggingConfig fields for backward compatibility
 
     Returns:
         Configured logger instance
     """
+    cfg = config or _build_logging_config(kwargs)
     log_dir = log_dir or DEFAULT_LOG_DIR
 
-    console_formatter = ConsoleFormatter()
-
-    # Configure root logger — close and remove our handlers but preserve
-    # any external handlers (e.g. pytest's LogCaptureHandler) to avoid
-    # destroying streams we don't own.
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
-    for h in root_logger.handlers[:]:
-        if type(h).__module__.startswith(("_pytest", "pytest")):
-            continue
-        h.close()
-        root_logger.removeHandler(h)
-
-    # Add EventHub handler if enabled and configured
-    if enable_eventhub_logging and eventhub_config:
-        print(f"[STARTUP] Creating EventHub log handler for: {eventhub_config['eventhub_name']}")
-        eventhub_handler = _create_eventhub_handler(
-            connection_string=eventhub_config["connection_string"],
-            eventhub_name=eventhub_config["eventhub_name"],
-            level=eventhub_config["level"],
-            batch_size=eventhub_config["batch_size"],
-            batch_timeout_seconds=eventhub_config["batch_timeout_seconds"],
-            max_queue_size=eventhub_config["max_queue_size"],
-            circuit_breaker_threshold=eventhub_config["circuit_breaker_threshold"],
-        )
-        if eventhub_handler:
-            root_logger.addHandler(eventhub_handler)
-            print("[STARTUP] EventHub log handler created and attached successfully")
-        else:
-            print("[STARTUP] EventHub log handler creation FAILED - check error logs")
-
-    # Add console handler (receives all logs)
-    if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    console_handler = logging.StreamHandler(sys.stdout)
-    # Console handler: log_to_stdout makes it verbose (file_level), otherwise normal
-    console_handler.setLevel(file_level if log_to_stdout else console_level)
-    console_handler.setFormatter(console_formatter)
-    root_logger.addHandler(console_handler)
+    root_logger = _reset_root_logger()
+    _attach_eventhub_handler(root_logger, cfg)
+    root_logger.addHandler(_create_console_handler(cfg))
 
     # File handlers — always created regardless of log_to_stdout
-    instance_id = _generate_instance_id() if use_instance_id else None
-
-    if json_format:
-        file_formatter = JSONFormatter()
-    else:
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-        )
+    instance_id = _generate_instance_id() if cfg.use_instance_id else None
+    file_formatter = _create_file_formatter(cfg)
 
     # Per-worker file handlers (filtered by stage context)
     for worker in workers:
@@ -626,9 +586,9 @@ def setup_multi_worker_logging(
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         handler = _build_file_handler(
-            log_file, log_dir, backup_count, rotation_when, rotation_interval
+            log_file, log_dir, cfg.backup_count, cfg.rotation_when, cfg.rotation_interval
         )
-        handler.setLevel(file_level)
+        handler.setLevel(cfg.file_level)
         handler.setFormatter(file_formatter)
         handler.addFilter(StageContextFilter(worker))
         root_logger.addHandler(handler)
@@ -640,20 +600,18 @@ def setup_multi_worker_logging(
     combined_file.parent.mkdir(parents=True, exist_ok=True)
 
     combined_handler = _build_file_handler(
-        combined_file, log_dir, backup_count, rotation_when, rotation_interval
+        combined_file, log_dir, cfg.backup_count, cfg.rotation_when, cfg.rotation_interval
     )
-    combined_handler.setLevel(file_level)
+    combined_handler.setLevel(cfg.file_level)
     combined_handler.setFormatter(file_formatter)
     root_logger.addHandler(combined_handler)
 
-    # Suppress noisy loggers
-    if suppress_noisy:
-        for logger_name in NOISY_LOGGERS:
-            logging.getLogger(logger_name).setLevel(logging.ERROR)
+    if cfg.suppress_noisy:
+        _suppress_noisy_loggers()
 
     logger = logging.getLogger("pipeline")
     logger.debug(
-        f"Multi-worker logging initialized: workers={workers}, domain={domain}, stdout_only={log_to_stdout}",
+        f"Multi-worker logging initialized: workers={workers}, domain={domain}, stdout_only={cfg.log_to_stdout}",
         extra={"stage": "pipeline", "domain": domain},
     )
 
@@ -679,41 +637,53 @@ def upload_crash_logs(reason: str = "") -> None:
         print(f"Warning: Crash log upload failed unexpectedly: {e}", file=sys.stderr)
 
 
-def _do_crash_log_upload(reason: str) -> None:
-    """Internal implementation for crash log upload."""
-    root_logger = logging.getLogger()
-    crash_logger = logging.getLogger("core.logging.crash_upload")
-
-    # Phase 0: Flush EventHub handlers first (send pending logs)
-    # Import here to avoid circular dependency
+def _flush_eventhub_handlers(crash_logger: logging.Logger) -> None:
+    """Flush EventHub log handlers during crash to send pending logs."""
     try:
         from core.logging.eventhub_handler import EventHubLogHandler
 
-        for handler in root_logger.handlers:
+        for handler in logging.getLogger().handlers:
             if isinstance(handler, EventHubLogHandler):
                 try:
                     crash_logger.debug(
                         "Flushing EventHub handler during crash",
                         extra={"queue_size": handler.log_queue.qsize()},
                     )
-                    # close() waits up to 5 seconds for sender thread to flush
                     handler.close()
                     crash_logger.debug("EventHub handler flushed successfully")
                 except Exception as e:
-                    # Don't let EventHub flush failures block file upload
                     crash_logger.warning(
                         "Failed to flush EventHub handler during crash",
                         extra={"error": str(e)},
                     )
     except ImportError:
-        # EventHub handler not available (expected in some configurations)
         pass
 
-    # Phase 1: Flush all file handlers and collect their file paths
+
+def _collect_archived_files(archive_dir: Any) -> list[Path]:
+    """Collect non-empty archived log files from an archive directory."""
+    archive_path = Path(archive_dir) if not isinstance(archive_dir, Path) else archive_dir
+    if not archive_path.exists():
+        return []
+    files = []
+    for archived in archive_path.glob("*.log*"):
+        try:
+            if archived.stat().st_size > 0:
+                files.append(archived)
+        except OSError:
+            pass
+    return files
+
+
+def _collect_crash_log_files() -> tuple[list[Path], Any]:
+    """Flush file handlers, collect log file paths, and find OneLake client.
+
+    Returns (deduplicated_log_files, onelake_client_or_None).
+    """
     log_files: list[Path] = []
     onelake_client = None
 
-    for handler in root_logger.handlers:
+    for handler in logging.getLogger().handlers:
         if not isinstance(handler, logging.FileHandler):
             continue
 
@@ -724,28 +694,11 @@ def _do_crash_log_upload(reason: str) -> None:
         if log_path.exists() and log_path.stat().st_size > 0:
             log_files.append(log_path)
 
-        # Reuse existing OneLake client if available
         if hasattr(handler, "onelake_client") and handler.onelake_client is not None:
             onelake_client = handler.onelake_client
 
-        # Also include any archived log files from recent rotations
         if hasattr(handler, "archive_dir"):
-            archive_path = (
-                Path(handler.archive_dir)
-                if not isinstance(handler.archive_dir, Path)
-                else handler.archive_dir
-            )
-            if archive_path.exists():
-                for archived in archive_path.glob("*.log*"):
-                    try:
-                        if archived.stat().st_size > 0:
-                            log_files.append(archived)
-                    except OSError:
-                        pass
-
-    if not log_files:
-        crash_logger.warning("No log files found for crash upload")
-        return
+            log_files.extend(_collect_archived_files(handler.archive_dir))
 
     # Deduplicate while preserving order
     seen: set = set()
@@ -755,29 +708,40 @@ def _do_crash_log_upload(reason: str) -> None:
         if resolved not in seen:
             seen.add(resolved)
             unique_files.append(f)
-    log_files = unique_files
 
-    # Phase 2: Get or create OneLake client
-    if onelake_client is None:
-        onelake_log_path = _resolve_onelake_log_path()
-        if not onelake_log_path:
-            crash_logger.warning(
-                "No OneLake path configured for crash log upload (set ONELAKE_LOG_PATH)"
-            )
-            return
+    return unique_files, onelake_client
 
-        try:
-            from pipeline.common.storage.onelake import OneLakeClient
 
-            onelake_client = OneLakeClient(base_path=onelake_log_path)
-        except Exception as e:
-            crash_logger.warning(
-                "Failed to create OneLake client for crash log upload",
-                extra={"error": str(e)},
-            )
-            return
+def _get_or_create_onelake_client(
+    existing_client: Any, crash_logger: logging.Logger
+) -> Any:
+    """Return existing OneLake client or create one from config. Returns None on failure."""
+    if existing_client is not None:
+        return existing_client
 
-    # Phase 3: Upload log files under crash/ prefix
+    onelake_log_path = _resolve_onelake_log_path()
+    if not onelake_log_path:
+        crash_logger.warning(
+            "No OneLake path configured for crash log upload (set ONELAKE_LOG_PATH)"
+        )
+        return None
+
+    try:
+        from pipeline.common.storage.onelake import OneLakeClient
+
+        return OneLakeClient(base_path=onelake_log_path)
+    except Exception as e:
+        crash_logger.warning(
+            "Failed to create OneLake client for crash log upload",
+            extra={"error": str(e)},
+        )
+        return None
+
+
+def _upload_files_to_onelake(
+    log_files: list[Path], onelake_client: Any, reason: str, crash_logger: logging.Logger
+) -> None:
+    """Upload log files to OneLake under crash/ prefix."""
     crash_logger.info(
         "Uploading crash logs to OneLake",
         extra={"file_count": len(log_files), "reason": reason},
@@ -809,6 +773,24 @@ def _do_crash_log_upload(reason: str) -> None:
         )
     else:
         crash_logger.warning("No crash logs were successfully uploaded")
+
+
+def _do_crash_log_upload(reason: str) -> None:
+    """Internal implementation for crash log upload."""
+    crash_logger = logging.getLogger("core.logging.crash_upload")
+
+    _flush_eventhub_handlers(crash_logger)
+
+    log_files, onelake_client = _collect_crash_log_files()
+    if not log_files:
+        crash_logger.warning("No log files found for crash upload")
+        return
+
+    onelake_client = _get_or_create_onelake_client(onelake_client, crash_logger)
+    if onelake_client is None:
+        return
+
+    _upload_files_to_onelake(log_files, onelake_client, reason, crash_logger)
 
 
 def get_logger(name: str) -> logging.Logger:
