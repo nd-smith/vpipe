@@ -51,11 +51,7 @@ class MessageBatchConsumer:
         worker_name: str,
         topics: list[str],
         batch_handler: Callable[[list[PipelineMessage]], Awaitable[bool]],
-        batch_size: int = 20,
-        max_batch_size: int | None = None,
-        batch_timeout_ms: int = 1000,
-        enable_message_commit: bool = True,
-        instance_id: str | None = None,
+        **kwargs,
     ):
         """Initialize message batch consumer.
 
@@ -65,12 +61,12 @@ class MessageBatchConsumer:
             worker_name: Worker name for logging
             topics: List of topics to consume
             batch_handler: Async function that processes message batches
-            batch_size: Target batch size (maps to max_poll_records, default: 20)
-            max_batch_size: Upper bound for max_poll_records (allows dynamic batch_size
-                            up to this cap). Defaults to batch_size.
-            batch_timeout_ms: Timeout for getmany (default: 1000ms)
-            enable_message_commit: Whether to commit after successful processing
-            instance_id: Optional instance identifier for parallel consumers
+            **kwargs: Optional overrides:
+                batch_size (int): Target batch size (default: 20)
+                max_batch_size (int): Upper bound for max_poll_records (default: batch_size)
+                batch_timeout_ms (int): Timeout for getmany (default: 1000ms)
+                enable_message_commit (bool): Whether to commit after processing (default: True)
+                instance_id (str): Instance identifier for parallel consumers
         """
         if not topics:
             raise ValueError("At least one topic must be specified")
@@ -78,23 +74,24 @@ class MessageBatchConsumer:
         self.config = config
         self.domain = domain
         self.worker_name = worker_name
-        self.instance_id = instance_id
+        self.instance_id = kwargs.get("instance_id")
         self.topics = topics
         self.batch_handler = batch_handler
+        batch_size = kwargs.get("batch_size", 20)
         self.batch_size = batch_size
-        self.max_batch_size = max_batch_size or batch_size
-        self.batch_timeout_ms = batch_timeout_ms
+        self.max_batch_size = kwargs.get("max_batch_size") or batch_size
+        self.batch_timeout_ms = kwargs.get("batch_timeout_ms", 1000)
         self._consumer: AIOKafkaConsumer | None = None
         self._running = False
-        self._enable_message_commit = enable_message_commit
+        self._enable_message_commit = kwargs.get("enable_message_commit", True)
 
         # DLQ producer for routing permanent failures from batch handlers
         from core.utils import generate_worker_id
         from pipeline.common.dlq.producer import DLQProducer
 
         prefix = f"{domain}-{worker_name}"
-        if instance_id:
-            prefix = f"{prefix}-{instance_id}"
+        if self.instance_id:
+            prefix = f"{prefix}-{self.instance_id}"
         self._worker_id = generate_worker_id(prefix)
 
         self._dlq_producer = DLQProducer(
@@ -120,77 +117,53 @@ class MessageBatchConsumer:
                 "topics": topics,
                 "group_id": self.group_id,
                 "batch_size": batch_size,
-                "batch_timeout_ms": batch_timeout_ms,
+                "batch_timeout_ms": self.batch_timeout_ms,
                 "bootstrap_servers": config.bootstrap_servers,
                 "max_batches": self.max_batches,
-                "enable_message_commit": enable_message_commit,
+                "enable_message_commit": self._enable_message_commit,
             },
         )
 
-    async def start(self) -> None:
-        """Start the message batch consumer."""
-        if self._running:
-            logger.warning("Batch consumer already running, ignoring duplicate start call")
-            return
+    # Optional consumer config keys forwarded to AIOKafkaConsumer if present
+    _OPTIONAL_CONSUMER_KEYS = (
+        "heartbeat_interval_ms",
+        "fetch_min_bytes",
+        "fetch_max_wait_ms",
+        "partition_assignment_strategy",
+    )
 
-        logger.info(
-            "Starting message batch consumer",
-            extra={
-                "topics": self.topics,
-                "group_id": self.group_id,
-                "batch_size": self.batch_size,
-            },
-        )
+    def _build_kafka_config(self) -> dict:
+        """Build the AIOKafkaConsumer configuration dict."""
+        client_id = f"{self.domain}-{self.worker_name}"
+        if self.instance_id:
+            client_id = f"{client_id}-{self.instance_id}"
 
-        kafka_consumer_config = {
+        cfg = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.group_id,
-            "client_id": (
-                f"{self.domain}-{self.worker_name}-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-{self.worker_name}"
-            ),
+            "client_id": client_id,
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
             "connections_max_idle_ms": self.config.connections_max_idle_ms,
+            "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
+            "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
+            "max_poll_records": self.max_batch_size,
+            "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
+            "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
         }
 
-        kafka_consumer_config.update(
-            {
-                "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
-                "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
-                "max_poll_records": self.max_batch_size,  # Allow dynamic batch_size up to this cap
-                "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
-                "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
-            }
-        )
+        for key in self._OPTIONAL_CONSUMER_KEYS:
+            if key in self.consumer_config:
+                cfg[key] = self.consumer_config[key]
 
-        if "heartbeat_interval_ms" in self.consumer_config:
-            kafka_consumer_config["heartbeat_interval_ms"] = self.consumer_config[
-                "heartbeat_interval_ms"
-            ]
-        if "fetch_min_bytes" in self.consumer_config:
-            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config["fetch_min_bytes"]
-        if "fetch_max_wait_ms" in self.consumer_config:
-            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config["fetch_max_wait_ms"]
-        if "partition_assignment_strategy" in self.consumer_config:
-            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config[
-                "partition_assignment_strategy"
-            ]
+        cfg.update(build_kafka_security_config(self.config))
+        return cfg
 
-        kafka_consumer_config.update(build_kafka_security_config(self.config))
-
-        self._consumer = AIOKafkaConsumer(*self.topics, **kafka_consumer_config)
-
-        await self._consumer.start()
-        self._running = True
-
-        update_connection_status("consumer", connected=True)
+    async def _log_starting_offsets(self) -> None:
+        """Log partition offsets on startup for crash recovery visibility."""
         assignment = self._consumer.assignment()
-        partition_count = len(assignment)
-        update_assigned_partitions(self.group_id, partition_count)
+        update_assigned_partitions(self.group_id, len(assignment))
 
-        # Log starting offsets so crash recovery gaps are visible
         partition_offsets = {}
         for tp in assignment:
             try:
@@ -204,10 +177,25 @@ class MessageBatchConsumer:
             extra={
                 "topics": self.topics,
                 "group_id": self.group_id,
-                "partitions": partition_count,
+                "partitions": len(assignment),
                 "resuming_from_offsets": partition_offsets,
             },
         )
+
+    async def start(self) -> None:
+        """Start the message batch consumer."""
+        if self._running:
+            logger.warning("Batch consumer already running, ignoring duplicate start call")
+            return
+
+        logger.info("Starting message batch consumer", extra={"topics": self.topics, "group_id": self.group_id, "batch_size": self.batch_size})
+
+        self._consumer = AIOKafkaConsumer(*self.topics, **self._build_kafka_config())
+        await self._consumer.start()
+        self._running = True
+
+        update_connection_status("consumer", connected=True)
+        await self._log_starting_offsets()
 
         try:
             await self._consume_loop()
@@ -215,11 +203,7 @@ class MessageBatchConsumer:
             logger.info("Batch consumer loop cancelled, shutting down")
             raise
         except Exception as e:
-            logger.error(
-                "Batch consumer loop terminated with error",
-                extra={"error": str(e)},
-                exc_info=True,
-            )
+            logger.error("Batch consumer loop terminated with error", extra={"error": str(e)}, exc_info=True)
             raise
         finally:
             self._running = False
@@ -334,62 +318,39 @@ class MessageBatchConsumer:
                 exc_info=True,
             )
 
+    async def _wait_for_assignment(self) -> bool:
+        """Wait for partition assignment, logging once. Returns True when assigned."""
+        logged_waiting = False
+        while self._running and self._consumer:
+            assignment = self._consumer.assignment()
+            if assignment:
+                partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
+                logger.info(
+                    "Partition assignment received, starting batch consumption",
+                    extra={"group_id": self.group_id, "partition_count": len(assignment), "partitions": partition_info},
+                )
+                update_assigned_partitions(self.group_id, len(assignment))
+                return True
+            if not logged_waiting:
+                logger.info("Waiting for partition assignment (consumer group rebalance in progress)", extra={"group_id": self.group_id, "topics": self.topics})
+                logged_waiting = True
+            await asyncio.sleep(0.5)
+        return False
+
     async def _consume_loop(self) -> None:
         """Main consumption loop - fetches and processes batches."""
-        logger.info(
-            "Starting batch consumption loop",
-            extra={
-                "max_batches": self.max_batches,
-                "topics": self.topics,
-                "group_id": self.group_id,
-                "batch_size": self.batch_size,
-            },
-        )
+        logger.info("Starting batch consumption loop", extra={"max_batches": self.max_batches, "topics": self.topics, "group_id": self.group_id, "batch_size": self.batch_size})
 
-        _logged_waiting_for_assignment = False
-        _logged_assignment_received = False
+        if not await self._wait_for_assignment():
+            return
 
         while self._running and self._consumer:
             try:
                 if self.max_batches is not None and self._batch_count >= self.max_batches:
-                    logger.info(
-                        "Reached max_batches limit, stopping consumer",
-                        extra={
-                            "max_batches": self.max_batches,
-                            "batches_processed": self._batch_count,
-                        },
-                    )
+                    logger.info("Reached max_batches limit, stopping consumer", extra={"max_batches": self.max_batches, "batches_processed": self._batch_count})
                     return
 
-                assignment = self._consumer.assignment()
-                if not assignment:
-                    if not _logged_waiting_for_assignment:
-                        logger.info(
-                            "Waiting for partition assignment (consumer group rebalance in progress)",
-                            extra={"group_id": self.group_id, "topics": self.topics},
-                        )
-                        _logged_waiting_for_assignment = True
-                    await asyncio.sleep(0.5)
-                    continue
-
-                if not _logged_assignment_received:
-                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    logger.info(
-                        "Partition assignment received, starting batch consumption",
-                        extra={
-                            "group_id": self.group_id,
-                            "partition_count": len(assignment),
-                            "partitions": partition_info,
-                        },
-                    )
-                    _logged_assignment_received = True
-                    update_assigned_partitions(self.group_id, len(assignment))
-
-                data = await self._consumer.getmany(
-                    timeout_ms=self.batch_timeout_ms,
-                    max_records=self.batch_size,
-                )
-
+                data = await self._consumer.getmany(timeout_ms=self.batch_timeout_ms, max_records=self.batch_size)
                 if not data:
                     continue
 
@@ -398,20 +359,11 @@ class MessageBatchConsumer:
                     continue
 
                 self._batch_count += 1
-                logger.debug(
-                    "Processing batch",
-                    extra={"batch_size": len(messages)},
-                )
-
                 await self._flush_batch(messages)
 
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")
                 raise
             except Exception as e:
-                logger.error(
-                    "Error in batch consumption loop",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-                await asyncio.sleep(1)  # Avoid tight loop on errors
+                logger.error("Error in batch consumption loop", extra={"error": str(e)}, exc_info=True)
+                await asyncio.sleep(1)
