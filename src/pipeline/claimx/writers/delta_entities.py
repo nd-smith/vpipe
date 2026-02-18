@@ -298,11 +298,17 @@ class ClaimXEntityWriter:
             },
         )
 
+    # Entity type attribute names on EntityRowsMessage (in write order)
+    _ENTITY_TYPES = (
+        "projects", "contacts", "media", "tasks",
+        "task_templates", "external_links", "video_collab",
+    )
+
     async def write_all(self, entity_rows: EntityRowsMessage) -> dict[str, int]:
         """
         Write all entity rows to their respective Delta tables.
 
-        Uses merge (upsert) operations for all tables except contacts (append-only).
+        Uses merge (upsert) operations for all tables except contacts/media (append-only).
 
         Args:
             entity_rows: EntityRowsMessage with data for each table
@@ -312,62 +318,12 @@ class ClaimXEntityWriter:
         """
         counts: dict[str, int] = {}
 
-        # Process each entity type
-        if entity_rows.projects:
-            result = await self._write_table(
-                "projects",
-                entity_rows.projects,
-            )
-            if result is not None:
-                counts["projects"] = result
-
-        if entity_rows.contacts:
-            result = await self._write_table(
-                "contacts",
-                entity_rows.contacts,
-            )
-            if result is not None:
-                counts["contacts"] = result
-
-        if entity_rows.media:
-            result = await self._write_table(
-                "media",
-                entity_rows.media,
-            )
-            if result is not None:
-                counts["media"] = result
-
-        if entity_rows.tasks:
-            result = await self._write_table(
-                "tasks",
-                entity_rows.tasks,
-            )
-            if result is not None:
-                counts["tasks"] = result
-
-        if entity_rows.task_templates:
-            result = await self._write_table(
-                "task_templates",
-                entity_rows.task_templates,
-            )
-            if result is not None:
-                counts["task_templates"] = result
-
-        if entity_rows.external_links:
-            result = await self._write_table(
-                "external_links",
-                entity_rows.external_links,
-            )
-            if result is not None:
-                counts["external_links"] = result
-
-        if entity_rows.video_collab:
-            result = await self._write_table(
-                "video_collab",
-                entity_rows.video_collab,
-            )
-            if result is not None:
-                counts["video_collab"] = result
+        for entity_type in self._ENTITY_TYPES:
+            rows = getattr(entity_rows, entity_type, None)
+            if rows:
+                result = await self._write_table(entity_type, rows)
+                if result is not None:
+                    counts[entity_type] = result
 
         self.logger.info(
             f"Write cycle complete: {sum(counts.values())} total rows across {len(counts)} tables",
@@ -379,6 +335,19 @@ class ClaimXEntityWriter:
         )
 
         return counts
+
+    # Tables that use append-only writes (no merge)
+    _APPEND_ONLY_TABLES = frozenset({"contacts", "media"})
+
+    def _ensure_timestamp_columns(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Ensure created_at and updated_at columns have non-null values."""
+        now = datetime.now(UTC)
+        for col in ("created_at", "updated_at"):
+            if col not in df.columns:
+                df = df.with_columns(pl.lit(now).alias(col))
+            else:
+                df = df.with_columns(pl.col(col).fill_null(now))
+        return df
 
     async def _write_table(
         self,
@@ -398,109 +367,51 @@ class ClaimXEntityWriter:
         if not rows:
             return 0
 
-        self.logger.debug(
-            f"Writing {len(rows)} rows to {table_name}",
-            extra={
-                "table_name": table_name,
-                "row_count": len(rows),
-            },
-        )
-
         writer = self._writers.get(table_name)
-        if not writer:
-            self.logger.warning(
-                f"No writer configured for table: {table_name}",
-                extra={"table_name": table_name},
-            )
-            return None
-
         merge_keys = MERGE_KEYS.get(table_name)
-        if not merge_keys:
-            self.logger.warning(
-                f"No merge keys defined for table: {table_name}",
-                extra={"table_name": table_name},
-            )
+        if not writer or not merge_keys:
+            self.logger.warning(f"No writer/merge keys for table: {table_name}", extra={"table_name": table_name})
             return None
 
         try:
-            # Create DataFrame from rows with explicit schema to prevent Polars
-            # schema inference issues with mixed None/value columns
             df = self._create_dataframe_with_schema(table_name, rows)
+            df = self._ensure_timestamp_columns(df)
 
-            # Ensure created_at and updated_at have values (fill nulls with current time)
-            # Delta tables declare these as non-nullable, so we must provide values
-            now = datetime.now(UTC)
-            if "created_at" not in df.columns:
-                df = df.with_columns(pl.lit(now).alias("created_at"))
-            else:
-                df = df.with_columns(pl.col("created_at").fill_null(now))
-            if "updated_at" not in df.columns:
-                df = df.with_columns(pl.lit(now).alias("updated_at"))
-            else:
-                df = df.with_columns(pl.col("updated_at").fill_null(now))
-
-            # Contacts: append-only (new contacts from new projects/events)
-            # Media: append-only (new media from new events)
-            # Other tables: merge (upsert)
-            # Note: Deduplication handled by daily Fabric maintenance job
-            if table_name == "contacts":
-                # Contacts are append-only
+            if table_name in self._APPEND_ONLY_TABLES:
                 success = await writer._async_append(df)
-                rows_affected = len(df) if success else 0
-            elif table_name == "media":
-                # Media is append-only
-                success = await writer._async_append(df)
-                rows_affected = len(df) if success else 0
             elif table_name == "task_templates":
-                # Task templates: merge only when modified_date has changed
-                # This prevents unnecessary updates when template data hasn't changed
                 success = await writer._async_merge(
                     df,
                     merge_keys=merge_keys,
                     preserve_columns=["created_at"],
                     update_condition="source.modified_date <> target.modified_date OR target.modified_date IS NULL",
                 )
-                rows_affected = len(df) if success else 0
             else:
-                # Other tables use merge (upsert)
-                # Preserve created_at on updates
-                success = await writer._async_merge(
-                    df,
-                    merge_keys=merge_keys,
-                    preserve_columns=["created_at"],
-                )
-                rows_affected = len(df) if success else 0
+                success = await writer._async_merge(df, merge_keys=merge_keys, preserve_columns=["created_at"])
 
             if success:
-                self.logger.info(
-                    f"Wrote {rows_affected} rows to {table_name}",
-                    extra={
-                        "table_name": table_name,
-                        "rows_written": rows_affected,
-                    },
-                )
-                return rows_affected
-            else:
-                self.logger.error(
-                    f"{table_name} table write failed",
-                    extra={
-                        "table_name": table_name,
-                        "row_count": len(rows),
-                    },
-                )
-                return None
+                self.logger.info(f"Wrote {len(df)} rows to {table_name}", extra={"table_name": table_name, "rows_written": len(df)})
+                return len(df)
+
+            self.logger.error(f"{table_name} table write failed", extra={"table_name": table_name, "row_count": len(rows)})
+            return None
 
         except Exception as e:
-            self.logger.error(
-                f"Error writing to {table_name} table",
-                extra={
-                    "table_name": table_name,
-                    "row_count": len(rows),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
+            self.logger.error(f"Error writing to {table_name} table", extra={"table_name": table_name, "row_count": len(rows), "error": str(e)}, exc_info=True)
             return None
+
+    @staticmethod
+    def _coerce_value(val: Any, col_type: pl.DataType) -> Any:
+        """Coerce a string value to a native Python type matching the Polars schema."""
+        if not isinstance(val, str):
+            return val
+        if col_type == pl.Datetime("us", "UTC"):
+            return datetime.fromisoformat(val.replace("Z", "+00:00"))
+        if col_type == pl.Date:
+            if "T" in val:
+                return datetime.fromisoformat(val.replace("Z", "+00:00")).date()
+            return date.fromisoformat(val)
+        return val
 
     def _create_dataframe_with_schema(
         self, table_name: str, rows: list[dict[str, Any]]
@@ -508,21 +419,8 @@ class ClaimXEntityWriter:
         """
         Create DataFrame with explicit schema to prevent type inference issues.
 
-        Polars infers schema from first N rows. If columns are None in early rows
-        and then actual values appear (especially numeric-looking strings like
-        phone numbers or zip codes), schema inference can fail. Using explicit
-        schema avoids this class of errors for all entity tables.
-
-        Also handles conversion of ISO format timestamp strings to native datetime/date
-        objects. This is necessary because data arrives as strings after Kafka/JSON
-        serialization, but the schema expects native Polars datetime/date types.
-
-        Args:
-            table_name: Name of the entity table
-            rows: List of row dicts
-
-        Returns:
-            DataFrame with correct schema
+        Pre-converts ISO timestamp/date strings to native Python types since
+        Polars cannot coerce strings to datetime/date with explicit schemas.
         """
         if not rows:
             return pl.DataFrame(rows)
@@ -531,39 +429,18 @@ class ClaimXEntityWriter:
         if not table_schema:
             return pl.DataFrame(rows)
 
-        all_columns = set()
+        all_columns: set[str] = set()
         for row in rows:
             all_columns.update(row.keys())
 
-        schema = {}
-        for col in all_columns:
-            if col in table_schema:
-                schema[col] = table_schema[col]
+        schema = {col: table_schema[col] for col in all_columns if col in table_schema}
 
-        # Pre-convert ISO timestamp/date strings to native Python types
-        # This is required because Polars cannot coerce strings to datetime/date
-        # when using explicit schemas, and data arrives as strings after Kafka
-        # JSON serialization (datetime objects become ISO format strings)
         converted_rows = []
         for row in rows:
             converted_row = dict(row)
             for col_name, col_type in schema.items():
                 if col_name in converted_row and converted_row[col_name] is not None:
-                    val = converted_row[col_name]
-                    if col_type == pl.Datetime("us", "UTC") and isinstance(val, str):
-                        # Parse ISO timestamp string (e.g., "2026-01-09T01:58:32.556819Z")
-                        # Handle both "Z" suffix and "+00:00" timezone formats
-                        converted_row[col_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-                    elif col_type == pl.Date and isinstance(val, str):
-                        # Parse date string (e.g., "2026-01-09" or from ISO timestamp)
-                        if "T" in val:
-                            # ISO timestamp string - extract date part
-                            converted_row[col_name] = datetime.fromisoformat(
-                                val.replace("Z", "+00:00")
-                            ).date()
-                        else:
-                            # Plain date string
-                            converted_row[col_name] = date.fromisoformat(val)
+                    converted_row[col_name] = self._coerce_value(converted_row[col_name], col_type)
             converted_rows.append(converted_row)
 
         return pl.DataFrame(converted_rows, schema=schema)
