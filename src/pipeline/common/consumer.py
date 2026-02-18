@@ -93,68 +93,46 @@ class MessageConsumer:
             },
         )
 
-    async def start(self) -> None:
-        if self._running:
-            logger.warning("Consumer already running, ignoring duplicate start call")
-            return
+    # Optional consumer config keys forwarded to AIOKafkaConsumer if present
+    _OPTIONAL_CONSUMER_KEYS = (
+        "heartbeat_interval_ms",
+        "fetch_min_bytes",
+        "fetch_max_wait_ms",
+        "partition_assignment_strategy",
+    )
 
-        logger.info(
-            "Starting message consumer",
-            extra={
-                "topics": self.topics,
-                "group_id": self.group_id,
-            },
-        )
+    def _build_kafka_config(self) -> dict:
+        """Build the AIOKafkaConsumer configuration dict."""
+        client_id = f"{self.domain}-{self.worker_name}"
+        if self.instance_id:
+            client_id = f"{client_id}-{self.instance_id}"
 
-        kafka_consumer_config = {
+        cfg = {
             "bootstrap_servers": self.config.bootstrap_servers,
             "group_id": self.group_id,
-            "client_id": (
-                f"{self.domain}-{self.worker_name}-{self.instance_id}"
-                if self.instance_id
-                else f"{self.domain}-{self.worker_name}"
-            ),
+            "client_id": client_id,
             "request_timeout_ms": self.config.request_timeout_ms,
             "metadata_max_age_ms": self.config.metadata_max_age_ms,
             "connections_max_idle_ms": self.config.connections_max_idle_ms,
+            "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
+            "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
+            "max_poll_records": self.consumer_config.get("max_poll_records", 100),
+            "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
+            "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
         }
 
-        kafka_consumer_config.update(
-            {
-                "enable_auto_commit": self.consumer_config.get("enable_auto_commit", False),
-                "auto_offset_reset": self.consumer_config.get("auto_offset_reset", "earliest"),
-                "max_poll_records": self.consumer_config.get("max_poll_records", 100),
-                "max_poll_interval_ms": self.consumer_config.get("max_poll_interval_ms", 300000),
-                "session_timeout_ms": self.consumer_config.get("session_timeout_ms", 30000),
-            }
-        )
+        for key in self._OPTIONAL_CONSUMER_KEYS:
+            if key in self.consumer_config:
+                cfg[key] = self.consumer_config[key]
 
-        if "heartbeat_interval_ms" in self.consumer_config:
-            kafka_consumer_config["heartbeat_interval_ms"] = self.consumer_config[
-                "heartbeat_interval_ms"
-            ]
-        if "fetch_min_bytes" in self.consumer_config:
-            kafka_consumer_config["fetch_min_bytes"] = self.consumer_config["fetch_min_bytes"]
-        if "fetch_max_wait_ms" in self.consumer_config:
-            kafka_consumer_config["fetch_max_wait_ms"] = self.consumer_config["fetch_max_wait_ms"]
-        if "partition_assignment_strategy" in self.consumer_config:
-            kafka_consumer_config["partition_assignment_strategy"] = self.consumer_config[
-                "partition_assignment_strategy"
-            ]
+        cfg.update(build_kafka_security_config(self.config))
+        return cfg
 
-        kafka_consumer_config.update(build_kafka_security_config(self.config))
-
-        self._consumer = AIOKafkaConsumer(*self.topics, **kafka_consumer_config)
-
-        await self._consumer.start()
-        self._running = True
-
-        update_connection_status("consumer", connected=True)
+    async def _log_starting_offsets(self) -> None:
+        """Log partition offsets on startup for crash recovery visibility."""
         assignment = self._consumer.assignment()
-        partition_count = len(assignment)
-        update_assigned_partitions(self.group_id, partition_count)
+        update_assigned_partitions(self.group_id, len(assignment))
 
-        # Log starting offsets so crash recovery gaps are visible
         partition_offsets = {}
         for tp in assignment:
             try:
@@ -168,10 +146,24 @@ class MessageConsumer:
             extra={
                 "topics": self.topics,
                 "group_id": self.group_id,
-                "partitions": partition_count,
+                "partitions": len(assignment),
                 "resuming_from_offsets": partition_offsets,
             },
         )
+
+    async def start(self) -> None:
+        if self._running:
+            logger.warning("Consumer already running, ignoring duplicate start call")
+            return
+
+        logger.info("Starting message consumer", extra={"topics": self.topics, "group_id": self.group_id})
+
+        self._consumer = AIOKafkaConsumer(*self.topics, **self._build_kafka_config())
+        await self._consumer.start()
+        self._running = True
+
+        update_connection_status("consumer", connected=True)
+        await self._log_starting_offsets()
 
         try:
             await self._consume_loop()
@@ -179,10 +171,7 @@ class MessageConsumer:
             logger.info("Consumer loop cancelled, shutting down")
             raise
         except Exception:
-            logger.error(
-                "Consumer loop terminated with error",
-                exc_info=True,
-            )
+            logger.error("Consumer loop terminated with error", exc_info=True)
             raise
         finally:
             self._running = False
@@ -228,60 +217,37 @@ class MessageConsumer:
             },
         )
 
-    async def _consume_loop(self) -> None:
-        logger.info(
-            "Starting message consumption loop",
-            extra={
-                "max_batches": self.max_batches,
-                "topics": self.topics,
-                "group_id": self.group_id,
-            },
-        )
+    async def _wait_for_assignment(self) -> bool:
+        """Wait for partition assignment, logging once. Returns True when assigned."""
+        logged_waiting = False
+        while self._running and self._consumer:
+            assignment = self._consumer.assignment()
+            if assignment:
+                partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
+                logger.info(
+                    "Partition assignment received, starting message consumption",
+                    extra={"group_id": self.group_id, "partition_count": len(assignment), "partitions": partition_info},
+                )
+                update_assigned_partitions(self.group_id, len(assignment))
+                return True
+            if not logged_waiting:
+                logger.info("Waiting for partition assignment (consumer group rebalance in progress)", extra={"group_id": self.group_id, "topics": self.topics})
+                logged_waiting = True
+            await asyncio.sleep(0.5)
+        return False
 
-        _logged_waiting_for_assignment = False
-        _logged_assignment_received = False
+    async def _consume_loop(self) -> None:
+        logger.info("Starting message consumption loop", extra={"max_batches": self.max_batches, "topics": self.topics, "group_id": self.group_id})
+
+        if not await self._wait_for_assignment():
+            return
 
         while self._running and self._consumer:
             try:
                 if self.max_batches is not None and self._batch_count >= self.max_batches:
-                    logger.info(
-                        "Reached max_batches limit, stopping consumer",
-                        extra={
-                            "max_batches": self.max_batches,
-                            "batches_processed": self._batch_count,
-                        },
-                    )
+                    logger.info("Reached max_batches limit, stopping consumer", extra={"max_batches": self.max_batches, "batches_processed": self._batch_count})
                     return
 
-                # Avoid blocking during rebalance: getmany() can hang if called before partition assignment
-                assignment = self._consumer.assignment()
-                if not assignment:
-                    if not _logged_waiting_for_assignment:
-                        logger.info(
-                            "Waiting for partition assignment (consumer group rebalance in progress)",
-                            extra={
-                                "group_id": self.group_id,
-                                "topics": self.topics,
-                            },
-                        )
-                        _logged_waiting_for_assignment = True
-                    await asyncio.sleep(0.5)
-                    continue
-
-                if not _logged_assignment_received:
-                    partition_info = [f"{tp.topic}:{tp.partition}" for tp in assignment]
-                    logger.info(
-                        "Partition assignment received, starting message consumption",
-                        extra={
-                            "group_id": self.group_id,
-                            "partition_count": len(assignment),
-                            "partitions": partition_info,
-                        },
-                    )
-                    _logged_assignment_received = True
-                    update_assigned_partitions(self.group_id, len(assignment))
-
-                # Fetch messages with timeout
                 data = await self._consumer.getmany(timeout_ms=1000)
 
                 if data:
@@ -290,19 +256,14 @@ class MessageConsumer:
                 for _topic_partition, messages in data.items():
                     for message in messages:
                         if not self._running:
-                            logger.info("Consumer stopped, breaking message loop")
                             return
-
                         await self._process_message(message)
 
             except asyncio.CancelledError:
                 logger.info("Consumption loop cancelled")
                 raise
             except Exception:
-                logger.error(
-                    "Error in consumption loop",
-                    exc_info=True,
-                )
+                logger.error("Error in consumption loop", exc_info=True)
                 await asyncio.sleep(1)
 
     async def _process_message(self, message: ConsumerRecord) -> None:
@@ -345,6 +306,25 @@ class MessageConsumer:
                 pipeline_message = from_consumer_record(message)
                 await self._handle_processing_error(pipeline_message, message, e, duration)
 
+    # Error categories that are logged as warnings and retried (no DLQ routing)
+    _RETRIABLE_CATEGORIES = {
+        ErrorCategory.TRANSIENT: "Transient error - will reprocess message",
+        ErrorCategory.AUTH: "Authentication error - will reprocess after token refresh",
+        ErrorCategory.CIRCUIT_OPEN: "Circuit breaker open - will reprocess when circuit closes",
+    }
+
+    async def _route_to_dlq(
+        self, pipeline_message: PipelineMessage, message: ConsumerRecord, error: Exception, error_category: ErrorCategory, context: dict,
+    ) -> None:
+        """Route a message to DLQ and commit offset to advance past it."""
+        try:
+            await self._dlq_producer.send(pipeline_message, error, error_category)
+            if self._enable_message_commit:
+                await self._consumer.commit()
+                logger.info("Offset committed after DLQ routing", extra={"topic": message.topic, "partition": message.partition, "offset": message.offset})
+        except Exception:
+            logger.error("DLQ routing failed - message will be retried", extra={**context}, exc_info=True)
+
     async def _handle_processing_error(
         self,
         pipeline_message: PipelineMessage,
@@ -355,12 +335,7 @@ class MessageConsumer:
         """Error classification with DLQ routing for PERMANENT errors, retry for others."""
         classified_error = TransportErrorClassifier.classify_consumer_error(
             error,
-            context={
-                "topic": message.topic,
-                "partition": message.partition,
-                "offset": message.offset,
-                "group_id": self.group_id,
-            },
+            context={"topic": message.topic, "partition": message.partition, "offset": message.offset, "group_id": self.group_id},
         )
 
         error_category = classified_error.category
@@ -372,85 +347,19 @@ class MessageConsumer:
             "duration_ms": round(duration * 1000, 2),
         }
 
+        # Retriable categories: log warning and let consumer retry
+        retry_msg = self._RETRIABLE_CATEGORIES.get(error_category)
+        if retry_msg:
+            logger.warning(retry_msg, extra={**common_context}, exc_info=True)
+            return
+
+        # PERMANENT or unknown: route to DLQ
         if error_category == ErrorCategory.PERMANENT:
-            logger.error(
-                "Permanent error processing message - routing to DLQ",
-                extra={**common_context},
-                exc_info=True,
-            )
-
-            try:
-                await self._dlq_producer.send(pipeline_message, error, error_category)
-
-                # Commit offset after DLQ routing to advance past poison pill
-                if self._enable_message_commit:
-                    await self._consumer.commit()
-                    logger.info(
-                        "Offset committed after DLQ routing - partition can advance",
-                        extra={
-                            "topic": message.topic,
-                            "partition": message.partition,
-                            "offset": message.offset,
-                        },
-                    )
-
-            except Exception:
-                logger.error(
-                    "DLQ routing failed - message will be retried",
-                    extra={**common_context},
-                    exc_info=True,
-                )
-
-        elif error_category == ErrorCategory.TRANSIENT:
-            logger.warning(
-                "Transient error - will reprocess message",
-                extra={**common_context},
-                exc_info=True,
-            )
-
-        elif error_category == ErrorCategory.AUTH:
-            logger.warning(
-                "Authentication error - will reprocess after token refresh",
-                extra={**common_context},
-                exc_info=True,
-            )
-
-        elif error_category == ErrorCategory.CIRCUIT_OPEN:
-            logger.warning(
-                "Circuit breaker open - will reprocess when circuit closes",
-                extra={**common_context},
-                exc_info=True,
-            )
-
+            logger.error("Permanent error processing message - routing to DLQ", extra={**common_context}, exc_info=True)
         else:
-            logger.error(
-                f"Unhandled error category '{error_category.value}' - "
-                f"routing to DLQ: {type(error).__name__}: {error}",
-                extra={**common_context},
-                exc_info=True,
-            )
+            logger.error(f"Unhandled error category '{error_category.value}' - routing to DLQ", extra={**common_context}, exc_info=True)
 
-            try:
-                await self._dlq_producer.send(pipeline_message, error, error_category)
-
-                if self._enable_message_commit:
-                    await self._consumer.commit()
-                    logger.info(
-                        "Offset committed after DLQ routing for unknown error",
-                        extra={
-                            "topic": message.topic,
-                            "partition": message.partition,
-                            "offset": message.offset,
-                            "error_category": error_category.value,
-                        },
-                    )
-
-            except Exception:
-                logger.error(
-                    "DLQ routing failed for unknown error - message will be retried",
-                    extra={**common_context},
-                    exc_info=True,
-                )
+        await self._route_to_dlq(pipeline_message, message, error, error_category, common_context)
 
     def _update_partition_metrics(self, message: ConsumerRecord) -> None:
         if not self._consumer:
