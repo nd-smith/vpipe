@@ -453,6 +453,8 @@ def setup_logging(
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
+    for h in root_logger.handlers[:]:
+        h.close()
     root_logger.handlers.clear()
 
     # Add EventHub handler if enabled and configured
@@ -570,6 +572,8 @@ def setup_multi_worker_logging(
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture all, handlers filter
+    for h in root_logger.handlers[:]:
+        h.close()
     root_logger.handlers.clear()
 
     # Add EventHub handler if enabled and configured
