@@ -475,8 +475,8 @@ def reset_config() -> None:
     _message_config = None
 
 
-def _cli_main() -> int:
-    """CLI entry point for config validation and debugging."""
+def _build_cli_parser() -> Any:
+    """Build argparse parser for configuration CLI."""
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -531,13 +531,66 @@ Examples:
         help="Enable debug logging",
     )
 
-    args = parser.parse_args()
+    return parser
 
-    log_level = logging.DEBUG if args.verbose else logging.INFO
+
+def _configure_cli_logging(verbose: bool) -> None:
+    log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(levelname)s: %(message)s",
     )
+
+
+def _build_validation_output(config: MessageConfig, json_output: bool) -> dict[str, Any]:
+    """Build validation output and print human-readable summary if needed."""
+    if json_output:
+        return {
+            "validation": {
+                "passed": True,
+                "errors": [],
+            }
+        }
+
+    print("✓ Configuration validation passed")
+    print("  - Configuration structure: OK")
+    if config.verisk:
+        print("  - Verisk domain: OK")
+    if config.claimx:
+        print("  - ClaimX domain: OK")
+    print("  - All settings validated: OK")
+    return {}
+
+
+def _build_merged_config_output(config_dict: dict[str, Any], json_output: bool) -> dict[str, Any]:
+    """Build merged config output and print human-readable view if needed."""
+    if json_output:
+        return {"merged_config": config_dict}
+
+    print("\nConfiguration:")
+    print("=" * 80)
+    print(yaml.dump(config_dict, default_flow_style=False, sort_keys=False))
+    print("=" * 80)
+    return {}
+
+
+def _handle_cli_error(error: Exception, json_output: bool, verbose: bool, label: str = "Error") -> None:
+    if json_output:
+        print(json.dumps({"error": str(error)}))
+        return
+
+    print(f"✗ {label}: {error}", file=sys.stderr)
+    if verbose and label == "Unexpected error":
+        import traceback
+
+        traceback.print_exc()
+
+
+def _cli_main() -> int:
+    """CLI entry point for config validation and debugging."""
+    parser = _build_cli_parser()
+    args = parser.parse_args()
+    _configure_cli_logging(args.verbose)
 
     if not args.validate and not args.show_merged:
         parser.print_help()
@@ -550,62 +603,32 @@ Examples:
         config_dict = load_yaml(config_path)
         config_dict = _expand_env_vars(config_dict)
 
-        success = True
-        output = {}
+        output: dict[str, Any] = {}
 
         if args.validate:
-            # Validation happens during load_config(), if we got here it passed
-            if args.json:
-                output["validation"] = {
-                    "passed": True,
-                    "errors": [],
-                }
-            else:
-                print("✓ Configuration validation passed")
-                print("  - Configuration structure: OK")
-                if config.verisk:
-                    print("  - Verisk domain: OK")
-                if config.claimx:
-                    print("  - ClaimX domain: OK")
-                print("  - All settings validated: OK")
+            output.update(_build_validation_output(config, args.json))
 
         if args.show_merged:
-            if args.json:
-                output["merged_config"] = config_dict
-            else:
-                print("\nConfiguration:")
-                print("=" * 80)
-                print(yaml.dump(config_dict, default_flow_style=False, sort_keys=False))
-                print("=" * 80)
+            output.update(_build_merged_config_output(config_dict, args.json))
 
         if args.json:
             print(json.dumps(output, indent=2))
 
-        return 0 if success else 1
+        return 0
 
     except FileNotFoundError as e:
-        if args.json:
-            print(json.dumps({"error": str(e)}))
-        else:
-            print(f"✗ Error: {e}", file=sys.stderr)
+        _handle_cli_error(e, args.json, args.verbose, label="Error")
         return 1
 
     except ValueError as e:
-        if args.json:
-            print(json.dumps({"error": str(e)}))
-        else:
-            print(f"✗ Validation error: {e}", file=sys.stderr)
+        _handle_cli_error(e, args.json, args.verbose, label="Validation error")
         return 1
 
     except Exception as e:
         if args.json:
             print(json.dumps({"error": f"Unexpected error: {e}"}))
         else:
-            print(f"✗ Unexpected error: {e}", file=sys.stderr)
-            if args.verbose:
-                import traceback
-
-                traceback.print_exc()
+            _handle_cli_error(e, args.json, args.verbose, label="Unexpected error")
         return 1
 
 

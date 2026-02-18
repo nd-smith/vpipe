@@ -182,44 +182,27 @@ class JSONFormatter(logging.Formatter):
             # Log this at DEBUG level to avoid log spam
             return None
 
-    def format(self, record: logging.LogRecord) -> str:
-        """
-        Format log record as JSON with type safety for ADX.
-
-        Ensures numeric fields maintain proper types (int/float) instead of
-        being converted to strings, enabling efficient ADX aggregations.
-        """
-        log_entry: dict[str, Any] = {
+    @staticmethod
+    def _base_log_entry(record: logging.LogRecord) -> dict[str, Any]:
+        return {
             "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
         }
 
-        # Inject context variables
-        log_context = get_log_context()
-        if log_context["domain"]:
-            log_entry["domain"] = log_context["domain"]
-        if log_context["stage"]:
-            log_entry["stage"] = log_context["stage"]
-        if log_context["cycle_id"]:
-            log_entry["cycle_id"] = log_context["cycle_id"]
-        if log_context["worker_id"]:
-            log_entry["worker_id"] = log_context["worker_id"]
-        # Inject trace_id from context if available (can be overridden by extra)
-        if log_context["trace_id"]:
-            log_entry["trace_id"] = log_context["trace_id"]
-        if log_context["media_id"]:
-            log_entry["media_id"] = log_context["media_id"]
+    @staticmethod
+    def _inject_context(log_entry: dict[str, Any], log_context: dict[str, Any]) -> None:
+        context_fields = ["domain", "stage", "cycle_id", "worker_id", "trace_id", "media_id"]
+        for field in context_fields:
+            if log_context[field]:
+                log_entry[field] = log_context[field]
 
-        # Note: Distributed tracing (OpenTracing) has been removed
+    @staticmethod
+    def _should_include_source_location(record: logging.LogRecord) -> bool:
+        return record.levelno in (logging.DEBUG, logging.ERROR, logging.CRITICAL)
 
-        # Add source location for DEBUG/ERROR
-        if record.levelno in (logging.DEBUG, logging.ERROR, logging.CRITICAL):
-            log_entry["file"] = f"{record.filename}:{record.lineno}"
-
-        # Extract extra fields with type validation AND sanitization
-        # Type validation must happen first to ensure proper types for ADX
+    def _inject_extra_fields(self, log_entry: dict[str, Any], record: logging.LogRecord) -> None:
         for field in self.EXTRA_FIELDS:
             value = getattr(record, field, None)
             if value is not None:
@@ -228,14 +211,42 @@ class JSONFormatter(logging.Formatter):
                 # Then sanitize URLs if needed
                 log_entry[field] = self._sanitize_value(field, typed_value)
 
+    def _inject_exception(self, log_entry: dict[str, Any], record: logging.LogRecord) -> None:
+        if not record.exc_info:
+            return
+
+        exc_type, exc_value, _ = record.exc_info
+        log_entry["exception"] = {
+            "type": exc_type.__name__ if exc_type else None,
+            "message": str(exc_value) if exc_value else None,
+            "stacktrace": self.formatException(record.exc_info),
+        }
+
+    def format(self, record: logging.LogRecord) -> str:
+        """
+        Format log record as JSON with type safety for ADX.
+
+        Ensures numeric fields maintain proper types (int/float) instead of
+        being converted to strings, enabling efficient ADX aggregations.
+        """
+        log_entry = self._base_log_entry(record)
+
+        # Inject context variables
+        log_context = get_log_context()
+        self._inject_context(log_entry, log_context)
+
+        # Note: Distributed tracing (OpenTracing) has been removed
+
+        # Add source location for DEBUG/ERROR
+        if self._should_include_source_location(record):
+            log_entry["file"] = f"{record.filename}:{record.lineno}"
+
+        # Extract extra fields with type validation AND sanitization
+        # Type validation must happen first to ensure proper types for ADX
+        self._inject_extra_fields(log_entry, record)
+
         # Include structured exception info for ADX querying
-        if record.exc_info:
-            exc_type, exc_value, exc_tb = record.exc_info
-            log_entry["exception"] = {
-                "type": exc_type.__name__ if exc_type else None,
-                "message": str(exc_value) if exc_value else None,
-                "stacktrace": self.formatException(record.exc_info),
-            }
+        self._inject_exception(log_entry, record)
 
         # Use type-safe serializer instead of default=str
         # This prevents numeric fields from becoming strings
@@ -263,18 +274,19 @@ class ConsoleFormatter(logging.Formatter):
         super().__init__(*args, **kwargs)
         self._use_colors = sys.stdout.isatty()
 
-    def format(self, record: logging.LogRecord) -> str:
-        """Format log record for console output with optional color coding."""
-        log_context = get_log_context()
-
-        # Color the level name if colors are enabled
+    def _format_level_name(self, record: logging.LogRecord) -> str:
         level_name = record.levelname
-        if self._use_colors:
-            color = self.COLORS.get(record.levelno, "")
-            if color:
-                level_name = f"{color}{level_name}{self.RESET}"
+        if not self._use_colors:
+            return level_name
 
-        # Build prefix
+        color = self.COLORS.get(record.levelno, "")
+        if not color:
+            return level_name
+
+        return f"{color}{level_name}{self.RESET}"
+
+    @staticmethod
+    def _build_prefix(level_name: str, log_context: dict[str, Any]) -> str:
         parts = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             level_name,
@@ -285,9 +297,10 @@ class ConsoleFormatter(logging.Formatter):
         if log_context["stage"]:
             parts.append(f"[{log_context['stage']}]")
 
-        prefix = " - ".join(parts)
+        return " - ".join(parts)
 
-        # Add batch_id and/or trace_id if present
+    @staticmethod
+    def _build_tags(record: logging.LogRecord, log_context: dict[str, Any]) -> list[str]:
         batch_id = getattr(record, "batch_id", None)
         trace_id = getattr(record, "trace_id", None) or log_context.get("trace_id")
         media_id = getattr(record, "media_id", None) or log_context.get("media_id")
@@ -299,6 +312,15 @@ class ConsoleFormatter(logging.Formatter):
             tags.append(f"[{trace_id[:8]}]")
         if media_id:
             tags.append(f"[mid:{media_id[:8]}]")
+        return tags
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record for console output with optional color coding."""
+        log_context = get_log_context()
+
+        level_name = self._format_level_name(record)
+        prefix = self._build_prefix(level_name, log_context)
+        tags = self._build_tags(record, log_context)
 
         if tags:
             return f"{prefix} - {' '.join(tags)} {record.getMessage()}"
