@@ -182,6 +182,43 @@ class ClaimXUploadWorker:
             },
         )
 
+    async def _init_storage_client(self) -> None:
+        """Initialize the OneLake storage client (injected or created from config)."""
+        if self._injected_storage_client is not None:
+            self.onelake_client = self._injected_storage_client
+            if hasattr(self.onelake_client, "__aenter__"):
+                await self.onelake_client.__aenter__()
+            logger.info(
+                "Using injected storage client for claimx domain",
+                extra={"domain": self.domain, "storage_type": type(self.onelake_client).__name__},
+            )
+            return
+
+        onelake_path = self.config.onelake_domain_paths.get(self.domain)
+        if not onelake_path:
+            onelake_path = self.config.onelake_base_path
+            if not onelake_path:
+                raise ValueError(
+                    f"No OneLake path configured for domain '{self.domain}' and no fallback base path configured"
+                )
+            logger.warning(
+                "Using fallback OneLake base path for claimx domain",
+                extra={"onelake_base_path": onelake_path},
+            )
+
+        try:
+            self.onelake_client = OneLakeClient(onelake_path, max_pool_size=self.concurrency)
+            await self.onelake_client.__aenter__()
+            logger.info(
+                "Initialized OneLake client for claimx domain",
+                extra={"domain": self.domain, "onelake_path": onelake_path},
+            )
+        except Exception as e:
+            logger.error("Failed to initialize OneLake client", extra={"error": str(e)}, exc_info=True)
+            await self.producer.stop()
+            await self.health_server.stop()
+            raise
+
     async def start(self) -> None:
         if self._running:
             logger.warning("Worker already running, ignoring duplicate start call")
@@ -212,57 +249,7 @@ class ClaimXUploadWorker:
             self.results_topic = self.producer.eventhub_name
 
         # Initialize storage client (use injected client or create OneLake client)
-        if self._injected_storage_client is not None:
-            # Use injected storage client
-            self.onelake_client = self._injected_storage_client
-
-            # If the injected client is an async context manager, enter it
-            if hasattr(self.onelake_client, "__aenter__"):
-                await self.onelake_client.__aenter__()
-
-            logger.info(
-                "Using injected storage client for claimx domain",
-                extra={
-                    "domain": self.domain,
-                    "storage_type": type(self.onelake_client).__name__,
-                },
-            )
-        else:
-            # Initialize OneLake client for claimx domain with proper error handling
-            onelake_path = self.config.onelake_domain_paths.get(self.domain)
-            if not onelake_path:
-                # Fall back to base path
-                onelake_path = self.config.onelake_base_path
-                if not onelake_path:
-                    raise ValueError(
-                        f"No OneLake path configured for domain '{self.domain}' and no fallback base path configured"
-                    )
-                logger.warning(
-                    "Using fallback OneLake base path for claimx domain",
-                    extra={"onelake_base_path": onelake_path},
-                )
-
-            # Use proper error handling with cleanup on failure
-            try:
-                self.onelake_client = OneLakeClient(onelake_path, max_pool_size=self.concurrency)
-                await self.onelake_client.__aenter__()
-                logger.info(
-                    "Initialized OneLake client for claimx domain",
-                    extra={
-                        "domain": self.domain,
-                        "onelake_path": onelake_path,
-                    },
-                )
-            except Exception as e:
-                logger.error(
-                    "Failed to initialize OneLake client",
-                    extra={"error": str(e)},
-                    exc_info=True,
-                )
-                # Clean up producer and health server since we're failing after they started
-                await self.producer.stop()
-                await self.health_server.stop()
-                raise
+        await self._init_storage_client()
 
         # Size the default thread pool to match upload concurrency so
         # asyncio.to_thread calls (OneLake uploads, file I/O) aren't bottlenecked
@@ -355,6 +342,33 @@ class ClaimXUploadWorker:
         logger.info("Graceful shutdown requested, will stop after current batch completes")
         self._running = False
 
+    async def _close_resource(self, name: str, method: str = "stop", *, clear: bool = False) -> None:
+        """Close a resource by attribute name, logging errors. Optionally set to None."""
+        resource = getattr(self, name, None)
+        if resource is None:
+            return
+        try:
+            await getattr(resource, method)()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)})
+        finally:
+            if clear:
+                setattr(self, name, None)
+
+    async def _close_onelake_client(self) -> None:
+        """Close the OneLake client (sync close via thread)."""
+        if self.onelake_client is None:
+            return
+        try:
+            await asyncio.to_thread(self.onelake_client.close)
+            logger.debug("Closed OneLake client")
+        except Exception as e:
+            logger.warning("Error closing OneLake client", extra={"error": str(e)})
+        finally:
+            self.onelake_client = None
+
     async def stop(self) -> None:
         """
         Stop the upload worker and clean up resources.
@@ -370,16 +384,8 @@ class ClaimXUploadWorker:
         logger.info("Stopping ClaimX upload worker...")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        try:
-            await self._stale_cleaner.stop()
-        except Exception as e:
-            logger.error("Error stopping stale cleaner", extra={"error": str(e)})
+        await self._close_resource("_stats_logger")
+        await self._close_resource("_stale_cleaner")
 
         # Signal shutdown
         if self._shutdown_event:
@@ -390,40 +396,10 @@ class ClaimXUploadWorker:
         except asyncio.CancelledError:
             logger.warning("Interrupted while waiting for in-flight uploads")
 
-        # Stop consumer
-        if self._consumer is not None:
-            try:
-                await self._consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self._consumer = None
-
-        # Stop producer
-        try:
-            await self.producer.stop()
-        except asyncio.CancelledError:
-            logger.warning("Cancelled while stopping producer")
-        except Exception as e:
-            logger.error("Error stopping producer", extra={"error": str(e)})
-
-        # Stop health check server
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
-
-        # Close OneLake client
-        if self.onelake_client is not None:
-            try:
-                await asyncio.to_thread(self.onelake_client.close)
-                logger.debug("Closed OneLake client")
-            except Exception as e:
-                logger.warning("Error closing OneLake client", extra={"error": str(e)})
-            finally:
-                self.onelake_client = None
+        await self._close_resource("_consumer", clear=True)
+        await self._close_resource("producer")
+        await self._close_resource("health_server")
+        await self._close_onelake_client()
 
         # Update metrics
         update_connection_status("consumer", connected=False)
@@ -509,6 +485,40 @@ class ClaimXUploadWorker:
         async with self._semaphore:
             return await self._process_single_upload(message)
 
+    def _update_cycle_offsets(self, ts: int | None) -> None:
+        """Update cycle offset tracking with a message timestamp."""
+        if ts is None:
+            return
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    async def _produce_failure_result(
+        self, message: PipelineMessage, cached_message: ClaimXCachedDownloadMessage | None, error: Exception,
+    ) -> None:
+        """Produce a failure result message for a failed upload."""
+        try:
+            if cached_message is None:
+                cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
+
+            result_message = ClaimXUploadResultMessage(
+                media_id=cached_message.media_id,
+                project_id=cached_message.project_id,
+                download_url=cached_message.download_url,
+                blob_path=cached_message.destination_path,
+                file_type=cached_message.file_type,
+                file_name=cached_message.file_name,
+                trace_id=cached_message.trace_id,
+                status="failed_permanent",
+                bytes_uploaded=0,
+                error_message=str(error)[:500],
+                created_at=datetime.now(UTC),
+            )
+            await self.producer.send(key=cached_message.trace_id, value=result_message)
+        except Exception as produce_error:
+            logger.error("Failed to produce failure result", extra={"error": str(produce_error)})
+
     @set_log_context_from_message
     async def _process_single_upload(self, message: PipelineMessage) -> UploadResult:
         start_time = time.perf_counter()
@@ -531,14 +541,8 @@ class ClaimXUploadWorker:
                 message.topic, self._consumer_group, len(message.value), success=True
             )
 
-            # Track records processed
             self._records_processed += 1
-
-            ts = message.timestamp
-            if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-                self._cycle_offset_start_ts = ts
-            if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-                self._cycle_offset_end_ts = ts
+            self._update_cycle_offsets(message.timestamp)
 
             # Verify cached file exists
             cache_path = Path(cached_message.local_cache_path)
@@ -554,7 +558,6 @@ class ClaimXUploadWorker:
                 overwrite=True,
             )
 
-            # Calculate processing time
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
             logger.info(
@@ -587,17 +590,10 @@ class ClaimXUploadWorker:
                 bytes_uploaded=cached_message.bytes_downloaded,
                 created_at=datetime.now(UTC),
             )
+            await self.producer.send(value=result_message, key=cached_message.trace_id)
 
-            # Use trace_id as key for consistent partitioning across all ClaimX topics
-            await self.producer.send(
-                value=result_message,
-                key=cached_message.trace_id,
-            )
-
-            # Clean up cached file
             await self._cleanup_cache_file(cache_path)
 
-            # Record processing duration metric
             duration = time.perf_counter() - start_time
             message_processing_duration_seconds.labels(
                 topic=self.topics[0], consumer_group=self._consumer_group
@@ -613,58 +609,20 @@ class ClaimXUploadWorker:
         except Exception as e:
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            # Build error log extra fields
-            trace_id = None
-            project_id = None
-            if cached_message is not None:
-                trace_id = cached_message.trace_id
-                project_id = cached_message.project_id
-
-            # Use standardized error logging
             log_worker_error(
                 logger,
                 "Upload failed",
-                error_category="permanent",  # Upload failures are typically permanent
-                trace_id=trace_id,
+                error_category="permanent",
+                trace_id=cached_message.trace_id if cached_message else None,
                 exc=e,
                 media_id=media_id,
-                project_id=project_id,
+                project_id=cached_message.project_id if cached_message else None,
                 processing_time_ms=processing_time_ms,
             )
             record_processing_error(message.topic, self._consumer_group, "upload_error")
             self._records_failed += 1
 
-            # For upload failures, we produce a failure result
-            # The file stays in cache for manual review/retry
-            try:
-                # Re-parse message in case it wasn't parsed yet
-                if cached_message is None:
-                    cached_message = ClaimXCachedDownloadMessage.model_validate_json(message.value)
-
-                result_message = ClaimXUploadResultMessage(
-                    media_id=cached_message.media_id,
-                    project_id=cached_message.project_id,
-                    download_url=cached_message.download_url,
-                    blob_path=cached_message.destination_path,
-                    file_type=cached_message.file_type,
-                    file_name=cached_message.file_name,
-                    trace_id=cached_message.trace_id,
-                    status="failed_permanent",
-                    bytes_uploaded=0,
-                    error_message=str(e)[:500],
-                    created_at=datetime.now(UTC),
-                )
-
-                # Use trace_id as key for consistent partitioning across all ClaimX topics
-                await self.producer.send(
-                    key=cached_message.trace_id,
-                    value=result_message,
-                )
-            except Exception as produce_error:
-                logger.error(
-                    "Failed to produce failure result",
-                    extra={"error": str(produce_error)},
-                )
+            await self._produce_failure_result(message, cached_message, e)
 
             return UploadResult(
                 message=message,
@@ -675,7 +633,6 @@ class ClaimXUploadWorker:
             )
 
         finally:
-            # Remove from in-flight tracking
             async with self._in_flight_lock:
                 self._in_flight_tasks.discard(media_id)
 
