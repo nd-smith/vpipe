@@ -713,11 +713,9 @@ class DownloadWorker:
             },
         )
 
-        try:
-            if outcome.file_path.parent.exists():
-                await asyncio.to_thread(outcome.file_path.parent.rmdir)
-        except OSError:
-            pass
+        # Don't eagerly remove the trace_id temp directory here.
+        # Other downloads for the same trace_id may still be writing to it.
+        # The stale file cleaner handles cleanup of empty temp directories.
 
         cached_message = CachedDownloadMessage(
             media_id=task_message.media_id,
