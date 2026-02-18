@@ -130,6 +130,23 @@ class AzureAuth:
             with contextlib.suppress(OSError):
                 self._token_file_mtime = os.path.getmtime(self.token_file)
 
+    def _lookup_json_token(self, tokens: dict, resource: str) -> str:
+        """Look up a resource token in a JSON token dict (exact then normalized match)."""
+        if resource in tokens:
+            logger.debug("Read token from JSON file", extra={"token_file": self.token_file, "resource": resource})
+            return tokens[resource]
+
+        # Try normalized match (with/without trailing slash)
+        normalized = resource.rstrip("/")
+        for key, value in tokens.items():
+            if normalized == key.rstrip("/"):
+                logger.debug("Read token from JSON file (normalized match)", extra={"token_file": self.token_file, "resource": resource})
+                return value
+
+        raise AzureAuthError(
+            f"Resource '{resource}' not found in token file. Available: {list(tokens.keys())}"
+        )
+
     def _read_token_file(self, resource: str | None = None) -> str:
         """
         Read token from file.
@@ -152,46 +169,12 @@ class AzureAuth:
             try:
                 tokens = json.loads(content)
                 if isinstance(tokens, dict):
-                    lookup_resource = resource or self.STORAGE_RESOURCE
-
-                    # Try exact match first
-                    if lookup_resource in tokens:
-                        logger.debug(
-                            "Read token from JSON file",
-                            extra={
-                                "token_file": self.token_file,
-                                "resource": lookup_resource,
-                            },
-                        )
-                        return tokens[lookup_resource]
-
-                    # Try normalized match (with/without trailing slash)
-                    for key in tokens:
-                        if lookup_resource.rstrip("/") == key.rstrip("/"):
-                            logger.debug(
-                                "Read token from JSON file (normalized match)",
-                                extra={
-                                    "token_file": self.token_file,
-                                    "resource": lookup_resource,
-                                },
-                            )
-                            return tokens[key]
-
-                    # Resource not found
-                    available_resources = list(tokens.keys())
-                    raise AzureAuthError(
-                        f"Resource '{lookup_resource}' not found in token file. "
-                        f"Available: {available_resources}"
-                    )
+                    return self._lookup_json_token(tokens, resource or self.STORAGE_RESOURCE)
             except json.JSONDecodeError:
-                # Not JSON - treat as plain text token (legacy format)
                 pass
 
             # Plain text format: entire file content is the token
-            logger.debug(
-                "Read token from plain text file",
-                extra={"token_file": self.token_file},
-            )
+            logger.debug("Read token from plain text file", extra={"token_file": self.token_file})
             return content
 
         except FileNotFoundError as e:
@@ -240,56 +223,42 @@ class AzureAuth:
         except subprocess.TimeoutExpired as e:
             raise AzureAuthError(f"Azure CLI token request timed out for {resource}") from e
 
+    def _get_cached_or_fetch(
+        self, fetch_fn, force_refresh: bool, error_label: str
+    ) -> str | None:
+        """Check cache, then fetch via fetch_fn, caching on success. Returns None on error."""
+        if not force_refresh:
+            cached = self._cache.get(self.STORAGE_RESOURCE)
+            if cached:
+                logger.debug("Using cached token", extra={"resource": self.STORAGE_RESOURCE})
+                return cached
+        try:
+            token = fetch_fn()
+            self._cache.set(self.STORAGE_RESOURCE, token)
+            return token
+        except AzureAuthError as e:
+            logger.warning(error_label, extra={"error": str(e)})
+            return None
+
     def get_storage_token(self, force_refresh: bool = False) -> str | None:
         """Get token for OneLake/ADLS storage operations."""
         if self.token_file:
-            # Check if file was modified - if so, clear cache to force re-read
             if self._is_token_file_modified():
                 self._cache.clear()
 
-            # Check cache first
-            if not force_refresh:
-                cached = self._cache.get(self.STORAGE_RESOURCE)
-                if cached:
-                    logger.debug(
-                        "Using cached storage token",
-                        extra={"resource": self.STORAGE_RESOURCE},
-                    )
-                    return cached
-
-            try:
+            def _fetch_file():
                 token = self._read_token_file(resource=self.STORAGE_RESOURCE)
-                self._cache.set(self.STORAGE_RESOURCE, token)
                 self._update_token_file_mtime()
                 return token
-            except AzureAuthError as e:
-                logger.warning(
-                    "Token file configured but unavailable",
-                    extra={"token_file": self.token_file, "error": str(e)},
-                )
-                return None
+
+            return self._get_cached_or_fetch(_fetch_file, force_refresh, "Token file configured but unavailable")
 
         if self.use_cli:
-            # Check cache first for CLI mode too
-            if not force_refresh:
-                cached = self._cache.get(self.STORAGE_RESOURCE)
-                if cached:
-                    logger.debug(
-                        "Using cached CLI token",
-                        extra={"resource": self.STORAGE_RESOURCE},
-                    )
-                    return cached
-
-            try:
-                token = self._fetch_cli_token(self.STORAGE_RESOURCE)
-                self._cache.set(self.STORAGE_RESOURCE, token)
-                return token
-            except AzureAuthError as e:
-                logger.warning(
-                    "Azure CLI token acquisition failed",
-                    extra={"error": str(e)},
-                )
-                return None
+            return self._get_cached_or_fetch(
+                lambda: self._fetch_cli_token(self.STORAGE_RESOURCE),
+                force_refresh,
+                "Azure CLI token acquisition failed",
+            )
 
         # SPN mode doesn't use tokens - return None to use credentials
         return None
