@@ -207,6 +207,32 @@ class EventHubProducer:
             # and doesn't always close sessions cleanly on exit
             await asyncio.sleep(0.250)
 
+    @staticmethod
+    def _serialize_value(value: "BaseModel | dict[str, Any] | bytes") -> bytes:
+        """Serialize message value to bytes."""
+        if isinstance(value, bytes):
+            return value
+        if hasattr(value, "model_dump_json"):
+            return value.model_dump_json().encode("utf-8")
+        return json.dumps(value, default=json_serializer).encode("utf-8")
+
+    @staticmethod
+    def _build_event_data(
+        value_bytes: bytes,
+        key: str | bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> EventData:
+        """Create an EventData with optional key and headers as application properties."""
+        event_data = EventData(value_bytes)
+        props = {}
+        if key is not None:
+            props["_key"] = key.decode("utf-8") if isinstance(key, bytes) else str(key)
+        if headers:
+            props.update(headers)
+        if props:
+            event_data.properties = props
+        return event_data
+
     async def send(
         self,
         value: BaseModel | dict[str, Any] | bytes,
@@ -240,29 +266,8 @@ class EventHubProducer:
                 f"Event Hub does not support multiple topics. Using entity '{self.eventhub_name}'."
             )
 
-        # Serialize value
-        if isinstance(value, bytes):
-            value_bytes = value
-        elif isinstance(value, BaseModel):
-            value_bytes = value.model_dump_json().encode("utf-8")
-        else:
-            value_bytes = json.dumps(value, default=json_serializer).encode("utf-8")
-
-        # Create EventData and set application properties via setter
-        # (item assignment on the getter-returned dict may not persist
-        #  across all azure-eventhub SDK versions)
-        event_data = EventData(value_bytes)
-        props = {}
-
-        if key is not None:
-            key_str = key.decode("utf-8") if isinstance(key, bytes) else str(key)
-            props["_key"] = key_str
-
-        if headers:
-            props.update(headers)
-
-        if props:
-            event_data.properties = props
+        value_bytes = self._serialize_value(value)
+        event_data = self._build_event_data(value_bytes, key=key, headers=headers)
 
         logger.debug(
             "Sending message to Event Hub",
@@ -355,16 +360,9 @@ class EventHubProducer:
             batches_sent = 0
 
             for key, value in messages:
-                value_bytes = value.model_dump_json().encode("utf-8")
+                value_bytes = self._serialize_value(value)
                 total_bytes += len(value_bytes)
-
-                event_data = EventData(value_bytes)
-                props = {"_key": key}
-
-                if headers:
-                    props.update(headers)
-
-                event_data.properties = props
+                event_data = self._build_event_data(value_bytes, key=key, headers=headers)
 
                 try:
                     batch.add(event_data)
