@@ -140,13 +140,9 @@ class EventHubLogHandler(logging.Handler):
         finally:
             loop.close()
 
-    async def _send_loop(self) -> None:
-        """Main loop for sending batches to Event Hub."""
-        print(f"[EVENTHUB_LOGS] Background sender thread started for: {self.eventhub_name}")
-
+    async def _create_producer(self) -> EventHubProducerClient | None:
+        """Create EventHub producer client, returning None on failure."""
         try:
-            # Use AMQP over WebSocket (port 443) instead of AMQP over TCP (port 5671)
-            # This works better in corporate networks where 5671 may be blocked
             producer = EventHubProducerClient.from_connection_string(
                 conn_str=self.connection_string,
                 eventhub_name=self.eventhub_name,
@@ -156,6 +152,7 @@ class EventHubLogHandler(logging.Handler):
             print(
                 "[EVENTHUB_LOGS] EventHub producer client created successfully (using AMQP over WebSocket on port 443)"
             )
+            return producer
         except Exception as e:
             import sys
 
@@ -163,6 +160,27 @@ class EventHubLogHandler(logging.Handler):
                 f"[EVENTHUB_LOGS] ERROR creating EventHub producer: {type(e).__name__}: {str(e)[:200]}",
                 file=sys.stderr,
             )
+            return None
+
+    def _maybe_reset_circuit_breaker(self, now: float) -> None:
+        """Auto-reset circuit breaker after cooldown period."""
+        if self._circuit_open and (now - self._circuit_opened_at) >= self._circuit_reset_interval:
+            print("[EVENTHUB_LOGS] Circuit breaker cooldown expired - attempting to reconnect")
+            self._circuit_open = False
+            self._failure_count = 0
+
+    def _should_send_batch(self, batch: list, now: float, last_send: float) -> bool:
+        """Determine whether the current batch should be sent."""
+        if not batch or self._circuit_open:
+            return False
+        return len(batch) >= self.batch_size or (now - last_send) >= self.batch_timeout_seconds
+
+    async def _send_loop(self) -> None:
+        """Main loop for sending batches to Event Hub."""
+        print(f"[EVENTHUB_LOGS] Background sender thread started for: {self.eventhub_name}")
+
+        producer = await self._create_producer()
+        if producer is None:
             return
 
         async with producer:
@@ -172,7 +190,6 @@ class EventHubLogHandler(logging.Handler):
 
             while not self._shutdown.is_set():
                 try:
-                    # Get log from queue (with timeout)
                     try:
                         log_entry = self.log_queue.get(timeout=0.1)
                         batch.append(log_entry)
@@ -180,26 +197,9 @@ class EventHubLogHandler(logging.Handler):
                         pass
 
                     now = asyncio.get_event_loop().time()
+                    self._maybe_reset_circuit_breaker(now)
 
-                    # Auto-reset circuit breaker after cooldown period
-                    if (
-                        self._circuit_open
-                        and (now - self._circuit_opened_at) >= self._circuit_reset_interval
-                    ):
-                        print(
-                            "[EVENTHUB_LOGS] Circuit breaker cooldown expired - attempting to reconnect"
-                        )
-                        self._circuit_open = False
-                        self._failure_count = 0
-
-                    # Send batch if:
-                    # 1. Reached batch size, OR
-                    # 2. Timeout reached and we have logs
-                    should_send = len(batch) >= self.batch_size or (
-                        batch and (now - last_send) >= self.batch_timeout_seconds
-                    )
-
-                    if should_send and not self._circuit_open:
+                    if self._should_send_batch(batch, now, last_send):
                         await self._send_batch(producer, batch)
                         batch = []
                         last_send = now
@@ -207,7 +207,6 @@ class EventHubLogHandler(logging.Handler):
                 except asyncio.CancelledError:
                     break
                 except Exception:
-                    # Handle errors but keep running
                     await asyncio.sleep(1)
 
             # Final flush on shutdown
@@ -216,8 +215,6 @@ class EventHubLogHandler(logging.Handler):
                     await self._send_batch(producer, batch)
 
         # Allow time for aiohttp sessions to close properly
-        # EventHubProducerClient uses aiohttp internally with AmqpOverWebsocket
-        # and doesn't always close sessions cleanly on exit
         await asyncio.sleep(0.250)
 
     async def _send_batch(self, producer: EventHubProducerClient, batch: list[str]) -> None:

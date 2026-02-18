@@ -42,6 +42,59 @@ class DownloadError:
     error_category: ErrorCategory
 
 
+def _classify_client_exception(e: Exception, timeout: int) -> DownloadError:
+    """Classify an aiohttp/timeout exception into a DownloadError."""
+    if isinstance(e, TimeoutError):
+        return DownloadError(
+            status_code=None,
+            error_message=f"Download timeout after {timeout}s",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+    if isinstance(e, aiohttp.ServerTimeoutError):
+        return DownloadError(
+            status_code=None,
+            error_message=f"Server timeout: {str(e)}",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+    return DownloadError(
+        status_code=None,
+        error_message=f"Connection error: {str(e)}",
+        error_category=ErrorCategory.TRANSIENT,
+    )
+
+
+async def _attempt_download(
+    url: str,
+    session: aiohttp.ClientSession,
+    timeout: int,
+    allow_redirects: bool,
+    sock_read_timeout: int,
+) -> tuple[DownloadResponse | None, DownloadError | None]:
+    """Perform a single download attempt. Returns (response, error)."""
+    async with session.get(
+        url,
+        timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
+        allow_redirects=allow_redirects,
+    ) as response:
+        if response.status != 200:
+            return None, DownloadError(
+                status_code=response.status,
+                error_message=f"HTTP {response.status}",
+                error_category=classify_http_status(response.status),
+            )
+
+        content = await response.read()
+        return (
+            DownloadResponse(
+                content=content,
+                status_code=response.status,
+                content_length=response.content_length,
+                content_type=response.headers.get("Content-Type"),
+            ),
+            None,
+        )
+
+
 async def download_url(
     url: str,
     session: aiohttp.ClientSession,
@@ -75,61 +128,17 @@ async def download_url(
 
     for attempt in range(max_attempts):
         try:
-            async with session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
-                allow_redirects=allow_redirects,
-            ) as response:
-                if response.status != 200:
-                    error_category = classify_http_status(response.status)
-                    last_error = DownloadError(
-                        status_code=response.status,
-                        error_message=f"HTTP {response.status}",
-                        error_category=error_category,
-                    )
-                    if response.status not in RETRYABLE_STATUSES:
-                        return None, last_error
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
-                        continue
-                    return None, last_error
-
-                content = await response.read()
-                content_length = response.content_length
-                content_type = response.headers.get("Content-Type")
-
-                return (
-                    DownloadResponse(
-                        content=content,
-                        status_code=response.status,
-                        content_length=content_length,
-                        content_type=content_type,
-                    ),
-                    None,
-                )
-
+            resp, err = await _attempt_download(url, session, timeout, allow_redirects, sock_read_timeout)
+            if err is None:
+                return resp, None
+            last_error = err
+            if err.status_code not in RETRYABLE_STATUSES:
+                return None, last_error
         except (TimeoutError, aiohttp.ServerTimeoutError, aiohttp.ClientError) as e:
-            if isinstance(e, TimeoutError):
-                last_error = DownloadError(
-                    status_code=None,
-                    error_message=f"Download timeout after {timeout}s",
-                    error_category=ErrorCategory.TRANSIENT,
-                )
-            elif isinstance(e, aiohttp.ServerTimeoutError):
-                last_error = DownloadError(
-                    status_code=None,
-                    error_message=f"Server timeout: {str(e)}",
-                    error_category=ErrorCategory.TRANSIENT,
-                )
-            else:
-                last_error = DownloadError(
-                    status_code=None,
-                    error_message=f"Connection error: {str(e)}",
-                    error_category=ErrorCategory.TRANSIENT,
-                )
-            if attempt < max_attempts - 1:
-                await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
-                continue
+            last_error = _classify_client_exception(e, timeout)
+
+        if attempt < max_attempts - 1:
+            await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
 
     return None, last_error
 

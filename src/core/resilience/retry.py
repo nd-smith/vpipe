@@ -281,13 +281,15 @@ class RetryConfig:
         if self.always_retry and isinstance(error, tuple(self.always_retry)):
             return True
 
-        # Use exception classification
+        return self._is_retryable_error(error)
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        """Classify whether an error is retryable based on exception type."""
         if isinstance(error, PipelineError):
             if self.respect_permanent and not error.is_retryable:
                 return False
             return error.is_retryable
 
-        # Classify unknown exceptions
         category = classify_exception(error)
         if self.respect_permanent and category == ErrorCategory.PERMANENT:
             return False

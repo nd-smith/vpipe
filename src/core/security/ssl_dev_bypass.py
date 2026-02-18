@@ -29,6 +29,69 @@ logger = logging.getLogger(__name__)
 _patched = False
 
 
+def _patch_imported_modules(original_cls, new_cls) -> None:
+    """Replace SSLContext in all modules that imported the original before patching.
+
+    Skips the ssl module itself — its verify_mode/check_hostname setters
+    use super(SSLContext, SSLContext) which must keep referring to the
+    original class to avoid recursion.
+    """
+    for mod in list(sys.modules.values()):
+        try:
+            if mod is not ssl and getattr(mod, "SSLContext", None) is original_cls:
+                mod.SSLContext = new_cls
+        except Exception:
+            pass
+
+
+def _patch_urllib3(disable_ctx_verification) -> None:
+    """Layer 2: Patch urllib3 SSL context creation.
+
+    urllib3 uses its own create_urllib3_context() which calls
+    SSLContext(PROTOCOL_TLS_CLIENT) directly, bypassing ssl.create_default_context.
+    This is the path used by requests -> urllib3 -> Azure Kusto SDK.
+    """
+    try:
+        import urllib3.util.ssl_ as urllib3_ssl
+
+        _original_create_urllib3_context = urllib3_ssl.create_urllib3_context
+
+        def _patched_create_urllib3_context(*args, **kwargs):
+            ctx = _original_create_urllib3_context(*args, **kwargs)
+            disable_ctx_verification(ctx)
+            return ctx
+
+        urllib3_ssl.create_urllib3_context = _patched_create_urllib3_context
+    except (ImportError, AttributeError):
+        pass
+
+
+def _patch_requests() -> None:
+    """Layer 3: Patch requests.Session.request to force verify=False.
+
+    Azure SDKs (Kusto, Identity/MSAL) use requests.Session internally
+    and don't expose a way to pass verify=False through their APIs.
+    Patching .request() directly ensures verify=False is always passed.
+    """
+    try:
+        import requests
+
+        _original_session_request = requests.Session.request
+
+        def _patched_session_request(self, *args, **kwargs):
+            kwargs["verify"] = False
+            return _original_session_request(self, *args, **kwargs)
+
+        requests.Session.request = _patched_session_request
+
+        # Suppress InsecureRequestWarning noise when verify=False
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except (ImportError, AttributeError):
+        pass
+
+
 def apply_ssl_dev_bypass() -> None:
     """Conditionally disable SSL verification if DISABLE_SSL_VERIFY=true.
 
@@ -142,15 +205,7 @@ def apply_ssl_dev_bypass() -> None:
     ssl.SSLContext = _UnverifiedSSLContext
 
     # Patch modules that already imported SSLContext before this ran.
-    # Skip the ssl module itself — its verify_mode/check_hostname setters
-    # use super(SSLContext, SSLContext) which must keep referring to the
-    # original class to avoid recursion.
-    for mod in list(sys.modules.values()):
-        try:
-            if mod is not ssl and getattr(mod, "SSLContext", None) is _OriginalSSLContext:
-                mod.SSLContext = _UnverifiedSSLContext
-        except Exception:
-            pass
+    _patch_imported_modules(_OriginalSSLContext, _UnverifiedSSLContext)
 
     # Helper to disable verification using C-level descriptors (recursion-safe).
     def _disable_ctx_verification(ctx):
@@ -167,48 +222,9 @@ def apply_ssl_dev_bypass() -> None:
 
     ssl.create_default_context = _patched_create_default_context
 
-    # Layer 2: Patch urllib3 SSL context creation
-    # urllib3 uses its own create_urllib3_context() which calls
-    # SSLContext(PROTOCOL_TLS_CLIENT) directly, bypassing ssl.create_default_context.
-    # This is the path used by requests -> urllib3 -> Azure Kusto SDK.
-    try:
-        import urllib3.util.ssl_ as urllib3_ssl
-
-        _original_create_urllib3_context = urllib3_ssl.create_urllib3_context
-
-        def _patched_create_urllib3_context(*args, **kwargs):
-            ctx = _original_create_urllib3_context(*args, **kwargs)
-            _disable_ctx_verification(ctx)
-            return ctx
-
-        urllib3_ssl.create_urllib3_context = _patched_create_urllib3_context
-    except (ImportError, AttributeError):
-        pass
-
-    # Layer 3: Patch requests.Session.request to force verify=False
-    # Azure SDKs (Kusto, Identity/MSAL) use requests.Session internally
-    # and don't expose a way to pass verify=False through their APIs.
-    # Patching Session.__init__ to set self.verify is NOT sufficient because
-    # merge_environment_settings() can override it depending on the requests
-    # version. Patching .request() directly ensures verify=False is always
-    # passed regardless of how the SDK calls it.
-    try:
-        import requests
-
-        _original_session_request = requests.Session.request
-
-        def _patched_session_request(self, *args, **kwargs):
-            kwargs["verify"] = False
-            return _original_session_request(self, *args, **kwargs)
-
-        requests.Session.request = _patched_session_request
-
-        # Suppress InsecureRequestWarning noise when verify=False
-        import urllib3
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    except (ImportError, AttributeError):
-        pass
+    # Layers 2-3: Patch urllib3 and requests
+    _patch_urllib3(_disable_ctx_verification)
+    _patch_requests()
 
     _patched = True
 
