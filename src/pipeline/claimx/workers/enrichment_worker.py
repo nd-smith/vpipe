@@ -75,11 +75,8 @@ class ClaimXEnrichmentWorker:
     def __init__(
         self,
         config: MessageConfig,
-        entity_writer: Any = None,
         domain: str = "claimx",
         enable_delta_writes: bool = True,
-        enrichment_topic: str = "",
-        download_topic: str = "",
         producer_config: MessageConfig | None = None,
         projects_table_path: str = "",
         instance_id: str | None = None,
@@ -89,8 +86,8 @@ class ClaimXEnrichmentWorker:
         self.producer_config = producer_config if producer_config else config
         self.domain = domain
         self.instance_id = instance_id
-        self.enrichment_topic = enrichment_topic or config.get_topic(domain, "enrichment_pending")
-        self.download_topic = download_topic or config.get_topic(domain, "downloads_pending")
+        self.enrichment_topic = config.get_topic(domain, "enrichment_pending")
+        self.download_topic = config.get_topic(domain, "downloads_pending")
         self.entity_rows_topic = config.get_topic(domain, "enriched")
         self.enable_delta_writes = enable_delta_writes
 
@@ -215,82 +212,21 @@ class ClaimXEnrichmentWorker:
                 exc_info=True,
             )
 
-    async def start(self) -> None:
-        if self._running:
-            logger.warning("Worker already running")
-            return
+    async def _cleanup_stale_resources(self) -> None:
+        """Close resources from a previous failed start attempt to prevent leaks.
 
-        logger.info("Starting ClaimXEnrichmentWorker")
-        self._running = True
-
-        # Start health server first for immediate liveness probe response
-        await self.health_server.start()
-
-        # Log startup banner
-        log_output_mode = detect_log_output_mode()
-        log_startup_banner(
-            logger,
-            worker_name="ClaimX Enrichment Worker",
-            instance_id=self.worker_id,
-            domain=self.domain,
-            input_topic=self.enrichment_topic,
-            output_topic=self.download_topic,
-            health_port=self.health_server.port,
-            log_output_mode=log_output_mode,
-        )
-
-        from pipeline.common.telemetry import initialize_worker_telemetry
-
-        initialize_worker_telemetry(self.domain, "enrichment-worker")
-
-        # Close resources from a previous failed start attempt to prevent leak.
-        # _start_with_retry() may call start() multiple times; without cleanup,
-        # each attempt overwrites self.api_client and orphans the old session.
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale stats logger", extra={"error": str(e)})
-            finally:
-                self._stats_logger = None
+        _start_with_retry() may call start() multiple times; without cleanup,
+        each attempt overwrites self.api_client and orphans the old session.
+        """
+        await self._close_resource("_stats_logger")
         if self.api_client and not self._injected_api_client:
-            try:
-                await self.api_client.close()
-            except Exception as e:
-                logger.warning("Error cleaning up stale API client", extra={"error": str(e)})
-            finally:
-                self.api_client = None
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
-        if self.download_producer:
-            try:
-                await self.download_producer.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale download producer", extra={"error": str(e)})
-            finally:
-                self.download_producer = None
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except Exception as e:
-                logger.warning("Error cleaning up stale retry handler", extra={"error": str(e)})
-            finally:
-                self.retry_handler = None
+            await self._close_resource("api_client", action="close")
+        await self._close_resource("producer")
+        await self._close_resource("download_producer")
+        await self._close_resource("retry_handler")
 
-        self._stats_logger = PeriodicStatsLogger(
-            interval_seconds=CYCLE_LOG_INTERVAL_SECONDS,
-            get_stats=self._get_cycle_stats,
-            stage="enrichment",
-            worker_id=self.worker_id,
-        )
-        self._stats_logger.start()
-
-        # Use injected API client if provided, otherwise create production client
+    def _init_api_client(self) -> None:
+        """Initialize or attach the API client."""
         if self._injected_api_client is not None:
             self.api_client = self._injected_api_client
             logger.info(
@@ -308,14 +244,8 @@ class ClaimXEnrichmentWorker:
                 max_concurrent=self.consumer_config.claimx_api_concurrency,
             )
 
-        await self.api_client._ensure_session()
-
-        api_reachable = not self.api_client.is_circuit_open
-        self.health_server.set_ready(
-            transport_connected=False,
-            api_reachable=api_reachable,
-        )
-
+    async def _init_producers(self) -> None:
+        """Create and start Kafka producers."""
         self.producer = create_producer(
             config=self.producer_config,
             domain=self.domain,
@@ -332,19 +262,8 @@ class ClaimXEnrichmentWorker:
         )
         await self.download_producer.start()
 
-        self.retry_handler = EnrichmentRetryHandler(
-            config=self.consumer_config,
-        )
-        await self.retry_handler.start()
-        logger.info(
-            "Retry handler initialized",
-            extra={
-                "retry_topics": [t for t in self.topics if "retry" in t],
-                "dlq_topic": self.retry_handler.dlq_topic,
-            },
-        )
-
-        # Load plugins
+    def _load_plugins(self) -> None:
+        """Load plugins from configured directory."""
         plugins_dir = self.processing_config.get("plugins_dir", "config/plugins/claimx")
         try:
             import os
@@ -367,12 +286,65 @@ class ClaimXEnrichmentWorker:
         except Exception as e:
             logger.warning(
                 "Failed to load plugins, continuing without plugins",
-                extra={
-                    "plugins_dir": plugins_dir,
-                    "error": str(e),
-                },
+                extra={"plugins_dir": plugins_dir, "error": str(e)},
                 exc_info=True,
             )
+
+    async def start(self) -> None:
+        if self._running:
+            logger.warning("Worker already running")
+            return
+
+        logger.info("Starting ClaimXEnrichmentWorker")
+        self._running = True
+
+        await self.health_server.start()
+
+        log_output_mode = detect_log_output_mode()
+        log_startup_banner(
+            logger,
+            worker_name="ClaimX Enrichment Worker",
+            instance_id=self.worker_id,
+            domain=self.domain,
+            input_topic=self.enrichment_topic,
+            output_topic=self.download_topic,
+            health_port=self.health_server.port,
+            log_output_mode=log_output_mode,
+        )
+
+        from pipeline.common.telemetry import initialize_worker_telemetry
+
+        initialize_worker_telemetry(self.domain, "enrichment-worker")
+
+        await self._cleanup_stale_resources()
+
+        self._stats_logger = PeriodicStatsLogger(
+            interval_seconds=CYCLE_LOG_INTERVAL_SECONDS,
+            get_stats=self._get_cycle_stats,
+            stage="enrichment",
+            worker_id=self.worker_id,
+        )
+        self._stats_logger.start()
+
+        self._init_api_client()
+        await self.api_client._ensure_session()
+
+        api_reachable = not self.api_client.is_circuit_open
+        self.health_server.set_ready(transport_connected=False, api_reachable=api_reachable)
+
+        await self._init_producers()
+
+        self.retry_handler = EnrichmentRetryHandler(config=self.consumer_config)
+        await self.retry_handler.start()
+        logger.info(
+            "Retry handler initialized",
+            extra={
+                "retry_topics": [t for t in self.topics if "retry" in t],
+                "dlq_topic": self.retry_handler.dlq_topic,
+            },
+        )
+
+        self._load_plugins()
 
         self.action_executor = ActionExecutor(
             producer_factory=lambda topic: create_producer(
@@ -388,9 +360,7 @@ class ClaimXEnrichmentWorker:
         )
         logger.info(
             "Plugin orchestrator initialized",
-            extra={
-                "registered_plugins": len(self.plugin_registry.list_plugins()),
-            },
+            extra={"registered_plugins": len(self.plugin_registry.list_plugins())},
         )
 
         if self._preload_cache_from_delta:
@@ -425,74 +395,31 @@ class ClaimXEnrichmentWorker:
             self._running = False
             raise
 
+    async def _close_resource(self, attr_name: str, action: str = "stop") -> None:
+        """Close a resource by attribute name, logging errors and clearing the reference."""
+        resource = getattr(self, attr_name, None)
+        if not resource:
+            return
+        try:
+            await getattr(resource, action)()
+        except asyncio.CancelledError:
+            logger.warning("Cancelled while closing %s", attr_name)
+        except Exception as e:
+            logger.error("Error closing %s", attr_name, extra={"error": str(e)})
+        finally:
+            setattr(self, attr_name, None)
+
     async def stop(self) -> None:
         logger.info("Stopping ClaimXEnrichmentWorker")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
-            finally:
-                self._stats_logger = None
-
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-
-        if self.retry_handler:
-            try:
-                await self.retry_handler.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping retry handler")
-            except Exception as e:
-                logger.error("Error stopping retry handler", extra={"error": str(e)})
-            finally:
-                self.retry_handler = None
-
-        if self.producer:
-            try:
-                await self.producer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping producer")
-            except Exception as e:
-                logger.error("Error stopping producer", extra={"error": str(e)})
-            finally:
-                self.producer = None
-
-        if self.download_producer:
-            try:
-                await self.download_producer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping download producer")
-            except Exception as e:
-                logger.error("Error stopping download producer", extra={"error": str(e)})
-            finally:
-                self.download_producer = None
-
-        if self.action_executor:
-            try:
-                await self.action_executor.close()
-            except Exception as e:
-                logger.error("Error closing action executor", extra={"error": str(e)})
-
-        if self.api_client:
-            try:
-                await self.api_client.close()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while closing API client")
-            except Exception as e:
-                logger.error("Error closing API client", extra={"error": str(e)})
-            finally:
-                self.api_client = None
-
+        await self._close_resource("_stats_logger")
+        await self._close_resource("consumer")
+        await self._close_resource("retry_handler")
+        await self._close_resource("producer")
+        await self._close_resource("download_producer")
+        await self._close_resource("action_executor", action="close")
+        await self._close_resource("api_client", action="close")
         await self.health_server.stop()
 
         logger.info("ClaimXEnrichmentWorker stopped successfully")
@@ -501,16 +428,15 @@ class ClaimXEnrichmentWorker:
         logger.info("Graceful shutdown requested")
         self._running = False
 
-    async def _process_batch(self, messages: list[PipelineMessage]) -> BatchResult:
-        """Process a batch of enrichment messages.
-
-        Groups events by handler so MediaHandler's project-level batching
-        (1 API call per project instead of N) is utilized.
-        """
-        permanent_failures: list[tuple[PipelineMessage, Exception]] = []
-
-        # Step 1: Parse all messages, collect valid tasks
-        parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]] = []
+    def _parse_enrichment_messages(
+        self, messages: list[PipelineMessage]
+    ) -> tuple[
+        list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]],
+        list[tuple[PipelineMessage, Exception]],
+    ]:
+        """Parse raw messages into validated tasks and events."""
+        parsed = []
+        failures = []
         for msg in messages:
             try:
                 data = json.loads(msg.value.decode("utf-8"))
@@ -527,12 +453,13 @@ class ClaimXEnrichmentWorker:
                 )
                 parsed.append((msg, task, event))
             except (json.JSONDecodeError, ValidationError) as e:
-                permanent_failures.append((msg, PermanentError(str(e))))
+                failures.append((msg, PermanentError(str(e))))
+        return parsed, failures
 
-        if not parsed:
-            return BatchResult(commit=True, permanent_failures=permanent_failures)
-
-        # Step 2: Pre-flight project verification (deduplicated across batch)
+    async def _preflight_project_check(
+        self, parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]]
+    ) -> None:
+        """Verify projects exist and dispatch project entity rows (deduplicated)."""
         project_ids = {task.project_id for _, task, _ in parsed if task.project_id}
         project_rows_by_id: dict[str, EntityRowsMessage] = {}
         for pid in project_ids:
@@ -543,7 +470,6 @@ class ClaimXEnrichmentWorker:
             except Exception:
                 pass  # handler will retry per-event
 
-        # Dispatch project entity rows (one batch, deduplicated)
         if project_rows_by_id and self.enable_delta_writes:
             merged_project_rows = EntityRowsMessage()
             for rows in project_rows_by_id.values():
@@ -552,15 +478,18 @@ class ClaimXEnrichmentWorker:
                 tasks_for_dispatch = [task for _, task, _ in parsed[:1]]
                 await self._produce_entity_rows(merged_project_rows, tasks_for_dispatch)
 
-        # Step 3: Group events by handler, process each group
+    async def _execute_handler_groups(
+        self,
+        parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]],
+    ) -> list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]]:
+        """Group events by handler, execute each group, return results."""
         events = [event for _, _, event in parsed]
         event_to_info: dict[int, tuple[PipelineMessage, ClaimXEnrichmentTask]] = {
             id(event): (msg, task) for msg, task, event in parsed
         }
 
         grouped = self.handler_registry.group_events_by_handler(events)
-
-        all_results: list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]] = []
+        all_results = []
 
         for handler_class, handler_events in grouped.items():
             handler = handler_class(self.api_client, project_cache=self.project_cache)
@@ -570,18 +499,25 @@ class ClaimXEnrichmentWorker:
                     msg, task = event_to_info[id(result.event)]
                     all_results.append((result, msg, task))
             except Exception as e:
-                # Entire handler group failed — route all to retry
                 for evt in handler_events:
                     msg, task = event_to_info[id(evt)]
                     await self._handle_enrichment_failure(task, e, ErrorCategory.TRANSIENT)
 
-        # Handle unhandled event types (no handler registered)
+        # Count unhandled event types
         handled_events = {id(e) for events_list in grouped.values() for e in events_list}
-        for msg, task, event in parsed:
+        for _msg, _task, event in parsed:
             if id(event) not in handled_events:
                 self._records_skipped += 1
 
-        # Step 4: Dispatch results
+        return all_results
+
+    async def _dispatch_batch_results(
+        self,
+        all_results: list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]],
+        parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]],
+        permanent_failures: list[tuple[PipelineMessage, Exception]],
+    ) -> None:
+        """Tally results, dispatch entity rows and download tasks."""
         all_entity_rows = EntityRowsMessage()
 
         for result, msg, task in all_results:
@@ -598,16 +534,28 @@ class ClaimXEnrichmentWorker:
                 else:
                     await self._handle_enrichment_failure(task, error, category)
 
-        # Dispatch entity rows (single produce for entire batch)
         if self.enable_delta_writes and not all_entity_rows.is_empty():
             all_tasks = [task for _, task, _ in parsed]
             await self._produce_entity_rows(all_entity_rows, all_tasks)
 
-        # Dispatch download tasks (single batch)
         if all_entity_rows.media:
             download_tasks = create_download_tasks_from_media(all_entity_rows.media)
             if download_tasks:
                 await self._produce_download_tasks(download_tasks)
+
+    async def _process_batch(self, messages: list[PipelineMessage]) -> BatchResult:
+        """Process a batch of enrichment messages.
+
+        Groups events by handler so MediaHandler's project-level batching
+        (1 API call per project instead of N) is utilized.
+        """
+        parsed, permanent_failures = self._parse_enrichment_messages(messages)
+        if not parsed:
+            return BatchResult(commit=True, permanent_failures=permanent_failures)
+
+        await self._preflight_project_check(parsed)
+        all_results = await self._execute_handler_groups(parsed)
+        await self._dispatch_batch_results(all_results, parsed, permanent_failures)
 
         return BatchResult(commit=True, permanent_failures=permanent_failures)
 
@@ -696,6 +644,61 @@ class ClaimXEnrichmentWorker:
             await self._produce_download_tasks(download_tasks)
         return len(download_tasks)
 
+    async def _handle_handler_failure(self, task, handler_result, handler_class) -> None:
+        """Route a failed handler result to retry/DLQ."""
+        error_msg = (
+            handler_result.errors[0] if handler_result.errors else "Handler returned failure"
+        )
+        error = Exception(error_msg)
+        error_category = (
+            ErrorCategory.PERMANENT if handler_result.failed_permanent > 0
+            else ErrorCategory.TRANSIENT
+        )
+        log_worker_error(
+            logger,
+            "Handler returned failure result",
+            error_category=error_category.value,
+            trace_id=task.trace_id,
+            handler=handler_class.__name__,
+            error_detail=error_msg[:200],
+            succeeded=handler_result.succeeded,
+            failed=handler_result.failed,
+            failed_permanent=handler_result.failed_permanent,
+        )
+        await self._handle_enrichment_failure(task, error, error_category)
+
+    async def _execute_plugins(self, task, event, entity_rows, handler_result) -> None:
+        """Execute plugins at ENRICHMENT_COMPLETE stage (best-effort)."""
+        if not self.plugin_orchestrator:
+            return
+        plugin_context = PluginContext(
+            domain=Domain.CLAIMX,
+            stage=PipelineStage.ENRICHMENT_COMPLETE,
+            message=event,
+            event_id=task.trace_id,
+            event_type=task.event_type,
+            project_id=task.project_id,
+            data={"entities": entity_rows, "handler_result": handler_result},
+            headers={},
+        )
+        try:
+            orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
+            if orchestrator_result.actions_executed > 0:
+                logger.debug(
+                    "Plugin actions executed",
+                    extra={
+                        "trace_id": task.trace_id,
+                        "actions": orchestrator_result.actions_executed,
+                        "plugins": orchestrator_result.success_count,
+                    },
+                )
+        except Exception as e:
+            logger.error(
+                "Plugin execution failed",
+                extra={"trace_id": task.trace_id, "error": str(e)},
+                exc_info=True,
+            )
+
     async def _process_single_task(self, task: ClaimXEnrichmentTask) -> None:
         """
         Process single enrichment task through the pipeline.
@@ -709,9 +712,6 @@ class ClaimXEnrichmentWorker:
         """
         start_time = datetime.now(UTC)
 
-        # Step 1: Pre-flight project verification
-        # Guarantees project row exists in Delta for any event with a project_id,
-        # even if the downstream handler fails or the event type has no handler.
         if task.project_id:
             try:
                 project_rows = await self._ensure_project_exists(task.project_id)
@@ -720,13 +720,9 @@ class ClaimXEnrichmentWorker:
             except Exception:
                 logger.debug(
                     "Pre-flight project verification failed, handler will retry",
-                    extra={
-                        "project_id": task.project_id,
-                        "trace_id": task.trace_id,
-                    },
+                    extra={"project_id": task.project_id, "trace_id": task.trace_id},
                 )
 
-        # Step 2: Create event message from task
         event = ClaimXEventMessage(
             trace_id=task.trace_id,
             event_type=task.event_type,
@@ -738,15 +734,11 @@ class ClaimXEnrichmentWorker:
             ingested_at=task.created_at,
         )
 
-        # Step 3: Get handler for event type
         handler_class = self.handler_registry.get_handler_class(event.event_type)
         if not handler_class:
             logger.warning(
                 "No handler found for event",
-                extra={
-                    "trace_id": event.trace_id,
-                    "event_type": event.event_type,
-                },
+                extra={"trace_id": event.trace_id, "event_type": event.event_type},
             )
             self._records_skipped += 1
             return
@@ -754,87 +746,19 @@ class ClaimXEnrichmentWorker:
         handler = handler_class(self.api_client, project_cache=self.project_cache)
 
         try:
-            # Step 4: Execute handler to enrich event with API data
             handler_result = await handler.process([event])
 
-            # Check if handler succeeded - HandlerResult has succeeded/failed counts, not a success boolean
             if handler_result.failed > 0:
-                # Handler returned failure - route to retry/DLQ
-                # Extract error info from handler result
-                error_msg = (
-                    handler_result.errors[0]
-                    if handler_result.errors
-                    else "Handler returned failure"
-                )
-                error = Exception(error_msg)
-
-                # Default to TRANSIENT unless it's a permanent failure
-                if handler_result.failed_permanent > 0:
-                    error_category = ErrorCategory.PERMANENT
-                else:
-                    error_category = ErrorCategory.TRANSIENT
-
-                log_worker_error(
-                    logger,
-                    "Handler returned failure result",
-                    error_category=error_category.value,
-                    trace_id=task.trace_id,
-                    handler=handler_class.__name__,
-                    error_detail=error_msg[:200],
-                    succeeded=handler_result.succeeded,
-                    failed=handler_result.failed,
-                    failed_permanent=handler_result.failed_permanent,
-                )
-
-                await self._handle_enrichment_failure(task, error, error_category)
+                await self._handle_handler_failure(task, handler_result, handler_class)
                 return
 
             entity_rows = handler_result.rows
             self._records_succeeded += 1
 
-            # Execute plugins at ENRICHMENT_COMPLETE stage
-            if self.plugin_orchestrator:
-                plugin_context = PluginContext(
-                    domain=Domain.CLAIMX,
-                    stage=PipelineStage.ENRICHMENT_COMPLETE,
-                    message=event,
-                    event_id=task.trace_id,
-                    event_type=task.event_type,
-                    project_id=task.project_id,
-                    data={"entities": entity_rows, "handler_result": handler_result},
-                    headers={},
-                )
-
-                try:
-                    orchestrator_result = await self.plugin_orchestrator.execute(plugin_context)
-
-                    if orchestrator_result.actions_executed > 0:
-                        logger.debug(
-                            "Plugin actions executed",
-                            extra={
-                                "trace_id": task.trace_id,
-                                "actions": orchestrator_result.actions_executed,
-                                "plugins": orchestrator_result.success_count,
-                            },
-                        )
-                except Exception as e:
-                    logger.error(
-                        "Plugin execution failed",
-                        extra={
-                            "trace_id": task.trace_id,
-                            "error": str(e),
-                        },
-                        exc_info=True,
-                    )
-                    # Continue processing — don't fail the enrichment task due to plugin error
-
-            # Step 5: Dispatch entity rows to Kafka
+            await self._execute_plugins(task, event, entity_rows, handler_result)
             await self._dispatch_entity_rows(task, entity_rows)
-
-            # Step 6: Dispatch download tasks for media files
             download_task_count = await self._dispatch_download_tasks(entity_rows)
 
-            # Log completion
             elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
             logger.info(
                 "Enrichment task complete",
@@ -852,12 +776,9 @@ class ClaimXEnrichmentWorker:
 
         except ClaimXApiError as e:
             log_worker_error(
-                logger,
-                "Handler failed with API error",
-                error_category=e.category.value,
-                trace_id=task.trace_id,
-                exc=e,
-                handler=handler_class.__name__,
+                logger, "Handler failed with API error",
+                error_category=e.category.value, trace_id=task.trace_id,
+                exc=e, handler=handler_class.__name__,
             )
             record_processing_error(
                 topic=self.enrichment_topic,
@@ -869,13 +790,9 @@ class ClaimXEnrichmentWorker:
         except Exception as e:
             error_category = ErrorCategory.UNKNOWN
             log_worker_error(
-                logger,
-                "Handler failed with unexpected error",
-                error_category=error_category.value,
-                trace_id=task.trace_id,
-                exc=e,
-                handler=handler_class.__name__,
-                error_type=type(e).__name__,
+                logger, "Handler failed with unexpected error",
+                error_category=error_category.value, trace_id=task.trace_id,
+                exc=e, handler=handler_class.__name__, error_type=type(e).__name__,
             )
             record_processing_error(
                 topic=self.enrichment_topic,
