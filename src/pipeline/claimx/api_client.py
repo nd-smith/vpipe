@@ -36,49 +36,33 @@ class ClaimXApiError(Exception):
         self.should_refresh_auth = should_refresh_auth
 
 
+# (label, category, retryable, should_refresh_auth) per status code
+_STATUS_MAP: dict[int, tuple[str, ErrorCategory, bool, bool]] = {
+    401: ("Unauthorized", ErrorCategory.AUTH, False, False),
+    403: ("Forbidden", ErrorCategory.PERMANENT, False, False),
+    404: ("Not found", ErrorCategory.PERMANENT, False, False),
+    429: ("Rate limited", ErrorCategory.TRANSIENT, True, False),
+    500: ("Server error", ErrorCategory.TRANSIENT, True, False),
+    502: ("Server error", ErrorCategory.TRANSIENT, True, False),
+    503: ("Server error", ErrorCategory.TRANSIENT, True, False),
+    504: ("Server error", ErrorCategory.TRANSIENT, True, False),
+}
+
+
 def classify_api_error(status: int, url: str) -> ClaimXApiError:
     """Classify HTTP status codes into error categories with appropriate retry/category flags."""
-    if status == 401:
+    entry = _STATUS_MAP.get(status)
+    if entry:
+        label, category, retryable, refresh = entry
         return ClaimXApiError(
-            f"Unauthorized (401): {url}",
+            f"{label} ({status}): {url}",
             status_code=status,
-            category=ErrorCategory.AUTH,
-            is_retryable=False,
-            should_refresh_auth=False,
+            category=category,
+            is_retryable=retryable,
+            should_refresh_auth=refresh,
         )
 
-    if status == 403:
-        return ClaimXApiError(
-            f"Forbidden (403): {url}",
-            status_code=status,
-            category=ErrorCategory.PERMANENT,
-            is_retryable=False,
-        )
-
-    if status == 404:
-        return ClaimXApiError(
-            f"Not found (404): {url}",
-            status_code=status,
-            category=ErrorCategory.PERMANENT,
-            is_retryable=False,
-        )
-
-    if status == 429:
-        return ClaimXApiError(
-            f"Rate limited (429): {url}",
-            status_code=status,
-            category=ErrorCategory.TRANSIENT,
-            is_retryable=True,
-        )
-
-    if status in (500, 502, 503, 504):
-        return ClaimXApiError(
-            f"Server error ({status}): {url}",
-            status_code=status,
-            category=ErrorCategory.TRANSIENT,
-            is_retryable=True,
-        )
-
+    # Fallback: remaining 4xx are permanent, everything else is transient
     if 400 <= status < 500:
         return ClaimXApiError(
             f"Client error ({status}): {url}",
@@ -176,6 +160,36 @@ class ClaimXApiClient:
             await asyncio.sleep(0)
             self._session = None
 
+    async def _handle_error_response(
+        self, response, url: str, endpoint: str, method: str, duration: float
+    ) -> None:
+        """Read error body, classify error, record circuit failure, and raise."""
+        try:
+            response_body = await response.text()
+            response_body_log = (
+                response_body[:500] + "..." if len(response_body) > 500 else response_body
+            )
+        except Exception:
+            response_body_log = "<unable to read response body>"
+
+        error = classify_api_error(response.status, url)
+        if error.is_retryable:
+            self._circuit.record_failure(error)
+        logger.warning(
+            "API request failed",
+            extra={
+                "api_endpoint": endpoint,
+                "api_method": method,
+                "api_url": url,
+                "http_status": response.status,
+                "error_category": error.category.value,
+                "is_retryable": error.is_retryable,
+                "response_body": response_body_log,
+                "duration_seconds": round(duration, 3),
+            },
+        )
+        raise error
+
     async def _request(
         self,
         method: str,
@@ -241,59 +255,25 @@ class ClaimXApiClient:
                     duration = asyncio.get_event_loop().time() - start_time
 
                     if response.status != 200:
-                        try:
-                            response_body = await response.text()
-                            response_body_log = (
-                                response_body[:500] + "..."
-                                if len(response_body) > 500
-                                else response_body
-                            )
-                        except Exception:
-                            response_body_log = "<unable to read response body>"
-
-                        error = classify_api_error(response.status, url)
-
-                        if error.is_retryable:
-                            self._circuit.record_failure(error)
-                        logger.warning(
-                            "API request failed",
-                            extra={
-                                "api_endpoint": endpoint,
-                                "api_method": method,
-                                "api_url": url,
-                                "http_status": response.status,
-                                "error_category": error.category.value,
-                                "is_retryable": error.is_retryable,
-                                "response_body": response_body_log,
-                                "duration_seconds": round(duration, 3),
-                            },
+                        await self._handle_error_response(
+                            response, url, endpoint, method, duration
                         )
-                        raise error
 
                     self._circuit.record_success()
-
                     data = await response.json()
 
-                    if duration > 2.0:
-                        logger.info(
-                            "Slow API request",
-                            extra={
-                                "api_endpoint": endpoint,
-                                "api_method": method,
-                                "http_status": response.status,
-                                "duration_seconds": round(duration, 3),
-                            },
-                        )
-                    else:
-                        logger.debug(
-                            "API request succeeded",
-                            extra={
-                                "api_endpoint": endpoint,
-                                "api_method": method,
-                                "http_status": response.status,
-                                "duration_seconds": round(duration, 3),
-                            },
-                        )
+                    log_level = logging.INFO if duration > 2.0 else logging.DEBUG
+                    log_msg = "Slow API request" if duration > 2.0 else "API request succeeded"
+                    logger.log(
+                        log_level,
+                        log_msg,
+                        extra={
+                            "api_endpoint": endpoint,
+                            "api_method": method,
+                            "http_status": response.status,
+                            "duration_seconds": round(duration, 3),
+                        },
+                    )
 
                     return data
 
