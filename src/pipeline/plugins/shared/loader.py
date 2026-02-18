@@ -17,6 +17,39 @@ from pipeline.plugins.shared.registry import PluginRegistry
 logger = logging.getLogger(__name__)
 
 
+def _find_config_files(plugins_path: Path, exclude_dirs: set[str]) -> list[Path]:
+    """Find plugin config files, excluding specified directories."""
+    config_files = []
+    for pattern in ("config.yaml", "plugin.yaml"):
+        for config_file in plugins_path.rglob(pattern):
+            if not any(excluded in config_file.parts for excluded in exclude_dirs):
+                config_files.append(config_file)
+    return config_files
+
+
+def _load_plugin_from_file(config_file: Path, registry: PluginRegistry) -> Plugin | None:
+    """Load and register a single plugin from a config file. Returns plugin or None."""
+    with open(config_file) as f:
+        plugin_config = yaml.safe_load(f)
+
+    if plugin_config is None:
+        logger.warning("Empty plugin config file", extra={"config_file": str(config_file)})
+        return None
+
+    plugin = _create_plugin_from_config(plugin_config)
+    if plugin:
+        registry.register(plugin)
+        logger.info(
+            "Loaded plugin from directory",
+            extra={
+                "plugin_name": plugin.name,
+                "plugin_dir": config_file.parent.name,
+                "config_file": str(config_file),
+            },
+        )
+    return plugin
+
+
 def load_plugins_from_directory(
     plugins_dir: str,
     registry: PluginRegistry,
@@ -39,72 +72,33 @@ def load_plugins_from_directory(
     exclude_dirs = exclude_dirs or {"connections"}
 
     if not plugins_path.exists():
-        logger.warning(
-            "Plugins directory not found",
-            extra={"plugins_dir": plugins_dir},
-        )
+        logger.warning("Plugins directory not found", extra={"plugins_dir": plugins_dir})
         return []
 
     if not plugins_path.is_dir():
-        logger.warning(
-            "Plugins path is not a directory",
-            extra={"plugins_dir": plugins_dir},
-        )
+        logger.warning("Plugins path is not a directory", extra={"plugins_dir": plugins_dir})
+        return []
+
+    config_files = _find_config_files(plugins_path, exclude_dirs)
+    if not config_files:
+        logger.debug("No plugin config files found in directory", extra={"plugins_dir": plugins_dir})
         return []
 
     plugins_loaded = []
-
-    config_files = []
-    for pattern in ("config.yaml", "plugin.yaml"):
-        for config_file in plugins_path.rglob(pattern):
-            if not any(excluded in config_file.parts for excluded in exclude_dirs):
-                config_files.append(config_file)
-
-    if not config_files:
-        logger.debug(
-            "No plugin config files found in directory",
-            extra={"plugins_dir": plugins_dir},
-        )
-        return []
-
     for config_file in config_files:
-        plugin_dir = config_file.parent
-
-        # Load plugin from config file
         try:
-            with open(config_file) as f:
-                plugin_config = yaml.safe_load(f)
-
-            if plugin_config is None:
-                logger.warning(
-                    "Empty plugin config file",
-                    extra={"config_file": str(config_file)},
-                )
-                continue
-
-            plugin = _create_plugin_from_config(plugin_config)
+            plugin = _load_plugin_from_file(config_file, registry)
             if plugin:
-                registry.register(plugin)
                 plugins_loaded.append(plugin)
-                logger.info(
-                    "Loaded plugin from directory",
-                    extra={
-                        "plugin_name": plugin.name,
-                        "plugin_dir": plugin_dir.name,
-                        "config_file": str(config_file),
-                    },
-                )
-
         except Exception as e:
             logger.error(
                 "Failed to load plugin from directory",
                 extra={
-                    "plugin_dir": str(plugin_dir),
+                    "plugin_dir": str(config_file.parent),
                     "config_file": str(config_file),
                     "error": str(e),
                 },
             )
-            # Continue loading other plugins
 
     logger.info(
         "Loaded plugins from directory",
