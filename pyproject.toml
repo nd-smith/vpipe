@@ -109,6 +109,7 @@ omit = [
     "src/pipeline/__main__.py",
     "src/scripts/*",
     "src/pipeline/tools/*",
+    "src/pipeline/common/verify_pipeline.py",
 ]
 
 [tool.coverage.report]

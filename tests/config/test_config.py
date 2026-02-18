@@ -7,8 +7,13 @@ import yaml
 
 from config.config import (
     MessageConfig,
+    _build_cli_parser,
+    _build_merged_config_output,
+    _build_validation_output,
+    _configure_cli_logging,
     _deep_merge,
     _expand_env_vars,
+    _handle_cli_error,
     get_config,
     get_config_value,
     load_config,
@@ -490,3 +495,127 @@ class TestConfigSingleton:
         from config import config as config_module
 
         assert config_module._message_config is None
+
+
+# =========================================================================
+# CLI Helper Functions
+# =========================================================================
+
+
+class TestBuildCliParser:
+    def test_parser_created(self):
+        parser = _build_cli_parser()
+        assert parser is not None
+
+    def test_list_subcommand(self):
+        parser = _build_cli_parser()
+        args = parser.parse_args(["--validate"])
+        assert args.validate is True
+        assert args.show_merged is False
+
+    def test_show_merged_flag(self):
+        parser = _build_cli_parser()
+        args = parser.parse_args(["--show-merged"])
+        assert args.show_merged is True
+
+    def test_json_flag(self):
+        parser = _build_cli_parser()
+        args = parser.parse_args(["--validate", "--json"])
+        assert args.json is True
+
+    def test_verbose_flag(self):
+        parser = _build_cli_parser()
+        args = parser.parse_args(["--validate", "-v"])
+        assert args.verbose is True
+
+    def test_config_path(self):
+        parser = _build_cli_parser()
+        args = parser.parse_args(["--config", "/path/to/config.yaml", "--validate"])
+        assert args.config == Path("/path/to/config.yaml")
+
+
+class TestConfigureCliLogging:
+    def test_verbose(self):
+        _configure_cli_logging(verbose=True)  # should not raise
+
+    def test_non_verbose(self):
+        _configure_cli_logging(verbose=False)  # should not raise
+
+
+class TestBuildValidationOutput:
+    def test_json_output(self):
+        config = MessageConfig(bootstrap_servers="test:9092")
+        result = _build_validation_output(config, json_output=True)
+        assert result["validation"]["passed"] is True
+        assert result["validation"]["errors"] == []
+
+    def test_human_output(self, capsys):
+        config = MessageConfig(bootstrap_servers="test:9092")
+        result = _build_validation_output(config, json_output=False)
+        assert result == {}
+        out = capsys.readouterr().out
+        assert "Configuration validation passed" in out
+
+
+class TestBuildMergedConfigOutput:
+    def test_json_output(self):
+        config_dict = {"key": "value"}
+        result = _build_merged_config_output(config_dict, json_output=True)
+        assert result == {"merged_config": {"key": "value"}}
+
+    def test_human_output(self, capsys):
+        config_dict = {"key": "value"}
+        result = _build_merged_config_output(config_dict, json_output=False)
+        assert result == {}
+        out = capsys.readouterr().out
+        assert "Configuration:" in out
+        assert "key: value" in out
+
+
+class TestHandleCliError:
+    def test_json_output(self, capsys):
+        _handle_cli_error(ValueError("test error"), json_output=True, verbose=False)
+        out = capsys.readouterr().out
+        assert '"error": "test error"' in out
+
+    def test_human_output(self, capsys):
+        _handle_cli_error(ValueError("test error"), json_output=False, verbose=False)
+        err = capsys.readouterr().err
+        assert "test error" in err
+
+    def test_verbose_unexpected_error(self, capsys):
+        _handle_cli_error(
+            RuntimeError("boom"),
+            json_output=False,
+            verbose=True,
+            label="Unexpected error",
+        )
+        err = capsys.readouterr().err
+        assert "boom" in err
+
+
+class TestMessageConfigGetRetryTopic:
+    def test_get_retry_topic(self):
+        config = MessageConfig(
+            bootstrap_servers="test:9092",
+            verisk={"topics": {"retry": "verisk.retry"}},
+        )
+        assert config.get_retry_topic("verisk") == "verisk.retry"
+
+
+class TestMessageConfigValidateDirectories:
+    def test_validate_writable_cache_dir(self, tmp_path):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        config = MessageConfig(
+            bootstrap_servers="test:9092",
+            cache_dir=str(cache_dir),
+        )
+        config._validate_directories()  # should not raise
+
+    def test_validate_nonexistent_cache_dir_ok(self):
+        config = MessageConfig(
+            bootstrap_servers="test:9092",
+            cache_dir="/tmp/nonexistent_cache_dir_12345",
+        )
+        config._validate_directories()  # should not raise (doesn't exist)
