@@ -110,6 +110,7 @@ class ItelCabinetApiWorker:
         transport_config: dict,
         api_config: dict,
         connection_manager: ConnectionManager,
+        *,
         simulation_config: Any | None = None,
         health_port: int = 8097,
         health_enabled: bool = True,
@@ -752,47 +753,35 @@ class ItelCabinetApiWorker:
         self._cycle_offset_end_ts = None
         return "", extra
 
+    @staticmethod
+    async def _close_resource(name: str, resource, method: str = "stop") -> None:
+        """Close a single resource with error handling."""
+        if resource is None:
+            return
+        try:
+            fn = getattr(resource, method)
+            if method == "__aexit__":
+                await fn(None, None, None)
+            else:
+                await fn()
+            logger.info("%s stopped", name)
+        except Exception as e:
+            logger.error("Error stopping %s", name, extra={"error": str(e)})
+
     async def stop(self):
         """Stop the worker gracefully."""
         logger.info("Stopping worker")
         self.running = False
         self._shutdown_event.set()
 
-        try:
-            if self._stats_logger:
-                await self._stats_logger.stop()
-        except Exception as e:
-            logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        for name, producer in [
-            ("success", self._success_producer),
-            ("error", self._error_producer),
-        ]:
-            try:
-                if producer:
-                    await producer.stop()
-                    logger.info("%s producer stopped", name)
-            except Exception as e:
-                logger.error("Error stopping %s producer", name, extra={"error": str(e)})
-
-        try:
-            if self.onelake_client:
-                await self.onelake_client.__aexit__(None, None, None)
-                logger.info("OneLake client closed")
-        except Exception as e:
-            logger.error("Error closing OneLake client", extra={"error": str(e)})
-
-        try:
-            if self.consumer:
-                await self.consumer.stop()
-                logger.info("Consumer stopped")
-        except Exception as e:
-            logger.error("Error stopping consumer", extra={"error": str(e)})
-
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("Stats logger", self._stats_logger)
+        await self._close_resource("Success producer", self._success_producer)
+        await self._close_resource("Error producer", self._error_producer)
+        await self._close_resource(
+            "OneLake client", self.onelake_client, method="__aexit__"
+        )
+        await self._close_resource("Consumer", self.consumer)
+        await self._close_resource("Health server", self.health_server)
 
 
 def load_worker_config() -> dict:
