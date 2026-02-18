@@ -133,6 +133,38 @@ class MediaHandler(EventHandler):
 
         return handler_result
 
+    @staticmethod
+    def _normalize_media_response(response) -> list[dict]:
+        """Normalize API response to a list of media dicts."""
+        if isinstance(response, list):
+            media_list = response
+        elif isinstance(response, dict):
+            media_list = response.get("data", [])
+        else:
+            media_list = []
+
+        if not isinstance(media_list, list):
+            media_list = [media_list] if media_list else []
+        return media_list
+
+    def _build_batch_error_results(
+        self, events: list[ClaimXEventMessage], error: Exception,
+        error_category: ErrorCategory, is_retryable: bool, duration: int,
+    ) -> list[EnrichmentResult]:
+        """Build error results for all events in a failed batch."""
+        return [
+            EnrichmentResult(
+                event=event,
+                success=False,
+                error=str(error),
+                error_category=error_category,
+                is_retryable=is_retryable,
+                api_calls=2 if i == 0 else 0,
+                duration_ms=duration if i == 0 else 0,
+            )
+            for i, event in enumerate(events)
+        ]
+
     async def handle_batch(self, events: list[ClaimXEventMessage]) -> list[EnrichmentResult]:
         """Process batch of media events for same project."""
         if not events:
@@ -165,16 +197,7 @@ class MediaHandler(EventHandler):
             else:
                 response = await self.client.get_project_media(int(project_id))
 
-            # Normalize response to list
-            if isinstance(response, list):
-                media_list = response
-            elif isinstance(response, dict):
-                media_list = response.get("data", [])
-            else:
-                media_list = []
-
-            if not isinstance(media_list, list):
-                media_list = [media_list] if media_list else []
+            media_list = self._normalize_media_response(response)
 
             media_by_id: dict[int, dict] = {}
             for media in media_list:
@@ -182,8 +205,6 @@ class MediaHandler(EventHandler):
                 if mid is not None:
                     media_by_id[mid] = media
 
-            # In-flight Project Verification
-            # Ensure the project exists in our warehouse before processing media
             project_rows = await self.ensure_project_exists(
                 int(project_id),
                 trace_id=events[0].trace_id,
@@ -193,16 +214,11 @@ class MediaHandler(EventHandler):
             total_media_rows = 0
             for i, event in enumerate(events):
                 result = self._process_single_event(
-                    event,
-                    media_by_id,
-                    int(project_id),
-                    start_time,
+                    event, media_by_id, int(project_id), start_time,
                 )
-                # Merge project rows into first result only and update api_calls
                 if i == 0:
                     if result.rows:
                         result.rows.merge(project_rows)
-                    # Update api_calls to include project verification (media=1 + project=1)
                     result = EnrichmentResult(
                         event=result.event,
                         success=result.success,
@@ -210,7 +226,7 @@ class MediaHandler(EventHandler):
                         error=result.error,
                         error_category=result.error_category,
                         is_retryable=result.is_retryable,
-                        api_calls=2,  # Media API + Project verification API
+                        api_calls=2,
                         duration_ms=result.duration_ms,
                     )
                 results.append(result)
@@ -247,18 +263,9 @@ class MediaHandler(EventHandler):
                     "is_retryable": e.is_retryable,
                 },
             )
-            return [
-                EnrichmentResult(
-                    event=event,
-                    success=False,
-                    error=str(e),
-                    error_category=e.category,
-                    is_retryable=e.is_retryable,
-                    api_calls=2 if i == 0 else 0,  # Media + Project verification
-                    duration_ms=duration if i == 0 else 0,
-                )
-                for i, event in enumerate(events)
-            ]
+            return self._build_batch_error_results(
+                events, e, e.category, e.is_retryable, duration,
+            )
 
         except Exception as e:
             duration = elapsed_ms(start_time)
@@ -271,18 +278,9 @@ class MediaHandler(EventHandler):
                 },
                 exc_info=True,
             )
-            return [
-                EnrichmentResult(
-                    event=event,
-                    success=False,
-                    error=str(e),
-                    error_category=ErrorCategory.TRANSIENT,
-                    is_retryable=True,
-                    api_calls=2 if i == 0 else 0,  # Media + Project verification
-                    duration_ms=duration if i == 0 else 0,
-                )
-                for i, event in enumerate(events)
-            ]
+            return self._build_batch_error_results(
+                events, e, ErrorCategory.TRANSIENT, True, duration,
+            )
 
     def _process_single_event(
         self,

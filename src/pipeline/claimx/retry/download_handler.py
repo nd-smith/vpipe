@@ -222,6 +222,18 @@ class DownloadRetryHandler:
 
         return any(indicator in error_str for indicator in url_expiration_indicators)
 
+    @staticmethod
+    def _parse_int_id(value: str, field_name: str) -> int | None:
+        """Parse a string ID to int, logging on failure."""
+        try:
+            return int(value)
+        except ValueError:
+            logger.error(
+                f"Cannot refresh URL: {field_name} is not an integer",
+                extra={field_name: value},
+            )
+            return None
+
     async def _try_refresh_url(self, task: ClaimXDownloadTask) -> ClaimXDownloadTask | None:
         """
         Attempt to refresh presigned URL from ClaimX API.
@@ -231,27 +243,11 @@ class DownloadRetryHandler:
 
         """
         try:
-            # Extract media_id (may be string or int)
-            try:
-                media_id_int = int(task.media_id)
-            except ValueError:
-                logger.error(
-                    "Cannot refresh URL: media_id is not an integer",
-                    extra={"media_id": task.media_id},
-                )
+            media_id_int = self._parse_int_id(task.media_id, "media_id")
+            project_id_int = self._parse_int_id(task.project_id, "project_id")
+            if media_id_int is None or project_id_int is None:
                 return None
 
-            # Extract project_id (may be string or int)
-            try:
-                project_id_int = int(task.project_id)
-            except ValueError:
-                logger.error(
-                    "Cannot refresh URL: project_id is not an integer",
-                    extra={"project_id": task.project_id},
-                )
-                return None
-
-            # Call API to get fresh media metadata with presigned URL
             media_list = await self.api_client.get_project_media(
                 project_id=project_id_int,
                 media_ids=[media_id_int],
@@ -260,23 +256,15 @@ class DownloadRetryHandler:
             if not media_list:
                 logger.warning(
                     "Media not found in API response",
-                    extra={
-                        "media_id": task.media_id,
-                        "project_id": task.project_id,
-                    },
+                    extra={"media_id": task.media_id, "project_id": task.project_id},
                 )
                 return None
 
-            media = media_list[0]
-
-            new_url = media.get("full_download_link")
+            new_url = media_list[0].get("full_download_link")
             if not new_url:
                 logger.warning(
                     "No download link in media metadata",
-                    extra={
-                        "media_id": task.media_id,
-                        "media_keys": list(media.keys()),
-                    },
+                    extra={"media_id": task.media_id, "media_keys": list(media_list[0].keys())},
                 )
                 return None
 
@@ -286,20 +274,14 @@ class DownloadRetryHandler:
             if updated_task.metadata is None:
                 updated_task.metadata = {}
             updated_task.metadata["url_refreshed_at"] = datetime.now(UTC).isoformat()
-            updated_task.metadata["original_url"] = task.download_url[
-                :LOG_ERROR_TRUNCATE_SHORT
-            ]  # Truncate
+            updated_task.metadata["original_url"] = task.download_url[:LOG_ERROR_TRUNCATE_SHORT]
 
             return updated_task
 
         except Exception as e:
             logger.error(
                 "Failed to refresh URL from API",
-                extra={
-                    "media_id": task.media_id,
-                    "project_id": task.project_id,
-                    "error": str(e),
-                },
+                extra={"media_id": task.media_id, "project_id": task.project_id, "error": str(e)},
                 exc_info=True,
             )
             return None

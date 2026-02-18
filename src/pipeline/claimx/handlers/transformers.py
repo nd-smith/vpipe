@@ -103,6 +103,44 @@ def project_to_row(
     return inject_metadata(row, trace_id, include_last_enriched=False)
 
 
+def _build_policyholder_contact(
+    customer: dict[str, Any], project_id: str, trace_id: str,
+) -> dict[str, Any] | None:
+    """Build policyholder contact row from customer info, or None if no email."""
+    emails = customer.get("emails", [])
+    primary_email = None
+    for email in emails:
+        if email.get("primary"):
+            primary_email = safe_str(email.get("emailAddress"))
+            break
+    if not primary_email and emails:
+        primary_email = safe_str(emails[0].get("emailAddress"))
+
+    if not primary_email:
+        return None
+
+    phones = customer.get("phones", [])
+    phone = safe_str(phones[0].get("phoneNumber")) if phones else None
+    phone_country_code = safe_int(phones[0].get("phoneCountryCode")) if phones else None
+
+    row = {
+        "project_id": project_id,
+        "contact_email": primary_email,
+        "contact_type": "POLICYHOLDER",
+        "first_name": safe_str(customer.get("firstName")),
+        "last_name": safe_str(customer.get("lastName")),
+        "phone_number": phone,
+        "phone_country_code": phone_country_code,
+        "is_primary_contact": True,
+        "master_file_name": None,
+        "updated_at": now_iso(),
+        "created_date": today_date(),
+        "task_assignment_id": None,
+        "video_collaboration_id": None,
+    }
+    return inject_metadata(row, trace_id)
+
+
 def project_to_contacts(
     data: dict[str, Any],
     project_id: str,
@@ -117,39 +155,9 @@ def project_to_contacts(
     customer = project.get("customerInformation", {})
     team_members = inner.get("teamMembers", [])
 
-    emails = customer.get("emails", [])
-    primary_email = None
-    for email in emails:
-        if email.get("primary"):
-            primary_email = safe_str(email.get("emailAddress"))
-            break
-    if not primary_email and emails:
-        primary_email = safe_str(emails[0].get("emailAddress"))
-
-    if primary_email:
-        phones = customer.get("phones", [])
-        phone = None
-        phone_country_code = None
-        if phones:
-            phone = safe_str(phones[0].get("phoneNumber"))
-            phone_country_code = safe_int(phones[0].get("phoneCountryCode"))
-
-        row = {
-            "project_id": project_id,
-            "contact_email": primary_email,
-            "contact_type": "POLICYHOLDER",
-            "first_name": safe_str(customer.get("firstName")),
-            "last_name": safe_str(customer.get("lastName")),
-            "phone_number": phone,
-            "phone_country_code": phone_country_code,
-            "is_primary_contact": True,
-            "master_file_name": None,
-            "updated_at": now_iso(),
-            "created_date": today,
-            "task_assignment_id": None,
-            "video_collaboration_id": None,
-        }
-        contacts.append(inject_metadata(row, trace_id))
+    policyholder = _build_policyholder_contact(customer, project_id, trace_id)
+    if policyholder:
+        contacts.append(policyholder)
 
     for member in team_members:
         username = safe_str(member.get("userName"))

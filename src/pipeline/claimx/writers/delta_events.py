@@ -49,6 +49,37 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             z_order_columns=["project_id"],
         )
 
+    @staticmethod
+    def _normalize_ingested_at(value: Any, fallback: datetime) -> datetime:
+        """Normalize ingested_at to a timezone-aware datetime."""
+        if value is None:
+            return fallback
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+        return fallback
+
+    def _preprocess_events(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Pre-process events to ensure correct types before DataFrame creation."""
+        now = datetime.now(UTC)
+        processed = []
+        for event in events:
+            ingested_at = self._normalize_ingested_at(event.get("ingested_at"), now)
+            processed.append({
+                "trace_id": event.get("trace_id"),
+                "event_type": event.get("event_type"),
+                "project_id": event.get("project_id"),
+                "media_id": event.get("media_id"),
+                "task_assignment_id": event.get("task_assignment_id"),
+                "video_collaboration_id": event.get("video_collaboration_id"),
+                "master_file_name": event.get("master_file_name"),
+                "created_at": now,
+                "ingested_at": ingested_at,
+                "event_date": ingested_at.date(),
+            })
+        return processed
+
     async def write_events(self, events: list[dict[str, Any]]) -> bool:
         """
         Write ClaimX events to Delta table (non-blocking).
@@ -72,48 +103,11 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
             return True
 
         try:
-            now = datetime.now(UTC)
+            processed_events = self._preprocess_events(events)
 
-            # Pre-process events to ensure correct types before DataFrame creation
-            # This is more reliable than post-hoc type conversion
-            processed_events = []
-            for event in events:
-                processed = {
-                    "trace_id": event.get("trace_id"),
-                    "event_type": event.get("event_type"),
-                    "project_id": event.get("project_id"),
-                    "media_id": event.get("media_id"),
-                    "task_assignment_id": event.get("task_assignment_id"),
-                    "video_collaboration_id": event.get("video_collaboration_id"),
-                    "master_file_name": event.get("master_file_name"),
-                    "created_at": now,
-                }
-
-                ingested_at = event.get("ingested_at")
-                if ingested_at is None:
-                    processed["ingested_at"] = now
-                elif isinstance(ingested_at, str):
-                    processed["ingested_at"] = datetime.fromisoformat(
-                        ingested_at.replace("Z", "+00:00")
-                    )
-                elif isinstance(ingested_at, datetime):
-                    if ingested_at.tzinfo is None:
-                        processed["ingested_at"] = ingested_at.replace(tzinfo=UTC)
-                    else:
-                        processed["ingested_at"] = ingested_at
-                else:
-                    processed["ingested_at"] = now
-
-                # Derive event_date from ingested_at
-                processed["event_date"] = processed["ingested_at"].date()
-
-                processed_events.append(processed)
-
-            # Filter out events with null trace_id or event_type before creating DataFrame
             valid_events = [
-                event
-                for event in processed_events
-                if event.get("trace_id") is not None and event.get("event_type") is not None
+                e for e in processed_events
+                if e.get("trace_id") is not None and e.get("event_type") is not None
             ]
 
             if len(valid_events) < len(processed_events):
@@ -131,7 +125,6 @@ class ClaimXEventsDeltaWriter(BaseDeltaWriter):
 
             df = pl.DataFrame(valid_events, schema=EVENTS_SCHEMA)
 
-            # DIAGNOSTIC: Log details before write
             self.logger.info(
                 "ClaimX events prepared for write",
                 extra={
