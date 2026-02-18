@@ -121,8 +121,7 @@ def format_cycle_output(
     deduplicated: int = 0,
     since_last: dict[str, int] | None = None,
     interval_seconds: int = 30,
-    offset_start_ts: int | None = None,
-    offset_end_ts: int | None = None,
+    **kwargs,
 ) -> str:
     """
     Format standardized cycle output for workers with delta tracking.
@@ -145,6 +144,9 @@ def format_cycle_output(
         >>> format_cycle_output(5, 1200, 34, 50, 0, {"succeeded": 240, "failed": 0, "skipped": 0}, 30)
         'Cycle 5: +240 this cycle | total: 1200 succeeded, 34 failed, 50 skipped | 8.0 msg/s'
     """
+    offset_start_ts: int | None = kwargs.get("offset_start_ts")
+    offset_end_ts: int | None = kwargs.get("offset_end_ts")
+
     total_processed = succeeded + failed + skipped
 
     # Build offset suffix if both timestamps are provided
@@ -215,6 +217,16 @@ def get_log_output_mode(
     return "+".join(modes)
 
 
+def _classify_handler_modes(handlers: list[logging.Handler]) -> list[str]:
+    """Classify logging handlers into mode strings (file, eventhub)."""
+    modes: list[str] = []
+    if any(isinstance(h, logging.FileHandler) for h in handlers):
+        modes.append("file")
+    if any("EventHub" in type(h).__name__ for h in handlers):
+        modes.append("eventhub")
+    return modes
+
+
 def detect_log_output_mode() -> str:
     """
     Detect current log output mode by inspecting active logging handlers.
@@ -223,44 +235,30 @@ def detect_log_output_mode() -> str:
         String describing where logs are being sent: "stdout", "file",
         "eventhub", "file+eventhub", etc.
     """
-    import logging
+    handlers = logging.getLogger().handlers
+    modes = _classify_handler_modes(handlers)
 
-    root_logger = logging.getLogger()
-    modes = []
+    if not modes:
+        # Single StreamHandler = stdout-only mode; no handlers = console fallback
+        return "stdout" if len(handlers) == 1 else "console"
 
-    has_file = False
-    has_eventhub = False
-    has_console_only = False
+    return "+".join(modes)
 
-    for handler in root_logger.handlers:
-        if isinstance(handler, logging.FileHandler):
-            has_file = True
-        elif hasattr(handler, "__class__") and "EventHub" in handler.__class__.__name__:
-            has_eventhub = True
-        elif isinstance(handler, logging.StreamHandler) and len(root_logger.handlers) == 1:
-            has_console_only = True
 
-    if has_console_only:
-        return "stdout"
-
-    if has_file:
-        modes.append("file")
-    if has_eventhub:
-        modes.append("eventhub")
-
-    return "+".join(modes) if modes else "console"
+_BANNER_FIELDS: list[tuple[str, str]] = [
+    ("instance_id", "Instance:     {}"),
+    ("domain", "Domain:       {}"),
+    ("input_topic", "Input Topic:  {}"),
+    ("output_topic", "Output Topic: {}"),
+    ("health_port", "Health:       http://localhost:{}"),
+    ("log_output_mode", "Log Output:   {}"),
+]
 
 
 def log_startup_banner(
     logger: logging.Logger,
     worker_name: str,
-    instance_id: str | None = None,
-    domain: str | None = None,
-    input_topic: str | None = None,
-    output_topic: str | None = None,
-    health_port: int | None = None,
-    version: str | None = None,
-    log_output_mode: str | None = None,
+    **kwargs: Any,
 ) -> None:
     """
     Log startup banner with worker configuration.
@@ -268,13 +266,8 @@ def log_startup_banner(
     Args:
         logger: Logger instance
         worker_name: Worker name (e.g., "ClaimX Enrichment Worker")
-        instance_id: Instance identifier (e.g., "enrichment_worker-0")
-        domain: Domain (e.g., "claimx")
-        input_topic: Input topic name
-        output_topic: Output topic name
-        health_port: Health check server port
-        version: Optional version string
-        log_output_mode: Log output mode (e.g., "file+eventhub", "stdout")
+        **kwargs: Optional fields: instance_id, domain, input_topic, output_topic,
+            health_port, version, log_output_mode
 
     Example:
         log_startup_banner(
@@ -289,35 +282,23 @@ def log_startup_banner(
     """
     separator = "=" * 50
 
-    lines = [
-        "",
-        separator,
-        worker_name,
-    ]
+    lines = ["", separator, worker_name]
 
+    version = kwargs.get("version")
     if version:
         lines.append(f"Version: {version}")
 
     lines.append(separator)
 
-    if instance_id:
-        lines.append(f"Instance:     {instance_id}")
-    if domain:
-        lines.append(f"Domain:       {domain}")
-    if input_topic:
-        lines.append(f"Input Topic:  {input_topic}")
-    if output_topic:
-        lines.append(f"Output Topic: {output_topic}")
-    if health_port:
-        lines.append(f"Health:       http://localhost:{health_port}")
-    if log_output_mode:
-        lines.append(f"Log Output:   {log_output_mode}")
+    for field_name, fmt in _BANNER_FIELDS:
+        value = kwargs.get(field_name)
+        if value:
+            lines.append(fmt.format(value))
 
     lines.append(separator)
     lines.append("")
 
-    banner = "\n".join(lines)
-    logger.info(banner)
+    logger.info("\n".join(lines))
 
 
 def log_worker_error(
