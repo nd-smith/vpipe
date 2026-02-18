@@ -9,6 +9,7 @@ import contextlib
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -217,6 +218,43 @@ class ClaimXResultProcessor:
         finally:
             self._running = False
 
+    async def _close_resource(
+        self, name: str, method: Callable[[], Awaitable[None]], *, clear: str | None = None
+    ) -> None:
+        """Shut down a single async resource with error handling."""
+        try:
+            await method()
+        except asyncio.CancelledError:
+            logger.warning(f"Cancelled while stopping {name}")
+        except Exception as e:
+            logger.error(f"Error stopping {name}", extra={"error": str(e)}, exc_info=True)
+        finally:
+            if clear:
+                setattr(self, clear, None)
+
+    async def _stop_stats_logger(self) -> None:
+        if self._stats_logger:
+            await self._stats_logger.stop()
+
+    async def _cancel_flush_task(self) -> None:
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+
+    async def _flush_pending_batch(self) -> None:
+        async with self._batch_lock:
+            if self._batch:
+                logger.info(
+                    "Flushing pending batch on shutdown",
+                    extra={"batch_size": len(self._batch)},
+                )
+                await self._flush_batch()
+
+    async def _stop_consumer(self) -> None:
+        if self.consumer:
+            await self.consumer.stop()
+
     async def stop(self) -> None:
         """
         Stop the ClaimX result processor.
@@ -227,43 +265,11 @@ class ClaimXResultProcessor:
         logger.info("Stopping ClaimXResultProcessor")
         self._running = False
 
-        if self._stats_logger:
-            try:
-                await self._stats_logger.stop()
-            except Exception as e:
-                logger.error("Error stopping stats logger", extra={"error": str(e)})
-
-        if self._flush_task and not self._flush_task.done():
-            self._flush_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._flush_task
-
-        # Flush any pending batch
-        try:
-            async with self._batch_lock:
-                if self._batch:
-                    logger.info(
-                        "Flushing pending batch on shutdown",
-                        extra={"batch_size": len(self._batch)},
-                    )
-                    await self._flush_batch()
-        except Exception as e:
-            logger.error("Error flushing batch on shutdown", extra={"error": str(e)})
-
-        if self.consumer:
-            try:
-                await self.consumer.stop()
-            except asyncio.CancelledError:
-                logger.warning("Cancelled while stopping consumer")
-            except Exception as e:
-                logger.error("Error stopping consumer", extra={"error": str(e)})
-            finally:
-                self.consumer = None
-
-        try:
-            await self.health_server.stop()
-        except Exception as e:
-            logger.error("Error stopping health server", extra={"error": str(e)})
+        await self._close_resource("stats_logger", self._stop_stats_logger)
+        await self._close_resource("flush_task", self._cancel_flush_task)
+        await self._close_resource("pending_batch", self._flush_pending_batch)
+        await self._close_resource("consumer", self._stop_consumer, clear="consumer")
+        await self._close_resource("health_server", self.health_server.stop)
 
         logger.info(
             "ClaimXResultProcessor stopped successfully",
@@ -307,52 +313,24 @@ class ClaimXResultProcessor:
 
         # Update statistics and logs
         self._records_processed += 1
-
-        ts = record.timestamp
-        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-            self._cycle_offset_start_ts = ts
-        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-            self._cycle_offset_end_ts = ts
-
+        self._update_cycle_offsets(record.timestamp)
         set_log_context(trace_id=result.trace_id)
 
         if result.status == "completed":
             self._records_succeeded += 1
-
-            # Log success (sampled or debug to reduce noise)
             logger.debug(
                 "Upload completed successfully",
-                extra={
-                    "media_id": result.media_id,
-                    "blob_path": result.blob_path,
-                },
+                extra={"media_id": result.media_id, "blob_path": result.blob_path},
             )
+            await self._accumulate_result(result)
 
-            # Add to batch if we have a writer
-            if self.inventory_writer:
-                async with self._batch_lock:
-                    self._batch.append(result)
-
-                    # Check if flush needed (size-based)
-                    if len(self._batch) >= self.batch_size:
-                        await self._flush_batch()
-
-        elif result.status == "failed_permanent":
+        elif result.status in ("failed_permanent", "failed"):
             self._records_failed += 1
+            category = "permanent" if result.status == "failed_permanent" else "transient"
+            label = "Upload failed permanently" if category == "permanent" else "Upload failed (transient)"
             log_worker_error(
-                logger,
-                "Upload failed permanently",
-                error_category="permanent",
-                media_id=result.media_id,
-                upstream_error=result.error_message,
-            )
-
-        elif result.status == "failed":
-            self._records_failed += 1
-            log_worker_error(
-                logger,
-                "Upload failed (transient)",
-                error_category="transient",
+                logger, label,
+                error_category=category,
                 media_id=result.media_id,
                 upstream_error=result.error_message,
             )
@@ -364,6 +342,24 @@ class ClaimXResultProcessor:
             len(record.value),
             success=True,
         )
+
+    def _update_cycle_offsets(self, ts: int | None) -> None:
+        """Track min/max message timestamps for stats reporting."""
+        if ts is None:
+            return
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
+    async def _accumulate_result(self, result: ClaimXUploadResultMessage) -> None:
+        """Add a completed result to the batch, flushing if size threshold reached."""
+        if not self.inventory_writer:
+            return
+        async with self._batch_lock:
+            self._batch.append(result)
+            if len(self._batch) >= self.batch_size:
+                await self._flush_batch()
 
     async def _periodic_flush(self) -> None:
         """
