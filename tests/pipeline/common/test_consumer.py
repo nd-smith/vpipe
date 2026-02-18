@@ -16,7 +16,6 @@ def _make_config(**overrides):
     config.metadata_max_age_ms = 300000
     config.connections_max_idle_ms = 540000
     config.security_protocol = "PLAINTEXT"
-    config.get_worker_config.return_value = overrides.get("worker_config", {})
     config.get_consumer_group.return_value = overrides.get("group_id", "test-domain-test-worker")
     return config
 
@@ -138,13 +137,9 @@ class TestMessageConsumerInit:
             )
             mock_worker_id.assert_called_once_with("verisk-test")
 
-    def test_reads_max_batches_from_processing_config(self):
-        config = _make_config()
-        config.get_worker_config.side_effect = lambda d, w, c: (
-            {"max_batches": 5} if c == "processing" else {}
-        )
-        consumer = _make_consumer(config=config)
-        assert consumer.max_batches == 5
+    def test_max_batches_defaults_to_none(self):
+        consumer = _make_consumer()
+        assert consumer.max_batches is None
 
     def test_enable_message_commit_defaults_true(self):
         consumer = _make_consumer()
@@ -234,11 +229,8 @@ class TestMessageConsumerCommit:
 
 class TestMessageConsumerConsumeLoop:
     async def test_consume_loop_stops_at_max_batches(self):
-        config = _make_config()
-        config.get_worker_config.side_effect = lambda d, w, c: (
-            {"max_batches": 2} if c == "processing" else {}
-        )
-        consumer = _make_consumer(config=config)
+        consumer = _make_consumer()
+        consumer.max_batches = 2
         consumer._running = True
         consumer._batch_count = 2
 

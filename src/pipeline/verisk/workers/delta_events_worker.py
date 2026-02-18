@@ -117,16 +117,15 @@ class DeltaEventsWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Batch configuration - use worker-specific config
-        processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
-        self.batch_size = processing_config.get("batch_size", MAX_POLL_RECORDS)
-        self.max_batches = processing_config.get("max_batches")  # None = unlimited
-        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 10.0)
+        # Batch configuration
+        self.batch_size = MAX_POLL_RECORDS
+        self.max_batches = None  # unlimited
+        self.batch_timeout_seconds = 10.0
 
-        # Retry configuration from worker processing settings
-        self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
-        self._retry_topic_prefix = processing_config.get("retry_topic_prefix", "verisk-retry")
-        self._dlq_topic = processing_config.get("dlq_topic", "verisk-dlq")
+        # Retry configuration
+        self._retry_delays = [300, 600, 1200, 2400]
+        self._retry_topic_prefix = "verisk-retry"
+        self._dlq_topic = "verisk-dlq"
 
         # Batch state
         self._batch: list[dict[str, Any]] = []
@@ -161,8 +160,8 @@ class DeltaEventsWorker:
             domain=self.domain,
         )
 
-        # Health check server - use worker-specific port from config
-        health_port = processing_config.get("health_port", 8093)
+        # Health check server
+        health_port = 8093
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="xact-delta-events",

@@ -39,14 +39,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.enrichment.pending"
     config.get_consumer_group.return_value = "claimx-enrichment"
-    config.get_worker_config.return_value = {
-        "health_port": 8081,
-        "health_enabled": True,
-        "project_cache": {
-            "ttl_seconds": 1800,
-            "preload_from_delta": False,
-        },
-    }
     config.get_retry_delays.return_value = [300, 600, 1200]
     config.get_max_retries.return_value = 3
     config.claimx_api_url = "https://api.test.claimxperience.com"

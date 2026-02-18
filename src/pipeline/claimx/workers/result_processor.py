@@ -136,9 +136,8 @@ class ClaimXResultProcessor:
 
         self._running = False
 
-        # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(self.domain, self.worker_name, "processing")
-        health_port = processing_config.get("health_port", 8087)
+        # Health check server
+        health_port = 8087
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-result-processor",

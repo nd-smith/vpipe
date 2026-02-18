@@ -200,49 +200,10 @@ class TestMessageConfig:
         result = config._get_domain_config("plugins")
         assert result == {}
 
-    def test_get_worker_config(self):
-        config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "consumer": {"max_poll_records": 10},
-                    "processing": {"concurrency": 5},
-                }
-            }
-        )
-        result = config.get_worker_config("verisk", "download_worker", "consumer")
-        assert result == {"max_poll_records": 10}
-
-    def test_get_worker_config_missing_worker(self):
-        config = MessageConfig(verisk={})
-        result = config.get_worker_config("verisk", "nonexistent", "consumer")
-        assert result == {}
-
-    def test_get_worker_config_missing_component(self):
-        config = MessageConfig(verisk={"download_worker": {}})
-        result = config.get_worker_config("verisk", "download_worker", "consumer")
-        assert result == {}
-
-    def test_get_worker_config_unknown_domain(self):
-        config = MessageConfig()
-        result = config.get_worker_config("plugins", "worker", "consumer")
-        assert result == {}
-
-    def test_get_worker_config_invalid_component_raises(self):
-        config = MessageConfig()
-        with pytest.raises(ValueError, match="Invalid component"):
-            config.get_worker_config("verisk", "worker", "invalid")
-
     def test_get_topic(self):
         config = MessageConfig()
         assert config.get_topic("verisk", "events") == "verisk.events"
         assert config.get_topic("claimx", "downloads") == "claimx.downloads"
-
-    def test_get_consumer_group_from_config(self):
-        config = MessageConfig(
-            verisk={"download_worker": {"consumer": {"group_id": "custom-group"}}}
-        )
-        result = config.get_consumer_group("verisk", "download_worker")
-        assert result == "custom-group"
 
     def test_get_consumer_group_from_prefix(self):
         config = MessageConfig(
@@ -294,40 +255,6 @@ class TestMessageConfigValidation:
         config = MessageConfig()
         config.validate()  # Should not raise
 
-    def test_validates_valid_processing_settings(self):
-        config = MessageConfig(
-            verisk={
-                "download_worker": {
-                    "processing": {
-                        "concurrency": 5,
-                        "batch_size": 10,
-                        "timeout_seconds": 30,
-                    }
-                }
-            }
-        )
-        config.validate()
-
-    def test_rejects_concurrency_out_of_range(self):
-        config = MessageConfig(verisk={"download_worker": {"processing": {"concurrency": 100}}})
-        with pytest.raises(ValueError, match="concurrency"):
-            config.validate()
-
-    def test_rejects_concurrency_zero(self):
-        config = MessageConfig(verisk={"download_worker": {"processing": {"concurrency": 0}}})
-        with pytest.raises(ValueError, match="concurrency"):
-            config.validate()
-
-    def test_rejects_negative_batch_size(self):
-        config = MessageConfig(verisk={"download_worker": {"processing": {"batch_size": 0}}})
-        with pytest.raises(ValueError, match="batch_size"):
-            config.validate()
-
-    def test_rejects_zero_timeout(self):
-        config = MessageConfig(verisk={"download_worker": {"processing": {"timeout_seconds": 0}}})
-        with pytest.raises(ValueError, match="timeout_seconds"):
-            config.validate()
-
     def test_rejects_invalid_claimx_api_url(self):
         config = MessageConfig(claimx_api_url="not-a-url")
         with pytest.raises(ValueError, match="claimx_api_url"):
@@ -345,10 +272,6 @@ class TestMessageConfigValidation:
         config = MessageConfig(claimx_api_url="http://")
         with pytest.raises(ValueError, match="missing hostname"):
             config.validate()
-
-    def test_skips_retry_delays_during_validation(self):
-        config = MessageConfig(verisk={"retry_delays": [100, 200]})
-        config.validate()  # Should not raise even though retry_delays is not a worker
 
 
 # =========================================================================

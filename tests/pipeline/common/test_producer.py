@@ -18,7 +18,6 @@ def _make_config(**overrides):
     config.connections_max_idle_ms = 540000
     config.security_protocol = overrides.get("security_protocol", "PLAINTEXT")
     config.sasl_mechanism = overrides.get("sasl_mechanism", "PLAIN")
-    config.get_worker_config.return_value = overrides.get("producer_config", {})
     return config
 
 
@@ -88,8 +87,9 @@ class TestMessageProducerStart:
     async def test_acks_string_digit_converted_to_int(self):
         from pipeline.common.producer import MessageProducer
 
-        config = _make_config(producer_config={"acks": "0", "enable_idempotence": False})
+        config = _make_config()
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
+        producer.producer_config = {"acks": "0", "enable_idempotence": False}
 
         mock_kafka = AsyncMock()
         with (
@@ -105,15 +105,14 @@ class TestMessageProducerStart:
     async def test_optional_producer_config_applied(self):
         from pipeline.common.producer import MessageProducer
 
-        config = _make_config(
-            producer_config={
-                "batch_size": 32768,
-                "linger_ms": 100,
-                "compression_type": "gzip",
-                "max_request_size": 5_000_000,
-            }
-        )
+        config = _make_config()
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
+        producer.producer_config = {
+            "batch_size": 32768,
+            "linger_ms": 100,
+            "compression_type": "gzip",
+            "max_request_size": 5_000_000,
+        }
 
         mock_kafka = AsyncMock()
         with (
@@ -131,8 +130,9 @@ class TestMessageProducerStart:
     async def test_compression_type_none_string_maps_to_none(self):
         from pipeline.common.producer import MessageProducer
 
-        config = _make_config(producer_config={"compression_type": "none"})
+        config = _make_config()
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
+        producer.producer_config = {"compression_type": "none"}
 
         mock_kafka = AsyncMock()
         with (
@@ -147,7 +147,7 @@ class TestMessageProducerStart:
     async def test_default_max_request_size_10mb(self):
         from pipeline.common.producer import MessageProducer
 
-        config = _make_config(producer_config={})
+        config = _make_config()
         producer = MessageProducer(config=config, domain="verisk", worker_name="test")
 
         mock_kafka = AsyncMock()

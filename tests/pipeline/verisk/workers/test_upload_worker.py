@@ -35,18 +35,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.downloads.cached"
     config.get_consumer_group.return_value = "verisk-upload-worker"
-
-    # get_worker_config is called with (domain, worker_name, "processing")
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {
-                "concurrency": 10,
-                "batch_size": 20,
-                "health_port": 8091,
-            }
-        return {"health_port": 8091}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     config.onelake_domain_paths = {"verisk": "/onelake/verisk"}
     config.onelake_base_path = "/onelake/base"
     config.cache_dir = "/tmp/cache"
@@ -135,13 +123,13 @@ class TestUploadWorkerInitialization:
             assert worker.worker_id == "upload_worker-happy-tiger"
             assert worker.instance_id == "happy-tiger"
 
-    def test_initialization_loads_concurrency_from_config(self, mock_config, mock_storage_client):
-        """Worker loads concurrency settings from config."""
+    def test_initialization_uses_default_concurrency(self, mock_config, mock_storage_client):
+        """Worker uses default concurrency and batch_size."""
         with patch("pipeline.verisk.workers.upload_worker.create_producer"):
             worker = UploadWorker(config=mock_config, storage_client=mock_storage_client)
 
-            assert worker.concurrency == 10
-            assert worker.batch_size == 20
+            assert worker.concurrency == 25
+            assert worker.batch_size == 200
 
     def test_initialization_sets_topics(self, mock_config, mock_storage_client):
         """Worker sets correct consumer topics."""
@@ -211,7 +199,7 @@ class TestUploadWorkerLifecycle:
                 # Verify semaphore and shutdown event were created
                 assert worker._semaphore is not None
                 assert worker._shutdown_event is not None
-                assert worker._semaphore._value == 10  # concurrency limit
+                assert worker._semaphore._value == 25  # CONCURRENCY default
 
     @pytest.mark.asyncio
     async def test_stop_cleans_up_resources(self, mock_config, mock_storage_client):

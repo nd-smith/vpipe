@@ -137,10 +137,8 @@ class UploadWorker:
                 "  - ONELAKE_XACT_PATH / ONELAKE_CLAIMX_PATH env vars"
             )
 
-        # Get worker-specific processing config
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
-        self.concurrency = processing_config.get("concurrency", CONCURRENCY)
-        self.batch_size = processing_config.get("batch_size", BATCH_SIZE)
+        self.concurrency = CONCURRENCY
+        self.batch_size = BATCH_SIZE
 
         # Topic to consume from
         self.topics = [config.get_topic(domain, "downloads_cached")]
@@ -171,8 +169,8 @@ class UploadWorker:
         # OneLake clients by domain (lazy initialized in start())
         self.onelake_clients: dict[str, OneLakeClient] = {}
 
-        # Health check server - use worker-specific port from config
-        health_port = processing_config.get("health_port", 8091)
+        # Health check server
+        health_port = 8091
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name=self.WORKER_NAME,

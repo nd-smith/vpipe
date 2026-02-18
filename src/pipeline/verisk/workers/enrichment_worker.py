@@ -105,8 +105,6 @@ class XACTEnrichmentWorker:
             self.worker_id = self.WORKER_NAME
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
-        self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
-
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
 
@@ -119,8 +117,8 @@ class XACTEnrichmentWorker:
         self.action_executor: ActionExecutor | None = None
 
         # Health check server
-        health_port = self.processing_config.get("health_port", 8081)
-        health_enabled = self.processing_config.get("health_enabled", True)
+        health_port = 8081
+        health_enabled = True
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name=self.WORKER_NAME,
@@ -193,7 +191,7 @@ class XACTEnrichmentWorker:
         if hasattr(self.producer, "eventhub_name"):
             self.download_topic = self.producer.eventhub_name
 
-        plugins_dir = self.processing_config.get("plugins_dir", "config/plugins")
+        plugins_dir = "config/plugins"
         try:
             import os
 

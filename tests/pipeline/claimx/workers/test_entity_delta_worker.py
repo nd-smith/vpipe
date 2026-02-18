@@ -33,20 +33,6 @@ def mock_config():
     config.get_topic.return_value = "claimx.enriched"
     config.get_consumer_group.return_value = "claimx-entity-delta-writer"
 
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {
-                "batch_size": 100,
-                "batch_timeout_seconds": 30.0,
-                "max_retries": 3,
-                "retry_delays": [60, 300, 900],
-                "retry_topic_prefix": "claimx.enriched.retry",
-                "dlq_topic": "claimx.enriched.dlq",
-                "health_port": 8086,
-            }
-        return {"health_port": 8086}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     return config
 
 
@@ -319,13 +305,6 @@ class TestEntityDeltaWorkerBatching:
         config.get_topic.return_value = "claimx.enriched"
         config.get_consumer_group.return_value = "claimx-entity-delta-writer"
 
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 10, "health_port": 8086}
-            return {"health_port": 8086}
-
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
-
         worker = ClaimXEntityDeltaWorker(
             config=config,
             projects_table_path="abfss://test/projects",
@@ -353,13 +332,6 @@ class TestEntityDeltaWorkerBatching:
         config.get_topic.return_value = "claimx.enriched"
         config.get_consumer_group.return_value = "claimx-entity-delta-writer"
 
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 2, "health_port": 8086}
-            return {"health_port": 8086}
-
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
-
         worker = ClaimXEntityDeltaWorker(
             config=config,
             projects_table_path="abfss://test/projects",
@@ -370,6 +342,7 @@ class TestEntityDeltaWorkerBatching:
             external_links_table_path="abfss://test/external_links",
             video_collab_table_path="abfss://test/video_collab",
         )
+        worker.batch_size = 2
 
         # Mock _trigger_flush (called when batch reaches threshold)
         worker._trigger_flush = Mock()

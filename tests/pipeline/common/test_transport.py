@@ -338,7 +338,6 @@ class TestCreateConsumer:
 
         config = Mock()
         config.get_consumer_group.return_value = "grp"
-        config.get_worker_config.return_value = {}
         handler = AsyncMock()
 
         with (
@@ -410,7 +409,6 @@ class TestCreateBatchConsumer:
 
         config = Mock()
         config.get_consumer_group.return_value = "grp"
-        config.get_worker_config.return_value = {}
         handler = AsyncMock()
 
         with patch("pipeline.common.batch_consumer.MessageBatchConsumer") as mock_cls:

@@ -60,10 +60,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.events.raw"
     config.get_consumer_group.return_value = "claimx-event-ingester"
-    config.get_worker_config.return_value = {
-        "health_port": 8080,
-        "health_enabled": True,
-    }
     return config
 
 

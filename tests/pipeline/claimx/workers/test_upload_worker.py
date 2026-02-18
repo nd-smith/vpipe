@@ -35,17 +35,6 @@ def mock_config():
     config.get_topic.return_value = "claimx.downloads.cached"
     config.get_consumer_group.return_value = "claimx-upload-worker"
 
-    # get_worker_config is called with (domain, worker_name, "processing")
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {
-                "concurrency": 10,
-                "batch_size": 20,
-                "health_port": 8083,
-            }
-        return {"health_port": 8083}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     config.onelake_domain_paths = {"claimx": "/onelake/claimx"}
     config.onelake_base_path = "/onelake/base"
     config.cache_dir = "/tmp/cache"
@@ -130,13 +119,13 @@ class TestClaimXUploadWorkerInitialization:
             assert worker.worker_id == "upload_worker-happy-tiger"
             assert worker.instance_id == "happy-tiger"
 
-    def test_initialization_loads_concurrency_from_config(self, mock_config, mock_storage_client):
-        """Worker loads concurrency settings from config."""
+    def test_initialization_uses_default_concurrency(self, mock_config, mock_storage_client):
+        """Worker uses default concurrency and batch_size."""
         with patch("pipeline.claimx.workers.upload_worker.create_producer"):
             worker = ClaimXUploadWorker(config=mock_config, storage_client=mock_storage_client)
 
             assert worker.concurrency == 10
-            assert worker.batch_size == 20
+            assert worker.batch_size == 100
 
     def test_initialization_sets_topics(self, mock_config, mock_storage_client):
         """Worker sets correct consumer topics."""

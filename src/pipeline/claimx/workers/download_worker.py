@@ -120,9 +120,8 @@ class ClaimXDownloadWorker:
         self.cache_dir = Path(config.cache_dir) / domain
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
-        self.concurrency = processing_config.get("concurrency", CONCURRENCY)
-        self.batch_size = processing_config.get("batch_size", BATCH_SIZE)
+        self.concurrency = CONCURRENCY
+        self.batch_size = BATCH_SIZE
 
         # Only consume from pending topic
         # Unified retry scheduler handles routing retry messages back to pending
@@ -166,7 +165,7 @@ class ClaimXDownloadWorker:
         self.api_client: ClaimXApiClient | None = None
         self.retry_handler: DownloadRetryHandler | None = None
 
-        health_port = processing_config.get("health_port", 8082)
+        health_port = 8082
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-downloader",

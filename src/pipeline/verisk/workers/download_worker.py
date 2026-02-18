@@ -148,11 +148,9 @@ class DownloadWorker:
         self._running = False
         self._initialized = False
 
-        # Worker-specific processing config
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
-        self.concurrency = processing_config.get("concurrency", CONCURRENCY)
-        self.batch_size = processing_config.get("batch_size", BATCH_SIZE)
-        self.timeout_seconds = processing_config.get("timeout_seconds", 60)
+        self.concurrency = CONCURRENCY
+        self.batch_size = BATCH_SIZE
+        self.timeout_seconds = 60
 
         # Concurrency control (WP-313)
         self._semaphore: asyncio.Semaphore | None = None
@@ -184,7 +182,7 @@ class DownloadWorker:
         self.retry_handler: RetryHandler | None = None
 
         # Health check server
-        health_port = processing_config.get("health_port", 8090)
+        health_port = 8090
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name=self.WORKER_NAME,

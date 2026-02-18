@@ -35,20 +35,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "xact.events.raw"
     config.get_consumer_group.return_value = "xact-delta-events-writer"
-
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {
-                "batch_size": 100,
-                "batch_timeout_seconds": 10.0,
-                "retry_delays": [300, 600, 1200, 2400],
-                "retry_topic_prefix": "delta-events.retry",
-                "dlq_topic": "delta-events.dlq",
-                "health_port": 8093,
-            }
-        return {"health_port": 8093}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     return config
 
 
@@ -101,7 +87,7 @@ class TestDeltaEventsWorkerInitialization:
             assert worker.domain == "verisk"
             assert worker.worker_id == "delta_events_writer"
             assert worker.instance_id is None
-            assert worker.batch_size == 100
+            assert worker.batch_size == 5000  # MAX_POLL_RECORDS default
             assert worker.batch_timeout_seconds == 10.0
             assert worker.max_batches is None
 
@@ -118,28 +104,16 @@ class TestDeltaEventsWorkerInitialization:
             assert worker.worker_id == "delta_events_writer-happy-tiger"
             assert worker.instance_id == "happy-tiger"
 
-    def test_initialization_with_max_batches(self, mock_config, mock_producer):
-        """Worker accepts max_batches configuration."""
-
-        # Override config to include max_batches
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 100, "max_batches": 10, "health_port": 8093}
-            return {"health_port": 8093}
-
-        config = Mock(spec=MessageConfig)
-        config.get_topic.return_value = "xact.events.raw"
-        config.get_consumer_group.return_value = "xact-delta-events-writer"
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
-
+    def test_initialization_max_batches_defaults_to_none(self, mock_config, mock_producer):
+        """Worker defaults max_batches to None (unlimited)."""
         with patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"):
             worker = DeltaEventsWorker(
-                config=config,
+                config=mock_config,
                 producer=mock_producer,
                 events_table_path="abfss://test/xact_events",
             )
 
-            assert worker.max_batches == 10
+            assert worker.max_batches is None
 
     def test_initialization_requires_table_path(self, mock_config, mock_producer):
         """Worker requires events_table_path."""
@@ -312,17 +286,9 @@ class TestDeltaEventsWorkerBatching:
     @pytest.mark.asyncio
     async def test_batch_accumulates_events(self, mock_producer, sample_event_message):
         """Worker accumulates events in batch."""
-        # Create config with batch_size=10
         config = Mock(spec=MessageConfig)
         config.get_topic.return_value = "xact.events.raw"
         config.get_consumer_group.return_value = "xact-delta-events-writer"
-
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 10, "health_port": 8093}
-            return {"health_port": 8093}
-
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
 
         with patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"):
             worker = DeltaEventsWorker(
@@ -331,7 +297,7 @@ class TestDeltaEventsWorkerBatching:
                 events_table_path="abfss://test/xact_events",
             )
 
-            # Process multiple messages
+            # Process multiple messages (below batch_size threshold)
             for _ in range(3):
                 await worker._handle_event_message(sample_event_message)
 
@@ -347,19 +313,13 @@ class TestDeltaEventsWorkerBatching:
         config.get_topic.return_value = "xact.events.raw"
         config.get_consumer_group.return_value = "xact-delta-events-writer"
 
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 2, "health_port": 8093}
-            return {"health_port": 8093}
-
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
-
         with patch("pipeline.verisk.workers.delta_events_worker.DeltaRetryHandler"):
             worker = DeltaEventsWorker(
                 config=config,
                 producer=mock_producer,
                 events_table_path="abfss://test/xact_events",
             )
+            worker.batch_size = 2
 
             # Mock flush method
             worker._flush_batch = AsyncMock()

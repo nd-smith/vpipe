@@ -102,11 +102,10 @@ class MessageBatchConsumer:
             worker_id=self._worker_id,
         )
 
-        self.consumer_config = config.get_worker_config(domain, worker_name, "consumer")
+        self.consumer_config: dict = {}
         self.group_id = config.get_consumer_group(domain, worker_name)
 
-        processing_config = config.get_worker_config(domain, worker_name, "processing")
-        self.max_batches = processing_config.get("max_batches")
+        self.max_batches = None
         self._batch_count = 0
 
         logger.info(

@@ -35,12 +35,6 @@ def mock_config():
     config.get_topic.return_value = "claimx.downloads.results"
     config.get_consumer_group.return_value = "claimx-result-processor"
 
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {"health_port": 8087}
-        return {"health_port": 8087}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     return config
 
 

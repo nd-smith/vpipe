@@ -25,27 +25,6 @@ logger = logging.getLogger(__name__)
 # =========================================================================
 
 
-class WorkerConfig(TypedDict, total=False):
-    consumer: dict[str, Any]
-    producer: dict[str, Any]
-    processing: dict[str, Any]
-
-
-class VeriskDomainConfig(TypedDict, total=False):
-    event_ingester: WorkerConfig
-    download_worker: WorkerConfig
-    upload_worker: WorkerConfig
-    enrichment_worker: WorkerConfig
-    retry_delays: list[int]
-
-
-class ClaimXDomainConfig(TypedDict, total=False):
-    event_ingester: WorkerConfig
-    enrichment_worker: WorkerConfig
-    download_worker: WorkerConfig
-    retry_delays: list[int]
-
-
 class StorageConfig(TypedDict, total=False):
     onelake_base_path: str
     onelake_domain_paths: dict[str, str]
@@ -154,8 +133,8 @@ class MessageConfig:
     # =========================================================================
     # DOMAIN CONFIGURATIONS (verisk and claimx)
     # =========================================================================
-    verisk: VeriskDomainConfig = field(default_factory=dict)
-    claimx: ClaimXDomainConfig = field(default_factory=dict)
+    verisk: dict[str, Any] = field(default_factory=dict)
+    claimx: dict[str, Any] = field(default_factory=dict)
 
     # =========================================================================
     # STORAGE CONFIGURATION
@@ -185,7 +164,7 @@ class MessageConfig:
     # =========================================================================
     logging_config: LoggingConfig = field(default_factory=dict)
 
-    def _get_domain_config(self, domain: str) -> VeriskDomainConfig | ClaimXDomainConfig | dict:
+    def _get_domain_config(self, domain: str) -> dict[str, Any]:
         """Get domain config by name.
 
         Returns empty dict for unknown domains (e.g., 'plugins') to support
@@ -198,38 +177,6 @@ class MessageConfig:
         # Return empty dict for unknown domains (e.g., plugin workers)
         return {}
 
-    def get_worker_config(
-        self,
-        domain: str,
-        worker_name: str,
-        component: str,  # "consumer", "producer", or "processing"
-    ) -> dict[str, Any]:
-        """Get configuration for a specific worker's component.
-
-        Args:
-            domain: Domain name ("verisk", "claimx", or "plugins" for plugin workers)
-            worker_name: Name of the worker (e.g., "download_worker", "event_ingester")
-            component: Component type ("consumer", "producer", or "processing")
-
-        Returns:
-            dict[str, Any]: Configuration for the specified component.
-            Returns empty dict for unknown domains or missing worker configs.
-
-        Raises:
-            ValueError: If component is invalid.
-        """
-        if component not in ("consumer", "producer", "processing"):
-            raise ValueError(
-                f"Invalid component: {component}. Must be 'consumer', 'producer', or 'processing'"
-            )
-
-        domain_config = self._get_domain_config(domain)
-        if not domain_config:
-            return {}
-
-        worker_config = domain_config.get(worker_name, {})
-        return worker_config.get(component, {})
-
     def get_topic(self, domain: str, topic_key: str) -> str:
         """Get topic name for domain/topic_key.
 
@@ -239,14 +186,7 @@ class MessageConfig:
         return f"{domain}.{topic_key}"
 
     def get_consumer_group(self, domain: str, worker_name: str) -> str:
-        """Get consumer group name for a worker.
-
-        First checks for custom group_id in worker config, otherwise constructs from prefix.
-        """
-        worker_config = self.get_worker_config(domain, worker_name, "consumer")
-        if "group_id" in worker_config:
-            return worker_config["group_id"]
-
+        """Get consumer group name for a worker."""
         domain_config = self._get_domain_config(domain)
         prefix = domain_config.get("consumer_group_prefix", domain)
         return f"{prefix}-{worker_name}"
@@ -270,70 +210,8 @@ class MessageConfig:
         )
 
     def validate(self) -> None:
-        for domain_name in ["verisk", "claimx"]:
-            domain_config = getattr(self, domain_name)
-            if not domain_config:
-                continue
-
-            for worker_name, worker_config in domain_config.items():
-                if worker_name in [
-                    "retry_delays",
-                ]:
-                    continue
-
-                if "processing" in worker_config:
-                    self._validate_processing_settings(
-                        worker_config["processing"],
-                        f"{domain_name}.{worker_name}.processing",
-                    )
-
         self._validate_urls()
         self._validate_directories()
-
-    @staticmethod
-    def _validate_enum(
-        settings: dict[str, Any], key: str, valid_values: list[Any], context: str
-    ) -> None:
-        if key in settings and settings[key] not in valid_values:
-            raise ValueError(
-                f"{context}: {key} must be one of {valid_values}, got '{settings[key]}'"
-            )
-
-    @staticmethod
-    def _validate_min(
-        settings: dict[str, Any],
-        key: str,
-        min_value: float,
-        inclusive: bool,
-        context: str,
-    ) -> None:
-        if key in settings:
-            value = settings[key]
-            if inclusive and value < min_value:
-                raise ValueError(f"{context}: {key} must be >= {min_value}, got {value}")
-            elif not inclusive and value <= min_value:
-                raise ValueError(f"{context}: {key} must be > {min_value}, got {value}")
-
-    @staticmethod
-    def _validate_range(
-        settings: dict[str, Any],
-        key: str,
-        min_value: float,
-        max_value: float,
-        context: str,
-    ) -> None:
-        if key in settings:
-            value = settings[key]
-            if not (min_value <= value <= max_value):
-                raise ValueError(
-                    f"{context}: {key} must be between {min_value} and {max_value}, got {value}"
-                )
-
-    def _validate_processing_settings(self, settings: dict[str, Any], context: str) -> None:
-        self._validate_range(settings, "concurrency", 1, 50, context)
-        self._validate_min(settings, "batch_size", 1, inclusive=True, context=context)
-        self._validate_min(settings, "timeout_seconds", 0, inclusive=False, context=context)
-        self._validate_min(settings, "flush_timeout_seconds", 0, inclusive=False, context=context)
 
     def _validate_urls(self) -> None:
 

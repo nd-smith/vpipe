@@ -88,18 +88,14 @@ class ClaimXEntityDeltaWorker:
         writer_paths = {k: table_paths.get(k, "") for k in self._TABLE_PATH_KEYS}
         self.entity_writer = ClaimXEntityWriter(**writer_paths)
 
-        # Get processing config
-        processing_config = config.get_worker_config(domain, "entity_delta_writer", "processing")
-        self.batch_size = processing_config.get("batch_size", 100)
-        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 30.0)
-        self.max_retries = processing_config.get("max_retries", 3)
+        self.batch_size = 100
+        self.batch_timeout_seconds = 30.0
+        self.max_retries = 3
 
         # Retry config
-        self._retry_delays = processing_config.get("retry_delays", [60, 300, 900])
-        self._retry_topic_prefix = processing_config.get(
-            "retry_topic_prefix", f"{entity_rows_topic}.retry"
-        )
-        self._dlq_topic = processing_config.get("dlq_topic", f"{entity_rows_topic}.dlq")
+        self._retry_delays = [60, 300, 900]
+        self._retry_topic_prefix = f"{entity_rows_topic}.retry"
+        self._dlq_topic = f"{entity_rows_topic}.dlq"
 
         # Batch state
         self._batch: list[EntityRowsMessage] = []
@@ -119,8 +115,8 @@ class ClaimXEntityDeltaWorker:
         self._cycle_offset_end_ts = None
         self._running = False
 
-        # Health check server - use worker-specific port from config
-        health_port = processing_config.get("health_port", 8086)
+        # Health check server
+        health_port = 8086
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-entity-delta-worker",

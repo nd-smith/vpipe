@@ -16,7 +16,6 @@ def _make_config(**overrides):
     config.metadata_max_age_ms = 300000
     config.connections_max_idle_ms = 540000
     config.security_protocol = "PLAINTEXT"
-    config.get_worker_config.return_value = overrides.get("worker_config", {})
     config.get_consumer_group.return_value = overrides.get("group_id", "test-domain-test-worker")
     return config
 
@@ -94,13 +93,10 @@ class TestMessageBatchConsumerInit:
         assert consumer.batch_size == 20
         assert consumer.batch_timeout_ms == 1000
 
-    def test_reads_max_batches_from_processing_config(self):
+    def test_max_batches_defaults_to_none(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
 
         config = _make_config()
-        config.get_worker_config.side_effect = lambda d, w, c: (
-            {"max_batches": 10} if c == "processing" else {}
-        )
         consumer = MessageBatchConsumer(
             config=config,
             domain="verisk",
@@ -108,7 +104,7 @@ class TestMessageBatchConsumerInit:
             topics=["t1"],
             batch_handler=AsyncMock(),
         )
-        assert consumer.max_batches == 10
+        assert consumer.max_batches is None
 
     def test_enable_message_commit_defaults_true(self):
         from pipeline.common.batch_consumer import MessageBatchConsumer
@@ -295,9 +291,6 @@ class TestMessageBatchConsumerConsumeLoop:
         from pipeline.common.batch_consumer import MessageBatchConsumer
 
         config = _make_config()
-        config.get_worker_config.side_effect = lambda d, w, c: (
-            {"max_batches": 1} if c == "processing" else {}
-        )
         consumer = MessageBatchConsumer(
             config=config,
             domain="verisk",
@@ -305,6 +298,7 @@ class TestMessageBatchConsumerConsumeLoop:
             topics=["t1"],
             batch_handler=AsyncMock(),
         )
+        consumer.max_batches = 1
         consumer._running = True
         consumer._batch_count = 1
 

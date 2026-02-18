@@ -34,10 +34,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.enrichment.pending"
     config.get_consumer_group.return_value = "verisk-enrichment"
-    config.get_worker_config.return_value = {
-        "health_port": 8081,
-        "health_enabled": True,
-    }
     config.get_retry_delays.return_value = [300, 600, 1200]
     config.get_max_retries.return_value = 3
     return config

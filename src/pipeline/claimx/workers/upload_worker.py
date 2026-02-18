@@ -111,10 +111,8 @@ class ClaimXUploadWorker:
                 "  - ONELAKE_CLAIMX_PATH env var"
             )
 
-        # Get worker-specific processing config
-        processing_config = config.get_worker_config(domain, self.WORKER_NAME, "processing")
-        self.concurrency = processing_config.get("concurrency", 10)
-        self.batch_size = processing_config.get("batch_size", 100)
+        self.concurrency = 10
+        self.batch_size = 100
 
         # Topics to consume from
         self.topics = [config.get_topic(domain, "downloads_cached")]
@@ -160,8 +158,8 @@ class ClaimXUploadWorker:
         # OneLake client (lazy initialized in start())
         self.onelake_client: OneLakeClient | None = None
 
-        # Health check server - use worker-specific port from config
-        health_port = processing_config.get("health_port", 8083)
+        # Health check server
+        health_port = 8083
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-uploader",

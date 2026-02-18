@@ -126,9 +126,8 @@ class EventIngesterWorker:
         self._blob_write_tasks: set[asyncio.Task] = set()
         self._blob_semaphore = asyncio.Semaphore(50)
 
-        # Health check server - use worker-specific port from config
-        processing_config = config.get_worker_config(domain, "event_ingester", "processing")
-        health_port = processing_config.get("health_port", 8092)
+        # Health check server
+        health_port = 8092
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="xact-event-ingester",

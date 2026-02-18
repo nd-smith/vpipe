@@ -31,14 +31,12 @@ class MessageProducer:
         domain: str,
         worker_name: str,
     ):
-        # Producer settings loaded via config.get_worker_config(domain, worker_name, "producer")
-        # which merges worker-specific overrides with defaults
         self.config = config
         self.domain = domain
         self.worker_name = worker_name
         self._producer: AIOKafkaProducer | None = None
         self._started = False
-        self.producer_config = config.get_worker_config(domain, worker_name, "producer")
+        self.producer_config: dict = {}
 
         logger.info(
             "Initialized message producer",
@@ -46,9 +44,6 @@ class MessageProducer:
                 "domain": domain,
                 "worker_name": worker_name,
                 "bootstrap_servers": config.bootstrap_servers,
-                "security_protocol": config.security_protocol,
-                "sasl_mechanism": config.sasl_mechanism,
-                "producer_config": self.producer_config,
             },
         )
 

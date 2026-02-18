@@ -102,15 +102,12 @@ class ClaimXDeltaEventsWorker:
         else:
             self.worker_id = self.WORKER_NAME
 
-        # Batch configuration - use worker-specific config
-        processing_config = config.get_worker_config(domain, "delta_events_writer", "processing")
-        self.batch_size = processing_config.get("batch_size", 100)
-        self.batch_timeout_seconds = processing_config.get("batch_timeout_seconds", 30.0)
+        # Batch configuration
+        self.batch_size = 100
+        self.batch_timeout_seconds = 30.0
 
-        # Retry configuration from worker processing settings
-        # Note: retry_topic_prefix and dlq_topic removed - DeltaRetryHandler
-        # uses EventHub names from config.yaml (claimx.retry and claimx.dlq)
-        self._retry_delays = processing_config.get("retry_delays", [300, 600, 1200, 2400])
+        # Retry configuration
+        self._retry_delays = [300, 600, 1200, 2400]
 
         # Batch state
         self._batch: list[dict[str, Any]] = []
@@ -147,8 +144,8 @@ class ClaimXDeltaEventsWorker:
             table_path=events_table_path,
         )
 
-        # Health check server - use worker-specific port from config
-        health_port = processing_config.get("health_port", 8085)
+        # Health check server
+        health_port = 8085
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-delta-events-worker",

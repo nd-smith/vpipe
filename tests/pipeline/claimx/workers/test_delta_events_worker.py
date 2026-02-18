@@ -33,19 +33,6 @@ def mock_config():
     config.get_topic.return_value = "claimx.events"
     config.get_consumer_group.return_value = "claimx-delta-events-writer"
 
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {
-                "batch_size": 100,
-                "batch_timeout_seconds": 30.0,
-                "retry_delays": [300, 600, 1200, 2400],
-                "retry_topic_prefix": "claimx.delta-events.retry",
-                "dlq_topic": "claimx.delta-events.dlq",
-                "health_port": 8085,
-            }
-        return {"health_port": 8085}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     return config
 
 
@@ -353,13 +340,6 @@ class TestDeltaEventsWorkerBatching:
         config.get_topic.return_value = "claimx.events"
         config.get_consumer_group.return_value = "claimx-delta-events-writer"
 
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 10, "health_port": 8085}
-            return {"health_port": 8085}
-
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
-
         with patch("pipeline.claimx.workers.delta_events_worker.DeltaRetryHandler"):
             worker = ClaimXDeltaEventsWorker(
                 config=config,
@@ -383,19 +363,13 @@ class TestDeltaEventsWorkerBatching:
         config.get_topic.return_value = "claimx.events"
         config.get_consumer_group.return_value = "claimx-delta-events-writer"
 
-        def mock_get_worker_config(domain, worker_name, config_key=None):
-            if config_key == "processing":
-                return {"batch_size": 2, "health_port": 8085}
-            return {"health_port": 8085}
-
-        config.get_worker_config = Mock(side_effect=mock_get_worker_config)
-
         with patch("pipeline.claimx.workers.delta_events_worker.DeltaRetryHandler"):
             worker = ClaimXDeltaEventsWorker(
                 config=config,
                 producer=mock_producer,
                 events_table_path="abfss://test/claimx_events",
             )
+            worker.batch_size = 2
 
             # Mock flush method
             worker._flush_batch = AsyncMock()

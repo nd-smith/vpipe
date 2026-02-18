@@ -38,20 +38,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.downloads.pending"
     config.get_consumer_group.return_value = "verisk-download-worker"
-
-    # get_worker_config is called with (domain, worker_name, "processing")
-    # and should return the processing config dict directly
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {
-                "concurrency": 10,
-                "batch_size": 100,
-                "timeout_seconds": 60,
-                "health_port": 8090,
-            }
-        return {"health_port": 8090}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     config.cache_dir = "/tmp/cache"
     return config
 
@@ -134,13 +120,13 @@ class TestDownloadWorkerInitialization:
             assert worker.temp_dir.exists()
             assert worker.cache_dir.exists()
 
-    def test_initialization_loads_concurrency_from_config(self, mock_config, tmp_path):
-        """Worker loads concurrency settings from config."""
+    def test_initialization_uses_default_concurrency(self, mock_config, tmp_path):
+        """Worker uses default concurrency and batch_size."""
         with patch("pipeline.verisk.workers.download_worker.create_producer"):
             worker = DownloadWorker(config=mock_config, temp_dir=tmp_path)
 
-            assert worker.concurrency == 10
-            assert worker.batch_size == 100
+            assert worker.concurrency == 25
+            assert worker.batch_size == 200
             assert worker.timeout_seconds == 60
 
     def test_initialization_sets_topics(self, mock_config, tmp_path):
@@ -191,7 +177,7 @@ class TestDownloadWorkerLifecycle:
                 # Verify semaphore and shutdown event were created
                 assert worker._semaphore is not None
                 assert worker._shutdown_event is not None
-                assert worker._semaphore._value == 10  # concurrency limit
+                assert worker._semaphore._value == 25  # CONCURRENCY default
 
     @pytest.mark.asyncio
     async def test_stop_cleans_up_resources(self, mock_config, tmp_path):

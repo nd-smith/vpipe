@@ -102,9 +102,8 @@ class ClaimXEnrichmentWorker:
             self.worker_id = self.WORKER_NAME
 
         self.consumer_group = config.get_consumer_group(domain, "enrichment_worker")
-        self.processing_config = config.get_worker_config(domain, "enrichment_worker", "processing")
-        self.batch_size = self.processing_config.get("batch_size", 50)
-        self.batch_timeout_ms = self.processing_config.get("batch_timeout_ms", 1000)
+        self.batch_size = 50
+        self.batch_timeout_ms = 1000
 
         self._retry_delays = config.get_retry_delays(domain)
         self._max_retries = config.get_max_retries(domain)
@@ -123,13 +122,12 @@ class ClaimXEnrichmentWorker:
         self.action_executor: ActionExecutor | None = None
 
         # Project cache prevents redundant API calls for in-flight verification
-        cache_config = self.processing_config.get("project_cache", {})
-        self._preload_cache_from_delta = cache_config.get("preload_from_delta", False)
+        self._preload_cache_from_delta = False
         self.project_cache = ProjectCache()
 
         # port=0 for dynamic port assignment (avoids conflicts with multiple workers)
-        health_port = self.processing_config.get("health_port", 0)
-        health_enabled = self.processing_config.get("health_enabled", True)
+        health_port = 0
+        health_enabled = True
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-enricher",
@@ -264,7 +262,7 @@ class ClaimXEnrichmentWorker:
 
     def _load_plugins(self) -> None:
         """Load plugins from configured directory."""
-        plugins_dir = self.processing_config.get("plugins_dir", "config/plugins/claimx")
+        plugins_dir = "config/plugins/claimx"
         try:
             import os
 

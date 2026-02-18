@@ -35,12 +35,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "claimx.downloads.pending"
     config.get_consumer_group.return_value = "claimx-download-worker"
-    config.get_worker_config.return_value = {
-        "health_port": 8082,
-        "health_enabled": True,
-        "concurrency": 10,
-        "batch_size": 100,
-    }
     config.cache_dir = "/tmp/cache"
     config.claimx_api_url = "https://api.test.claimxperience.com"
     config.claimx_api_token = "test-token"
@@ -116,13 +110,13 @@ class TestClaimXDownloadWorkerInitialization:
             assert temp_dir.exists()
             assert worker.cache_dir.exists()
 
-    def test_initialization_loads_concurrency_from_config(self, mock_config, tmp_path):
-        """Worker loads concurrency and batch_size from config."""
+    def test_initialization_uses_default_concurrency(self, mock_config, tmp_path):
+        """Worker uses default concurrency and batch_size."""
         with patch("pipeline.claimx.workers.download_worker.create_producer"):
             worker = ClaimXDownloadWorker(config=mock_config, temp_dir=tmp_path)
 
-            assert worker.concurrency == 10
-            assert worker.batch_size == 100
+            assert worker.concurrency == 25
+            assert worker.batch_size == 200
 
     def test_initialization_sets_topics(self, mock_config, tmp_path):
         """Worker sets correct topics for consumption."""

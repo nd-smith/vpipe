@@ -33,10 +33,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.events"
     config.get_consumer_group.return_value = "verisk-event-ingester"
-    config.get_worker_config.return_value = {
-        "health_port": 8092,
-        "health_enabled": True,
-    }
     return config
 
 

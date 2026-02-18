@@ -33,13 +33,6 @@ def mock_config():
     config = Mock(spec=MessageConfig)
     config.get_topic.return_value = "verisk.downloads.results"
     config.get_consumer_group.return_value = "verisk-result-processor"
-
-    def mock_get_worker_config(domain, worker_name, config_key=None):
-        if config_key == "processing":
-            return {"health_port": 8094}
-        return {"health_port": 8094}
-
-    config.get_worker_config = Mock(side_effect=mock_get_worker_config)
     return config
 
 

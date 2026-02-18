@@ -58,11 +58,10 @@ class MessageConsumer:
             prefix = f"{prefix}-{instance_id}"
         self.worker_id = generate_worker_id(prefix)
 
-        self.consumer_config = config.get_worker_config(domain, worker_name, "consumer")
+        self.consumer_config: dict = {}
         self.group_id = config.get_consumer_group(domain, worker_name)
 
-        processing_config = config.get_worker_config(domain, worker_name, "processing")
-        self.max_batches = processing_config.get("max_batches")
+        self.max_batches = None
         self._batch_count = 0
 
         self._enable_message_commit = enable_message_commit
@@ -89,7 +88,6 @@ class MessageConsumer:
                 "bootstrap_servers": config.bootstrap_servers,
                 "max_batches": self.max_batches,
                 "enable_message_commit": enable_message_commit,
-                "consumer_config": self.consumer_config,
             },
         )
 

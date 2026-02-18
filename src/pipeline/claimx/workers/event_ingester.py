@@ -104,9 +104,8 @@ class ClaimXEventIngesterWorker:
         self._dedup_cleanup_task: asyncio.Task | None = None
         self._blob_write_tasks: set[asyncio.Task] = set()
         self._blob_semaphore = asyncio.Semaphore(50)
-        processing_config = config.get_worker_config(domain, "event_ingester", "processing")
-        health_port = processing_config.get("health_port", 0)
-        health_enabled = processing_config.get("health_enabled", True)
+        health_port = 0
+        health_enabled = True
         self.health_server = HealthCheckServer(
             port=health_port,
             worker_name="claimx-event-ingester",
