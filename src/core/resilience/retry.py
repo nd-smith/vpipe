@@ -306,6 +306,61 @@ DEFAULT_RETRY = RetryConfig(max_attempts=3, base_delay=1.0)
 AUTH_RETRY = RetryConfig(max_attempts=2, base_delay=0.5)
 
 
+def _sync_retry_loop(func, args, kwargs, config, on_auth_error, on_retry, wrap_errors):
+    """Execute a sync function with retry logic."""
+    last_error: Exception | None = None
+
+    for attempt in range(config.max_attempts):
+        try:
+            result = func(*args, **kwargs)
+            if attempt > 0:
+                _log_recovery(func.__name__, attempt, config)
+            return result
+        except Exception as e:
+            last_error = e
+            delay, _, needs_auth = _handle_exception(
+                e, attempt, config, func.__name__, on_retry, wrap_errors
+            )
+            if needs_auth and on_auth_error:
+                on_auth_error()
+            time.sleep(delay)
+
+    # Should not reach here, but just in case
+    if last_error:
+        raise last_error
+
+
+async def _invoke_auth_callback(on_auth_error):
+    """Invoke an auth error callback, handling both sync and async callables."""
+    if asyncio.iscoroutinefunction(on_auth_error):
+        await on_auth_error()
+    else:
+        on_auth_error()
+
+
+async def _async_retry_loop(func, args, kwargs, config, on_auth_error, on_retry, wrap_errors):
+    """Execute an async function with retry logic."""
+    last_error: Exception | None = None
+
+    for attempt in range(config.max_attempts):
+        try:
+            result = await func(*args, **kwargs)
+            if attempt > 0:
+                _log_recovery(func.__name__, attempt, config)
+            return result
+        except Exception as e:
+            last_error = e
+            delay, _, needs_auth = _handle_exception(
+                e, attempt, config, func.__name__, on_retry, wrap_errors
+            )
+            if needs_auth and on_auth_error:
+                await _invoke_auth_callback(on_auth_error)
+            await asyncio.sleep(delay)
+
+    if last_error:
+        raise last_error
+
+
 def with_retry(
     config: RetryConfig | None = None,
     on_auth_error: Callable[[], None] | None = None,
@@ -336,26 +391,7 @@ def with_retry(
     def decorator(func: Callable):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            last_error: Exception | None = None
-
-            for attempt in range(config.max_attempts):
-                try:
-                    result = func(*args, **kwargs)
-                    if attempt > 0:
-                        _log_recovery(func.__name__, attempt, config)
-                    return result
-                except Exception as e:
-                    last_error = e
-                    delay, _, needs_auth = _handle_exception(
-                        e, attempt, config, func.__name__, on_retry, wrap_errors
-                    )
-                    if needs_auth and on_auth_error:
-                        on_auth_error()
-                    time.sleep(delay)
-
-            # Should not reach here, but just in case
-            if last_error:
-                raise last_error
+            return _sync_retry_loop(func, args, kwargs, config, on_auth_error, on_retry, wrap_errors)
 
         return wrapper
 
@@ -380,28 +416,9 @@ def with_retry_async(
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            last_error: Exception | None = None
-
-            for attempt in range(config.max_attempts):
-                try:
-                    result = await func(*args, **kwargs)
-                    if attempt > 0:
-                        _log_recovery(func.__name__, attempt, config)
-                    return result
-                except Exception as e:
-                    last_error = e
-                    delay, _, needs_auth = _handle_exception(
-                        e, attempt, config, func.__name__, on_retry, wrap_errors
-                    )
-                    if needs_auth and on_auth_error:
-                        if asyncio.iscoroutinefunction(on_auth_error):
-                            await on_auth_error()
-                        else:
-                            on_auth_error()
-                    await asyncio.sleep(delay)
-
-            if last_error:
-                raise last_error
+            return await _async_retry_loop(
+                func, args, kwargs, config, on_auth_error, on_retry, wrap_errors
+            )
 
         return wrapper
 
