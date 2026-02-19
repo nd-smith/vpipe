@@ -1128,8 +1128,7 @@ class TestDeltaTableWriterWriteRows:
 class TestDeltaTableWriterProductionReadiness:
     """Production readiness: schema alignment warnings, write failure propagation, auth refresh."""
 
-    @patch("pipeline.common.storage.delta.DeltaTable")
-    def test_schema_alignment_logs_warning_on_type_mismatch(self, mock_dt, caplog):
+    def test_schema_alignment_logs_warning_on_type_mismatch(self, caplog):
         """Source column type differs from target → aligned with warning log."""
         import logging
 
@@ -1142,7 +1141,8 @@ class TestDeltaTableWriterProductionReadiness:
 
         mock_schema = MagicMock()
         mock_schema.fields = [mock_field]
-        mock_dt.return_value.schema.return_value = mock_schema
+        mock_dt = MagicMock()
+        mock_dt.schema.return_value = mock_schema
 
         # Source has Int64 for "amount", target has Float64 → mismatch
         mock_df = MagicMock()
@@ -1155,7 +1155,7 @@ class TestDeltaTableWriterProductionReadiness:
         writer = DeltaTableWriter("abfss://ws@acct/table")
 
         with caplog.at_level(logging.WARNING):
-            writer._align_schema_with_target(mock_df, {})
+            writer._align_schema_with_target(mock_df, {}, mock_dt)
 
         # Verify WARNING was logged (not just DEBUG)
         warning_messages = [r.message for r in caplog.records if r.levelname == "WARNING"]
@@ -1210,18 +1210,17 @@ class TestDeltaTableWriterProductionReadiness:
 
 
 class TestDeltaTableWriterAlignSchema:
-    @patch("pipeline.common.storage.delta.DeltaTable")
-    def test_returns_original_df_on_error(self, mock_dt):
-        mock_dt.side_effect = Exception("table read failed")
+    def test_returns_original_df_on_error(self):
+        mock_dt = MagicMock()
+        mock_dt.schema.side_effect = Exception("table read failed")
         mock_df = MagicMock()
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        result = writer._align_schema_with_target(mock_df, {"key": "val"})
+        result = writer._align_schema_with_target(mock_df, {"key": "val"}, mock_dt)
 
         assert result is mock_df
 
-    @patch("pipeline.common.storage.delta.DeltaTable")
-    def test_aligns_columns_calls_select(self, mock_dt):
+    def test_aligns_columns_calls_select(self):
         """Test that _align_schema_with_target calls df.select when schema is available."""
         # Use _arrow_type_to_polars by providing types that resolve to timestamp
         # (timestamp is checked first via string matching, avoiding pyarrow equality issues)
@@ -1239,7 +1238,8 @@ class TestDeltaTableWriterAlignSchema:
 
         mock_schema = MagicMock()
         mock_schema.fields = [mock_field1, mock_field2]
-        mock_dt.return_value.schema.return_value = mock_schema
+        mock_dt = MagicMock()
+        mock_dt.schema.return_value = mock_schema
 
         mock_df = MagicMock()
         mock_df.columns = ["name", "id"]
@@ -1249,7 +1249,7 @@ class TestDeltaTableWriterAlignSchema:
         mock_df.select.return_value = mock_df
 
         writer = DeltaTableWriter("abfss://ws@acct/table")
-        writer._align_schema_with_target(mock_df, {})
+        writer._align_schema_with_target(mock_df, {}, mock_dt)
 
         mock_df.select.assert_called_once()
 

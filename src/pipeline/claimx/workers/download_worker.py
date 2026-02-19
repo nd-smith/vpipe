@@ -482,6 +482,8 @@ class ClaimXDownloadWorker:
                     exc_info=result,
                 )
                 errors += 1
+            elif result is None:
+                errors += 1
             elif result.success:
                 succeeded += 1
             else:

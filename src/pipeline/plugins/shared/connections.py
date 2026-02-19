@@ -42,6 +42,14 @@ def is_http_error(status_code: int) -> bool:
     return status_code < 200 or status_code >= 300
 
 
+_DEFAULT_AUTH_HEADERS: dict[AuthType, str] = {
+    AuthType.BEARER: "Authorization",
+    AuthType.BASIC: "Authorization",
+    AuthType.OAUTH2: "Authorization",
+    AuthType.API_KEY: "X-API-Key",
+}
+
+
 @dataclass
 class ConnectionConfig:
     """Configuration for a named HTTP connection.
@@ -76,13 +84,6 @@ class ConnectionConfig:
     endpoint: str = ""
     method: str = "POST"
 
-    _DEFAULT_AUTH_HEADERS: dict[AuthType, str] = {
-        AuthType.BEARER: "Authorization",
-        AuthType.BASIC: "Authorization",
-        AuthType.OAUTH2: "Authorization",
-        AuthType.API_KEY: "X-API-Key",
-    }
-
     _OAUTH2_REQUIRED_FIELDS = ("oauth2_client_id", "oauth2_client_credential", "oauth2_token_url")
 
     def __post_init__(self):
@@ -93,7 +94,7 @@ class ConnectionConfig:
             self.auth_type = AuthType(self.auth_type)
 
         if self.auth_header is None:
-            self.auth_header = self._DEFAULT_AUTH_HEADERS.get(self.auth_type)
+            self.auth_header = _DEFAULT_AUTH_HEADERS.get(self.auth_type)
 
         if self.auth_type == AuthType.OAUTH2:
             self._validate_oauth2()
