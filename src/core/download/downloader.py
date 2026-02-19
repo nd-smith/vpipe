@@ -13,6 +13,7 @@ Clean interface: DownloadTask -> DownloadOutcome
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 
 import aiohttp
 
@@ -67,24 +68,9 @@ class AttachmentDownloader:
                 )
 
         if task.check_expiration:
-            url_info = check_presigned_url(task.url)
-            if url_info.url_type == "s3" and url_info.is_expired:
-                expires_at = url_info.expires_at.isoformat() if url_info.expires_at else "unknown"
-                signed_at = url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
-                logger.debug(
-                    "Presigned URL expired, sending to DLQ",
-                    extra={
-                        "url_type": url_info.url_type,
-                        "signed_at": signed_at,
-                        "expires_at": expires_at,
-                        "ttl_seconds": url_info.ttl_seconds,
-                        "seconds_expired": abs(url_info.seconds_remaining or 0),
-                    },
-                )
-                return DownloadOutcome.validation_failure(
-                    validation_error=f"Presigned URL expired at {expires_at} (signed at {signed_at})",
-                    error_category=ErrorCategory.PERMANENT,
-                )
+            expiry_error = self._check_url_expiration(task.url)
+            if expiry_error:
+                return expiry_error
 
         if task.validate_file_type:
             try:
@@ -96,6 +82,30 @@ class AttachmentDownloader:
                 )
 
         return None
+
+    @staticmethod
+    def _check_url_expiration(url: str) -> DownloadOutcome | None:
+        """Check if a presigned URL has expired. Returns failure outcome or None."""
+        url_info = check_presigned_url(url)
+        if not (url_info.url_type == "s3" and url_info.is_expired):
+            return None
+
+        expires_at = url_info.expires_at.isoformat() if url_info.expires_at else "unknown"
+        signed_at = url_info.signed_at.isoformat() if url_info.signed_at else "unknown"
+        logger.debug(
+            "Presigned URL expired, sending to DLQ",
+            extra={
+                "url_type": url_info.url_type,
+                "signed_at": signed_at,
+                "expires_at": expires_at,
+                "ttl_seconds": url_info.ttl_seconds,
+                "seconds_expired": abs(url_info.seconds_remaining or 0),
+            },
+        )
+        return DownloadOutcome.validation_failure(
+            validation_error=f"Presigned URL expired at {expires_at} (signed at {signed_at})",
+            error_category=ErrorCategory.PERMANENT,
+        )
 
     @staticmethod
     def _check_integrity(
@@ -143,45 +153,62 @@ class AttachmentDownloader:
             )
         return None
 
+    @asynccontextmanager
+    async def _get_session(self):
+        """Yield an aiohttp session, creating one if needed."""
+        if self._session is not None:
+            yield self._session
+        else:
+            session = create_session(
+                max_connections=self._max_connections,
+                max_connections_per_host=self._max_connections_per_host,
+            )
+            try:
+                yield session
+            finally:
+                await session.close()
+                await asyncio.sleep(0)
+
+    async def _resolve_download_strategy(
+        self, task: DownloadTask, session: aiohttp.ClientSession,
+    ) -> tuple[bool, int | None, DownloadOutcome | None]:
+        """Determine streaming vs in-memory and get content length.
+
+        Returns (use_streaming, content_length, error_outcome).
+        error_outcome is non-None if the download should be aborted.
+        """
+        if task.skip_head:
+            return True, None, None
+
+        t_head = time.perf_counter()
+        content_length = await self._get_content_length(task.url, session, task.timeout)
+        head_ms = int((time.perf_counter() - t_head) * 1000)
+        logger.debug(
+            f"HEAD request completed in {head_ms}ms: content_length={content_length}",
+            extra={"download_url": task.url[:120]},
+        )
+
+        if task.max_size and content_length and content_length > task.max_size:
+            error = DownloadOutcome.validation_failure(
+                validation_error=f"File size {content_length} exceeds maximum {task.max_size}",
+                error_category=ErrorCategory.PERMANENT,
+            )
+            return False, content_length, error
+
+        return should_stream(content_length), content_length, None
+
     async def download(self, task: DownloadTask) -> DownloadOutcome:
         """Download attachment with validation and error handling."""
-        # Steps 1-3: Pre-download validation
         pre_download_error = self._validate_pre_download(task)
         if pre_download_error:
             return pre_download_error
 
-        # Step 4: Perform HTTP download
-        session = self._session
-        should_close_session = False
-
-        try:
-            if session is None:
-                session = create_session(
-                    max_connections=self._max_connections,
-                    max_connections_per_host=self._max_connections_per_host,
-                )
-                should_close_session = True
-
-            # HEAD request to check Content-Length for streaming decision
-            content_length = None
-            if task.skip_head:
-                use_streaming = True
-            else:
-                t_head = time.perf_counter()
-                content_length = await self._get_content_length(task.url, session, task.timeout)
-                head_ms = int((time.perf_counter() - t_head) * 1000)
-                logger.debug(
-                    f"HEAD request completed in {head_ms}ms: content_length={content_length}",
-                    extra={"download_url": task.url[:120]},
-                )
-
-                if task.max_size and content_length and content_length > task.max_size:
-                    return DownloadOutcome.validation_failure(
-                        validation_error=f"File size {content_length} exceeds maximum {task.max_size}",
-                        error_category=ErrorCategory.PERMANENT,
-                    )
-
-                use_streaming = should_stream(content_length)
+        async with self._get_session() as session:
+            use_streaming, content_length, strategy_error = (
+                await self._resolve_download_strategy(task, session)
+            )
+            if strategy_error:
+                return strategy_error
 
             t_dl = time.perf_counter()
             if use_streaming:
@@ -197,21 +224,11 @@ class AttachmentDownloader:
                 extra={"download_url": task.url[:120]},
             )
 
-            # Steps 5-6: Post-download validation
-            integrity_error = self._check_integrity(outcome, content_length)
-            if integrity_error:
-                return integrity_error
-
-            content_type_error = self._validate_content_type(outcome, task)
-            if content_type_error:
-                return content_type_error
-
-            return outcome
-
-        finally:
-            if should_close_session and session:
-                await session.close()
-                await asyncio.sleep(0)
+            return (
+                self._check_integrity(outcome, content_length)
+                or self._validate_content_type(outcome, task)
+                or outcome
+            )
 
     async def _get_content_length(
         self, url: str, session: aiohttp.ClientSession, timeout: int
