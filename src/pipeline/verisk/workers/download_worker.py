@@ -484,13 +484,19 @@ class DownloadWorker:
     def _tally_batch_results(
         self, messages: list[PipelineMessage], results: list[TaskResult | None]
     ) -> bool:
-        succeeded = sum(1 for r in results if r and r.success)
-        failed = sum(1 for r in results if r and not r.success)
-        errors = sum(1 for r in results if r is None)
-
-        circuit_errors = [
-            r for r in results if r and r.error and isinstance(r.error, CircuitOpenError)
-        ]
+        succeeded = 0
+        failed = 0
+        errors = 0
+        circuit_error_count = 0
+        for r in results:
+            if r is None:
+                errors += 1
+            elif r.success:
+                succeeded += 1
+            else:
+                failed += 1
+                if r.error and isinstance(r.error, CircuitOpenError):
+                    circuit_error_count += 1
 
         logger.debug(
             "Batch processing complete",
@@ -499,17 +505,17 @@ class DownloadWorker:
                 "records_succeeded": succeeded,
                 "records_failed": failed,
                 "records_errored": errors,
-                "circuit_errors": len(circuit_errors),
+                "circuit_errors": circuit_error_count,
             },
         )
 
         self._records_succeeded += succeeded
         self._records_failed += failed + errors
 
-        if circuit_errors:
+        if circuit_error_count:
             logger.warning(
                 "Circuit breaker errors in batch - not committing offsets",
-                extra={"circuit_error_count": len(circuit_errors)},
+                extra={"circuit_error_count": circuit_error_count},
             )
             return False
 
