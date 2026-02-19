@@ -352,6 +352,15 @@ class ResultProcessor:
                 )
                 await flush_fn()
 
+    def _update_cycle_offsets(self, ts: int | None) -> None:
+        """Track earliest/latest message timestamps for cycle logging."""
+        if ts is None:
+            return
+        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
+            self._cycle_offset_start_ts = ts
+        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
+            self._cycle_offset_end_ts = ts
+
     async def _handle_result(self, message: PipelineMessage) -> None:
         """
         Handle a single result message.
@@ -364,11 +373,7 @@ class ResultProcessor:
         Triggers flush if size or timeout threshold reached.
         """
         self._records_processed += 1
-        ts = message.timestamp
-        if self._cycle_offset_start_ts is None or ts < self._cycle_offset_start_ts:
-            self._cycle_offset_start_ts = ts
-        if self._cycle_offset_end_ts is None or ts > self._cycle_offset_end_ts:
-            self._cycle_offset_end_ts = ts
+        self._update_cycle_offsets(message.timestamp)
 
         try:
             result = DownloadResultMessage.model_validate_json(message.value)
