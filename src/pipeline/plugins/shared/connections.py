@@ -76,35 +76,35 @@ class ConnectionConfig:
     endpoint: str = ""
     method: str = "POST"
 
+    _DEFAULT_AUTH_HEADERS: dict[AuthType, str] = {
+        AuthType.BEARER: "Authorization",
+        AuthType.BASIC: "Authorization",
+        AuthType.OAUTH2: "Authorization",
+        AuthType.API_KEY: "X-API-Key",
+    }
+
+    _OAUTH2_REQUIRED_FIELDS = ("oauth2_client_id", "oauth2_client_credential", "oauth2_token_url")
+
     def __post_init__(self):
         """Validate and normalize configuration."""
-        # Ensure base_url doesn't have trailing slash
         self.base_url = self.base_url.rstrip("/")
 
-        # Convert string enum to AuthType if needed
         if isinstance(self.auth_type, str):
             self.auth_type = AuthType(self.auth_type)
 
-        # Set default auth header if not provided
         if self.auth_header is None:
-            if self.auth_type in (AuthType.BEARER, AuthType.BASIC, AuthType.OAUTH2):
-                self.auth_header = "Authorization"
-            elif self.auth_type == AuthType.API_KEY:
-                self.auth_header = "X-API-Key"
+            self.auth_header = self._DEFAULT_AUTH_HEADERS.get(self.auth_type)
 
-        # Validate OAuth2 fields
         if self.auth_type == AuthType.OAUTH2:
-            missing = []
-            if not self.oauth2_client_id:
-                missing.append("oauth2_client_id")
-            if not self.oauth2_client_credential:
-                missing.append("oauth2_client_credential")
-            if not self.oauth2_token_url:
-                missing.append("oauth2_token_url")
-            if missing:
-                raise ValueError(
-                    f"OAuth2 connection '{self.name}' missing required fields: {', '.join(missing)}"
-                )
+            self._validate_oauth2()
+
+    def _validate_oauth2(self):
+        """Validate required OAuth2 fields are present."""
+        missing = [f for f in self._OAUTH2_REQUIRED_FIELDS if not getattr(self, f)]
+        if missing:
+            raise ValueError(
+                f"OAuth2 connection '{self.name}' missing required fields: {', '.join(missing)}"
+            )
 
 
 class ConnectionManager:
