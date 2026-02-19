@@ -28,6 +28,13 @@ _UNWRAP_ATTRS = [
 ]
 
 
+def _format_field_value(field: str, value: Any) -> Any:
+    """Format a field value, converting error_category enums to strings."""
+    if field != "error_category":
+        return value
+    return value.value if hasattr(value, "value") else str(value)
+
+
 def _unwrap_result_object(obj: Any, ctx: dict[str, Any]) -> Any:
     """Unwrap result objects to get underlying task/event, adding error context."""
     for inner_attr, extra_fields in _UNWRAP_ATTRS:
@@ -37,10 +44,7 @@ def _unwrap_result_object(obj: Any, ctx: dict[str, Any]) -> Any:
         for field in extra_fields:
             value = getattr(obj, field, None)
             if value:
-                if field == "error_category":
-                    ctx[field] = value.value if hasattr(value, "value") else str(value)
-                else:
-                    ctx[field] = value
+                ctx[field] = _format_field_value(field, value)
         return inner
     return obj
 
