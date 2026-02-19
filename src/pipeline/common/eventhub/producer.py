@@ -311,6 +311,49 @@ class EventHubProducer:
             )
             raise
 
+    async def _fill_batches(
+        self,
+        messages: list[tuple[str, BaseModel]],
+        headers: dict[str, str] | None = None,
+    ) -> tuple[list, int]:
+        """Serialize messages into EventDataBatch objects, splitting on overflow.
+
+        Returns (batches, total_bytes).
+        """
+        batch = await self._producer.create_batch()
+        batches = [batch]
+        total_bytes = 0
+
+        for key, value in messages:
+            value_bytes = self._serialize_value(value)
+            total_bytes += len(value_bytes)
+            event_data = self._build_event_data(value_bytes, key=key, headers=headers)
+
+            try:
+                batch.add(event_data)
+            except ValueError:
+                # Batch full — send current and start a new one
+                batch = await self._producer.create_batch()
+                batch.add(event_data)
+                batches.append(batch)
+
+        return batches, total_bytes
+
+    def _record_batch_metrics(
+        self,
+        duration: float,
+        messages: list[tuple[str, BaseModel]],
+        total_bytes: int,
+        success: bool,
+    ) -> None:
+        """Record duration and per-message metrics for a batch send."""
+        message_processing_duration_seconds.labels(
+            topic=self.eventhub_name, consumer_group="producer"
+        ).observe(duration)
+        avg_bytes = total_bytes // len(messages) if messages else 0
+        for _ in messages:
+            record_message_produced(self.eventhub_name, avg_bytes, success=success)
+
     async def send_batch(
         self,
         messages: list[tuple[str, BaseModel]],
@@ -335,12 +378,7 @@ class EventHubProducer:
             logger.warning("send_batch called with empty message list")
             return []
 
-        # Default to the producer's configured entity name
-        if topic is None:
-            topic = self.eventhub_name
-
-        # Validate topic
-        if topic != self.eventhub_name:
+        if topic is not None and topic != self.eventhub_name:
             logger.warning(f"Topic mismatch: requested '{topic}', using '{self.eventhub_name}'")
 
         logger.info(
@@ -357,26 +395,10 @@ class EventHubProducer:
         success = False
 
         try:
-            batch = await self._producer.create_batch()
-            batches_sent = 0
+            batches, total_bytes = await self._fill_batches(messages, headers)
 
-            for key, value in messages:
-                value_bytes = self._serialize_value(value)
-                total_bytes += len(value_bytes)
-                event_data = self._build_event_data(value_bytes, key=key, headers=headers)
-
-                try:
-                    batch.add(event_data)
-                except ValueError:
-                    # Batch is full — send it and start a new one
-                    await self._producer.send_batch(batch)
-                    batches_sent += 1
-                    batch = await self._producer.create_batch()
-                    batch.add(event_data)
-
-            # Send remaining messages
-            await self._producer.send_batch(batch)
-            batches_sent += 1
+            for batch in batches:
+                await self._producer.send_batch(batch)
             success = True
 
             logger.info(
@@ -384,12 +406,11 @@ class EventHubProducer:
                 extra={
                     "entity": self.eventhub_name,
                     "message_count": len(messages),
-                    "batches_sent": batches_sent,
+                    "batches_sent": len(batches),
                     "duration_ms": round((time.perf_counter() - start_time) * 1000, 2),
                 },
             )
 
-            # Return ProduceResult list for transport-agnostic interface
             return [
                 EventHubRecordMetadata(
                     topic=self.eventhub_name, partition=0, offset=i
@@ -412,13 +433,9 @@ class EventHubProducer:
             raise
 
         finally:
-            duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(
-                topic=self.eventhub_name, consumer_group="producer"
-            ).observe(duration)
-            avg_bytes = total_bytes // len(messages) if messages else 0
-            for _ in messages:
-                record_message_produced(self.eventhub_name, avg_bytes, success=success)
+            self._record_batch_metrics(
+                time.perf_counter() - start_time, messages, total_bytes, success,
+            )
 
     async def flush(self) -> None:
         """Flush pending messages.
