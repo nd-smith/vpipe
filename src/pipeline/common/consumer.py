@@ -1,6 +1,7 @@
 """Message consumer with circuit breaker, auth, error classification, and DLQ routing (WP-211)."""
 
 import asyncio
+import itertools
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -234,28 +235,30 @@ class MessageConsumer:
             await asyncio.sleep(0.5)
         return False
 
+    def _batch_limit_reached(self) -> bool:
+        """Check if the configured max_batches limit has been reached."""
+        if self.max_batches is not None and self._batch_count >= self.max_batches:
+            logger.info("Reached max_batches limit, stopping consumer", extra={"max_batches": self.max_batches, "batches_processed": self._batch_count})
+            return True
+        return False
+
     async def _consume_loop(self) -> None:
         logger.info("Starting message consumption loop", extra={"max_batches": self.max_batches, "topics": self.topics, "group_id": self.group_id})
 
         if not await self._wait_for_assignment():
             return
 
-        while self._running and self._consumer:
+        while self._running and self._consumer and not self._batch_limit_reached():
             try:
-                if self.max_batches is not None and self._batch_count >= self.max_batches:
-                    logger.info("Reached max_batches limit, stopping consumer", extra={"max_batches": self.max_batches, "batches_processed": self._batch_count})
-                    return
-
                 data = await self._consumer.getmany(timeout_ms=1000)
 
                 if data:
                     self._batch_count += 1
 
-                for _topic_partition, messages in data.items():
-                    for message in messages:
-                        if not self._running:
-                            return
-                        await self._process_message(message)
+                for message in itertools.chain.from_iterable(data.values()):
+                    if not self._running:
+                        return
+                    await self._process_message(message)
 
             except asyncio.CancelledError:
                 logger.info("Consumption loop cancelled")
