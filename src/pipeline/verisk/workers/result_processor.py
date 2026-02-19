@@ -482,59 +482,85 @@ class ResultProcessor:
         )
 
         if success:
-            # Update counters
-            setattr(self, counter_attr, getattr(self, counter_attr) + 1)
-            self._total_records_written += batch_size
-
-            # Commit offsets after successful Delta write
-            if self._consumer:
-                await self._consumer.commit()
-
-            # Build progress message for success batches
-            if table_name == "xact_attachments":
-                if self.max_batches:
-                    progress = f"Batch {self._batches_written}/{self.max_batches}"
-                else:
-                    progress = f"Batch {self._batches_written}"
-                log_message = f"{progress}: Successfully wrote {batch_size} records to {table_name}"
-            else:
-                log_message = f"Successfully wrote {batch_size} records to {table_name}"
-
-            logger.info(
-                log_message,
-                extra={
-                    "batch_id": batch_id,
-                    "batch_size": batch_size,
-                    "batches_written": getattr(self, counter_attr),
-                    "total_records_written": self._total_records_written,
-                    "first_trace_id": batch_snapshot[0].trace_id,
-                    "last_trace_id": batch_snapshot[-1].trace_id,
-                },
+            await self._handle_flush_success(
+                batch_snapshot, batch_id, batch_size, table_name, counter_attr,
             )
         else:
-            # Route failed batch to retry topics
-            extra = {
+            await self._handle_flush_failure(
+                batch_snapshot, batch_id, batch_size, table_name,
+            )
+
+    async def _handle_flush_success(
+        self,
+        batch_snapshot: list[DownloadResultMessage],
+        batch_id: str,
+        batch_size: int,
+        table_name: str,
+        counter_attr: str,
+    ) -> None:
+        """Handle counters, offset commit, and logging after a successful Delta write."""
+        # Update counters
+        setattr(self, counter_attr, getattr(self, counter_attr) + 1)
+        self._total_records_written += batch_size
+
+        # Commit offsets after successful Delta write
+        if self._consumer:
+            await self._consumer.commit()
+
+        log_message = self._build_success_log_message(batch_size, table_name)
+        logger.info(
+            log_message,
+            extra={
                 "batch_id": batch_id,
                 "batch_size": batch_size,
+                "batches_written": getattr(self, counter_attr),
+                "total_records_written": self._total_records_written,
                 "first_trace_id": batch_snapshot[0].trace_id,
                 "last_trace_id": batch_snapshot[-1].trace_id,
-            }
-            if table_name != "xact_attachments":
-                extra["table"] = table_name
+            },
+        )
 
-            logger.warning(
-                "Delta write failed, routing batch to retry topic",
-                extra=extra,
-            )
-            # Convert DownloadResultMessage objects to dicts for retry handler
-            batch_dicts = [msg.model_dump() for msg in batch_snapshot]
-            await self._retry_handler.handle_batch_failure(
-                batch=batch_dicts,
-                error=Exception(f"Delta write to {table_name} failed"),
-                retry_count=0,
-                error_category="transient",
-                batch_id=batch_id,
-            )
+    def _build_success_log_message(self, batch_size: int, table_name: str) -> str:
+        """Build the log message for a successful batch write."""
+        if table_name != "xact_attachments":
+            return f"Successfully wrote {batch_size} records to {table_name}"
+
+        if self.max_batches:
+            progress = f"Batch {self._batches_written}/{self.max_batches}"
+        else:
+            progress = f"Batch {self._batches_written}"
+        return f"{progress}: Successfully wrote {batch_size} records to {table_name}"
+
+    async def _handle_flush_failure(
+        self,
+        batch_snapshot: list[DownloadResultMessage],
+        batch_id: str,
+        batch_size: int,
+        table_name: str,
+    ) -> None:
+        """Route a failed batch to retry topics with appropriate logging."""
+        extra = {
+            "batch_id": batch_id,
+            "batch_size": batch_size,
+            "first_trace_id": batch_snapshot[0].trace_id,
+            "last_trace_id": batch_snapshot[-1].trace_id,
+        }
+        if table_name != "xact_attachments":
+            extra["table"] = table_name
+
+        logger.warning(
+            "Delta write failed, routing batch to retry topic",
+            extra=extra,
+        )
+        # Convert DownloadResultMessage objects to dicts for retry handler
+        batch_dicts = [msg.model_dump() for msg in batch_snapshot]
+        await self._retry_handler.handle_batch_failure(
+            batch=batch_dicts,
+            error=Exception(f"Delta write to {table_name} failed"),
+            retry_count=0,
+            error_category="transient",
+            batch_id=batch_id,
+        )
 
     async def _flush_batch(self) -> None:
         """
