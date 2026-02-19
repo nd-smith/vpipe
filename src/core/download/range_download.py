@@ -183,6 +183,64 @@ class _ChunkError:
     status_code: int | None = None
 
 
+def _classify_chunk_error(e: Exception, range_header: str) -> _ChunkError:
+    """Build a _ChunkError from a connection/timeout exception."""
+    if isinstance(e, (TimeoutError, aiohttp.ServerTimeoutError)):
+        return _ChunkError(
+            error_message=f"Timeout on range {range_header}: {e}",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+    return _ChunkError(
+        error_message=f"Connection error on range {range_header}: {e}",
+        error_category=ErrorCategory.TRANSIENT,
+    )
+
+
+def _check_chunk_status(
+    status: int, range_header: str
+) -> _ChunkError | None:
+    """Check HTTP status for a chunk response. Returns error or None for 206 (success)."""
+    if status == 200:
+        return _ChunkError(
+            error_message="Server returned 200 instead of 206 — Range not supported",
+            error_category=ErrorCategory.PERMANENT,
+            status_code=200,
+        )
+    if status != 206:
+        return _ChunkError(
+            error_message=f"HTTP {status} for range {range_header}",
+            error_category=classify_http_status(status),
+            status_code=status,
+        )
+    return None
+
+
+async def _attempt_chunk_download(
+    url: str,
+    session: aiohttp.ClientSession,
+    range_header: str,
+    timeout: int,
+    sock_read: int,
+) -> tuple[bytes, str | None, _ChunkError | None]:
+    """Execute a single chunk download attempt.
+
+    Returns (data, content_type, error). Raises on connection/timeout errors.
+    """
+    async with session.get(
+        url,
+        headers={"Range": range_header},
+        timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read),
+        allow_redirects=True,
+    ) as response:
+        error = _check_chunk_status(response.status, range_header)
+        if error is not None:
+            return b"", None, error
+
+        content_type = response.headers.get("Content-Type")
+        data = await response.read()
+        return data, content_type, None
+
+
 async def _download_chunk(
     url: str,
     session: aiohttp.ClientSession,
@@ -202,49 +260,16 @@ async def _download_chunk(
 
     for attempt in range(CHUNK_MAX_RETRIES):
         try:
-            async with session.get(
-                url,
-                headers={"Range": range_header},
-                timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read),
-                allow_redirects=True,
-            ) as response:
-                if response.status == 200:
-                    # Server ignores Range header — caller should fall back
-                    return b"", None, _ChunkError(
-                        error_message="Server returned 200 instead of 206 — Range not supported",
-                        error_category=ErrorCategory.PERMANENT,
-                        status_code=200,
-                    )
-
-                if response.status != 206:
-                    category = classify_http_status(response.status)
-                    last_error = _ChunkError(
-                        error_message=f"HTTP {response.status} for range {range_header}",
-                        error_category=category,
-                        status_code=response.status,
-                    )
-                    if response.status not in RETRYABLE_STATUSES:
-                        return b"", None, last_error
-                    if attempt < CHUNK_MAX_RETRIES - 1:
-                        await _backoff(attempt)
-                        continue
-                    return b"", None, last_error
-
-                # Read chunk data
-                content_type = response.headers.get("Content-Type")
-                data = await response.read()
+            data, content_type, error = await _attempt_chunk_download(
+                url, session, range_header, timeout, sock_read,
+            )
+            if error is None:
                 return data, content_type, None
-
-        except (TimeoutError, aiohttp.ServerTimeoutError) as e:
-            last_error = _ChunkError(
-                error_message=f"Timeout on range {range_header}: {e}",
-                error_category=ErrorCategory.TRANSIENT,
-            )
-        except aiohttp.ClientError as e:
-            last_error = _ChunkError(
-                error_message=f"Connection error on range {range_header}: {e}",
-                error_category=ErrorCategory.TRANSIENT,
-            )
+            last_error = error
+            if error.status_code is not None and error.status_code not in RETRYABLE_STATUSES:
+                return b"", None, last_error
+        except (TimeoutError, aiohttp.ServerTimeoutError, aiohttp.ClientError) as e:
+            last_error = _classify_chunk_error(e, range_header)
 
         if attempt < CHUNK_MAX_RETRIES - 1:
             await _backoff(attempt)

@@ -65,6 +65,42 @@ def get_open_file_descriptors() -> int:
         return -1
 
 
+_FILTER_OPS = {
+    "=": operator.eq,
+    "!=": operator.ne,
+    "<": operator.lt,
+    ">": operator.gt,
+    "<=": operator.le,
+    ">=": operator.ge,
+}
+
+
+def _build_filter_expr(col: str, op: str, value: Any) -> pl.Expr:
+    """Build a Polars filter expression with type-aware casting."""
+    col_expr = pl.col(col)
+    if isinstance(value, int):
+        col_expr = col_expr.cast(pl.Int64, strict=False).fill_null(0)
+    elif isinstance(value, float):
+        col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(0.0)
+
+    op_fn = _FILTER_OPS.get(op)
+    if op_fn is None:
+        raise ValueError(f"Unsupported filter operator: {op}")
+    return op_fn(col_expr, value)
+
+
+def _apply_filters(lf: pl.LazyFrame, filters: list[tuple[str, str, Any]]) -> pl.LazyFrame:
+    """Apply a list of (column, operator, value) filters to a LazyFrame."""
+    for col, op, value in filters:
+        try:
+            lf = lf.filter(_build_filter_expr(col, op, value))
+        except Exception as e:
+            raise TypeError(
+                f"Filter error on column '{col}' {op} {value} (type: {type(value).__name__}): {str(e)}"
+            ) from e
+    return lf
+
+
 class DeltaTableReader:
     """
     Reader for Delta tables with auth retry support.
@@ -201,39 +237,12 @@ class DeltaTableReader:
         Returns:
             Polars DataFrame
         """
-        _FILTER_OPS = {
-            "=": operator.eq,
-            "!=": operator.ne,
-            "<": operator.lt,
-            ">": operator.gt,
-            "<=": operator.le,
-            ">=": operator.ge,
-        }
-
         opts = self.storage_options or get_storage_options()
 
         lf = pl.scan_delta(self.table_path, storage_options=opts)
 
-        # Apply filters with robust type casting
         if filters:
-            for col, op, value in filters:
-                try:
-                    # Cast column to match value type for numeric comparisons
-                    col_expr = pl.col(col)
-                    if isinstance(value, int):
-                        col_expr = col_expr.cast(pl.Int64, strict=False).fill_null(0)
-                    elif isinstance(value, float):
-                        col_expr = col_expr.cast(pl.Float64, strict=False).fill_null(0.0)
-
-                    op_fn = _FILTER_OPS.get(op)
-                    if op_fn is None:
-                        raise ValueError(f"Unsupported filter operator: {op}")
-                    lf = lf.filter(op_fn(col_expr, value))
-                except Exception as e:
-                    # Provide detailed error for debugging
-                    raise TypeError(
-                        f"Filter error on column '{col}' {op} {value} (type: {type(value).__name__}): {str(e)}"
-                    ) from e
+            lf = _apply_filters(lf, filters)
 
         if columns:
             lf = lf.select(columns)

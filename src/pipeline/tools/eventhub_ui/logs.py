@@ -73,6 +73,28 @@ class LogFileInfo:
     last_modified: str
 
 
+def _entry_to_log_file(entry: dict) -> LogFileInfo:
+    """Convert a OneLake directory entry dict to a LogFileInfo."""
+    return LogFileInfo(
+        name=entry["name"].split("/")[-1],
+        path=entry["name"],
+        size=entry["size"],
+        last_modified=str(entry["last_modified"] or ""),
+    )
+
+
+def _partition_entries(entries: list[dict]) -> tuple[list[LogFileInfo], list[str]]:
+    """Split directory entries into files and subdirectory paths."""
+    files = []
+    subdirs = []
+    for e in entries:
+        if e["is_directory"]:
+            subdirs.append(e["name"])
+        else:
+            files.append(_entry_to_log_file(e))
+    return files, subdirs
+
+
 def list_log_files(domain: str, date: str) -> list[LogFileInfo]:
     """List log files for a domain/date."""
     from concurrent.futures import ThreadPoolExecutor
@@ -81,18 +103,7 @@ def list_log_files(domain: str, date: str) -> list[LogFileInfo]:
     prefix = f"logs/{domain}/{date}"
     entries = client.list_directory(prefix)
 
-    files = []
-    subdirs = []
-    for e in entries:
-        if e["is_directory"]:
-            subdirs.append(e["name"])
-        else:
-            files.append(LogFileInfo(
-                name=e["name"].split("/")[-1],
-                path=e["name"],
-                size=e["size"],
-                last_modified=str(e["last_modified"] or ""),
-            ))
+    files, subdirs = _partition_entries(entries)
 
     # Fetch archive subdirectories in parallel
     if subdirs:
@@ -101,12 +112,7 @@ def list_log_files(domain: str, date: str) -> list[LogFileInfo]:
         for archive_entries in results:
             for ae in archive_entries:
                 if not ae["is_directory"]:
-                    files.append(LogFileInfo(
-                        name=ae["name"].split("/")[-1],
-                        path=ae["name"],
-                        size=ae["size"],
-                        last_modified=str(ae["last_modified"] or ""),
-                    ))
+                    files.append(_entry_to_log_file(ae))
 
     return sorted(files, key=lambda f: f.name, reverse=True)
 

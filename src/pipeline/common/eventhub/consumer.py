@@ -407,6 +407,96 @@ class EventHubConsumer:
                 },
             )
 
+    async def _on_event(self, partition_context, event):
+        """Process single event from Event Hub partition."""
+        if not self._running or event is None:
+            return
+
+        partition_id = partition_context.partition_id
+        self._current_partition_context[partition_id] = partition_context
+        self._last_partition_event[partition_id] = event
+
+        record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
+        message = record_adapter.to_pipeline_message()
+
+        try:
+            await self._process_message(message)
+            await self._maybe_checkpoint(partition_context, event, partition_id, message.offset)
+        except Exception:
+            logger.error(
+                "Message processing failed - will not checkpoint",
+                extra={
+                    "entity": self.eventhub_name,
+                    "partition_id": partition_id,
+                    "offset": message.offset,
+                },
+                exc_info=True,
+            )
+
+    async def _on_partition_initialize(self, partition_context):
+        """Called when partition is assigned to this consumer."""
+        partition_id = partition_context.partition_id
+        checkpoint_type = "blob_storage" if self.checkpoint_store else "in_memory"
+        logger.info(
+            "Partition assigned",
+            extra={
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+                "partition_id": partition_id,
+                "checkpoint_type": checkpoint_type,
+            },
+        )
+        current_count = len(self._current_partition_context)
+        update_assigned_partitions(self.consumer_group, current_count + 1)
+
+    async def _on_partition_close(self, partition_context, reason):
+        """Called when partition is revoked from this consumer."""
+        partition_id = partition_context.partition_id
+
+        # Flush uncheckpointed events before releasing partition
+        uncheckpointed = self._partition_since_checkpoint.get(partition_id, 0)
+        if self._enable_message_commit and uncheckpointed > 0:
+            last_event = self._last_partition_event.get(partition_id)
+            if last_event:
+                await partition_context.update_checkpoint(last_event)
+                self._checkpoint_count += 1
+                logger.info(
+                    "Flushed checkpoint on partition close",
+                    extra={
+                        "partition_id": partition_id,
+                        "uncheckpointed_events": uncheckpointed,
+                    },
+                )
+        self._partition_since_checkpoint.pop(partition_id, None)
+
+        logger.info(
+            "Partition revoked",
+            extra={
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+                "partition_id": partition_id,
+                "reason": reason,
+            },
+        )
+        self._current_partition_context.pop(partition_id, None)
+        self._last_partition_event.pop(partition_id, None)
+        update_assigned_partitions(self.consumer_group, len(self._current_partition_context))
+
+    async def _on_error(self, partition_context, error):
+        """Called when error occurs during consumption."""
+        partition_id = partition_context.partition_id if partition_context else "unknown"
+        logger.error(
+            "Event Hub consumer error on partition %s: %s: %s",
+            partition_id,
+            type(error).__name__,
+            error,
+            extra={
+                "partition_id": partition_id,
+                "error_type": type(error).__name__,
+                "error": str(error),
+            },
+        )
+
     async def _consume_loop(self) -> None:
         """Main consumption loop using Event Hub async receive."""
         logger.info(
@@ -417,106 +507,16 @@ class EventHubConsumer:
             },
         )
 
-        async def on_event(partition_context, event):
-            """Process single event from Event Hub partition."""
-            if not self._running or event is None:
-                return
-
-            partition_id = partition_context.partition_id
-            self._current_partition_context[partition_id] = partition_context
-            self._last_partition_event[partition_id] = event
-
-            record_adapter = EventHubConsumerRecord(event, self.eventhub_name, partition_id)
-            message = record_adapter.to_pipeline_message()
-
-            try:
-                await self._process_message(message)
-                await self._maybe_checkpoint(partition_context, event, partition_id, message.offset)
-            except Exception:
-                logger.error(
-                    "Message processing failed - will not checkpoint",
-                    extra={
-                        "entity": self.eventhub_name,
-                        "partition_id": partition_id,
-                        "offset": message.offset,
-                    },
-                    exc_info=True,
-                )
-
-        async def on_partition_initialize(partition_context):
-            """Called when partition is assigned to this consumer."""
-            partition_id = partition_context.partition_id
-            checkpoint_type = "blob_storage" if self.checkpoint_store else "in_memory"
-            logger.info(
-                "Partition assigned",
-                extra={
-                    "entity": self.eventhub_name,
-                    "consumer_group": self.consumer_group,
-                    "partition_id": partition_id,
-                    "checkpoint_type": checkpoint_type,
-                },
-            )
-            current_count = len(self._current_partition_context)
-            update_assigned_partitions(self.consumer_group, current_count + 1)
-
-        async def on_partition_close(partition_context, reason):
-            """Called when partition is revoked from this consumer."""
-            partition_id = partition_context.partition_id
-
-            # Flush uncheckpointed events before releasing partition
-            uncheckpointed = self._partition_since_checkpoint.get(partition_id, 0)
-            if self._enable_message_commit and uncheckpointed > 0:
-                last_event = self._last_partition_event.get(partition_id)
-                if last_event:
-                    await partition_context.update_checkpoint(last_event)
-                    self._checkpoint_count += 1
-                    logger.info(
-                        "Flushed checkpoint on partition close",
-                        extra={
-                            "partition_id": partition_id,
-                            "uncheckpointed_events": uncheckpointed,
-                        },
-                    )
-            self._partition_since_checkpoint.pop(partition_id, None)
-
-            logger.info(
-                "Partition revoked",
-                extra={
-                    "entity": self.eventhub_name,
-                    "consumer_group": self.consumer_group,
-                    "partition_id": partition_id,
-                    "reason": reason,
-                },
-            )
-            self._current_partition_context.pop(partition_id, None)
-            self._last_partition_event.pop(partition_id, None)
-            update_assigned_partitions(self.consumer_group, len(self._current_partition_context))
-
-        async def on_error(partition_context, error):
-            """Called when error occurs during consumption."""
-            partition_id = partition_context.partition_id if partition_context else "unknown"
-            logger.error(
-                "Event Hub consumer error on partition %s: %s: %s",
-                partition_id,
-                type(error).__name__,
-                error,
-                extra={
-                    "partition_id": partition_id,
-                    "error_type": type(error).__name__,
-                    "error": str(error),
-                },
-            )
-
         # NOTE: Do not use `async with self._consumer:` here. The stop() method
         # handles closing the consumer with a grace period for aiohttp session
         # cleanup. Using the context manager causes a double-close race where
         # __aexit__ closes after the grace period, leaking an aiohttp session.
         try:
             await self._consumer.receive(
-                on_event=on_event,
-                on_partition_initialize=on_partition_initialize,
-                on_partition_close=on_partition_close,
-                on_error=on_error,
+                on_event=self._on_event,
+                on_partition_initialize=self._on_partition_initialize,
+                on_partition_close=self._on_partition_close,
+                on_error=self._on_error,
                 starting_position=self.starting_position,
                 starting_position_inclusive=self.starting_position_inclusive,
                 max_wait_time=5,

@@ -41,6 +41,83 @@ class StreamDownloadResponse:
     chunk_iterator: AsyncIterator[bytes]
 
 
+def _classify_connection_error(e: Exception, sock_read_timeout: int) -> StreamDownloadError:
+    """Build a StreamDownloadError from a connection/timeout exception."""
+    if isinstance(e, TimeoutError):
+        return StreamDownloadError(
+            status_code=None,
+            error_message=f"Download timeout (sock_read={sock_read_timeout}s)",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+    if isinstance(e, aiohttp.ServerTimeoutError):
+        return StreamDownloadError(
+            status_code=None,
+            error_message=f"Server timeout: {str(e)}",
+            error_category=ErrorCategory.TRANSIENT,
+        )
+    return StreamDownloadError(
+        status_code=None,
+        error_message=f"Connection error: {str(e)}",
+        error_category=ErrorCategory.TRANSIENT,
+    )
+
+
+async def _backoff_sleep(attempt: int) -> None:
+    """Jittered exponential backoff for stream download retries."""
+    await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
+
+
+async def _attempt_stream_download(
+    url: str,
+    session: aiohttp.ClientSession,
+    timeout: int | None,
+    chunk_size: int,
+    allow_redirects: bool,
+    sock_read_timeout: int,
+) -> tuple[StreamDownloadResponse | None, StreamDownloadError | None]:
+    """Execute a single stream download attempt.
+
+    Returns (response, None) on success, (None, error) on HTTP error,
+    or raises on connection/timeout errors.
+    """
+    response_ctx = session.get(
+        url,
+        timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
+        allow_redirects=allow_redirects,
+    )
+
+    response = await response_ctx.__aenter__()
+
+    if response.status != 200:
+        error_category = classify_http_status(response.status)
+        await response_ctx.__aexit__(None, None, None)
+        return None, StreamDownloadError(
+            status_code=response.status,
+            error_message=f"HTTP {response.status}",
+            error_category=error_category,
+        )
+
+    content_length = response.content_length
+    content_type = response.headers.get("Content-Type")
+
+    async def chunk_iterator() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in response.content.iter_chunked(chunk_size):
+                yield chunk
+        finally:
+            await response_ctx.__aexit__(None, None, None)
+
+    return (
+        StreamDownloadResponse(
+            status_code=response.status,
+            content_length=content_length,
+            content_type=content_type,
+            chunk_iterator=chunk_iterator(),
+        ),
+        None,
+    )
+
+
 async def stream_download_url(
     url: str,
     session: aiohttp.ClientSession,
@@ -71,71 +148,19 @@ async def stream_download_url(
 
     for attempt in range(max_attempts):
         try:
-            response_ctx = session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=timeout, sock_read=sock_read_timeout),
-                allow_redirects=allow_redirects,
+            result, error = await _attempt_stream_download(
+                url, session, timeout, chunk_size, allow_redirects, sock_read_timeout,
             )
-
-            response = await response_ctx.__aenter__()
-
-            if response.status != 200:
-                error_category = classify_http_status(response.status)
-                await response_ctx.__aexit__(None, None, None)
-                last_error = StreamDownloadError(
-                    status_code=response.status,
-                    error_message=f"HTTP {response.status}",
-                    error_category=error_category,
-                )
-                if response.status not in RETRYABLE_STATUSES:
-                    return None, last_error
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
-                    continue
+            if error is None:
+                return result, None
+            last_error = error
+            if error.status_code not in RETRYABLE_STATUSES:
                 return None, last_error
-
-            content_length = response.content_length
-            content_type = response.headers.get("Content-Type")
-
-            async def chunk_iterator() -> AsyncIterator[bytes]:
-                try:
-                    async for chunk in response.content.iter_chunked(chunk_size):
-                        yield chunk
-                finally:
-                    await response_ctx.__aexit__(None, None, None)
-
-            return (
-                StreamDownloadResponse(
-                    status_code=response.status,
-                    content_length=content_length,
-                    content_type=content_type,
-                    chunk_iterator=chunk_iterator(),
-                ),
-                None,
-            )
-
         except (TimeoutError, aiohttp.ServerTimeoutError, aiohttp.ClientError) as e:
-            if isinstance(e, TimeoutError):
-                last_error = StreamDownloadError(
-                    status_code=None,
-                    error_message=f"Download timeout (sock_read={sock_read_timeout}s)",
-                    error_category=ErrorCategory.TRANSIENT,
-                )
-            elif isinstance(e, aiohttp.ServerTimeoutError):
-                last_error = StreamDownloadError(
-                    status_code=None,
-                    error_message=f"Server timeout: {str(e)}",
-                    error_category=ErrorCategory.TRANSIENT,
-                )
-            else:
-                last_error = StreamDownloadError(
-                    status_code=None,
-                    error_message=f"Connection error: {str(e)}",
-                    error_category=ErrorCategory.TRANSIENT,
-                )
-            if attempt < max_attempts - 1:
-                await asyncio.sleep(min(2, 0.5 * 2**attempt) + random.random())
-                continue
+            last_error = _classify_connection_error(e, sock_read_timeout)
+
+        if attempt < max_attempts - 1:
+            await _backoff_sleep(attempt)
 
     return None, last_error
 

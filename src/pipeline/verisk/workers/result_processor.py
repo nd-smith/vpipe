@@ -46,6 +46,14 @@ from pipeline.verisk.writers.delta_inventory import (
 logger = logging.getLogger(__name__)
 
 
+async def _safe_stop(name: str, coro) -> None:
+    """Await a coroutine, logging and swallowing any exception."""
+    try:
+        await coro
+    except Exception as e:
+        logger.error("Error stopping %s", name, extra={"error": str(e)})
+
+
 class ResultProcessor:
     """
     Consumes download results and batches for Delta table writes.
@@ -299,17 +307,10 @@ class ResultProcessor:
         logger.info("Stopping result processor")
         self._running = False
 
-        for name, coro in [
-            ("stats_logger", self._stats_logger.stop() if self._stats_logger else None),
-            ("flush_task", self._cancel_flush_task()),
-            ("pending_batches", self._flush_pending_on_shutdown()),
-        ]:
-            if coro is None:
-                continue
-            try:
-                await coro
-            except Exception as e:
-                logger.error("Error stopping %s", name, extra={"error": str(e)})
+        if self._stats_logger:
+            await _safe_stop("stats_logger", self._stats_logger.stop())
+        await _safe_stop("flush_task", self._cancel_flush_task())
+        await _safe_stop("pending_batches", self._flush_pending_on_shutdown())
 
         if self._consumer:
             try:
@@ -319,15 +320,10 @@ class ResultProcessor:
             finally:
                 self._consumer = None
 
-        for name, resource in [
-            ("retry_handler", self._retry_handler),
-            ("health_server", self.health_server),
-        ]:
-            if resource:
-                try:
-                    await resource.stop()
-                except Exception as e:
-                    logger.error("Error stopping %s", name, extra={"error": str(e)})
+        if self._retry_handler:
+            await _safe_stop("retry_handler", self._retry_handler.stop())
+        if self.health_server:
+            await _safe_stop("health_server", self.health_server.stop())
 
         logger.info(
             "Result processor stopped successfully",

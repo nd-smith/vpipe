@@ -316,7 +316,7 @@ async def run_all_workers(
     pipeline_config,
     enable_delta_writes: bool = True,
 ):
-    """Run all pipeline workers concurrently.
+    """Run all pipeline wcoorkers concurrently.
     Architecture: events.raw → EventIngester → downloads.pending → DownloadWorker → ...
                   events.raw → DeltaEventsWorker → Delta table (parallel)"""
     from config import get_config
@@ -555,6 +555,41 @@ def _setup_logging(args, domain, worker_id):
     return config, log_to_stdout, eventhub_enabled, eventhub_config
 
 
+def _extract_eventhub_namespace(conn_str: str) -> str:
+    """Extract namespace from an EventHub connection string."""
+    if "Endpoint=sb://" not in conn_str:
+        return "unknown"
+    try:
+        return conn_str.split("Endpoint=sb://")[1].split("/")[0]
+    except (IndexError, AttributeError):
+        return "unknown"
+
+
+def _display_eventhub_status(eventhub_enabled, eventhub_config):
+    """Print EventHub logging status during startup."""
+    if not eventhub_enabled:
+        print("[STARTUP] EventHub logging: DISABLED")
+        return
+
+    if not eventhub_config:
+        print(
+            "[STARTUP] EventHub logging: ✗ NOT CONFIGURED (missing EVENTHUB_NAMESPACE_CONNECTION_STRING)"
+        )
+        return
+
+    conn_str = eventhub_config.get("connection_string", "")
+    eventhub_name = eventhub_config.get("eventhub_name", "unknown")
+    eventhub_namespace = _extract_eventhub_namespace(conn_str)
+    print(f"[STARTUP] EventHub logs configured: {eventhub_namespace}/{eventhub_name}")
+
+    root_logger = logging.getLogger()
+    has_eventhub_handler = any("EventHub" in type(h).__name__ for h in root_logger.handlers)
+    if has_eventhub_handler:
+        print("[STARTUP] EventHub log handler: ✓ ACTIVE")
+    else:
+        print("[STARTUP] EventHub log handler: ✗ FAILED TO CREATE (check logs for errors)")
+
+
 def _display_startup_info(worker_id, log_to_stdout, eventhub_enabled, eventhub_config):
     log_output_mode = get_log_output_mode(
         log_to_stdout=log_to_stdout,
@@ -563,34 +598,7 @@ def _display_startup_info(worker_id, log_to_stdout, eventhub_enabled, eventhub_c
 
     print(f"[STARTUP] Log output mode: {log_output_mode}", flush=True)
     print(f"[STARTUP] Worker ID: {worker_id}", flush=True)
-
-    if eventhub_enabled:
-        if eventhub_config:
-            conn_str = eventhub_config.get("connection_string", "")
-            eventhub_name = eventhub_config.get("eventhub_name", "unknown")
-
-            eventhub_namespace = "unknown"
-            if "Endpoint=sb://" in conn_str:
-                try:
-                    endpoint_part = conn_str.split("Endpoint=sb://")[1].split("/")[0]
-                    eventhub_namespace = endpoint_part
-                except (IndexError, AttributeError):
-                    pass
-
-            print(f"[STARTUP] EventHub logs configured: {eventhub_namespace}/{eventhub_name}")
-
-            root_logger = logging.getLogger()
-            has_eventhub_handler = any("EventHub" in type(h).__name__ for h in root_logger.handlers)
-            if has_eventhub_handler:
-                print("[STARTUP] EventHub log handler: ✓ ACTIVE")
-            else:
-                print("[STARTUP] EventHub log handler: ✗ FAILED TO CREATE (check logs for errors)")
-        else:
-            print(
-                "[STARTUP] EventHub logging: ✗ NOT CONFIGURED (missing EVENTHUB_NAMESPACE_CONNECTION_STRING)"
-            )
-    else:
-        print("[STARTUP] EventHub logging: DISABLED")
+    _display_eventhub_status(eventhub_enabled, eventhub_config)
 
 
 def _initialize_infrastructure(args, domain):

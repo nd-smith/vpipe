@@ -247,14 +247,67 @@ def _create_json_store(config: dict) -> DedupStoreProtocol:
     return JsonDedupStore(storage_path=storage_path)
 
 
+def _log_blob_init_failure(
+    container_name: str, attempt: int, max_attempts: int, error: Exception, *, is_final: bool
+) -> None:
+    """Log a BlobDedupStore initialization failure."""
+    if is_final:
+        logger.error(
+            "Failed to initialize BlobDedupStore after retries"
+            " - falling back to memory-only dedup",
+            extra={
+                "container_name": container_name,
+                "attempts": max_attempts,
+                "error": str(error),
+            },
+            exc_info=True,
+        )
+    else:
+        logger.warning(
+            "BlobDedupStore initialization failed (transient), retrying",
+            extra={
+                "container_name": container_name,
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+                "backoff_seconds": 2 ** attempt,
+                "error": str(error),
+            },
+        )
+
+
+async def _try_init_blob_store(connection_string: str, container_name: str, ttl_seconds: int):
+    """Attempt to create and initialize a BlobDedupStore.
+
+    Returns the store on success. Raises on failure (caller handles retry/logging).
+    """
+    from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore
+
+    store = BlobDedupStore(
+        connection_string=connection_string,
+        container_name=container_name,
+    )
+    try:
+        await store.initialize()
+    except BaseException:
+        await store.close()
+        raise
+
+    logger.info(
+        "BlobDedupStore initialized successfully",
+        extra={
+            "container_name": container_name,
+            "ttl_seconds": ttl_seconds,
+        },
+    )
+    return store
+
+
 async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
     """Create a blob-based dedup store, or None if not configured.
 
     Retries initialization up to 3 times with exponential backoff to handle
     transient network errors (e.g., connection resets, timeouts).
     """
-    from pipeline.common.eventhub.blob_dedup_store import BlobDedupStore
-
     connection_string = config["blob_storage_connection_string"]
     container_name = config["container_name"]
 
@@ -276,8 +329,7 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
         container_name = "eventhub-dedup-cache"
 
     max_attempts = 3
-
-    store = None
+    ttl_seconds = config.get("ttl_seconds", 86400)
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -285,60 +337,16 @@ async def _create_blob_store(config: dict) -> DedupStoreProtocol | None:
                 "Initializing BlobDedupStore",
                 extra={"container_name": container_name, "attempt": attempt},
             )
-
-            store = BlobDedupStore(
-                connection_string=connection_string,
-                container_name=container_name,
-            )
-
-            await store.initialize()
-
-            logger.info(
-                "BlobDedupStore initialized successfully",
-                extra={
-                    "container_name": container_name,
-                    "ttl_seconds": config.get("ttl_seconds", 86400),
-                    "attempt": attempt,
-                },
-            )
-
-            return store
+            return await _try_init_blob_store(connection_string, container_name, ttl_seconds)
 
         except (TimeoutError, OSError, ConnectionError) as e:
-            # Close the client from the failed attempt to avoid leaked sessions
-            if store:
-                await store.close()
-                store = None
-
+            _log_blob_init_failure(
+                container_name, attempt, max_attempts, e, is_final=(attempt == max_attempts),
+            )
             if attempt < max_attempts:
-                backoff = 2 ** attempt
-                logger.warning(
-                    "BlobDedupStore initialization failed (transient), retrying",
-                    extra={
-                        "container_name": container_name,
-                        "attempt": attempt,
-                        "max_attempts": max_attempts,
-                        "backoff_seconds": backoff,
-                        "error": str(e),
-                    },
-                )
-                await asyncio.sleep(backoff)
-            else:
-                logger.error(
-                    "Failed to initialize BlobDedupStore after retries"
-                    " - falling back to memory-only dedup",
-                    extra={
-                        "container_name": container_name,
-                        "attempts": max_attempts,
-                        "error": str(e),
-                    },
-                    exc_info=True,
-                )
+                await asyncio.sleep(2 ** attempt)
 
         except Exception as e:
-            if store:
-                await store.close()
-
             logger.error(
                 "Failed to initialize BlobDedupStore - falling back to memory-only dedup",
                 extra={

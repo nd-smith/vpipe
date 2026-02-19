@@ -12,6 +12,34 @@ STALE_FILE_MAX_AGE_HOURS = 24
 CLEANUP_INTERVAL_SECONDS = 3600
 
 
+def _scan_and_remove(scan_dir: Path, in_flight: set, max_age: float) -> int:
+    """Scan directory and remove stale files not in the in-flight set."""
+    if not scan_dir.exists():
+        return 0
+    count = 0
+    now = time.time()
+    for path in scan_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.parent.name in in_flight:
+            continue
+        try:
+            age = now - path.stat().st_mtime
+            if age > max_age:
+                path.unlink()
+                count += 1
+                logger.warning(
+                    "Removed stale file",
+                    extra={
+                        "file_path": str(path),
+                        "age_hours": round(age / 3600, 1),
+                    },
+                )
+        except OSError:
+            pass
+    return count
+
+
 class StaleFileCleaner:
     """Periodically removes stale files from a directory, skipping in-flight tasks."""
 
@@ -56,34 +84,7 @@ class StaleFileCleaner:
         async with self._in_flight_lock:
             in_flight = set(self._in_flight_tasks)
 
-        max_age = self._max_age_seconds
-        scan_dir = self._scan_dir
-
-        def _scan_and_remove() -> int:
-            count = 0
-            now = time.time()
-            if not scan_dir.exists():
-                return 0
-            for path in scan_dir.rglob("*"):
-                if not path.is_file():
-                    continue
-                if path.parent.name in in_flight:
-                    continue
-                try:
-                    age = now - path.stat().st_mtime
-                    if age > max_age:
-                        path.unlink()
-                        count += 1
-                        logger.warning(
-                            "Removed stale file",
-                            extra={
-                                "file_path": str(path),
-                                "age_hours": round(age / 3600, 1),
-                            },
-                        )
-                except OSError:
-                    pass
-            return count
-
-        removed = await asyncio.to_thread(_scan_and_remove)
+        removed = await asyncio.to_thread(
+            _scan_and_remove, self._scan_dir, in_flight, self._max_age_seconds
+        )
         self.total_removed += removed
