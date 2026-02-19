@@ -444,6 +444,16 @@ class EventHubBatchConsumer:
                 logger.error("Error in timeout flush loop", exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on errors
 
+    async def _drain_permanent_failures(
+        self, failures: list[tuple[PipelineMessage, Exception]],
+    ) -> bool:
+        """Route permanent failures to DLQ. Returns False if any DLQ send failed."""
+        all_routed = True
+        for msg, error in failures:
+            if not await self._route_to_dlq(msg, error):
+                all_routed = False
+        return all_routed
+
     async def _flush_partition_batch(self, partition_id: str):
         """Flush accumulated batch for a partition.
 
@@ -460,28 +470,21 @@ class EventHubBatchConsumer:
         # Acquire lock to prevent concurrent flushes of same partition
         lock = self._flush_locks.get(partition_id)
         if lock is None:
-            # Partition was closed, ignore flush
             return
 
         async with lock:
-            # Get batch and reset buffer atomically
             batch = self._batch_buffers.get(partition_id, [])
             if not batch:
-                return  # Empty batch, nothing to process
+                return
 
-            # Reset buffer and timer
             self._batch_buffers[partition_id] = []
             self._batch_timers[partition_id] = time.time()
 
-        # Extract messages for handler
         messages = [buffered.message for buffered in batch]
 
         logger.debug(
             "Processing batch",
-            extra={
-                "partition_id": partition_id,
-                "batch_size": len(messages),
-            },
+            extra={"partition_id": partition_id, "batch_size": len(messages)},
         )
 
         start_time = time.perf_counter()
@@ -492,17 +495,12 @@ class EventHubBatchConsumer:
             # Backward compat: bool return = existing behavior
             if isinstance(result, bool):
                 should_commit = result
-                permanent_failures: list[tuple[PipelineMessage, Exception]] = []
             else:
                 should_commit = result.commit
-                permanent_failures = result.permanent_failures
+                if not await self._drain_permanent_failures(result.permanent_failures):
+                    should_commit = False
 
             duration = time.perf_counter() - start_time
-
-            # Route permanent failures to DLQ
-            for msg, error in permanent_failures:
-                if not await self._route_to_dlq(msg, error):
-                    should_commit = False
 
             if should_commit and self._enable_message_commit:
                 await self._checkpoint_batch(batch, partition_id, duration)
