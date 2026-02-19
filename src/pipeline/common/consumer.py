@@ -274,35 +274,28 @@ class MessageConsumer:
         ):
             start_time = time.perf_counter()
             message_size = len(message.value) if message.value else 0
+            pipeline_message = from_consumer_record(message)
+            success = False
 
             try:
-                # Convert ConsumerRecord to PipelineMessage for handler
-                pipeline_message = from_consumer_record(message)
                 await self.message_handler(pipeline_message)
-
-                duration = time.perf_counter() - start_time
-                message_processing_duration_seconds.labels(
-                    topic=message.topic, consumer_group=self.group_id
-                ).observe(duration)
+                success = True
 
                 if self._enable_message_commit:
                     await self._consumer.commit()
 
                 self._update_partition_metrics(message)
 
-                record_message_consumed(message.topic, self.group_id, message_size, success=True)
-
             except Exception as e:
+                duration = time.perf_counter() - start_time
+                await self._handle_processing_error(pipeline_message, message, e, duration)
+
+            finally:
                 duration = time.perf_counter() - start_time
                 message_processing_duration_seconds.labels(
                     topic=message.topic, consumer_group=self.group_id
                 ).observe(duration)
-
-                record_message_consumed(message.topic, self.group_id, message_size, success=False)
-
-                # Pass PipelineMessage to error handler
-                pipeline_message = from_consumer_record(message)
-                await self._handle_processing_error(pipeline_message, message, e, duration)
+                record_message_consumed(message.topic, self.group_id, message_size, success=success)
 
     # Error categories that are logged as warnings and retried (no DLQ routing)
     _RETRIABLE_CATEGORIES = {
