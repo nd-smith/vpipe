@@ -11,6 +11,7 @@ from core.resilience.circuit_breaker import (
     CLAIMX_API_CIRCUIT_CONFIG,
     get_circuit_breaker,
 )
+from core.logging.context import get_log_context
 from core.resilience.rate_limiter import (
     CLAIMX_API_RATE_CONFIG,
     get_rate_limiter,
@@ -160,6 +161,11 @@ class ClaimXApiClient:
             await asyncio.sleep(0)
             self._session = None
 
+    @staticmethod
+    def _get_context_ids() -> dict[str, str]:
+        """Extract non-empty context IDs (trace_id, media_id, etc.) for log enrichment."""
+        return {k: v for k, v in get_log_context().items() if v}
+
     async def _handle_error_response(
         self, response, url: str, endpoint: str, method: str, duration: float
     ) -> None:
@@ -178,6 +184,7 @@ class ClaimXApiClient:
         logger.warning(
             "API request failed",
             extra={
+                **self._get_context_ids(),
                 "api_endpoint": endpoint,
                 "api_method": method,
                 "api_url": url,
@@ -202,9 +209,12 @@ class ClaimXApiClient:
 
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
 
+        ctx = self._get_context_ids()
+
         logger.debug(
             "API request starting",
             extra={
+                **ctx,
                 "api_endpoint": endpoint,
                 "api_method": method,
                 "api_url": url,
@@ -223,6 +233,7 @@ class ClaimXApiClient:
             logger.warning(
                 "Circuit breaker open - request rejected",
                 extra={
+                    **ctx,
                     "api_endpoint": endpoint,
                     "api_method": method,
                     "api_url": url,
@@ -268,6 +279,7 @@ class ClaimXApiClient:
                         log_level,
                         log_msg,
                         extra={
+                            **ctx,
                             "api_endpoint": endpoint,
                             "api_method": method,
                             "http_status": response.status,
@@ -288,6 +300,7 @@ class ClaimXApiClient:
                 logger.warning(
                     "API request timeout",
                     extra={
+                        **ctx,
                         "api_endpoint": endpoint,
                         "api_method": method,
                         "api_url": url,
@@ -311,6 +324,7 @@ class ClaimXApiClient:
                     "API connection error",
                     exc_info=True,
                     extra={
+                        **ctx,
                         "api_endpoint": endpoint,
                         "api_method": method,
                         "api_url": url,
