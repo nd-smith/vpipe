@@ -354,6 +354,7 @@ class EventHubProducer:
 
         start_time = time.perf_counter()
         total_bytes = 0
+        success = False
 
         try:
             batch = await self._producer.create_batch()
@@ -376,16 +377,7 @@ class EventHubProducer:
             # Send remaining messages
             await self._producer.send_batch(batch)
             batches_sent += 1
-
-            duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(
-                topic=self.eventhub_name, consumer_group="producer"
-            ).observe(duration)
-
-            for _ in messages:
-                record_message_produced(
-                    self.eventhub_name, total_bytes // len(messages), success=True
-                )
+            success = True
 
             logger.info(
                 "Batch sent successfully",
@@ -393,7 +385,7 @@ class EventHubProducer:
                     "entity": self.eventhub_name,
                     "message_count": len(messages),
                     "batches_sent": batches_sent,
-                    "duration_ms": round(duration * 1000, 2),
+                    "duration_ms": round((time.perf_counter() - start_time) * 1000, 2),
                 },
             )
 
@@ -406,28 +398,27 @@ class EventHubProducer:
             ]
 
         except Exception as e:
-            duration = time.perf_counter() - start_time
-            message_processing_duration_seconds.labels(
-                topic=self.eventhub_name, consumer_group="producer"
-            ).observe(duration)
-
-            for _ in messages:
-                record_message_produced(
-                    self.eventhub_name, total_bytes // len(messages), success=False
-                )
             record_producer_error(self.eventhub_name, type(e).__name__)
-
             logger.error(
                 "Failed to send batch",
                 extra={
                     "entity": self.eventhub_name,
                     "message_count": len(messages),
-                    "duration_ms": round(duration * 1000, 2),
+                    "duration_ms": round((time.perf_counter() - start_time) * 1000, 2),
                     "error": str(e),
                 },
                 exc_info=True,
             )
             raise
+
+        finally:
+            duration = time.perf_counter() - start_time
+            message_processing_duration_seconds.labels(
+                topic=self.eventhub_name, consumer_group="producer"
+            ).observe(duration)
+            avg_bytes = total_bytes // len(messages) if messages else 0
+            for _ in messages:
+                record_message_produced(self.eventhub_name, avg_bytes, success=success)
 
     async def flush(self) -> None:
         """Flush pending messages.
