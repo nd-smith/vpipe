@@ -509,14 +509,13 @@ class ClaimXEnrichmentWorker:
 
         return all_results
 
-    async def _dispatch_batch_results(
+    async def _tally_and_route_results(
         self,
         all_results: list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]],
-        parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]],
-        permanent_failures: list[tuple[PipelineMessage, Exception]],
-    ) -> None:
-        """Tally results, dispatch entity rows and download tasks."""
+    ) -> tuple[EntityRowsMessage, list[tuple[PipelineMessage, Exception]]]:
+        """Tally results and route failures. Returns (entity_rows, permanent_failures)."""
         all_entity_rows = EntityRowsMessage()
+        permanent_failures: list[tuple[PipelineMessage, Exception]] = []
 
         for result, msg, task in all_results:
             self._records_processed += 1
@@ -531,6 +530,18 @@ class ClaimXEnrichmentWorker:
                     permanent_failures.append((msg, error))
                 else:
                     await self._handle_enrichment_failure(task, error, category)
+
+        return all_entity_rows, permanent_failures
+
+    async def _dispatch_batch_results(
+        self,
+        all_results: list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]],
+        parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]],
+        permanent_failures: list[tuple[PipelineMessage, Exception]],
+    ) -> None:
+        """Tally results, dispatch entity rows and download tasks."""
+        all_entity_rows, new_failures = await self._tally_and_route_results(all_results)
+        permanent_failures.extend(new_failures)
 
         if self.enable_delta_writes and not all_entity_rows.is_empty():
             all_tasks = [task for _, task, _ in parsed]
