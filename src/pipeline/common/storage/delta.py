@@ -413,32 +413,24 @@ class DeltaTableWriter:
                     return df
             target_schema = dt.schema()
 
-            # Build ordered list of target column names and mapping to Arrow types
-            target_column_order: list[str] = []
-            target_types: dict[str, Any] = {}
-            for field in target_schema.fields:
-                target_column_order.append(field.name)
-                target_types[field.name] = field.type
-
             source_columns = set(df.columns)
+            target_names = set()
 
-            # Build expressions in TARGET column order first
+            # Single pass: build cast expressions in target column order
             cast_exprs = []
             mismatches = []
-            for col in target_column_order:
-                if col in source_columns:
-                    expr, note = self._build_cast_expr(col, df[col].dtype, target_types[col])
-                    cast_exprs.append(expr)
-                    if note:
-                        mismatches.append(note)
+            for field in target_schema.fields:
+                target_names.add(field.name)
+                if field.name not in source_columns:
+                    continue
+                expr, note = self._build_cast_expr(field.name, df[field.name].dtype, field.type)
+                cast_exprs.append(expr)
+                if note:
+                    mismatches.append(note)
 
-            # Add any extra source columns not in target (at the end)
-            # Schema evolution will handle adding these to the table
-            extra_cols = []
-            for col in df.columns:
-                if col not in target_types:
-                    extra_cols.append(col)
-                    cast_exprs.append(pl.col(col))
+            # Append extra source columns not in target (schema evolution handles them)
+            extra_cols = [col for col in df.columns if col not in target_names]
+            cast_exprs.extend(pl.col(col) for col in extra_cols)
 
             if cast_exprs:
                 df = df.select(cast_exprs)
@@ -450,7 +442,7 @@ class DeltaTableWriter:
                 "Aligned source schema with target",
                 extra={
                     "source_columns": len(source_columns),
-                    "target_columns": len(target_types),
+                    "target_columns": len(target_names),
                     "casts_applied": len(mismatches),
                     "extra_source_cols": extra_cols if extra_cols else None,
                     "type_changes": mismatches if mismatches else None,
