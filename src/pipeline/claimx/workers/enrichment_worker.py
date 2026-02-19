@@ -459,22 +459,28 @@ class ClaimXEnrichmentWorker:
     ) -> None:
         """Verify projects exist and dispatch project entity rows (deduplicated)."""
         project_ids = {task.project_id for _, task, _ in parsed if task.project_id}
-        project_rows_by_id: dict[str, EntityRowsMessage] = {}
+        if not project_ids:
+            return
+
+        merged_rows = await self._fetch_and_merge_project_rows(project_ids)
+
+        if self.enable_delta_writes and not merged_rows.is_empty():
+            tasks_for_dispatch = [task for _, task, _ in parsed[:1]]
+            await self._produce_entity_rows(merged_rows, tasks_for_dispatch)
+
+    async def _fetch_and_merge_project_rows(
+        self, project_ids: set[str],
+    ) -> EntityRowsMessage:
+        """Fetch project rows for each project ID and merge into a single message."""
+        merged = EntityRowsMessage()
         for pid in project_ids:
             try:
                 rows = await self._ensure_project_exists(pid)
                 if not rows.is_empty():
-                    project_rows_by_id[pid] = rows
+                    merged.merge(rows)
             except Exception:
                 pass  # handler will retry per-event
-
-        if project_rows_by_id and self.enable_delta_writes:
-            merged_project_rows = EntityRowsMessage()
-            for rows in project_rows_by_id.values():
-                merged_project_rows.merge(rows)
-            if not merged_project_rows.is_empty():
-                tasks_for_dispatch = [task for _, task, _ in parsed[:1]]
-                await self._produce_entity_rows(merged_project_rows, tasks_for_dispatch)
+        return merged
 
     async def _execute_handler_groups(
         self,
