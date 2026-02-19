@@ -399,53 +399,61 @@ class DeltaTableWriter:
             return pl.col(col).dt.replace_time_zone(target_tz).alias(col)
         return pl.col(col).dt.convert_time_zone(target_tz).alias(col)
 
+    def _build_schema_cast_exprs(
+        self,
+        df: pl.DataFrame,
+        target_schema: Any,
+    ) -> tuple[list[pl.Expr], list[str], list[str]]:
+        """Diff source/target schemas and build cast expressions in target column order.
+
+        Returns (cast_exprs, extra_cols, mismatches).
+        """
+        source_columns = set(df.columns)
+        target_names: set[str] = set()
+
+        cast_exprs: list[pl.Expr] = []
+        mismatches: list[str] = []
+        for field in target_schema.fields:
+            target_names.add(field.name)
+            if field.name not in source_columns:
+                continue
+            expr, note = self._build_cast_expr(field.name, df[field.name].dtype, field.type)
+            cast_exprs.append(expr)
+            if note:
+                mismatches.append(note)
+
+        # Append extra source columns not in target (schema evolution handles them)
+        extra_cols = [col for col in df.columns if col not in target_names]
+        cast_exprs.extend(pl.col(col) for col in extra_cols)
+
+        return cast_exprs, extra_cols, mismatches
+
     def _align_schema_with_target(
         self,
         df: pl.DataFrame,
         opts: dict[str, str],
-        dt: DeltaTable | None = None,
+        dt: DeltaTable,
     ) -> pl.DataFrame:
         """Aligns DataFrame schema with target table to prevent type coercion errors during merge."""
         try:
-            if dt is None:
-                dt = self._load_table(opts)
-                if dt is None:
-                    return df
             target_schema = dt.schema()
-
-            source_columns = set(df.columns)
-            target_names = set()
-
-            # Single pass: build cast expressions in target column order
-            cast_exprs = []
-            mismatches = []
-            for field in target_schema.fields:
-                target_names.add(field.name)
-                if field.name not in source_columns:
-                    continue
-                expr, note = self._build_cast_expr(field.name, df[field.name].dtype, field.type)
-                cast_exprs.append(expr)
-                if note:
-                    mismatches.append(note)
-
-            # Append extra source columns not in target (schema evolution handles them)
-            extra_cols = [col for col in df.columns if col not in target_names]
-            cast_exprs.extend(pl.col(col) for col in extra_cols)
+            cast_exprs, extra_cols, mismatches = self._build_schema_cast_exprs(
+                df, target_schema
+            )
 
             if cast_exprs:
                 df = df.select(cast_exprs)
 
-            # Log detailed info for debugging schema issues
             log_level = logging.WARNING if mismatches else logging.DEBUG
             logger.log(
                 log_level,
                 "Aligned source schema with target",
                 extra={
-                    "source_columns": len(source_columns),
-                    "target_columns": len(target_names),
+                    "source_columns": len(df.columns),
+                    "target_columns": len(target_schema.fields),
                     "casts_applied": len(mismatches),
-                    "extra_source_cols": extra_cols if extra_cols else None,
-                    "type_changes": mismatches if mismatches else None,
+                    "extra_source_cols": extra_cols or None,
+                    "type_changes": mismatches or None,
                 },
             )
 
