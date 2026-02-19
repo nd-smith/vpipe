@@ -428,8 +428,37 @@ class ClaimXUploadWorker:
         results: list[UploadResult] = await asyncio.gather(*tasks, return_exceptions=True)
 
         # CRITICAL (Issue #38): Verify all uploads succeeded before committing offsets
-        failed_count = 0
+        success_count, failed_count, exception_count = self._tally_upload_results(results)
+
+        # Only commit offsets if ALL uploads in batch succeeded
+        # This ensures at-least-once semantics: failed uploads will be retried
+        if failed_count == 0 and exception_count == 0:
+            logger.debug(
+                "All uploads succeeded - committing batch",
+                extra={
+                    "batch_size": len(messages),
+                    "success_count": success_count,
+                },
+            )
+            return True
+
+        logger.warning(
+            "Upload failures in batch - not committing offsets",
+            extra={
+                "batch_size": len(messages),
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "exception_count": exception_count,
+            },
+        )
+        return False
+
+    def _tally_upload_results(
+        self, results: list[UploadResult],
+    ) -> tuple[int, int, int]:
+        """Classify upload results into success, failed, and exception counts."""
         success_count = 0
+        failed_count = 0
         exception_count = 0
 
         for upload_result in results:
@@ -453,28 +482,7 @@ class ClaimXUploadWorker:
                 )
                 exception_count += 1
 
-        # Only commit offsets if ALL uploads in batch succeeded
-        # This ensures at-least-once semantics: failed uploads will be retried
-        if failed_count == 0 and exception_count == 0:
-            logger.debug(
-                "All uploads succeeded - committing batch",
-                extra={
-                    "batch_size": len(messages),
-                    "success_count": success_count,
-                },
-            )
-            return True
-        else:
-            logger.warning(
-                "Upload failures in batch - not committing offsets",
-                extra={
-                    "batch_size": len(messages),
-                    "success_count": success_count,
-                    "failed_count": failed_count,
-                    "exception_count": exception_count,
-                },
-            )
-            return False
+        return success_count, failed_count, exception_count
 
     async def _process_single_with_semaphore(self, message: PipelineMessage) -> UploadResult:
         if self._semaphore is None:
