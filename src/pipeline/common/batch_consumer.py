@@ -336,6 +336,26 @@ class MessageBatchConsumer:
             await asyncio.sleep(0.5)
         return False
 
+    def _reached_max_batches(self) -> bool:
+        """Check if the max_batches limit has been reached."""
+        if self.max_batches is not None and self._batch_count >= self.max_batches:
+            logger.info("Reached max_batches limit, stopping consumer", extra={"max_batches": self.max_batches, "batches_processed": self._batch_count})
+            return True
+        return False
+
+    async def _fetch_and_process_batch(self) -> None:
+        """Fetch a single batch from Kafka and process it."""
+        data = await self._consumer.getmany(timeout_ms=self.batch_timeout_ms, max_records=self.batch_size)
+        if not data:
+            return
+
+        messages = self._collect_messages(data)
+        if not messages:
+            return
+
+        self._batch_count += 1
+        await self._flush_batch(messages)
+
     async def _consume_loop(self) -> None:
         """Main consumption loop - fetches and processes batches."""
         logger.info("Starting batch consumption loop", extra={"max_batches": self.max_batches, "topics": self.topics, "group_id": self.group_id, "batch_size": self.batch_size})
@@ -345,21 +365,9 @@ class MessageBatchConsumer:
 
         while self._running and self._consumer:
             try:
-                if self.max_batches is not None and self._batch_count >= self.max_batches:
-                    logger.info("Reached max_batches limit, stopping consumer", extra={"max_batches": self.max_batches, "batches_processed": self._batch_count})
+                if self._reached_max_batches():
                     return
-
-                data = await self._consumer.getmany(timeout_ms=self.batch_timeout_ms, max_records=self.batch_size)
-                if not data:
-                    continue
-
-                messages = self._collect_messages(data)
-                if not messages:
-                    continue
-
-                self._batch_count += 1
-                await self._flush_batch(messages)
-
+                await self._fetch_and_process_batch()
             except asyncio.CancelledError:
                 logger.info("Batch consumption loop cancelled")
                 raise
