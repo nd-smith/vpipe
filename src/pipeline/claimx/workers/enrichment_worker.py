@@ -487,15 +487,17 @@ class ClaimXEnrichmentWorker:
         parsed: list[tuple[PipelineMessage, ClaimXEnrichmentTask, ClaimXEventMessage]],
     ) -> list[tuple[Any, PipelineMessage, ClaimXEnrichmentTask]]:
         """Group events by handler, execute each group, return results."""
-        events = [event for _, _, event in parsed]
         event_to_info: dict[int, tuple[PipelineMessage, ClaimXEnrichmentTask]] = {
             id(event): (msg, task) for msg, task, event in parsed
         }
 
+        events = [event for _, _, event in parsed]
         grouped = self.handler_registry.group_events_by_handler(events)
         all_results = []
+        handled_count = 0
 
         for handler_class, handler_events in grouped.items():
+            handled_count += len(handler_events)
             handler = handler_class(self.api_client, project_cache=self.project_cache)
             try:
                 results = await handler.handle_batch(handler_events)
@@ -507,11 +509,7 @@ class ClaimXEnrichmentWorker:
                     msg, task = event_to_info[id(evt)]
                     await self._handle_enrichment_failure(task, e, ErrorCategory.TRANSIENT)
 
-        # Count unhandled event types
-        handled_events = {id(e) for events_list in grouped.values() for e in events_list}
-        for _msg, _task, event in parsed:
-            if id(event) not in handled_events:
-                self._records_skipped += 1
+        self._records_skipped += len(parsed) - handled_count
 
         return all_results
 
