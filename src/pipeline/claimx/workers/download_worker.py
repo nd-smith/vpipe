@@ -19,6 +19,10 @@ import aiohttp
 from config.config import MessageConfig
 from core.download.downloader import AttachmentDownloader
 from core.download.models import DownloadOutcome, DownloadTask
+from core.download.range_download import (
+    LARGE_FILE_THRESHOLD,
+    download_file_in_ranges,
+)
 from core.errors.exceptions import CircuitOpenError
 from core.logging.context import set_log_context
 from core.logging.periodic_logger import PeriodicStatsLogger
@@ -457,7 +461,10 @@ class ClaimXDownloadWorker:
 
         Returns (succeeded, failed, errors, circuit_errors).
         """
-        processed: list[TaskResult | None] = []
+        succeeded = 0
+        failed = 0
+        errors = 0
+        circuit_errors: list[TaskResult] = []
         for i, result in enumerate(raw_results):
             if isinstance(result, Exception):
                 msg = messages[i]
@@ -471,18 +478,13 @@ class ClaimXDownloadWorker:
                     },
                     exc_info=result,
                 )
-                processed.append(None)
+                errors += 1
+            elif result.success:
+                succeeded += 1
             else:
-                processed.append(result)
-
-        succeeded = sum(1 for r in processed if r and r.success)
-        failed = sum(1 for r in processed if r and not r.success)
-        errors = sum(1 for r in processed if r is None)
-        circuit_errors = [
-            r
-            for r in processed
-            if r and r.error and isinstance(r.error, CircuitOpenError)
-        ]
+                failed += 1
+                if result.error and isinstance(result.error, CircuitOpenError):
+                    circuit_errors.append(result)
         return succeeded, failed, errors, circuit_errors
 
     def _update_cycle_offsets(self, ts: int | None) -> None:
@@ -501,6 +503,7 @@ class ClaimXDownloadWorker:
         outcome: DownloadOutcome,
         download_task: DownloadTask,
         processing_time_ms: int,
+        preserve_partial: bool = False,
     ) -> TaskResult:
         """Record metrics and build TaskResult from download outcome."""
         if outcome.success:
@@ -517,7 +520,7 @@ class ClaimXDownloadWorker:
                 success=True,
             )
 
-        await self._handle_failure(task_message, outcome, processing_time_ms)
+        await self._handle_failure(task_message, outcome, processing_time_ms, preserve_partial)
         record_message_consumed(
             message.topic, self._consumer_group, len(message.value), success=False
         )
@@ -635,8 +638,21 @@ class ClaimXDownloadWorker:
 
             download_task = self._convert_to_download_task(task_message)
 
+            # HEAD request to determine download strategy
+            content_length = await self._head_content_length(task_message.download_url)
+            use_range = content_length is not None and content_length > LARGE_FILE_THRESHOLD
+
             t0 = time.perf_counter()
-            outcome = await self.downloader.download(download_task)
+
+            if use_range:
+                temp_file = download_task.destination
+                resume_from = temp_file.stat().st_size if temp_file.exists() else 0
+                outcome = await self._download_large_file(
+                    task_message, download_task, temp_file, content_length, resume_from
+                )
+            else:
+                outcome = await self.downloader.download(download_task)
+
             download_ms = int((time.perf_counter() - t0) * 1000)
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
@@ -646,7 +662,7 @@ class ClaimXDownloadWorker:
                 f"success={outcome.success}, status_code={outcome.status_code}, "
                 f"error_message={outcome.error_message}, "
                 f"validation_error={outcome.validation_error}, "
-                f"bytes={outcome.bytes_downloaded}",
+                f"bytes={outcome.bytes_downloaded}, range={use_range}",
                 extra={
                     "media_id": task_message.media_id,
                     "trace_id": task_message.trace_id,
@@ -655,11 +671,13 @@ class ClaimXDownloadWorker:
                     "status_code": outcome.status_code,
                     "bytes_downloaded": outcome.bytes_downloaded,
                     "processing_time_ms": download_ms,
+                    "range_download": use_range,
                 },
             )
 
             return await self._finalize_task(
-                message, task_message, outcome, download_task, processing_time_ms
+                message, task_message, outcome, download_task, processing_time_ms,
+                preserve_partial=use_range,
             )
 
         finally:
@@ -674,7 +692,7 @@ class ClaimXDownloadWorker:
         return DownloadTask(
             url=task_message.download_url,
             destination=temp_file,
-            timeout=60,
+            timeout=300,
             validate_url=True,
             validate_file_type=True,
             allow_localhost=False,
@@ -682,6 +700,70 @@ class ClaimXDownloadWorker:
             allowed_extensions=None,
             max_size=None,
             skip_head=True,
+        )
+
+    async def _head_content_length(self, url: str) -> int | None:
+        """Quick HEAD request to get Content-Length. Returns None on any failure."""
+        if self._http_session is None:
+            return None
+        try:
+            async with self._http_session.head(
+                url,
+                timeout=aiohttp.ClientTimeout(total=30, sock_read=10),
+                allow_redirects=True,
+            ) as response:
+                return response.content_length
+        except Exception:
+            return None
+
+    async def _download_large_file(
+        self,
+        task_message: ClaimXDownloadTask,
+        download_task: DownloadTask,
+        dest: Path,
+        total_size: int,
+        resume_from: int,
+    ) -> DownloadOutcome:
+        """Download large file via range requests, with fallback to streaming."""
+        # Run pre-download validation (URL, file type) before range download
+        pre_error = self.downloader._validate_pre_download(download_task)
+        if pre_error:
+            return pre_error
+
+        await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
+
+        result, error = await download_file_in_ranges(
+            url=task_message.download_url,
+            output_path=dest,
+            session=self._http_session,
+            total_size=total_size,
+            resume_from_bytes=resume_from,
+        )
+
+        if error is not None:
+            # Range not supported (server returned 200) — fall back to streaming
+            if error.status_code == 200:
+                logger.info(
+                    "Server does not support Range requests, falling back to streaming",
+                    extra={"media_id": task_message.media_id},
+                )
+                return await self.downloader.download(download_task)
+
+            # Include file_path + bytes so _handle_failure can preserve partial file
+            return DownloadOutcome(
+                success=False,
+                file_path=dest if error.bytes_written_so_far > 0 else None,
+                bytes_downloaded=error.bytes_written_so_far,
+                error_message=error.error_message,
+                error_category=error.error_category,
+                status_code=error.status_code,
+            )
+
+        return DownloadOutcome.success_outcome(
+            file_path=dest,
+            bytes_downloaded=result.bytes_written,
+            content_type=result.content_type,
+            status_code=206,
         )
 
     def _get_cycle_stats(self, cycle_count: int) -> tuple[str, dict[str, Any]]:
@@ -787,6 +869,7 @@ class ClaimXDownloadWorker:
         task_message: ClaimXDownloadTask,
         outcome: DownloadOutcome,
         processing_time_ms: int,
+        preserve_partial: bool = False,
     ) -> None:
         """Route failures based on error category: CIRCUIT_OPEN (reprocess), PERMANENT (DLQ), others (retry)."""
         if self.retry_handler is None:
@@ -878,7 +961,17 @@ class ClaimXDownloadWorker:
             )
 
         if outcome.file_path:
-            await self._cleanup_temp_file(outcome.file_path)
+            if preserve_partial and error_category == ErrorCategory.TRANSIENT:
+                logger.info(
+                    "Preserving partial file for resume on retry",
+                    extra={
+                        "media_id": task_message.media_id,
+                        "file_path": str(outcome.file_path),
+                        "bytes_downloaded": outcome.bytes_downloaded,
+                    },
+                )
+            else:
+                await self._cleanup_temp_file(outcome.file_path)
 
     async def _cleanup_temp_file(self, file_path: Path) -> None:
         try:
