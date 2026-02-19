@@ -570,6 +570,11 @@ class ClaimXEnrichmentWorker:
 
         await self._preflight_project_check(parsed)
         all_results = await self._execute_handler_groups(parsed)
+
+        for result, _msg, task in all_results:
+            if result.success:
+                await self._execute_plugins(task, result.event, result.rows, result)
+
         await self._dispatch_batch_results(all_results, parsed, permanent_failures)
 
         return BatchResult(commit=True, permanent_failures=permanent_failures)
