@@ -172,38 +172,10 @@ class MediaHandler(EventHandler):
 
         project_id = events[0].project_id
         media_ids = [event.media_id for event in events if event.media_id]
-
         start_time = datetime.now(UTC)
 
         try:
-            fetch_strategy = "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
-            logger.debug(
-                "Media fetch strategy selected",
-                extra={
-                    "handler_name": MediaHandler.HANDLER_NAME,
-                    "project_id": project_id,
-                    "media_count": len(media_ids),
-                    "media_ids": media_ids,
-                    "fetch_strategy": fetch_strategy,
-                    "threshold": BATCH_THRESHOLD,
-                },
-            )
-
-            if len(media_ids) <= BATCH_THRESHOLD:
-                response = await self.client.get_project_media(
-                    int(project_id),
-                    media_ids=[int(m) for m in media_ids if m],
-                )
-            else:
-                response = await self.client.get_project_media(int(project_id))
-
-            media_list = self._normalize_media_response(response)
-
-            media_by_id: dict[int, dict] = {}
-            for media in media_list:
-                mid = safe_int(media.get("mediaID"))
-                if mid is not None:
-                    media_by_id[mid] = media
+            media_by_id = await self._fetch_media_by_id(int(project_id), media_ids)
 
             project_rows = await self.ensure_project_exists(
                 int(project_id),
@@ -211,25 +183,17 @@ class MediaHandler(EventHandler):
             )
 
             results = []
+            succeeded = 0
             total_media_rows = 0
             for i, event in enumerate(events):
                 result = self._process_single_event(
                     event, media_by_id, int(project_id), start_time,
+                    project_rows=project_rows if i == 0 else None,
+                    api_calls=2 if i == 0 else 0,
                 )
-                if i == 0:
-                    if result.rows:
-                        result.rows.merge(project_rows)
-                    result = EnrichmentResult(
-                        event=result.event,
-                        success=result.success,
-                        rows=result.rows,
-                        error=result.error,
-                        error_category=result.error_category,
-                        is_retryable=result.is_retryable,
-                        api_calls=2,
-                        duration_ms=result.duration_ms,
-                    )
                 results.append(result)
+                if result.success:
+                    succeeded += 1
                 if result.rows:
                     total_media_rows += len(result.rows.media)
 
@@ -241,8 +205,8 @@ class MediaHandler(EventHandler):
                     "media_ids": media_ids,
                     "events_count": len(events),
                     "media_count": total_media_rows,
-                    "succeeded": sum(1 for r in results if r.success),
-                    "failed": sum(1 for r in results if not r.success),
+                    "succeeded": succeeded,
+                    "failed": len(results) - succeeded,
                     "project_verification": bool(project_rows.projects),
                 },
             )
@@ -282,12 +246,48 @@ class MediaHandler(EventHandler):
                 events, e, ErrorCategory.TRANSIENT, True, duration,
             )
 
+    async def _fetch_media_by_id(
+        self, project_id: int, media_ids: list[str],
+    ) -> dict[int, dict]:
+        """Fetch media from API and return a dict keyed by media ID."""
+        fetch_strategy = "selective" if len(media_ids) <= BATCH_THRESHOLD else "full"
+        logger.debug(
+            "Media fetch strategy selected",
+            extra={
+                "handler_name": MediaHandler.HANDLER_NAME,
+                "project_id": project_id,
+                "media_count": len(media_ids),
+                "media_ids": media_ids,
+                "fetch_strategy": fetch_strategy,
+                "threshold": BATCH_THRESHOLD,
+            },
+        )
+
+        if len(media_ids) <= BATCH_THRESHOLD:
+            response = await self.client.get_project_media(
+                project_id,
+                media_ids=[int(m) for m in media_ids if m],
+            )
+        else:
+            response = await self.client.get_project_media(project_id)
+
+        media_list = self._normalize_media_response(response)
+
+        media_by_id: dict[int, dict] = {}
+        for media in media_list:
+            mid = safe_int(media.get("mediaID"))
+            if mid is not None:
+                media_by_id[mid] = media
+        return media_by_id
+
     def _process_single_event(
         self,
         event: ClaimXEventMessage,
         media_by_id: dict[int, dict],
         project_id: int,
         batch_start_time: datetime,
+        project_rows: EntityRowsMessage | None = None,
+        api_calls: int = 0,
     ) -> EnrichmentResult:
         """Process single event using pre-fetched media data."""
         rows = EntityRowsMessage()
@@ -304,11 +304,14 @@ class MediaHandler(EventHandler):
             if media_row.get("media_id") is not None:
                 rows.media.append(media_row)
 
+            if project_rows:
+                rows.merge(project_rows)
+
             return EnrichmentResult(
                 event=event,
                 success=True,
                 rows=rows,
-                api_calls=0,
+                api_calls=api_calls,
                 duration_ms=0,
             )
         else:
@@ -324,7 +327,7 @@ class MediaHandler(EventHandler):
                 error=f"Media {event.media_id} not found in API response",
                 error_category=ErrorCategory.PERMANENT,
                 is_retryable=False,
-                api_calls=0,
+                api_calls=api_calls,
                 duration_ms=0,
             )
 
