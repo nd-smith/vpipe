@@ -95,18 +95,12 @@ class MetricsParser:
             for label_match in self.LABEL_PATTERN.finditer(labels_str):
                 labels[label_match.group(1)] = label_match.group(2)
 
-            # Parse value
             try:
-                if value_str in ("NaN", "Inf", "-Inf"):
-                    value = float(value_str)
-                else:
-                    value = float(value_str)
+                value = float(value_str)
             except ValueError:
                 continue
 
-            if name not in metrics:
-                metrics[name] = []
-            metrics[name].append({"labels": labels, "value": value})
+            metrics.setdefault(name, []).append({"labels": labels, "value": value})
 
         return metrics
 
