@@ -34,6 +34,7 @@ from pipeline.common.metrics import (
 from pipeline.common.stale_file_cleaner import StaleFileCleaner
 from pipeline.common.storage import OneLakeClient
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_batch_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 
@@ -267,10 +268,12 @@ class ClaimXUploadWorker:
                 worker_name=self.WORKER_NAME,
                 topics=self.topics,
                 batch_handler=self._process_batch,
-                batch_size=self.batch_size,
-                batch_timeout_ms=1000,
-                instance_id=self.instance_id,
                 topic_key="downloads_cached",
+                consumer_config=ConsumerConfig(
+                    batch_size=self.batch_size,
+                    batch_timeout_ms=1000,
+                    instance_id=self.instance_id,
+                ),
             )
         except Exception as e:
             logger.error(

@@ -32,6 +32,7 @@ from core.security.url_validation import sanitize_url, validate_download_url
 from core.types import ErrorCategory
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_consumer, create_producer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.base import (
@@ -264,7 +265,7 @@ class XACTEnrichmentWorker:
                 topics=[self.enrichment_topic],
                 message_handler=self._handle_enrichment_task,
                 topic_key="enrichment_pending",
-                instance_id=self.instance_id,
+                consumer_config=ConsumerConfig(instance_id=self.instance_id),
             )
 
             self.health_server.set_ready(transport_connected=True)

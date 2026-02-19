@@ -27,6 +27,7 @@ from pipeline.common.metrics import (
     record_message_consumed,
     record_processing_error,
 )
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.common.writers.base import BaseDeltaWriter
@@ -190,9 +191,11 @@ class ClaimXResultProcessor:
             worker_name=self.worker_name,
             topics=[self.results_topic],
             message_handler=self._handle_result_message,
-            enable_message_commit=False,
-            instance_id=self.instance_id,
             topic_key="downloads_results",
+            consumer_config=ConsumerConfig(
+                enable_message_commit=False,
+                instance_id=self.instance_id,
+            ),
         )
 
         # Start periodic background tasks

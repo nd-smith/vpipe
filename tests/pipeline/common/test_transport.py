@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import (
     TransportType,
     _parse_starting_position,
@@ -418,9 +419,11 @@ class TestCreateBatchConsumer:
                 "test",
                 ["t1"],
                 handler,
-                batch_size=50,
-                batch_timeout_ms=2000,
                 transport_type=TransportType.KAFKA,
+                consumer_config=ConsumerConfig(
+                    batch_size=50,
+                    batch_timeout_ms=2000,
+                ),
             )
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["batch_size"] == 50
@@ -821,7 +824,7 @@ class TestCreateConsumerStartingPosition:
                 ["t1"],
                 handler,
                 transport_type=TransportType.EVENTHUB,
-                starting_position="-1",
+                consumer_config=ConsumerConfig(starting_position="-1"),
             )
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["starting_position"] == "-1"
@@ -889,7 +892,7 @@ class TestCreateBatchConsumerStartingPosition:
                 ["t1"],
                 handler,
                 transport_type=TransportType.EVENTHUB,
-                starting_position="-1",
+                consumer_config=ConsumerConfig(starting_position="-1"),
             )
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["starting_position"] == "-1"

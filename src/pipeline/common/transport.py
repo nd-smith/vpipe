@@ -29,6 +29,7 @@ from typing import Any
 from aiokafka.structs import ConsumerRecord
 
 from config.config import MessageConfig
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.eventhub.checkpoint_store import get_checkpoint_store
 
 logger = logging.getLogger(__name__)
@@ -597,14 +598,10 @@ async def create_consumer(
     topics: list[str],
     message_handler: Callable[[ConsumerRecord], Awaitable[None]],
     *,
-    enable_message_commit: bool = True,
-    instance_id: str | None = None,
     transport_type: TransportType | None = None,
     topic_key: str | None = None,
     connection_string: str | None = None,
-    prefetch: int = 300,
-    starting_position: str | None = None,
-    checkpoint_interval: int = 1,
+    consumer_config: ConsumerConfig | None = None,
 ):
     """Create a consumer instance based on transport configuration.
 
@@ -614,8 +611,6 @@ async def create_consumer(
         worker_name: Worker name for logging
         topics: List of topics to consume from
         message_handler: Async function to process each message
-        enable_message_commit: Whether to commit offsets after processing
-        instance_id: Optional instance identifier for parallel consumers
         transport_type: Optional override for transport type (defaults to env var)
         topic_key: Optional topic key for Event Hub / consumer group resolution
                    from config.yaml (e.g., "events", "downloads_pending").
@@ -623,14 +618,13 @@ async def create_consumer(
                            When provided, uses this instead of the default namespace
                            connection string. Use for source topics that live in a
                            different namespace.
-        starting_position: Optional starting position override ("@latest", "-1", or ISO
-                           datetime). When None, resolved from config.
-        checkpoint_interval: Checkpoint every N events per partition (Event Hub only).
-                             Default 1 checkpoints every event.
+        consumer_config: Optional tuning parameters (commit, prefetch, position,
+                         checkpoint interval, etc.). Defaults to ``ConsumerConfig()``.
 
     Returns:
         MessageConsumer or EventHubConsumer instance
     """
+    cc = consumer_config or ConsumerConfig()
     transport = transport_type or get_transport_type()
 
     if len(topics) != 1 and transport == TransportType.EVENTHUB:
@@ -645,7 +639,7 @@ async def create_consumer(
         eh = await _setup_eventhub_consumer_args(
             domain, worker_name, topics, topic_key, config,
             connection_string=connection_string,
-            starting_position=starting_position,
+            starting_position=cc.starting_position,
             consumer_label="consumer",
         )
 
@@ -662,13 +656,13 @@ async def create_consumer(
             eventhub_name=eh["eventhub_name"],
             consumer_group=eh["consumer_group"],
             message_handler=message_handler,
-            enable_message_commit=enable_message_commit,
-            instance_id=instance_id,
+            enable_message_commit=cc.enable_message_commit,
+            instance_id=cc.instance_id,
             checkpoint_store=eh["checkpoint_store"],
-            prefetch=prefetch,
+            prefetch=cc.prefetch,
             starting_position=eh["starting_position"],
             starting_position_inclusive=eh["starting_position_inclusive"],
-            checkpoint_interval=checkpoint_interval,
+            checkpoint_interval=cc.checkpoint_interval,
             owner_level=eh["owner_level"],
         )
 
@@ -686,8 +680,8 @@ async def create_consumer(
             worker_name=worker_name,
             topics=topics,
             message_handler=message_handler,
-            enable_message_commit=enable_message_commit,
-            instance_id=instance_id,
+            enable_message_commit=cc.enable_message_commit,
+            instance_id=cc.instance_id,
         )
 
 
@@ -698,16 +692,10 @@ async def create_batch_consumer(
     topics: list[str],
     batch_handler: Callable[[list[ConsumerRecord]], Awaitable[bool]],
     *,
-    batch_size: int = 20,
-    max_batch_size: int | None = None,
-    batch_timeout_ms: int = 1000,
-    enable_message_commit: bool = True,
-    instance_id: str | None = None,
     transport_type: TransportType | None = None,
     topic_key: str | None = None,
     connection_string: str | None = None,
-    prefetch: int = 300,
-    starting_position: str | None = None,
+    consumer_config: ConsumerConfig | None = None,
 ):
     """Create a batch consumer for concurrent message processing.
 
@@ -717,14 +705,11 @@ async def create_batch_consumer(
         worker_name: Worker name for logging and metrics
         topics: List of topics to consume (EventHub requires single topic)
         batch_handler: Async function that processes message batches
-        batch_size: Target batch size (default: 20)
-        max_batch_size: Upper bound for batch size (allows dynamic batch_size up to
-                        this cap). Defaults to batch_size.
-        batch_timeout_ms: Max wait time to accumulate batch (default: 1000ms)
-        enable_message_commit: Whether to commit after successful batch processing
-        instance_id: Optional instance identifier for parallel consumers
         transport_type: Optional transport override (defaults to PIPELINE_TRANSPORT env)
         topic_key: Optional topic key for EventHub resolution from config.yaml
+        connection_string: Optional Event Hub connection string override.
+        consumer_config: Optional tuning parameters (batch size, prefetch,
+                         commit strategy, etc.). Defaults to ``ConsumerConfig()``.
 
     Returns:
         EventHubBatchConsumer or MessageBatchConsumer based on transport
@@ -753,6 +738,7 @@ async def create_batch_consumer(
 
             return True  # Commit batch
     """
+    cc = consumer_config or ConsumerConfig()
     transport = transport_type or get_transport_type()
 
     if len(topics) != 1 and transport == TransportType.EVENTHUB:
@@ -767,14 +753,14 @@ async def create_batch_consumer(
         eh = await _setup_eventhub_consumer_args(
             domain, worker_name, topics, topic_key, config,
             connection_string=connection_string,
-            starting_position=starting_position,
+            starting_position=cc.starting_position,
             consumer_label="batch consumer",
         )
 
         logger.info(
             f"Creating Event Hub batch consumer: domain={domain}, worker={worker_name}, "
             f"eventhub={eh['eventhub_name']}, group={eh['consumer_group']}, "
-            f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}, "
+            f"batch_size={cc.batch_size}, timeout_ms={cc.batch_timeout_ms}, "
             f"starting_position={eh['starting_position']}"
         )
 
@@ -785,13 +771,13 @@ async def create_batch_consumer(
             eventhub_name=eh["eventhub_name"],
             consumer_group=eh["consumer_group"],
             batch_handler=batch_handler,
-            batch_size=batch_size,
-            max_batch_size=max_batch_size,
-            batch_timeout_ms=batch_timeout_ms,
-            enable_message_commit=enable_message_commit,
-            instance_id=instance_id,
+            batch_size=cc.batch_size,
+            max_batch_size=cc.max_batch_size,
+            batch_timeout_ms=cc.batch_timeout_ms,
+            enable_message_commit=cc.enable_message_commit,
+            instance_id=cc.instance_id,
             checkpoint_store=eh["checkpoint_store"],
-            prefetch=prefetch,
+            prefetch=cc.prefetch,
             starting_position=eh["starting_position"],
             starting_position_inclusive=eh["starting_position_inclusive"],
             owner_level=eh["owner_level"],
@@ -803,7 +789,7 @@ async def create_batch_consumer(
         logger.info(
             f"Creating message batch consumer (Kafka protocol): domain={domain}, worker={worker_name}, "
             f"topics={topics}, servers={config.bootstrap_servers}, "
-            f"batch_size={batch_size}, timeout_ms={batch_timeout_ms}"
+            f"batch_size={cc.batch_size}, timeout_ms={cc.batch_timeout_ms}"
         )
 
         return MessageBatchConsumer(
@@ -812,15 +798,16 @@ async def create_batch_consumer(
             worker_name=worker_name,
             topics=topics,
             batch_handler=batch_handler,
-            batch_size=batch_size,
-            max_batch_size=max_batch_size,
-            batch_timeout_ms=batch_timeout_ms,
-            enable_message_commit=enable_message_commit,
-            instance_id=instance_id,
+            batch_size=cc.batch_size,
+            max_batch_size=cc.max_batch_size,
+            batch_timeout_ms=cc.batch_timeout_ms,
+            enable_message_commit=cc.enable_message_commit,
+            instance_id=cc.instance_id,
         )
 
 
 __all__ = [
+    "ConsumerConfig",
     "TransportType",
     "get_transport_type",
     "create_producer",

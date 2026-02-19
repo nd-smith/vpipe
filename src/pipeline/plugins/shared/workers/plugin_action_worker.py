@@ -16,6 +16,7 @@ from typing import Any
 
 from config.config import MessageConfig
 from pipeline.common.producer import MessageProducer
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.plugins.shared.connections import (
@@ -240,7 +241,9 @@ class PluginActionWorker:
                 worker_name=self.config.name,
                 topics=[self.config.input_topic],
                 message_handler=self._handle_message,
-                enable_message_commit=not self.config.enable_auto_commit,
+                consumer_config=ConsumerConfig(
+                    enable_message_commit=not self.config.enable_auto_commit,
+                ),
             )
 
             await self.consumer.start()

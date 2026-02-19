@@ -32,6 +32,7 @@ from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
 from pipeline.common.telemetry import initialize_worker_telemetry
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_consumer
 from pipeline.common.types import PipelineMessage
 from pipeline.verisk.schemas.results import DownloadResultMessage
@@ -240,9 +241,11 @@ class ResultProcessor:
             worker_name=self.worker_name,
             topics=[self._results_topic],
             message_handler=self._handle_result,
-            enable_message_commit=False,
-            instance_id=self.instance_id,
             topic_key="downloads_results",
+            consumer_config=ConsumerConfig(
+                enable_message_commit=False,
+                instance_id=self.instance_id,
+            ),
         )
 
         # Start periodic background tasks

@@ -41,6 +41,7 @@ from pipeline.common.metrics import (
     message_processing_duration_seconds,
     record_processing_error,
 )
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import (
     create_batch_consumer,
     create_producer,
@@ -208,12 +209,14 @@ class EventIngesterWorker:
             worker_name="event_ingester",
             topics=[self.consumer_config.get_topic(self.domain, "events")],
             batch_handler=self._handle_event_batch,
-            batch_size=self.REALTIME_BATCH_SIZE,
-            max_batch_size=self.BACKFILL_BATCH_SIZE,
-            batch_timeout_ms=500,
             topic_key="events",
             connection_string=get_source_connection_string(),
-            prefetch=3000,
+            consumer_config=ConsumerConfig(
+                batch_size=self.REALTIME_BATCH_SIZE,
+                max_batch_size=self.BACKFILL_BATCH_SIZE,
+                batch_timeout_ms=500,
+                prefetch=3000,
+            ),
         )
 
         # Update health check readiness

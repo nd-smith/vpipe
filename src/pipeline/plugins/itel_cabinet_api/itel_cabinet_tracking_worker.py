@@ -201,7 +201,6 @@ class ItelCabinetTrackingWorker:
             worker_name="itel_cabinet_tracking_worker",
             topics=[self.transport_config["input_topic"]],
             message_handler=self._handle_message,
-            enable_message_commit=True,
             topic_key=TOPIC_KEY,
         )
 

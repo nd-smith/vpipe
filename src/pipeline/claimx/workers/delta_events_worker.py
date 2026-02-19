@@ -21,6 +21,7 @@ from pipeline.claimx.writers import ClaimXEventsDeltaWriter
 from pipeline.common.health import HealthCheckServer
 from pipeline.common.metrics import record_delta_write
 from pipeline.common.retry.delta_handler import DeltaRetryHandler
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_consumer, get_source_connection_string
 from pipeline.common.types import PipelineMessage
 
@@ -230,10 +231,12 @@ class ClaimXDeltaEventsWorker:
             worker_name="delta_events_writer",
             topics=[self.config.get_topic(self.domain, "events")],
             message_handler=self._handle_event_message,
-            enable_message_commit=False,
-            instance_id=self.instance_id,
             topic_key="events",
             connection_string=get_source_connection_string(),
+            consumer_config=ConsumerConfig(
+                enable_message_commit=False,
+                instance_id=self.instance_id,
+            ),
         )
 
         # Update health check readiness

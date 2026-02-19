@@ -40,6 +40,7 @@ from pipeline.common.metrics import (
     record_processing_error,
 )
 from pipeline.common.storage.delta import DeltaTableReader
+from pipeline.common.consumer_config import ConsumerConfig
 from pipeline.common.transport import create_batch_consumer, create_consumer, create_producer
 from pipeline.common.types import BatchResult, PipelineMessage
 from pipeline.plugins.shared.base import Domain, PipelineStage, PluginContext
@@ -371,11 +372,12 @@ class ClaimXEnrichmentWorker:
                 worker_name="enrichment_worker",
                 topics=[self.enrichment_topic],
                 batch_handler=self._process_batch,
-                batch_size=self.batch_size,
-                batch_timeout_ms=self.batch_timeout_ms,
-                enable_message_commit=True,
-                instance_id=self.instance_id,
                 topic_key="enrichment_pending",
+                consumer_config=ConsumerConfig(
+                    batch_size=self.batch_size,
+                    batch_timeout_ms=self.batch_timeout_ms,
+                    instance_id=self.instance_id,
+                ),
             )
 
             self.health_server.set_ready(
