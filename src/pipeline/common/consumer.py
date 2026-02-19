@@ -242,6 +242,22 @@ class MessageConsumer:
             return True
         return False
 
+    async def _fetch_and_process_batch(self) -> bool:
+        """Fetch a batch of messages and process them.
+
+        Returns False if the consumer was stopped mid-batch, True otherwise.
+        """
+        data = await self._consumer.getmany(timeout_ms=1000)
+
+        if data:
+            self._batch_count += 1
+
+        for message in itertools.chain.from_iterable(data.values()):
+            if not self._running:
+                return False
+            await self._process_message(message)
+        return True
+
     async def _consume_loop(self) -> None:
         logger.info("Starting message consumption loop", extra={"max_batches": self.max_batches, "topics": self.topics, "group_id": self.group_id})
 
@@ -250,16 +266,8 @@ class MessageConsumer:
 
         while self._running and self._consumer and not self._batch_limit_reached():
             try:
-                data = await self._consumer.getmany(timeout_ms=1000)
-
-                if data:
-                    self._batch_count += 1
-
-                for message in itertools.chain.from_iterable(data.values()):
-                    if not self._running:
-                        return
-                    await self._process_message(message)
-
+                if not await self._fetch_and_process_batch():
+                    return
             except asyncio.CancelledError:
                 logger.info("Consumption loop cancelled")
                 raise
