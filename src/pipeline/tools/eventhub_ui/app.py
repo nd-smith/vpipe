@@ -143,18 +143,8 @@ def _load_lag_config() -> tuple[dict, list[str]]:
     return config, errors
 
 
-async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
-    """Fetch lag for every consumer group. Returns (results, errors)."""
-    from pipeline.tools.eventhub_ui.lag import calculate_lag
-
-    cfg, config_errors = _load_lag_config()
-    if config_errors:
-        return [], config_errors
-
-    hubs = list_eventhubs()
-    ssl_kwargs = get_ssl_kwargs()
-    container_name = get_checkpoint_container_name()
-
+def _build_lag_tasks(cfg, hubs, container_name, ssl_kwargs, calculate_lag):
+    """Build (hub, worker_name, cg_name, coroutine) tuples for all consumer groups."""
     tasks = []
     for hub in hubs:
         if not hub.consumer_groups:
@@ -173,12 +163,11 @@ async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
                 container_name=container_name,
                 ssl_kwargs=ssl_kwargs,
             )))
+    return tasks
 
-    gathered = await asyncio.gather(
-        *(coro for _, _, _, coro in tasks),
-        return_exceptions=True,
-    )
 
+def _collect_lag_results(tasks, gathered):
+    """Partition gather outcomes into results and errors."""
     results = []
     errors = []
     for (hub, worker_name, cg_name, _), outcome in zip(tasks, gathered):
@@ -190,8 +179,29 @@ async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
                 "worker_name": worker_name,
                 "lag": outcome,
             })
-
     return results, errors
+
+
+async def _fetch_all_lag() -> tuple[list[dict], list[str]]:
+    """Fetch lag for every consumer group. Returns (results, errors)."""
+    from pipeline.tools.eventhub_ui.lag import calculate_lag
+
+    cfg, config_errors = _load_lag_config()
+    if config_errors:
+        return [], config_errors
+
+    hubs = list_eventhubs()
+    ssl_kwargs = get_ssl_kwargs()
+    container_name = get_checkpoint_container_name()
+
+    tasks = _build_lag_tasks(cfg, hubs, container_name, ssl_kwargs, calculate_lag)
+
+    gathered = await asyncio.gather(
+        *(coro for _, _, _, coro in tasks),
+        return_exceptions=True,
+    )
+
+    return _collect_lag_results(tasks, gathered)
 
 
 @app.get("/lag", response_class=HTMLResponse)
