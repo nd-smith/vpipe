@@ -22,24 +22,26 @@ __all__ = [
 ]
 
 
+_UNWRAP_ATTRS = [
+    ("task", ("error_category", "http_status")),
+    ("event", ("error_category", "api_calls")),
+]
+
+
 def _unwrap_result_object(obj: Any, ctx: dict[str, Any]) -> Any:
     """Unwrap result objects to get underlying task/event, adding error context."""
-    if hasattr(obj, "task") and obj.task is not None:
-        if hasattr(obj, "error_category") and obj.error_category:
-            cat = obj.error_category
-            ctx["error_category"] = cat.value if hasattr(cat, "value") else str(cat)
-        if hasattr(obj, "http_status") and obj.http_status:
-            ctx["http_status"] = obj.http_status
-        return obj.task
-
-    if hasattr(obj, "event") and obj.event is not None:
-        if hasattr(obj, "error_category") and obj.error_category:
-            cat = obj.error_category
-            ctx["error_category"] = cat.value if hasattr(cat, "value") else str(cat)
-        if hasattr(obj, "api_calls") and obj.api_calls:
-            ctx["api_calls"] = obj.api_calls
-        return obj.event
-
+    for inner_attr, extra_fields in _UNWRAP_ATTRS:
+        inner = getattr(obj, inner_attr, None)
+        if inner is None:
+            continue
+        for field in extra_fields:
+            value = getattr(obj, field, None)
+            if value:
+                if field == "error_category":
+                    ctx[field] = value.value if hasattr(value, "value") else str(value)
+                else:
+                    ctx[field] = value
+        return inner
     return obj
 
 
