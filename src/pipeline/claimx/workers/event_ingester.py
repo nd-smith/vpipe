@@ -440,6 +440,16 @@ class ClaimXEventIngesterWorker:
             del self._dedup_cache[trace_id]
         return False
 
+    def _is_batch_or_memory_duplicate(
+        self, trace_id: str, seen_in_batch: set[str], now: float,
+    ) -> bool:
+        """Check intra-batch and memory cache for duplicate. Returns True if duplicate."""
+        if trace_id in seen_in_batch:
+            self._records_deduplicated += 1
+            return True
+        seen_in_batch.add(trace_id)
+        return self._is_memory_duplicate(trace_id, now)
+
     async def _parse_and_dedup_events(
         self, records: list[PipelineMessage],
     ) -> tuple[list[ClaimXEventMessage], datetime | None, list[tuple[PipelineMessage, Exception]]]:
@@ -457,7 +467,6 @@ class ClaimXEventIngesterWorker:
         for record in records:
             self._update_cycle_offsets(record.timestamp)
 
-            # Parse event — unparseable messages are permanent failures (route to DLQ)
             try:
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = ClaimXEventMessage.from_raw_event(message_data)
@@ -475,23 +484,15 @@ class ClaimXEventIngesterWorker:
                 permanent_failures.append((record, e))
                 continue
 
-            trace_id = event.trace_id
             latest_timestamp = event.ingested_at
 
-            if self._dedup_enabled:
-                # Intra-batch dedup
-                if trace_id in seen_in_batch:
-                    self._records_deduplicated += 1
-                    continue
-                seen_in_batch.add(trace_id)
-
-                # Fast path: memory cache check (no I/O)
-                if self._is_memory_duplicate(trace_id, now):
-                    continue
+            if self._dedup_enabled and self._is_batch_or_memory_duplicate(
+                event.trace_id, seen_in_batch, now,
+            ):
+                continue
 
             parsed_events.append(event)
 
-        # Concurrent blob storage checks for all cache misses
         if self._dedup_store and parsed_events:
             blob_duplicates = await self._check_blob_duplicates(parsed_events)
             parsed_events = [ev for ev in parsed_events if ev.trace_id not in blob_duplicates]

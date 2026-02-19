@@ -363,6 +363,21 @@ class EventIngesterWorker:
         del self._dedup_cache[trace_id]
         return False
 
+    def _check_dedup(
+        self, trace_id: str, seen_in_batch: set[str], now: float,
+        dedup_counts: dict[str, list[str]],
+    ) -> bool:
+        """Check intra-batch and memory cache for duplicate. Returns True if duplicate."""
+        if trace_id in seen_in_batch:
+            dedup_counts["intra_batch"].append(trace_id)
+            self._records_deduplicated += 1
+            return True
+        seen_in_batch.add(trace_id)
+        if self._is_memory_duplicate(trace_id, now):
+            dedup_counts["memory"].append(trace_id)
+            return True
+        return False
+
     async def _parse_and_dedup_events(
         self, records: list[PipelineMessage],
     ) -> tuple[list[tuple[EventMessage, str]], dict[str, list[str]], list[tuple[PipelineMessage, Exception]]]:
@@ -383,7 +398,6 @@ class EventIngesterWorker:
             self._records_processed += 1
             self._update_cycle_offsets(record.timestamp)
 
-            # Parse event — unparseable messages are permanent failures (route to DLQ)
             try:
                 message_data = json.loads(record.value.decode("utf-8"))
                 event = EventMessage.from_raw_event(message_data)
@@ -404,20 +418,13 @@ class EventIngesterWorker:
             event_id = str(uuid.uuid5(self.EVENT_ID_NAMESPACE, event.trace_id))
             event.event_id = event_id
 
-            if self._dedup_enabled:
-                if event.trace_id in seen_in_batch:
-                    dedup_counts["intra_batch"].append(event.trace_id)
-                    self._records_deduplicated += 1
-                    continue
-                seen_in_batch.add(event.trace_id)
-
-                if self._is_memory_duplicate(event.trace_id, now):
-                    dedup_counts["memory"].append(event.trace_id)
-                    continue
+            if self._dedup_enabled and self._check_dedup(
+                event.trace_id, seen_in_batch, now, dedup_counts,
+            ):
+                continue
 
             parsed_events.append((event, event_id))
 
-        # Concurrent blob storage checks for all cache misses
         if self._dedup_store and parsed_events:
             blob_duplicates = await self._check_blob_duplicates(parsed_events)
             dedup_counts["blob"] = list(blob_duplicates)
