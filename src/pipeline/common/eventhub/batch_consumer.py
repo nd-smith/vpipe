@@ -419,30 +419,35 @@ class EventHubBatchConsumer:
 
                 current_time = time.time()
                 for partition_id in list(self._batch_buffers.keys()):
-                    if partition_id not in self._batch_timers:
-                        continue
-
-                    elapsed_ms = (current_time - self._batch_timers[partition_id]) * 1000
-                    batch_size = len(self._batch_buffers.get(partition_id, []))
-
-                    # Flush if timeout exceeded and batch not empty
-                    if batch_size > 0 and elapsed_ms >= self.batch_timeout_ms:
-                        logger.debug(
-                            "Timeout flush triggered",
-                            extra={
-                                "partition_id": partition_id,
-                                "batch_size": batch_size,
-                                "elapsed_ms": round(elapsed_ms, 1),
-                                "timeout_ms": self.batch_timeout_ms,
-                            },
-                        )
-                        await self._flush_partition_batch(partition_id)
+                    await self._check_partition_timeout(partition_id, current_time)
 
             except asyncio.CancelledError:
                 break
             except Exception:
                 logger.error("Error in timeout flush loop", exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on errors
+
+    async def _check_partition_timeout(self, partition_id: str, current_time: float):
+        """Flush a partition's batch if it has exceeded the timeout threshold."""
+        if partition_id not in self._batch_timers:
+            return
+
+        elapsed_ms = (current_time - self._batch_timers[partition_id]) * 1000
+        batch_size = len(self._batch_buffers.get(partition_id, []))
+
+        if batch_size == 0 or elapsed_ms < self.batch_timeout_ms:
+            return
+
+        logger.debug(
+            "Timeout flush triggered",
+            extra={
+                "partition_id": partition_id,
+                "batch_size": batch_size,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "timeout_ms": self.batch_timeout_ms,
+            },
+        )
+        await self._flush_partition_batch(partition_id)
 
     async def _drain_permanent_failures(
         self, failures: list[tuple[PipelineMessage, Exception]],
