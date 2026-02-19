@@ -675,6 +675,34 @@ def _collect_archived_files(archive_dir: Any) -> list[Path]:
     return files
 
 
+def _deduplicate_paths(paths: list[Path]) -> list[Path]:
+    """Deduplicate paths by resolved value while preserving order."""
+    seen: set = set()
+    unique: list[Path] = []
+    for p in paths:
+        resolved = p.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(p)
+    return unique
+
+
+def _collect_from_file_handler(handler: logging.FileHandler) -> list[Path]:
+    """Flush a file handler and return its non-empty log file paths."""
+    with contextlib.suppress(Exception):
+        handler.flush()
+
+    files: list[Path] = []
+    log_path = Path(handler.baseFilename)
+    if log_path.exists() and log_path.stat().st_size > 0:
+        files.append(log_path)
+
+    if hasattr(handler, "archive_dir"):
+        files.extend(_collect_archived_files(handler.archive_dir))
+
+    return files
+
+
 def _collect_crash_log_files() -> tuple[list[Path], Any]:
     """Flush file handlers, collect log file paths, and find OneLake client.
 
@@ -687,29 +715,12 @@ def _collect_crash_log_files() -> tuple[list[Path], Any]:
         if not isinstance(handler, logging.FileHandler):
             continue
 
-        with contextlib.suppress(Exception):
-            handler.flush()
-
-        log_path = Path(handler.baseFilename)
-        if log_path.exists() and log_path.stat().st_size > 0:
-            log_files.append(log_path)
+        log_files.extend(_collect_from_file_handler(handler))
 
         if hasattr(handler, "onelake_client") and handler.onelake_client is not None:
             onelake_client = handler.onelake_client
 
-        if hasattr(handler, "archive_dir"):
-            log_files.extend(_collect_archived_files(handler.archive_dir))
-
-    # Deduplicate while preserving order
-    seen: set = set()
-    unique_files: list[Path] = []
-    for f in log_files:
-        resolved = f.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            unique_files.append(f)
-
-    return unique_files, onelake_client
+    return _deduplicate_paths(log_files), onelake_client
 
 
 def _get_or_create_onelake_client(
