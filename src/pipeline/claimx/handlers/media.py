@@ -165,6 +165,44 @@ class MediaHandler(EventHandler):
             for i, event in enumerate(events)
         ]
 
+    def _log_and_build_error_results(
+        self,
+        events: list[ClaimXEventMessage],
+        e: Exception,
+        project_id: str,
+        media_ids: list[str],
+        duration: int,
+    ) -> list[EnrichmentResult]:
+        """Log a batch error and return error results for all events."""
+        if isinstance(e, ClaimXApiError):
+            logger.warning(
+                "API error for project media",
+                extra={
+                    "handler_name": MediaHandler.HANDLER_NAME,
+                    "project_id": project_id,
+                    "media_ids": media_ids,
+                    "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
+                    "error_category": e.category.value if e.category else None,
+                    "http_status": e.status_code,
+                    "is_retryable": e.is_retryable,
+                },
+            )
+            return self._build_batch_error_results(
+                events, e, e.category, e.is_retryable, duration,
+            )
+        logger.error(
+            "Unexpected error for project media",
+            extra={
+                "handler_name": MediaHandler.HANDLER_NAME,
+                "project_id": project_id,
+                "media_ids": media_ids,
+            },
+            exc_info=True,
+        )
+        return self._build_batch_error_results(
+            events, e, ErrorCategory.TRANSIENT, True, duration,
+        )
+
     async def handle_batch(self, events: list[ClaimXEventMessage]) -> list[EnrichmentResult]:
         """Process batch of media events for same project."""
         if not events:
@@ -182,20 +220,25 @@ class MediaHandler(EventHandler):
                 trace_id=events[0].trace_id,
             )
 
-            results = []
-            succeeded = 0
-            total_media_rows = 0
-            for i, event in enumerate(events):
-                result = self._process_single_event(
-                    event, media_by_id, int(project_id), start_time,
-                    project_rows=project_rows if i == 0 else None,
-                    api_calls=2 if i == 0 else 0,
+            pid = int(project_id)
+
+            # First event carries project rows and API call count
+            first = self._process_single_event(
+                events[0], media_by_id, pid, start_time,
+                project_rows=project_rows, api_calls=2,
+            )
+            results = [first] + [
+                self._process_single_event(
+                    event, media_by_id, pid, start_time,
+                    project_rows=None, api_calls=0,
                 )
-                results.append(result)
-                if result.success:
-                    succeeded += 1
-                if result.rows:
-                    total_media_rows += len(result.rows.media)
+                for event in events[1:]
+            ]
+
+            succeeded = sum(1 for r in results if r.success)
+            total_media_rows = sum(
+                len(r.rows.media) for r in results if r.rows
+            )
 
             logger.debug(
                 "Handler complete",
@@ -213,37 +256,9 @@ class MediaHandler(EventHandler):
 
             return results
 
-        except ClaimXApiError as e:
-            duration = elapsed_ms(start_time)
-            logger.warning(
-                "API error for project media",
-                extra={
-                    "handler_name": MediaHandler.HANDLER_NAME,
-                    "project_id": project_id,
-                    "media_ids": media_ids,
-                    "error_message": str(e)[:LOG_ERROR_TRUNCATE_SHORT],
-                    "error_category": e.category.value if e.category else None,
-                    "http_status": e.status_code,
-                    "is_retryable": e.is_retryable,
-                },
-            )
-            return self._build_batch_error_results(
-                events, e, e.category, e.is_retryable, duration,
-            )
-
         except Exception as e:
-            duration = elapsed_ms(start_time)
-            logger.error(
-                "Unexpected error for project media",
-                extra={
-                    "handler_name": MediaHandler.HANDLER_NAME,
-                    "project_id": project_id,
-                    "media_ids": media_ids,
-                },
-                exc_info=True,
-            )
-            return self._build_batch_error_results(
-                events, e, ErrorCategory.TRANSIENT, True, duration,
+            return self._log_and_build_error_results(
+                events, e, project_id, media_ids, elapsed_ms(start_time),
             )
 
     async def _fetch_media_by_id(
