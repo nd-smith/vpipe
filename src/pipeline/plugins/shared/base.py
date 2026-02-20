@@ -383,6 +383,12 @@ class Plugin(ABC):
         self.logger = logging.getLogger(__name__)
         self.config = {**self.default_config, **(config or {})}
 
+        conditions = self.config.get("conditions")
+        if conditions:
+            from pipeline.plugins.shared.conditions import validate_conditions
+
+            validate_conditions(conditions)
+
     def should_run(self, context: PluginContext) -> bool:
         """
         Check if this plugin should run for the given context.
@@ -399,7 +405,17 @@ class Plugin(ABC):
         if self.stages and context.stage not in self.stages:
             return False
 
-        return not (self.event_types and context.event_type not in self.event_types)
+        if self.event_types and context.event_type not in self.event_types:
+            return False
+
+        conditions = self.config.get("conditions")
+        if conditions:
+            from pipeline.plugins.shared.conditions import evaluate_conditions
+
+            if not evaluate_conditions(conditions, context):
+                return False
+
+        return True
 
     @abstractmethod
     async def execute(self, context: PluginContext) -> PluginResult:

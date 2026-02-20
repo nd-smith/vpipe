@@ -280,6 +280,73 @@ class TestPluginShouldRun:
         ctx = _make_context(event_type=None)
         assert plugin.should_run(ctx) is False
 
+    def test_conditions_all_pass(self):
+        entities = MagicMock()
+        entities.tasks = [{"task_id": 1234, "status": "COMPLETED"}]
+        plugin = DummyPlugin(config={
+            "conditions": {
+                "all": [
+                    {"field": "task_id", "in": [1234, 4321]},
+                    {"field": "event_type", "equals": "CUSTOM_TASK_COMPLETED"},
+                ]
+            }
+        })
+        ctx = _make_context(
+            event_type="CUSTOM_TASK_COMPLETED",
+            data={"entities": entities},
+        )
+        assert plugin.should_run(ctx) is True
+
+    def test_conditions_all_fail(self):
+        entities = MagicMock()
+        entities.tasks = [{"task_id": 9999}]
+        plugin = DummyPlugin(config={
+            "conditions": {
+                "all": [
+                    {"field": "task_id", "in": [1234, 4321]},
+                    {"field": "event_type", "equals": "CUSTOM_TASK_COMPLETED"},
+                ]
+            }
+        })
+        ctx = _make_context(
+            event_type="CUSTOM_TASK_COMPLETED",
+            data={"entities": entities},
+        )
+        assert plugin.should_run(ctx) is False
+
+    def test_conditions_any_pass(self):
+        entities = MagicMock()
+        entities.tasks = [{"task_id": 4321}]
+        plugin = DummyPlugin(config={
+            "conditions": {
+                "any": [
+                    {"field": "task_id", "equals": 1234},
+                    {"field": "task_id", "equals": 4321},
+                ]
+            }
+        })
+        ctx = _make_context(data={"entities": entities})
+        assert plugin.should_run(ctx) is True
+
+    def test_conditions_any_fail(self):
+        entities = MagicMock()
+        entities.tasks = [{"task_id": 9999}]
+        plugin = DummyPlugin(config={
+            "conditions": {
+                "any": [
+                    {"field": "task_id", "equals": 1234},
+                    {"field": "task_id", "equals": 4321},
+                ]
+            }
+        })
+        ctx = _make_context(data={"entities": entities})
+        assert plugin.should_run(ctx) is False
+
+    def test_no_conditions_backward_compat(self):
+        plugin = DummyPlugin(config={"some_other_key": "value"})
+        ctx = _make_context()
+        assert plugin.should_run(ctx) is True
+
 
 # =====================
 # Plugin config merge tests

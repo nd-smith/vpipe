@@ -1,12 +1,12 @@
 # =============================================================================
 # iTel Cabinet Task Tracking Plugin Configuration
 # =============================================================================
-# Tracks the complete lifecycle of iTel Cabinet Repair Form tasks (task_id 27019)
+# Tracks the complete lifecycle of iTel Cabinet Repair Form tasks (task_id 27019, 1234)
 # from creation through completion. All status changes are captured and published
 # to a Kafka topic for asynchronous processing and enrichment.
 #
 # Architecture:
-#   ClaimX Event → Plugin (filter task_id=27019) → Event Hub Topic → Worker → Delta Table
+#   ClaimX Event → Plugin (filter task_id=27019|1234) → Event Hub Topic → Worker → Delta Table
 #
 # Related Files:
 #   - plugins/config/connections.yaml - ClaimX API connection config
@@ -60,13 +60,23 @@ config:
           level: info
           message: "iTel Cabinet task event tracked | event_id={event_id} | task_id={task_id} | assignment_id={assignment_id} | status={task_status}"
 
+    1234:
+      name: iTel Cabinet Repair Form Task
+      description: Track complete lifecycle of iTel cabinet repair tasks for operational visibility and analysis
+
+      on_any:
+        publish_to_topic: pcesdopodappv1-itel-cabinet-pending
+
+        log:
+          level: info
+          message: "iTel Cabinet task event tracked | event_id={event_id} | task_id={task_id} | assignment_id={assignment_id} | status={task_status}"
+
 # =============================================================================
 # Configuration Notes
 # =============================================================================
 #
 # Task ID:
-#   - 27019 is the ClaimX task template ID for iTel Cabinet Repair Forms
-#   - This is the only task being tracked by this plugin
+#   - 27019 and 1234 are ClaimX task template IDs for iTel Cabinet Repair Forms
 #
 # Event Tracking:
 #   - on_any: Captures ALL events (CUSTOM_TASK_ASSIGNED, CUSTOM_TASK_COMPLETED, etc.)
@@ -106,7 +116,7 @@ config:
 #   5. Check logs for "iTel Cabinet task event tracked" messages
 #
 # Troubleshooting:
-#   - No events triggered: Verify task_id in ClaimX matches 27019 exactly
+#   - No events triggered: Verify task_id in ClaimX matches 27019 or 1234
 #   - Plugin not running: Check enrichment worker is running with plugins enabled
 #   - No Event Hub messages: Check Event Hub connectivity and topic creation
 #
