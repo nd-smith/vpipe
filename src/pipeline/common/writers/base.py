@@ -140,6 +140,12 @@ class BaseDeltaWriter:
                 return await self._async_append(df)
     """
 
+    # Timeout for subprocess Delta writes. Prevents indefinite hangs when
+    # the subprocess blocks on storage I/O (e.g., after a WebSocket reconnection
+    # with stale credentials). On timeout the batch returns False (triggering
+    # retry logic) and the held batch_lock is released, unblocking consumers.
+    SUBPROCESS_TIMEOUT_SECONDS = 300  # 5 minutes
+
     def __init__(
         self,
         table_path: str,
@@ -205,7 +211,7 @@ class BaseDeltaWriter:
             start = time.monotonic()
             loop = asyncio.get_running_loop()
             pool = _get_delta_process_pool()
-            rows_written = await loop.run_in_executor(
+            future = loop.run_in_executor(
                 pool,
                 _subprocess_delta_append,
                 self.table_path,
@@ -214,6 +220,9 @@ class BaseDeltaWriter:
                 self._partition_column,
                 self._z_order_columns,
                 batch_id,
+            )
+            rows_written = await asyncio.wait_for(
+                future, timeout=self.SUBPROCESS_TIMEOUT_SECONDS,
             )
             delta_write_duration_seconds.labels(
                 table=table_name, operation="append"
@@ -228,6 +237,21 @@ class BaseDeltaWriter:
                 },
             )
             return True
+
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - start
+            self.logger.error(
+                "Delta append timed out — subprocess may be stuck on storage I/O",
+                extra={
+                    "batch_id": batch_id,
+                    "table_path": self.table_path,
+                    "timeout_seconds": self.SUBPROCESS_TIMEOUT_SECONDS,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "row_count": len(df),
+                },
+            )
+            _reset_delta_process_pool()
+            return False
 
         except BrokenProcessPool:
             _reset_delta_process_pool()
@@ -275,7 +299,7 @@ class BaseDeltaWriter:
             start = time.monotonic()
             loop = asyncio.get_running_loop()
             pool = _get_delta_process_pool()
-            rows_affected = await loop.run_in_executor(
+            future = loop.run_in_executor(
                 pool,
                 _subprocess_delta_merge,
                 self.table_path,
@@ -286,6 +310,9 @@ class BaseDeltaWriter:
                 merge_keys,
                 preserve_columns,
                 update_condition,
+            )
+            rows_affected = await asyncio.wait_for(
+                future, timeout=self.SUBPROCESS_TIMEOUT_SECONDS,
             )
             delta_write_duration_seconds.labels(
                 table=table_name, operation="merge"
@@ -300,6 +327,21 @@ class BaseDeltaWriter:
                 },
             )
             return True
+
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - start
+            self.logger.error(
+                "Delta merge timed out — subprocess may be stuck on storage I/O",
+                extra={
+                    "table_path": self.table_path,
+                    "merge_keys": merge_keys,
+                    "timeout_seconds": self.SUBPROCESS_TIMEOUT_SECONDS,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "row_count": len(df),
+                },
+            )
+            _reset_delta_process_pool()
+            return False
 
         except BrokenProcessPool:
             _reset_delta_process_pool()

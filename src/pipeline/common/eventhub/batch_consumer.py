@@ -70,6 +70,11 @@ class EventHubBatchConsumer:
     - Flush incomplete batches on partition rebalance and shutdown
     """
 
+    # Reconnection settings — same semantics as EventHubConsumer
+    MAX_RECONNECTS = 5
+    RECONNECT_BASE_DELAY = 5  # seconds
+    RECONNECT_MAX_DELAY = 60  # seconds
+
     def __init__(
         self,
         connection_string: str,
@@ -287,15 +292,41 @@ class EventHubBatchConsumer:
             extra={"consumer_group": self.consumer_group},
         )
 
-    async def _consume_loop(self) -> None:
-        """Main consumption loop using Event Hub async receive."""
+    async def _recreate_consumer(self) -> None:
+        """Close the existing EventHubConsumerClient and create a fresh one.
+
+        Used by the reconnection loop in ``_consume_loop`` after ``receive()``
+        returns unexpectedly or raises a non-cancellation error.
+        """
+        if self._consumer:
+            try:
+                await self._consumer.close()
+            except Exception:
+                logger.warning("Error closing batch consumer during reconnection", exc_info=True)
+
+        self._consumer = EventHubConsumerClient.from_connection_string(
+            conn_str=self.connection_string,
+            consumer_group=self.consumer_group,
+            eventhub_name=self.eventhub_name,
+            transport_type=TransportType.AmqpOverWebsocket,
+            checkpoint_store=self.checkpoint_store,
+            **get_ca_bundle_kwargs(),
+        )
         logger.info(
-            "Starting batch message consumption loop",
+            "Recreated Event Hub batch consumer client",
             extra={
                 "entity": self.eventhub_name,
                 "consumer_group": self.consumer_group,
             },
         )
+
+    async def _consume_loop(self) -> None:
+        """Main consumption loop with automatic reconnection.
+
+        Same reconnection semantics as ``EventHubConsumer._consume_loop`` —
+        see that docstring for details.
+        """
+        reconnect_count = 0
 
         # Define event handler for each partition
         async def on_event(partition_context, event):
@@ -373,40 +404,119 @@ class EventHubBatchConsumer:
         async def on_error(partition_context, error):
             """Called when error occurs during consumption."""
             partition_id = partition_context.partition_id if partition_context else "unknown"
+            extra = {
+                "entity": self.eventhub_name,
+                "consumer_group": self.consumer_group,
+                "partition_id": partition_id,
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+            # Surface AMQP error condition if available (e.g. ErrorCondition.SocketError)
+            if hasattr(error, "condition"):
+                extra["error_condition"] = str(error.condition)
+            if hasattr(error, "description"):
+                extra["error_description"] = str(error.description)
+
             logger.error(
                 "Event Hub batch consumer error on partition %s: %s: %s",
                 partition_id,
                 type(error).__name__,
                 error,
-                extra={
-                    "entity": self.eventhub_name,
-                    "consumer_group": self.consumer_group,
-                    "partition_id": partition_id,
-                    "error_type": type(error).__name__,
-                    "error": str(error),
-                },
+                extra=extra,
                 exc_info=error,
             )
 
-        # Start receiving events
-        # NOTE: Do not use `async with self._consumer:` here. The stop() method
-        # handles closing the consumer with a grace period for aiohttp session
-        # cleanup. Using the context manager causes a double-close race where
-        # __aexit__ closes after the grace period, leaking an aiohttp session.
-        try:
-            await self._consumer.receive(
-                on_event=on_event,
-                on_partition_initialize=on_partition_initialize,
-                on_partition_close=on_partition_close,
-                on_error=on_error,
-                starting_position=self.starting_position,
-                starting_position_inclusive=self.starting_position_inclusive,
-                prefetch=self.prefetch,
-                owner_level=self._owner_level,
+        while self._running:
+            logger.info(
+                "Starting batch message consumption loop",
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "reconnect_count": reconnect_count,
+                },
             )
-        except Exception:
-            logger.error("Error in Event Hub batch receive loop", exc_info=True)
-            raise
+
+            receive_start = time.perf_counter()
+            try:
+                # NOTE: Do not use `async with self._consumer:` here. The
+                # stop() method handles closing the consumer with a grace
+                # period for aiohttp session cleanup. Using the context
+                # manager causes a double-close race where __aexit__ closes
+                # after the grace period, leaking an aiohttp session.
+                await self._consumer.receive(
+                    on_event=on_event,
+                    on_partition_initialize=on_partition_initialize,
+                    on_partition_close=on_partition_close,
+                    on_error=on_error,
+                    starting_position=self.starting_position,
+                    starting_position_inclusive=self.starting_position_inclusive,
+                    prefetch=self.prefetch,
+                    owner_level=self._owner_level,
+                )
+
+                if not self._running:
+                    break
+
+                elapsed = time.perf_counter() - receive_start
+                logger.warning(
+                    "Batch receive() returned unexpectedly — will reconnect",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "elapsed_seconds": round(elapsed, 1),
+                    },
+                )
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if not self._running:
+                    break
+
+                elapsed = time.perf_counter() - receive_start
+                logger.error(
+                    "Error in Event Hub batch receive loop — will reconnect",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "elapsed_seconds": round(elapsed, 1),
+                    },
+                    exc_info=True,
+                )
+
+            # Reset counter if connection was healthy for > 60 s
+            elapsed = time.perf_counter() - receive_start
+            if elapsed > 60:
+                reconnect_count = 0
+
+            reconnect_count += 1
+            if reconnect_count > self.MAX_RECONNECTS:
+                logger.error(
+                    "Exceeded max reconnection attempts for batch consumer, giving up",
+                    extra={
+                        "max_reconnects": self.MAX_RECONNECTS,
+                        "entity": self.eventhub_name,
+                    },
+                )
+                raise RuntimeError(
+                    f"Event Hub batch consumer exceeded {self.MAX_RECONNECTS} "
+                    f"consecutive reconnection attempts"
+                )
+
+            delay = min(
+                self.RECONNECT_BASE_DELAY * (2 ** (reconnect_count - 1)),
+                self.RECONNECT_MAX_DELAY,
+            )
+            logger.info(
+                "Reconnecting Event Hub batch consumer",
+                extra={
+                    "reconnect_count": reconnect_count,
+                    "delay_seconds": delay,
+                    "max_reconnects": self.MAX_RECONNECTS,
+                },
+            )
+            await asyncio.sleep(delay)
+            await self._recreate_consumer()
 
     async def _timeout_flush_loop(self):
         """Background task to flush batches that hit timeout threshold.

@@ -151,6 +151,13 @@ class EventHubConsumer:
     - Without checkpoint_store: offsets stored in-memory only (lost on restart)
     """
 
+    # Reconnection settings for _consume_loop. When receive() returns
+    # unexpectedly (e.g. after a WebSocket disconnect the SDK fails to
+    # recover), the consumer recreates its client and retries.
+    MAX_RECONNECTS = 5
+    RECONNECT_BASE_DELAY = 5  # seconds
+    RECONNECT_MAX_DELAY = 60  # seconds
+
     def __init__(
         self,
         connection_string: str,
@@ -485,47 +492,159 @@ class EventHubConsumer:
     async def _on_error(self, partition_context, error):
         """Called when error occurs during consumption."""
         partition_id = partition_context.partition_id if partition_context else "unknown"
+        extra = {
+            "partition_id": partition_id,
+            "error_type": type(error).__name__,
+            "error": str(error),
+        }
+        # Surface AMQP error condition if available (e.g. ErrorCondition.SocketError)
+        if hasattr(error, "condition"):
+            extra["error_condition"] = str(error.condition)
+        if hasattr(error, "description"):
+            extra["error_description"] = str(error.description)
+
         logger.error(
             "Event Hub consumer error on partition %s: %s: %s",
             partition_id,
             type(error).__name__,
             error,
-            extra={
-                "partition_id": partition_id,
-                "error_type": type(error).__name__,
-                "error": str(error),
-            },
+            extra=extra,
         )
 
-    async def _consume_loop(self) -> None:
-        """Main consumption loop using Event Hub async receive."""
+    async def _recreate_consumer(self) -> None:
+        """Close the existing EventHubConsumerClient and create a fresh one.
+
+        Used by the reconnection loop in ``_consume_loop`` after ``receive()``
+        returns unexpectedly or raises a non-cancellation error.
+        """
+        if self._consumer:
+            try:
+                await self._consumer.close()
+            except Exception:
+                logger.warning("Error closing consumer during reconnection", exc_info=True)
+
+        ssl_kwargs = get_ca_bundle_kwargs()
+        self._consumer = EventHubConsumerClient.from_connection_string(
+            conn_str=self.connection_string,
+            consumer_group=self.consumer_group,
+            eventhub_name=self.eventhub_name,
+            transport_type=TransportType.AmqpOverWebsocket,
+            checkpoint_store=self.checkpoint_store,
+            **ssl_kwargs,
+        )
         logger.info(
-            "Starting message consumption loop",
+            "Recreated Event Hub consumer client",
             extra={
                 "entity": self.eventhub_name,
                 "consumer_group": self.consumer_group,
             },
         )
 
-        # NOTE: Do not use `async with self._consumer:` here. The stop() method
-        # handles closing the consumer with a grace period for aiohttp session
-        # cleanup. Using the context manager causes a double-close race where
-        # __aexit__ closes after the grace period, leaking an aiohttp session.
-        try:
-            await self._consumer.receive(
-                on_event=self._on_event,
-                on_partition_initialize=self._on_partition_initialize,
-                on_partition_close=self._on_partition_close,
-                on_error=self._on_error,
-                starting_position=self.starting_position,
-                starting_position_inclusive=self.starting_position_inclusive,
-                max_wait_time=5,
-                prefetch=self.prefetch,
-                owner_level=self._owner_level,
+    async def _consume_loop(self) -> None:
+        """Main consumption loop with automatic reconnection.
+
+        The Azure SDK's ``receive()`` is expected to run indefinitely. If it
+        returns normally (SDK lost its connection and gave up) or raises, we
+        recreate the underlying client and retry with exponential backoff up to
+        ``MAX_RECONNECTS`` consecutive failures. The counter resets on each
+        successful ``receive()`` call that runs for more than 60 s (i.e. the
+        SDK was actually consuming).
+        """
+        reconnect_count = 0
+
+        while self._running:
+            logger.info(
+                "Starting message consumption loop",
+                extra={
+                    "entity": self.eventhub_name,
+                    "consumer_group": self.consumer_group,
+                    "reconnect_count": reconnect_count,
+                },
             )
-        except Exception:
-            logger.error("Error in Event Hub receive loop", exc_info=True)
-            raise
+
+            receive_start = time.perf_counter()
+            try:
+                # NOTE: Do not use `async with self._consumer:` here. The
+                # stop() method handles closing the consumer with a grace
+                # period for aiohttp session cleanup. Using the context
+                # manager causes a double-close race where __aexit__ closes
+                # after the grace period, leaking an aiohttp session.
+                await self._consumer.receive(
+                    on_event=self._on_event,
+                    on_partition_initialize=self._on_partition_initialize,
+                    on_partition_close=self._on_partition_close,
+                    on_error=self._on_error,
+                    starting_position=self.starting_position,
+                    starting_position_inclusive=self.starting_position_inclusive,
+                    max_wait_time=5,
+                    prefetch=self.prefetch,
+                    owner_level=self._owner_level,
+                )
+                # receive() returned normally — this shouldn't happen unless
+                # the consumer was closed or the SDK silently gave up.
+                if not self._running:
+                    break
+
+                elapsed = time.perf_counter() - receive_start
+                logger.warning(
+                    "receive() returned unexpectedly — will reconnect",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "elapsed_seconds": round(elapsed, 1),
+                    },
+                )
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if not self._running:
+                    break
+
+                elapsed = time.perf_counter() - receive_start
+                logger.error(
+                    "Error in Event Hub receive loop — will reconnect",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "elapsed_seconds": round(elapsed, 1),
+                    },
+                    exc_info=True,
+                )
+
+            # Reset counter if the connection was healthy for > 60 s
+            elapsed = time.perf_counter() - receive_start
+            if elapsed > 60:
+                reconnect_count = 0
+
+            reconnect_count += 1
+            if reconnect_count > self.MAX_RECONNECTS:
+                logger.error(
+                    "Exceeded max reconnection attempts, giving up",
+                    extra={
+                        "max_reconnects": self.MAX_RECONNECTS,
+                        "entity": self.eventhub_name,
+                    },
+                )
+                raise RuntimeError(
+                    f"Event Hub consumer exceeded {self.MAX_RECONNECTS} "
+                    f"consecutive reconnection attempts"
+                )
+
+            delay = min(
+                self.RECONNECT_BASE_DELAY * (2 ** (reconnect_count - 1)),
+                self.RECONNECT_MAX_DELAY,
+            )
+            logger.info(
+                "Reconnecting Event Hub consumer",
+                extra={
+                    "reconnect_count": reconnect_count,
+                    "delay_seconds": delay,
+                    "max_reconnects": self.MAX_RECONNECTS,
+                },
+            )
+            await asyncio.sleep(delay)
+            await self._recreate_consumer()
 
     async def _process_message(self, message: PipelineMessage) -> None:
         """Process a single message using transport-agnostic PipelineMessage type."""
