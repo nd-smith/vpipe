@@ -70,6 +70,9 @@ WORKER_REGISTRY: dict[str, dict[str, Any]] = {
     "itel-cabinet-api": {
         "runner": plugin_runners.run_itel_cabinet_api,
     },
+    "eventhub-ui": {
+        "runner": plugin_runners.run_eventhub_ui,
+    },
 }
 
 

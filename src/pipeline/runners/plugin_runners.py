@@ -94,3 +94,39 @@ async def run_itel_cabinet_api(shutdown_event: asyncio.Event, **kwargs):
         await execute_worker_with_shutdown(worker, "itel-cabinet-api", shutdown_event)
     finally:
         await connection_manager.close()
+
+
+async def run_eventhub_ui(shutdown_event: asyncio.Event, **kwargs):
+    """Run the EventHub UI dashboard as a worker.
+
+    Starts the FastAPI app via uvicorn and shuts down when the shutdown event fires.
+    Default port: 8550.
+    """
+    import uvicorn
+
+    config = uvicorn.Config(
+        "pipeline.tools.eventhub_ui.app:app",
+        host="0.0.0.0",
+        port=8550,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+
+    # Override uvicorn's default signal handlers — the pipeline manages shutdown
+    server.install_signal_handlers = lambda: None
+
+    async def shutdown_watcher():
+        await shutdown_event.wait()
+        logger.info("Shutdown signal received, stopping eventhub-ui...")
+        server.should_exit = True
+
+    watcher = asyncio.create_task(shutdown_watcher())
+
+    try:
+        await server.serve()
+    finally:
+        watcher.cancel()
+        try:
+            await watcher
+        except asyncio.CancelledError:
+            pass
