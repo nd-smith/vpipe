@@ -68,6 +68,7 @@ class HealthCheckServer:
         port: int | None = 8080,
         worker_name: str = "worker",
         enabled: bool = True,
+        heartbeat_timeout_seconds: float = 60.0,
     ):
         """
         Initialize health check server.
@@ -78,6 +79,11 @@ class HealthCheckServer:
             worker_name: Name of the worker for logging
             enabled: Whether to enable the health check server (default: True).
                      If False, start() and stop() become no-ops.
+            heartbeat_timeout_seconds: Max seconds since last heartbeat before
+                liveness probe returns 503.  Workers call record_heartbeat()
+                from their event loop; if the loop stalls, the heartbeat goes
+                stale and Kubernetes restarts the pod.  Set to 0 to disable
+                heartbeat checking (original always-200 behavior).
         """
         self.port = port
         self.worker_name = worker_name
@@ -89,6 +95,10 @@ class HealthCheckServer:
         self._started_at = datetime.now(UTC)
         self._actual_port: int | None = None
         self._error_message: str | None = None  # Configuration/startup error
+
+        # Event-loop heartbeat: updated by workers via record_heartbeat()
+        self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
+        self._last_heartbeat: float | None = None  # None until first heartbeat
 
         # aiohttp components
         self._app: web.Application | None = None
@@ -192,20 +202,66 @@ class HealthCheckServer:
         with self._state_lock:
             return self._error_message
 
+    def record_heartbeat(self) -> None:
+        """Record a heartbeat from the main event loop.
+
+        Workers should call this periodically (e.g. on every on_event callback,
+        including idle wakeups) to prove the event loop is responsive.
+        If the heartbeat goes stale, the liveness probe returns 503 so
+        Kubernetes can restart the pod.
+        """
+        import time as _time
+
+        with self._state_lock:
+            self._last_heartbeat = _time.monotonic()
+
     async def handle_liveness(self, request: web.Request) -> web.Response:
         """
         Handle GET /health/live - Liveness probe.
 
-        Always returns 200 OK if the server is running.
-        Kubernetes will restart the pod if this endpoint becomes unavailable.
+        Returns 200 OK if the event loop is responsive (heartbeat is fresh).
+        Returns 503 if the heartbeat is stale, signalling Kubernetes to
+        restart the pod.
+
+        If heartbeat checking is disabled (timeout=0) or no heartbeat has been
+        recorded yet, always returns 200 (original behavior).
 
         Returns:
-            200 OK with status and uptime
+            200 OK with status and uptime, or 503 if heartbeat is stale
         """
+        import time as _time
+
         with self._state_lock:
             started_at = self._started_at
+            last_hb = self._last_heartbeat
+            hb_timeout = self._heartbeat_timeout_seconds
 
         uptime_seconds = (datetime.now(UTC) - started_at).total_seconds()
+
+        # Check heartbeat staleness (only if enabled and at least one heartbeat recorded)
+        if hb_timeout > 0 and last_hb is not None:
+            staleness = _time.monotonic() - last_hb
+            if staleness > hb_timeout:
+                logger.warning(
+                    "Liveness check failed: event loop heartbeat stale",
+                    extra={
+                        "worker_name": self.worker_name,
+                        "staleness_seconds": round(staleness, 1),
+                        "timeout_seconds": hb_timeout,
+                    },
+                )
+                return web.json_response(
+                    {
+                        "status": "unhealthy",
+                        "reason": "event_loop_stale",
+                        "worker": self.worker_name,
+                        "heartbeat_staleness_seconds": round(staleness, 1),
+                        "heartbeat_timeout_seconds": hb_timeout,
+                        "uptime_seconds": int(uptime_seconds),
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                    status=503,
+                )
 
         return web.json_response(
             {

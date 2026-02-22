@@ -696,6 +696,7 @@ async def create_batch_consumer(
     topic_key: str | None = None,
     connection_string: str | None = None,
     consumer_config: ConsumerConfig | None = None,
+    health_server: Any | None = None,
 ):
     """Create a batch consumer for concurrent message processing.
 
@@ -781,6 +782,7 @@ async def create_batch_consumer(
             starting_position=eh["starting_position"],
             starting_position_inclusive=eh["starting_position_inclusive"],
             owner_level=eh["owner_level"],
+            health_server=health_server,
         )
 
     else:  # TransportType.KAFKA

@@ -210,6 +210,7 @@ class ClaimXEventIngesterWorker:
                 batch_timeout_ms=500,
                 prefetch=3000,
             ),
+            health_server=self.health_server,
         )
 
         self.health_server.set_ready(transport_connected=True, api_reachable=True)
@@ -383,9 +384,15 @@ class ClaimXEventIngesterWorker:
         enrichment_tasks, processed_trace_ids = self._build_enrichment_tasks(parsed_events)
 
         # Batch-produce all enrichment tasks
+        # Timeout for producer send_batch to prevent indefinite hangs
+        _PRODUCER_TIMEOUT_SECONDS = 60
+
         if enrichment_tasks:
             try:
-                await self.producer.send_batch(messages=enrichment_tasks)
+                await asyncio.wait_for(
+                    self.producer.send_batch(messages=enrichment_tasks),
+                    timeout=_PRODUCER_TIMEOUT_SECONDS,
+                )
                 self._records_succeeded += len(enrichment_tasks)
             except Exception as e:
                 # Roll back dedup marks — messages will be redelivered
@@ -502,6 +509,9 @@ class ClaimXEventIngesterWorker:
 
         return parsed_events, latest_timestamp, permanent_failures
 
+    # Timeout for individual blob storage operations (seconds)
+    _BLOB_TIMEOUT_SECONDS = 30
+
     async def _check_blob_duplicates(
         self, events: list[ClaimXEventMessage],
     ) -> set[str]:
@@ -509,14 +519,22 @@ class ClaimXEventIngesterWorker:
         async def _check_one(trace_id: str) -> tuple[str, bool]:
             async with self._blob_semaphore:
                 try:
-                    is_dup, metadata = await self._dedup_store.check_duplicate(
-                        self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
+                    is_dup, metadata = await asyncio.wait_for(
+                        self._dedup_store.check_duplicate(
+                            self._dedup_worker_name, trace_id, self._dedup_cache_ttl_seconds,
+                        ),
+                        timeout=self._BLOB_TIMEOUT_SECONDS,
                     )
                     if is_dup and metadata:
                         timestamp = metadata.get("timestamp", time.time())
                         self._dedup_cache[trace_id] = timestamp
                         self._dedup_blob_hits += 1
                         return trace_id, True
+                except (TimeoutError, asyncio.TimeoutError):
+                    logger.warning(
+                        "Blob storage duplicate check timed out (falling back to memory-only)",
+                        extra={"trace_id": trace_id, "timeout_seconds": self._BLOB_TIMEOUT_SECONDS},
+                    )
                 except Exception as e:
                     logger.warning(
                         "Error checking blob storage for duplicate (falling back to memory-only)",
@@ -605,10 +623,18 @@ class ClaimXEventIngesterWorker:
         """Fire-and-forget blob persistence for dedup markers."""
         async with self._blob_semaphore:
             try:
-                await self._dedup_store.mark_processed(
-                    self._dedup_worker_name,
-                    trace_id,
-                    {"timestamp": timestamp},
+                await asyncio.wait_for(
+                    self._dedup_store.mark_processed(
+                        self._dedup_worker_name,
+                        trace_id,
+                        {"timestamp": timestamp},
+                    ),
+                    timeout=self._BLOB_TIMEOUT_SECONDS,
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                logger.warning(
+                    "Blob storage write timed out (memory cache still updated)",
+                    extra={"trace_id": trace_id, "timeout_seconds": self._BLOB_TIMEOUT_SECONDS},
                 )
             except Exception as e:
                 logger.warning(

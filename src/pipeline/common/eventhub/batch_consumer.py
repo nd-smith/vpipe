@@ -94,6 +94,7 @@ class EventHubBatchConsumer:
         starting_position: str | Any = "@latest",
         starting_position_inclusive: bool = False,
         owner_level: int = 0,
+        health_server: Any = None,
     ):
         """Initialize Event Hub batch consumer.
 
@@ -150,8 +151,12 @@ class EventHubBatchConsumer:
         self._batch_timers: dict[str, float] = {}  # partition_id -> batch start time
         self._flush_locks: dict[str, asyncio.Lock] = {}  # Prevent concurrent flushes
 
+        # Health server integration for event-loop heartbeat
+        self._health_server = health_server
+
         # Background task for timeout-based flushing
         self._flush_task: asyncio.Task | None = None
+        self._watchdog_task: asyncio.Task | None = None
         self._batch_checkpoint_count = 0  # Total batches checkpointed since startup
 
         logger.info(
@@ -220,6 +225,7 @@ class EventHubBatchConsumer:
 
             # Start background timeout flush task
             self._flush_task = asyncio.create_task(self._timeout_flush_loop())
+            self._watchdog_task = asyncio.create_task(self._watchdog_loop())
 
             # Start consuming
             await self._consume_loop()
@@ -243,11 +249,12 @@ class EventHubBatchConsumer:
         self._running = False
 
         try:
-            # Cancel timeout flush task
-            if self._flush_task:
-                self._flush_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._flush_task
+            # Cancel background tasks
+            for task in (self._flush_task, self._watchdog_task):
+                if task:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
             # Flush all partition buffers
             for partition_id in list(self._batch_buffers.keys()):
@@ -330,8 +337,23 @@ class EventHubBatchConsumer:
 
         # Define event handler for each partition
         async def on_event(partition_context, event):
-            """Receive single event and add to partition batch buffer."""
+            """Receive single event and add to partition batch buffer.
+
+            Called with event=None on idle wakeups (max_wait_time expired with
+            no new messages). This keeps the event loop alive and allows
+            detection of stalled connections.
+            """
             if not self._running:
+                return
+
+            # Record heartbeat on every callback (including idle wakeups)
+            # so the health server can detect a stalled event loop.
+            if self._health_server is not None:
+                self._health_server.record_heartbeat()
+
+            # Idle wakeup — no message to process, but proves the event loop
+            # and AMQP connection are still alive.
+            if event is None:
                 return
 
             partition_id = partition_context.partition_id
@@ -450,6 +472,7 @@ class EventHubBatchConsumer:
                     on_error=on_error,
                     starting_position=self.starting_position,
                     starting_position_inclusive=self.starting_position_inclusive,
+                    max_wait_time=5,
                     prefetch=self.prefetch,
                     owner_level=self._owner_level,
                 )
@@ -536,6 +559,33 @@ class EventHubBatchConsumer:
             except Exception:
                 logger.error("Error in timeout flush loop", exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on errors
+
+    async def _watchdog_loop(self):
+        """Periodic heartbeat log proving the event loop is alive.
+
+        Emits an INFO log every 60s so that log-based monitoring can detect
+        silent hangs by the *absence* of this line.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(60)
+                buffer_sizes = {
+                    pid: len(buf) for pid, buf in self._batch_buffers.items()
+                }
+                logger.info(
+                    "Event loop heartbeat",
+                    extra={
+                        "entity": self.eventhub_name,
+                        "consumer_group": self.consumer_group,
+                        "partition_buffers": buffer_sizes,
+                        "total_batches_checkpointed": self._batch_checkpoint_count,
+                    },
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.error("Error in watchdog loop", exc_info=True)
+                await asyncio.sleep(5)
 
     async def _check_partition_timeout(self, partition_id: str, current_time: float):
         """Flush a partition's batch if it has exceeded the timeout threshold."""
